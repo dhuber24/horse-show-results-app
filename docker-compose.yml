@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: horseshow
+    ports:
+      - "5432:5432"
+    volumes:
+      - horseshow_pgdata:/var/lib/postgresql/data
+
+volumes:
+  horseshow_pgdata:

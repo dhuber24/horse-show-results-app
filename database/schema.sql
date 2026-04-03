@@ -1,7 +1,3 @@
--- =====================================================
--- CORE ENTITIES
--- =====================================================
-
 CREATE TABLE shows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -31,17 +27,13 @@ CREATE TABLE classes (
     class_number TEXT NOT NULL,
     class_name TEXT NOT NULL,
     class_date DATE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'OPEN', -- OPEN | CLOSED | RESULTS_POSTED
+    status TEXT NOT NULL DEFAULT 'OPEN',
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- =====================================================
--- PEOPLE & HORSES
--- =====================================================
-
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    role TEXT NOT NULL, -- ADMIN | SCOREKEEPER | EXHIBITOR
+    role TEXT NOT NULL,
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -60,45 +52,34 @@ CREATE TABLE riders (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- =====================================================
--- ENTRIES (CLASS SIGN‑UPS)
--- =====================================================
-
 CREATE TABLE entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     rider_id UUID NOT NULL REFERENCES riders(id),
     horse_id UUID NOT NULL REFERENCES horses(id),
     back_number INTEGER,
-    status TEXT NOT NULL DEFAULT 'ENTERED', -- ENTERED | SCRATCHED
+    status TEXT NOT NULL DEFAULT 'ENTERED',
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (class_id, rider_id, horse_id)
 );
 
--- =====================================================
--- RESULTS (MANUAL PLACINGS ONLY)
--- =====================================================
-
+-- Results (manual placings)
 CREATE TABLE results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     entry_id UUID NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
-    placing INTEGER NOT NULL CHECK (placing > 0),
+    place INTEGER NOT NULL CHECK (place > 0),
     is_tie BOOLEAN DEFAULT false,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (class_id, placing, entry_id)
+    UNIQUE (class_id, place, entry_id)
 );
-
--- =====================================================
--- OPTIONAL: AUDIT LOG (RECOMMENDED)
--- =====================================================
 
 CREATE TABLE result_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     result_id UUID NOT NULL REFERENCES results(id) ON DELETE CASCADE,
     changed_by UUID REFERENCES users(id),
-    old_placing INTEGER,
-    new_placing INTEGER,
+    old_place INTEGER,
+    new_place INTEGER,
     changed_at TIMESTAMPTZ DEFAULT now()
 );
