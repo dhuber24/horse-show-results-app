@@ -1,4 +1,4 @@
-CREATE TABLE shows (
+CREATE TABLE IF NOT EXISTS shows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     venue TEXT,
@@ -7,19 +7,19 @@ CREATE TABLE shows (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE rings (
+CREATE TABLE IF NOT EXISTS rings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
     name TEXT NOT NULL
 );
 
-CREATE TABLE divisions (
+CREATE TABLE IF NOT EXISTS divisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
     name TEXT NOT NULL
 );
 
-CREATE TABLE classes (
+CREATE TABLE IF NOT EXISTS classes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
     ring_id UUID REFERENCES rings(id),
@@ -31,7 +31,7 @@ CREATE TABLE classes (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     role TEXT NOT NULL,
     full_name TEXT NOT NULL,
@@ -39,20 +39,20 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE horses (
+CREATE TABLE IF NOT EXISTS horses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     owner_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE riders (
+CREATE TABLE IF NOT EXISTS riders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE entries (
+CREATE TABLE IF NOT EXISTS entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     rider_id UUID NOT NULL REFERENCES riders(id),
@@ -64,7 +64,7 @@ CREATE TABLE entries (
 );
 
 -- Results (manual placings)
-CREATE TABLE results (
+CREATE TABLE IF NOT EXISTS results (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
     entry_id UUID NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
@@ -75,7 +75,7 @@ CREATE TABLE results (
     UNIQUE (class_id, place, entry_id)
 );
 
-CREATE TABLE result_audit (
+CREATE TABLE IF NOT EXISTS result_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     result_id UUID NOT NULL REFERENCES results(id) ON DELETE CASCADE,
     changed_by UUID REFERENCES users(id),
