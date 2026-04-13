@@ -73,6 +73,7 @@ class User(Base):
     role = Column(Text, nullable=False)
     full_name = Column(Text, nullable=False)
     email = Column(Text, unique=True, nullable=False)
+    hashed_password = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")

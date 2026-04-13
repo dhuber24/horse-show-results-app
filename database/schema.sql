@@ -83,3 +83,5 @@ CREATE TABLE IF NOT EXISTS result_audit (
     new_place INTEGER,
     changed_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT;
