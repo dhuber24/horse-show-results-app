@@ -35,3 +35,9 @@ export async function fetchRider(riderId: string) {
   if (!res.ok) throw new Error('Failed to fetch rider');
   return res.json();
 }
+
+export async function fetchShow(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}`);
+  if (!res.ok) throw new Error('Failed to fetch show');
+  return res.json();
+}

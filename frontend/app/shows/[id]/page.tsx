@@ -1,14 +1,20 @@
 import Link from 'next/link';
-import { fetchClasses } from '@/lib/api';
+import { fetchShow, fetchClasses } from '@/lib/api';
 
 export default async function ShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const classes = await fetchClasses(id);
+  const [show, classes] = await Promise.all([
+    fetchShow(id),
+    fetchClasses(id),
+  ]);
 
   return (
     <main className="max-w-3xl mx-auto p-6">
       <Link href="/" className="text-sm text-blue-500 hover:underline">← Back to Shows</Link>
-      <h1 className="text-3xl font-bold my-6">Classes</h1>
+      <h1 className="text-3xl font-bold mt-4">{show.name}</h1>
+      <p className="text-gray-500 mb-6">{show.venue} · {show.start_date} – {show.end_date}</p>
+
+      <h2 className="text-xl font-semibold mb-3">Classes</h2>
       {classes.length === 0 ? (
         <p className="text-gray-500">No classes found.</p>
       ) : (
