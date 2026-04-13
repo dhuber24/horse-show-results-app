@@ -27,9 +27,17 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   return (
     <main className="max-w-3xl mx-auto p-6">
       <Link href={`/shows/${id}`} className="text-sm text-blue-500 hover:underline">← Back to {show.name}</Link>
-      <h1 className="text-3xl font-bold mt-4">
-        {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class Results'}
-      </h1>
+      <div className="flex items-center justify-between mt-4 mb-2">
+        <h1 className="text-3xl font-bold">
+          {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class Results'}
+        </h1>
+        <Link
+          href={`/shows/${id}/classes/${classId}/scorekeeper`}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+        >
+          Enter Placings
+        </Link>
+      </div>
       <p className="text-gray-500 mb-6">{cls?.class_date} · <span className="uppercase">{cls?.status}</span></p>
 
       {enriched.length === 0 ? (
