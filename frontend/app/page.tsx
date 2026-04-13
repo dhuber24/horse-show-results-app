@@ -6,7 +6,12 @@ export default async function Home() {
 
   return (
     <main className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">🐴 Horse Show Results</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">🐴 Horse Show Results</h1>
+        <Link href="/admin" className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded">
+          Admin
+        </Link>
+      </div>
       {shows.length === 0 ? (
         <p className="text-gray-500">No shows found.</p>
       ) : (
