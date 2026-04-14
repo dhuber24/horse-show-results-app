@@ -115,6 +115,10 @@ class HorseCreate(BaseModel):
     name: str
     owner_name: Optional[str] = None
 
+class HorseUpdate(BaseModel):
+    name: Optional[str] = None
+    owner_name: Optional[str] = None
+
 class HorseOut(BaseModel):
     id: UUID
     name: str
@@ -130,9 +134,13 @@ class HorseOut(BaseModel):
 class RiderCreate(BaseModel):
     full_name: str
 
+class RiderUpdate(BaseModel):
+    full_name: Optional[str] = None
+
 class RiderOut(BaseModel):
     id: UUID
     full_name: str
+    user_id: Optional[UUID] = None
     created_at: datetime
 
     class Config:

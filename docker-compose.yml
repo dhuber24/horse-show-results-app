@@ -16,6 +16,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/horseshow
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-horse-show-internal-dev-key}
+      CORS_ORIGINS: http://localhost:3000,https://expert-guide-pjw5wj5pj9p37jrr-3000.app.github.dev
     depends_on:
       - db
     volumes:
@@ -28,6 +30,9 @@ services:
     environment:
       - API_URL=http://backend:8000
       - NEXT_PUBLIC_API_URL=https://expert-guide-pjw5wj5pj9p37jrr-8000.app.github.dev
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-horse-show-internal-dev-key}
+      - AUTH_SECRET=${NEXTAUTH_SECRET:-UidIrt31VGED2JXQAN4IqvQolzoi1j7S40kmAWv2pRg=}
+      - AUTH_URL=${NEXTAUTH_URL:-https://expert-guide-pjw5wj5pj9p37jrr-3000.app.github.dev}
     depends_on:
       - backend
     volumes:

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from typing import Optional
 
 from database import get_db
+from dependencies import require_admin, require_admin_or_scorekeeper
 from models import Result, ResultAudit, Class, Entry
 from schemas import ResultCreate, ResultUpdate, ResultOut, AuditOut
 
@@ -27,29 +29,51 @@ async def list_results(show_id: UUID, class_id: UUID, db: AsyncSession = Depends
     return result.scalars().all()
 
 
-@router.post("/", response_model=ResultOut, status_code=201)
+@router.post(
+    "/",
+    response_model=ResultOut,
+    status_code=201,
+    dependencies=[Depends(require_admin_or_scorekeeper)],
+)
 async def create_result(
     show_id: UUID, class_id: UUID, body: ResultCreate, db: AsyncSession = Depends(get_db)
 ):
     await _get_class_or_404(show_id, class_id, db)
 
-    # Verify entry belongs to this class
     entry = await db.get(Entry, body.entry_id)
     if not entry or entry.class_id != class_id:
         raise HTTPException(400, "Entry does not belong to this class")
+
+    # Prevent duplicate places unless all sharing entries are marked as ties
+    if not body.is_tie:
+        conflict = await db.execute(
+            select(Result).where(Result.class_id == class_id, Result.place == body.place)
+        )
+        if conflict.scalar_one_or_none():
+            raise HTTPException(409, f"Place {body.place} is already assigned. Mark as Tie if intentional.")
+    else:
+        conflict = await db.execute(
+            select(Result).where(Result.class_id == class_id, Result.place == body.place, Result.is_tie == False)
+        )
+        if conflict.scalar_one_or_none():
+            raise HTTPException(409, f"Place {body.place} is already assigned to a non-tie entry.")
 
     result = Result(class_id=class_id, **body.model_dump())
     db.add(result)
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
-        raise HTTPException(409, "Placing conflict: duplicate place or entry in this class")
+        raise HTTPException(409, "Placing conflict: duplicate entry in this class")
     await db.refresh(result)
     return result
 
 
-@router.patch("/{result_id}", response_model=ResultOut)
+@router.patch(
+    "/{result_id}",
+    response_model=ResultOut,
+    dependencies=[Depends(require_admin_or_scorekeeper)],
+)
 async def update_result(
     show_id: UUID,
     class_id: UUID,
@@ -64,10 +88,36 @@ async def update_result(
 
     old_place = result.place
     updates = body.model_dump(exclude_unset=True)
+
+    new_place = updates.get("place", result.place)
+    new_is_tie = updates.get("is_tie", result.is_tie)
+
+    if new_place != old_place:
+        if not new_is_tie:
+            conflict = await db.execute(
+                select(Result).where(
+                    Result.class_id == class_id,
+                    Result.place == new_place,
+                    Result.id != result_id,
+                )
+            )
+            if conflict.scalar_one_or_none():
+                raise HTTPException(409, f"Place {new_place} is already assigned. Mark as Tie if intentional.")
+        else:
+            conflict = await db.execute(
+                select(Result).where(
+                    Result.class_id == class_id,
+                    Result.place == new_place,
+                    Result.is_tie == False,
+                    Result.id != result_id,
+                )
+            )
+            if conflict.scalar_one_or_none():
+                raise HTTPException(409, f"Place {new_place} is already assigned to a non-tie entry.")
+
     for k, v in updates.items():
         setattr(result, k, v)
 
-    # Write audit record if place changed
     if "place" in updates and updates["place"] != old_place:
         audit = ResultAudit(
             result_id=result_id,
@@ -79,14 +129,14 @@ async def update_result(
 
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "Placing conflict: duplicate place in this class")
     await db.refresh(result)
     return result
 
 
-@router.delete("/{result_id}", status_code=204)
+@router.delete("/{result_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_result(
     show_id: UUID, class_id: UUID, result_id: UUID, db: AsyncSession = Depends(get_db)
 ):

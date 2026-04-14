@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const API_URL = process.env.API_URL || 'http://backend:8000';
+import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 
 export async function POST(request: NextRequest) {
+  const headers = await getAuthHeaders();
+  if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const body = await request.json();
   const { showId, classId, ...data } = body;
   const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/results/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(data),
   });
   const json = await res.json();
@@ -15,11 +17,14 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const headers = await getAuthHeaders();
+  if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const body = await request.json();
   const { showId, classId, resultId, ...data } = body;
   const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/results/${resultId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(data),
   });
   const json = await res.json();

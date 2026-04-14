@@ -1,12 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from pydantic import BaseModel, EmailStr
 import bcrypt
 
 from database import get_db
 from models import User
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+
+class UserVerify(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
 
 
 def hash_password(password: str) -> str:
@@ -18,19 +30,14 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 @router.post("/verify")
-async def verify_user(body: dict, db: AsyncSession = Depends(get_db)):
-    email = body.get("email")
-    password = body.get("password")
-    if not email or not password:
-        raise HTTPException(400, "Email and password required")
-
-    result = await db.execute(select(User).where(User.email == email))
+async def verify_user(body: UserVerify, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
     if not user or not user.hashed_password:
         raise HTTPException(401, "Invalid credentials")
 
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
 
     return {
@@ -42,24 +49,19 @@ async def verify_user(body: dict, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register")
-async def register_user(body: dict, db: AsyncSession = Depends(get_db)):
-    email = body.get("email")
-    password = body.get("password")
-    full_name = body.get("full_name")
-    role = body.get("role", "RIDER")
+async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
 
-    if not email or not password or not full_name:
-        raise HTTPException(400, "Email, password, and full name required")
-
-    existing = await db.execute(select(User).where(User.email == email))
+    existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(409, "Email already registered")
 
     user = User(
-        email=email,
-        full_name=full_name,
-        role=role,
-        hashed_password=hash_password(password),
+        email=body.email,
+        full_name=body.full_name,
+        role="RIDER",  # self-registration always creates RIDER accounts
+        hashed_password=hash_password(body.password),
     )
     db.add(user)
     await db.commit()

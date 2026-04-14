@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 
 from database import get_db
+from dependencies import require_admin
 from models import Entry, Class
 from schemas import EntryCreate, EntryUpdate, EntryOut
 
@@ -26,7 +28,7 @@ async def list_entries(show_id: UUID, class_id: UUID, db: AsyncSession = Depends
     return result.scalars().all()
 
 
-@router.post("/", response_model=EntryOut, status_code=201)
+@router.post("/", response_model=EntryOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_entry(
     show_id: UUID, class_id: UUID, body: EntryCreate, db: AsyncSession = Depends(get_db)
 ):
@@ -35,14 +37,14 @@ async def create_entry(
     db.add(entry)
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "Entry already exists for this rider/horse/class combination")
     await db.refresh(entry)
     return entry
 
 
-@router.patch("/{entry_id}", response_model=EntryOut)
+@router.patch("/{entry_id}", response_model=EntryOut, dependencies=[Depends(require_admin)])
 async def update_entry(
     show_id: UUID, class_id: UUID, entry_id: UUID,
     body: EntryUpdate, db: AsyncSession = Depends(get_db)
@@ -57,7 +59,7 @@ async def update_entry(
     return entry
 
 
-@router.delete("/{entry_id}", status_code=204)
+@router.delete("/{entry_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_entry(
     show_id: UUID, class_id: UUID, entry_id: UUID, db: AsyncSession = Depends(get_db)
 ):

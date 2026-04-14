@@ -59,3 +59,15 @@ export async function fetchShowBackNumbers(showId: string) {
   if (!res.ok) return [];
   return res.json();
 }
+
+export async function fetchRiderHorses(riderId: string) {
+  const res = await fetch(`${API_URL}/riders/${riderId}/horses`);
+  if (!res.ok) throw new Error('Failed to fetch rider horses');
+  return res.json();
+}
+
+export async function fetchUsers() {
+  const res = await fetch(`${API_URL}/users/`);
+  if (!res.ok) throw new Error('Failed to fetch users');
+  return res.json();
+}

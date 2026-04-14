@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from pydantic import BaseModel
 from typing import Optional
 
 from database import get_db
-from models import ShowEntry, Entry, Rider, Show
+from dependencies import require_admin
+from models import ShowEntry, Entry, Show
 
 router = APIRouter(prefix="/shows/{show_id}/back-numbers", tags=["Back Numbers"])
 
@@ -33,7 +35,7 @@ async def get_back_numbers(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return [{"rider_id": str(e.rider_id), "back_number": e.back_number} for e in entries]
 
 
-@router.patch("/")
+@router.patch("/", dependencies=[Depends(require_admin)])
 async def bulk_update_back_numbers(
     show_id: UUID, body: BulkBackNumberUpdate, db: AsyncSession = Depends(get_db)
 ):
@@ -41,11 +43,11 @@ async def bulk_update_back_numbers(
     if not show:
         raise HTTPException(404, "Show not found")
 
-    # Check for duplicates in submission
+    # Check for duplicates within the submitted batch
     submitted = [a.back_number for a in body.assignments if a.back_number is not None]
     if len(submitted) != len(set(submitted)):
         dupes = list(set(n for n in submitted if submitted.count(n) > 1))
-        raise HTTPException(400, f"Duplicate back numbers: {dupes}")
+        raise HTTPException(400, f"Duplicate back numbers in submission: {dupes}")
 
     for assignment in body.assignments:
         result = await db.execute(
@@ -67,20 +69,19 @@ async def bulk_update_back_numbers(
 
     try:
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "Duplicate back number — each rider must have a unique number in this show")
 
     return {"updated": len(body.assignments)}
 
 
-@router.post("/auto-assign")
+@router.post("/auto-assign", dependencies=[Depends(require_admin)])
 async def auto_assign_back_numbers(show_id: UUID, db: AsyncSession = Depends(get_db)):
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
 
-    # Get all unique riders entered in this show
     result = await db.execute(
         select(Entry.rider_id).join(
             Entry.class_

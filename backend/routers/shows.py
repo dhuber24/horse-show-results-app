@@ -4,6 +4,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from database import get_db
+from dependencies import require_admin
 from models import Show
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
@@ -16,7 +17,7 @@ async def list_shows(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.post("/", response_model=ShowOut, status_code=201)
+@router.post("/", response_model=ShowOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_show(body: ShowCreate, db: AsyncSession = Depends(get_db)):
     show = Show(**body.model_dump())
     db.add(show)
@@ -33,7 +34,7 @@ async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return show
 
 
-@router.patch("/{show_id}", response_model=ShowOut)
+@router.patch("/{show_id}", response_model=ShowOut, dependencies=[Depends(require_admin)])
 async def update_show(show_id: UUID, body: ShowUpdate, db: AsyncSession = Depends(get_db)):
     show = await db.get(Show, show_id)
     if not show:
@@ -45,7 +46,7 @@ async def update_show(show_id: UUID, body: ShowUpdate, db: AsyncSession = Depend
     return show
 
 
-@router.delete("/{show_id}", status_code=204)
+@router.delete("/{show_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
     show = await db.get(Show, show_id)
     if not show:

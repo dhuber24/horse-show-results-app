@@ -17,6 +17,17 @@ export default async function AdminPage() {
         <CreateShowForm />
       </section>
 
+      <section className="mb-10">
+        <h2 className="text-xl font-semibold mb-4">Riders & Horses</h2>
+        <Link
+          href="/admin/riders"
+          className="block p-4 border rounded-lg hover:bg-gray-50 transition"
+        >
+          <div className="font-semibold">Manage Riders & Horses</div>
+          <div className="text-sm text-gray-500">View all riders, edit names, and see horse associations</div>
+        </Link>
+      </section>
+
       <section>
         <h2 className="text-xl font-semibold mb-4">Manage Existing Shows</h2>
         {shows.length === 0 ? (

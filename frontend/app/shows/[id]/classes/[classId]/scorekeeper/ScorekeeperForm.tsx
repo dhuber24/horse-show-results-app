@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 interface Entry {
   id: string;
@@ -27,14 +27,11 @@ interface Props {
 export default function ScorekeeperForm({ showId, classId, entries, results }: Props) {
   const existingByEntryId = Object.fromEntries(results.map((r) => [r.entry_id, r]));
 
-  const [placings, setPlacings] = useState<Record<string, { place: string; is_tie: boolean }>>(
+  const [places, setPlaces] = useState<Record<string, string>>(
     Object.fromEntries(
       entries.map((e) => [
         e.id,
-        {
-          place: existingByEntryId[e.id]?.place?.toString() ?? '',
-          is_tie: existingByEntryId[e.id]?.is_tie ?? false,
-        },
+        existingByEntryId[e.id]?.place?.toString() ?? '',
       ])
     )
   );
@@ -42,8 +39,19 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleChange = (entryId: string, field: 'place' | 'is_tie', value: string | boolean) => {
-    setPlacings((prev) => ({ ...prev, [entryId]: { ...prev[entryId], [field]: value } }));
+  // Count how many entries share each place — any place with 2+ entries is a tie
+  const placeCount = useMemo(() => {
+    const counts: Record<number, number> = {};
+    for (const val of Object.values(places)) {
+      const p = parseInt(val);
+      if (!isNaN(p) && p > 0) counts[p] = (counts[p] ?? 0) + 1;
+    }
+    return counts;
+  }, [places]);
+
+  const isTie = (entryId: string) => {
+    const p = parseInt(places[entryId]);
+    return !isNaN(p) && p > 0 && (placeCount[p] ?? 0) > 1;
   };
 
   const handleSave = async () => {
@@ -51,29 +59,32 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
     setMessage(null);
     try {
       for (const entry of entries) {
-        const placing = placings[entry.id];
-        if (!placing.place) continue;
-        const place = parseInt(placing.place);
+        const placeStr = places[entry.id];
+        if (!placeStr) continue;
+        const place = parseInt(placeStr);
         if (isNaN(place) || place < 1) continue;
+
+        const is_tie = isTie(entry.id);
         const existing = existingByEntryId[entry.id];
 
-        if (existing) {
-          await fetch('/api/results', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ showId, classId, resultId: existing.id, place, is_tie: placing.is_tie }),
-          });
-        } else {
-          await fetch('/api/results', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ showId, classId, entry_id: entry.id, place, is_tie: placing.is_tie }),
-          });
+        const res = await fetch('/api/results', {
+          method: existing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            existing
+              ? { showId, classId, resultId: existing.id, place, is_tie }
+              : { showId, classId, entry_id: entry.id, place, is_tie }
+          ),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail ?? 'Failed to save');
         }
       }
       setMessage({ type: 'success', text: 'Placings saved successfully!' });
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message ?? 'Something went wrong. Please try again.' });
     } finally {
       setSaving(false);
     }
@@ -87,41 +98,48 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
             <th className="py-2 pr-4">Back #</th>
             <th className="py-2 pr-4">Rider</th>
             <th className="py-2 pr-4">Horse</th>
-            <th className="py-2 pr-4">Place</th>
-            <th className="py-2">Tie</th>
+            <th className="py-2">Place</th>
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => (
-            <tr key={entry.id} className="border-b">
-              <td className="py-3 pr-4">{entry.back_number ?? '—'}</td>
-              <td className="py-3 pr-4">{entry.riderName}</td>
-              <td className="py-3 pr-4">{entry.horseName}</td>
-              <td className="py-3 pr-4">
-                <input
-                  type="number"
-                  min="1"
-                  value={placings[entry.id]?.place ?? ''}
-                  onChange={(e) => handleChange(entry.id, 'place', e.target.value)}
-                  className="w-16 border rounded px-2 py-1 text-center"
-                  placeholder="—"
-                />
-              </td>
-              <td className="py-3">
-                <input
-                  type="checkbox"
-                  checked={placings[entry.id]?.is_tie ?? false}
-                  onChange={(e) => handleChange(entry.id, 'is_tie', e.target.checked)}
-                  className="w-4 h-4"
-                />
-              </td>
-            </tr>
-          ))}
+          {entries.map((entry) => {
+            const tied = isTie(entry.id);
+            return (
+              <tr key={entry.id} className={`border-b transition-colors ${tied ? 'bg-amber-50' : ''}`}>
+                <td className="py-3 pr-4">{entry.back_number ?? '—'}</td>
+                <td className="py-3 pr-4">{entry.riderName}</td>
+                <td className="py-3 pr-4">{entry.horseName}</td>
+                <td className="py-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      value={places[entry.id] ?? ''}
+                      onChange={(e) =>
+                        setPlaces((prev) => ({ ...prev, [entry.id]: e.target.value }))
+                      }
+                      className="w-16 border rounded px-2 py-1 text-center"
+                      placeholder="—"
+                    />
+                    {tied && (
+                      <span className="text-xs font-semibold text-amber-700 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded">
+                        TIE
+                      </span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
       {message && (
-        <div className={`mb-4 p-3 rounded ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+        <div
+          className={`mb-4 p-3 rounded ${
+            message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}
+        >
           {message.text}
         </div>
       )}
