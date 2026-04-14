@@ -1,8 +1,13 @@
 import Link from 'next/link';
 import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchRider } from '@/lib/api';
+import { auth } from '@/auth';
 
 export default async function ClassPage({ params }: { params: Promise<{ id: string; classId: string }> }) {
   const { id, classId } = await params;
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+  const canEnterPlacings = role === 'ADMIN' || role === 'SCOREKEEPER';
+
   const [show, classes, entries, results] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
@@ -31,12 +36,14 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
         <h1 className="text-3xl font-bold">
           {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class Results'}
         </h1>
-        <Link
-          href={`/shows/${id}/classes/${classId}/scorekeeper`}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
-        >
-          Enter Placings
-        </Link>
+        {canEnterPlacings && (
+          <Link
+            href={`/shows/${id}/classes/${classId}/scorekeeper`}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
+          >
+            Enter Placings
+          </Link>
+        )}
       </div>
       <p className="text-gray-500 mb-6">{cls?.class_date} · <span className="uppercase">{cls?.status}</span></p>
 
