@@ -155,3 +155,21 @@ class ResultAudit(Base):
 
     result = relationship("Result", back_populates="audits")
     changed_by_user = relationship("User", back_populates="audits")
+
+
+class ShowEntry(Base):
+    __tablename__ = "show_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id"), nullable=False)
+    back_number = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "rider_id"),
+        UniqueConstraint("show_id", "back_number"),
+    )
+
+    show = relationship("Show")
+    rider = relationship("Rider")

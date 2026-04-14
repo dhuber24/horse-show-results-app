@@ -87,3 +87,13 @@ CREATE TABLE IF NOT EXISTS result_audit (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT;
 
 ALTER TABLE riders ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);
+
+CREATE TABLE IF NOT EXISTS show_entries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+    rider_id UUID NOT NULL REFERENCES riders(id),
+    back_number INTEGER,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (show_id, rider_id),
+    UNIQUE (show_id, back_number)
+);

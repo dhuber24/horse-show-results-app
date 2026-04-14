@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -34,19 +33,30 @@ export default function LoginForm() {
 
   return (
     <div className="space-y-4">
-      <input name="email" type="email" placeholder="Email" value={form.email}
-        onChange={handleChange} className="w-full border rounded px-3 py-2" />
-      <input name="password" type="password" placeholder="Password" value={form.password}
-        onChange={handleChange} className="w-full border rounded px-3 py-2" />
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Email</label>
+        <input name="email" type="email" placeholder="you@example.com" value={form.email}
+          onChange={handleChange}
+          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Password</label>
+        <input name="password" type="password" placeholder="••••••••" value={form.password}
+          onChange={handleChange}
+          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+      </div>
+      {error && (
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+          {error}
+        </p>
+      )}
       <button onClick={handleSubmit} disabled={loading}
-        className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
+        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
         {loading ? 'Signing in...' : 'Sign In'}
       </button>
-      <p className="text-center text-sm text-gray-500">
-        New rider?{' '}
-        <Link href="/register" className="text-blue-500 hover:underline">Create an account</Link>
-      </p>
     </div>
   );
 }

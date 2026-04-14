@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 export default function RegisterForm() {
   const router = useRouter();
@@ -41,7 +40,6 @@ export default function RegisterForm() {
       setLoading(false);
       return;
     }
-    // Auto sign in after registration
     await signIn('credentials', { email: form.email, password: form.password, redirect: false });
     router.push('/');
     router.refresh();
@@ -49,24 +47,30 @@ export default function RegisterForm() {
 
   return (
     <div className="space-y-4">
-      <input name="full_name" placeholder="Full name *" value={form.full_name}
-        onChange={handleChange} className="w-full border rounded px-3 py-2" />
-      <input name="email" type="email" placeholder="Email *" value={form.email}
-        onChange={handleChange} className="w-full border rounded px-3 py-2" />
-      <input name="password" type="password" placeholder="Password * (min 8 chars)" value={form.password}
-        onChange={handleChange} className="w-full border rounded px-3 py-2" />
-      <input name="confirm_password" type="password" placeholder="Confirm password *"
-        value={form.confirm_password} onChange={handleChange}
-        className="w-full border rounded px-3 py-2" />
-      {error && <p className="text-red-600 text-sm">{error}</p>}
+      {[
+        { name: 'full_name', label: 'Full Name', type: 'text', placeholder: 'Jane Smith' },
+        { name: 'email', label: 'Email', type: 'email', placeholder: 'you@example.com' },
+        { name: 'password', label: 'Password', type: 'password', placeholder: '•••••••• (min 8 chars)' },
+        { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },
+      ].map((field) => (
+        <div key={field.name}>
+          <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{field.label}</label>
+          <input name={field.name} type={field.type} placeholder={field.placeholder}
+            value={(form as any)[field.name]} onChange={handleChange}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
+            style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+        </div>
+      ))}
+      {error && (
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+          {error}
+        </p>
+      )}
       <button onClick={handleSubmit} disabled={loading}
-        className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
+        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
         {loading ? 'Creating account...' : 'Create Account'}
       </button>
-      <p className="text-center text-sm text-gray-500">
-        Already have an account?{' '}
-        <Link href="/login" className="text-blue-500 hover:underline">Sign in</Link>
-      </p>
     </div>
   );
 }

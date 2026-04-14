@@ -53,3 +53,9 @@ export async function fetchRiders() {
   if (!res.ok) throw new Error('Failed to fetch riders');
   return res.json();
 }
+
+export async function fetchShowBackNumbers(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/`);
+  if (!res.ok) return [];
+  return res.json();
+}
