@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
+from typing import Optional
+from pydantic import BaseModel
 
 from database import get_db
 from models import User, Horse, Rider
 from schemas import UserCreate, UserOut, HorseCreate, HorseOut, RiderCreate, RiderOut
-from typing import Optional
-from pydantic import BaseModel
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -81,6 +81,9 @@ class RiderCreateWithUser(BaseModel):
     full_name: str
     user_id: Optional[UUID] = None
 
+class RiderLink(BaseModel):
+    user_id: UUID
+
 riders_router = APIRouter(prefix="/riders", tags=["Riders"])
 
 @riders_router.get("/", response_model=list[RiderOut])
@@ -101,6 +104,16 @@ async def get_rider(rider_id: UUID, db: AsyncSession = Depends(get_db)):
     rider = await db.get(Rider, rider_id)
     if not rider:
         raise HTTPException(404, "Rider not found")
+    return rider
+
+@riders_router.patch("/{rider_id}/link", response_model=RiderOut)
+async def link_rider(rider_id: UUID, body: RiderLink, db: AsyncSession = Depends(get_db)):
+    rider = await db.get(Rider, rider_id)
+    if not rider:
+        raise HTTPException(404, "Rider not found")
+    rider.user_id = body.user_id
+    await db.commit()
+    await db.refresh(rider)
     return rider
 
 @riders_router.delete("/{rider_id}", status_code=204)
