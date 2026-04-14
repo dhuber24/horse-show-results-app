@@ -77,6 +77,7 @@ class User(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
+    rider = relationship("Rider", back_populates="user", uselist=False)
 
 
 class Horse(Base):
@@ -94,9 +95,11 @@ class Rider(Base):
     __tablename__ = "riders"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     full_name = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    user = relationship("User", back_populates="rider")
     entries = relationship("Entry", back_populates="rider")
 
 

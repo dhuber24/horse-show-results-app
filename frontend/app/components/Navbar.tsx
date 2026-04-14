@@ -13,6 +13,11 @@ export default async function Navbar() {
         {session ? (
           <>
             <span className="text-sm text-gray-500">{session.user?.name} · {role}</span>
+            {role === 'RIDER' && (
+              <Link href="/dashboard" className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded">
+                My Entries
+              </Link>
+            )}
             {role === 'ADMIN' && (
               <Link href="/admin" className="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded">
                 Admin

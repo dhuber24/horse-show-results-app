@@ -85,3 +85,5 @@ CREATE TABLE IF NOT EXISTS result_audit (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT;
+
+ALTER TABLE riders ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);

@@ -9,6 +9,7 @@ from routers.people import users_router, horses_router, riders_router
 from routers.entries import router as entries_router
 from routers.results import router as results_router
 from routers.auth import router as auth_router
+from routers.dashboard import router as dashboard_router
 
 app = FastAPI(
     title="Horse Show Results API",
@@ -25,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(dashboard_router)
 app.include_router(shows_router)
 app.include_router(rings_router)
 app.include_router(divisions_router)

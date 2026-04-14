@@ -6,6 +6,8 @@ from uuid import UUID
 from database import get_db
 from models import User, Horse, Rider
 from schemas import UserCreate, UserOut, HorseCreate, HorseOut, RiderCreate, RiderOut
+from typing import Optional
+from pydantic import BaseModel
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -75,6 +77,10 @@ async def delete_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
 
 # ── Riders ─────────────────────────────────────────────────────────────────────
 
+class RiderCreateWithUser(BaseModel):
+    full_name: str
+    user_id: Optional[UUID] = None
+
 riders_router = APIRouter(prefix="/riders", tags=["Riders"])
 
 @riders_router.get("/", response_model=list[RiderOut])
@@ -83,7 +89,7 @@ async def list_riders(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 @riders_router.post("/", response_model=RiderOut, status_code=201)
-async def create_rider(body: RiderCreate, db: AsyncSession = Depends(get_db)):
+async def create_rider(body: RiderCreateWithUser, db: AsyncSession = Depends(get_db)):
     rider = Rider(**body.model_dump())
     db.add(rider)
     await db.commit()

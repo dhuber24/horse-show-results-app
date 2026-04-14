@@ -202,3 +202,8 @@ class AuditOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RiderCreateWithUser(BaseModel):
+    full_name: str
+    user_id: Optional[UUID] = None
