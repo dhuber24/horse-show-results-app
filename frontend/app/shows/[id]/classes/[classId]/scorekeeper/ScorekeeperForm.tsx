@@ -58,30 +58,28 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
     setSaving(true);
     setMessage(null);
     try {
-      for (const entry of entries) {
-        const placeStr = places[entry.id];
-        if (!placeStr) continue;
-        const place = parseInt(placeStr);
-        if (isNaN(place) || place < 1) continue;
+      const resultItems = entries
+        .filter((entry) => {
+          const p = parseInt(places[entry.id]);
+          return !isNaN(p) && p >= 1;
+        })
+        .map((entry) => ({
+          entry_id: entry.id,
+          place: parseInt(places[entry.id]),
+          is_tie: isTie(entry.id),
+        }));
 
-        const is_tie = isTie(entry.id);
-        const existing = existingByEntryId[entry.id];
+      const res = await fetch('/api/results', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showId, classId, results: resultItems }),
+      });
 
-        const res = await fetch('/api/results', {
-          method: existing ? 'PATCH' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(
-            existing
-              ? { showId, classId, resultId: existing.id, place, is_tie }
-              : { showId, classId, entry_id: entry.id, place, is_tie }
-          ),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail ?? 'Failed to save');
-        }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail ?? 'Failed to save');
       }
+
       setMessage({ type: 'success', text: 'Placings saved successfully!' });
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message ?? 'Something went wrong. Please try again.' });

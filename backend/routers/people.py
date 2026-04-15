@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, union
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel
 
 from database import get_db
 from dependencies import require_admin
-from models import User, Horse, Rider, Entry
+from models import User, Horse, Rider, Entry, RiderHorse
 from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, RiderCreate, RiderUpdate, RiderOut
 
 # ── Users ──────────────────────────────────────────────────────────────────────
@@ -129,17 +130,47 @@ async def update_rider(rider_id: UUID, body: RiderUpdate, db: AsyncSession = Dep
     await db.refresh(rider)
     return rider
 
+class RiderHorseAttach(BaseModel):
+    horse_id: UUID
+
 @riders_router.get("/{rider_id}/horses", response_model=list[HorseOut])
 async def get_rider_horses(rider_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Returns the distinct horses this rider has been entered with, ordered by name."""
+    """Returns horses directly attached to this rider, plus any from entries."""
+    from_link = select(Horse.id).join(RiderHorse, RiderHorse.horse_id == Horse.id).where(RiderHorse.rider_id == rider_id)
+    from_entry = select(Horse.id).join(Entry, Entry.horse_id == Horse.id).where(Entry.rider_id == rider_id)
+    combined = union(from_link, from_entry).subquery()
     result = await db.execute(
-        select(Horse)
-        .join(Entry, Entry.horse_id == Horse.id)
-        .where(Entry.rider_id == rider_id)
-        .distinct()
-        .order_by(Horse.name)
+        select(Horse).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
     )
     return result.scalars().all()
+
+@riders_router.post("/{rider_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
+async def attach_horse_to_rider(rider_id: UUID, body: RiderHorseAttach, db: AsyncSession = Depends(get_db)):
+    rider = await db.get(Rider, rider_id)
+    if not rider:
+        raise HTTPException(404, "Rider not found")
+    horse = await db.get(Horse, body.horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    link = RiderHorse(rider_id=rider_id, horse_id=body.horse_id)
+    db.add(link)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Horse is already attached to this rider")
+    return horse
+
+@riders_router.delete("/{rider_id}/horses/{horse_id}", status_code=204, dependencies=[Depends(require_admin)])
+async def detach_horse_from_rider(rider_id: UUID, horse_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(RiderHorse).where(RiderHorse.rider_id == rider_id, RiderHorse.horse_id == horse_id)
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(404, "Horse is not attached to this rider")
+    await db.delete(link)
+    await db.commit()
 
 @riders_router.patch("/{rider_id}/link", response_model=RiderOut, dependencies=[Depends(require_admin)])
 async def link_rider(rider_id: UUID, body: RiderLink, db: AsyncSession = Depends(get_db)):

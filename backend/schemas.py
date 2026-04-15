@@ -4,26 +4,58 @@ from datetime import date, datetime
 from uuid import UUID
 
 
+# ── Venues ─────────────────────────────────────────────────────────────────────
+
+class VenueCreate(BaseModel):
+    name: str
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+
+class VenueUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+
+class VenueOut(BaseModel):
+    id: UUID
+    name: str
+    address: Optional[str]
+    city: Optional[str]
+    state: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Shows ──────────────────────────────────────────────────────────────────────
 
 class ShowCreate(BaseModel):
     name: str
     venue: Optional[str] = None
+    venue_id: Optional[UUID] = None
     start_date: date
     end_date: date
+    status: str = "DRAFT"
 
 class ShowUpdate(BaseModel):
     name: Optional[str] = None
     venue: Optional[str] = None
+    venue_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    status: Optional[str] = None
 
 class ShowOut(BaseModel):
     id: UUID
     name: str
     venue: Optional[str]
+    venue_id: Optional[UUID]
     start_date: date
     end_date: date
+    status: str
     created_at: datetime
 
     class Config:
@@ -184,6 +216,15 @@ class ResultUpdate(BaseModel):
     place: Optional[int] = None
     is_tie: Optional[bool] = None
     notes: Optional[str] = None
+
+class ResultBulkItem(BaseModel):
+    entry_id: UUID
+    place: int
+    is_tie: bool = False
+    notes: Optional[str] = None
+
+class ResultBulkSave(BaseModel):
+    results: list[ResultBulkItem]
 
 class ResultOut(BaseModel):
     id: UUID

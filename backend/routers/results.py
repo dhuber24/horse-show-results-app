@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_scorekeeper
-from models import Result, ResultAudit, Class, Entry
-from schemas import ResultCreate, ResultUpdate, ResultOut, AuditOut
+from models import Result, ResultAudit, Class, Entry, Show
+from schemas import ResultCreate, ResultUpdate, ResultBulkSave, ResultOut, AuditOut
 
 router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/results", tags=["Results"])
 
@@ -18,6 +18,14 @@ async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession):
     if not class_ or class_.show_id != show_id:
         raise HTTPException(404, "Class not found")
     return class_
+
+
+async def _require_active_show(show_id: UUID, db: AsyncSession):
+    show = await db.get(Show, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if show.status != "ACTIVE":
+        raise HTTPException(403, "Show is not active. Placings can only be entered for active shows.")
 
 
 @router.get("/", response_model=list[ResultOut])
@@ -38,6 +46,7 @@ async def list_results(show_id: UUID, class_id: UUID, db: AsyncSession = Depends
 async def create_result(
     show_id: UUID, class_id: UUID, body: ResultCreate, db: AsyncSession = Depends(get_db)
 ):
+    await _require_active_show(show_id, db)
     await _get_class_or_404(show_id, class_id, db)
 
     entry = await db.get(Entry, body.entry_id)
@@ -82,6 +91,7 @@ async def update_result(
     changed_by: Optional[UUID] = Query(None, description="User ID making the change"),
     db: AsyncSession = Depends(get_db),
 ):
+    await _require_active_show(show_id, db)
     result = await db.get(Result, result_id)
     if not result or result.class_id != class_id:
         raise HTTPException(404, "Result not found")
@@ -134,6 +144,44 @@ async def update_result(
         raise HTTPException(409, "Placing conflict: duplicate place in this class")
     await db.refresh(result)
     return result
+
+
+@router.put(
+    "/",
+    response_model=list[ResultOut],
+    dependencies=[Depends(require_admin_or_scorekeeper)],
+)
+async def bulk_save_results(
+    show_id: UUID, class_id: UUID, body: ResultBulkSave, db: AsyncSession = Depends(get_db)
+):
+    await _require_active_show(show_id, db)
+    await _get_class_or_404(show_id, class_id, db)
+
+    # Validate all entries belong to this class
+    for item in body.results:
+        entry = await db.get(Entry, item.entry_id)
+        if not entry or entry.class_id != class_id:
+            raise HTTPException(400, f"Entry {item.entry_id} does not belong to this class")
+
+    # Delete all existing results for this class
+    await db.execute(delete(Result).where(Result.class_id == class_id))
+
+    # Insert all new results
+    new_results = []
+    for item in body.results:
+        result = Result(class_id=class_id, **item.model_dump())
+        db.add(result)
+        new_results.append(result)
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Placing conflict: check for duplicate places")
+
+    for r in new_results:
+        await db.refresh(r)
+    return new_results
 
 
 @router.delete("/{result_id}", status_code=204, dependencies=[Depends(require_admin)])

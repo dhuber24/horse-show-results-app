@@ -88,6 +88,27 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT;
 
 ALTER TABLE riders ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);
 
+ALTER TABLE shows ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'DRAFT';
+
+CREATE TABLE IF NOT EXISTS rider_horses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rider_id UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+    horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (rider_id, horse_id)
+);
+
+CREATE TABLE IF NOT EXISTS venues (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    address TEXT,
+    city TEXT,
+    state TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE shows ADD COLUMN IF NOT EXISTS venue_id UUID REFERENCES venues(id);
+
 CREATE TABLE IF NOT EXISTS show_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,

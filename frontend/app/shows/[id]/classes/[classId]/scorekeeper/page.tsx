@@ -31,12 +31,18 @@ export default async function ScorekeeperPage({ params }: { params: Promise<{ id
         {cls ? `${cls.class_number} — ${cls.class_name}` : 'Scorekeeper'}
       </h1>
       <p className="text-gray-500 mb-6">{show.name} · {cls?.class_date}</p>
-      <ScorekeeperForm
-        showId={id}
-        classId={classId}
-        entries={enriched}
-        results={results}
-      />
+      {show.status !== 'ACTIVE' ? (
+        <div className="p-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-800">
+          This show is not active ({show.status}). Placings cannot be entered until the show is set to Active.
+        </div>
+      ) : (
+        <ScorekeeperForm
+          showId={id}
+          classId={classId}
+          entries={enriched}
+          results={results}
+        />
+      )}
     </main>
   );
 }

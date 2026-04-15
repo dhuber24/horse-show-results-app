@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
+from datetime import date
 
 from database import get_db
 from dependencies import require_admin
@@ -11,8 +12,27 @@ from schemas import ShowCreate, ShowUpdate, ShowOut
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
 
+async def _auto_transition_statuses(db: AsyncSession):
+    """Transition PUBLISHED→ACTIVE on start_date, ACTIVE→COMPLETED after end_date."""
+    today = date.today()
+    result = await db.execute(
+        select(Show).where(Show.status.in_(["PUBLISHED", "ACTIVE"]))
+    )
+    changed = False
+    for show in result.scalars().all():
+        if show.status == "PUBLISHED" and today >= show.start_date:
+            show.status = "ACTIVE"
+            changed = True
+        elif show.status == "ACTIVE" and today > show.end_date:
+            show.status = "COMPLETED"
+            changed = True
+    if changed:
+        await db.commit()
+
+
 @router.get("/", response_model=list[ShowOut])
 async def list_shows(db: AsyncSession = Depends(get_db)):
+    await _auto_transition_statuses(db)
     result = await db.execute(select(Show).order_by(Show.start_date))
     return result.scalars().all()
 
@@ -28,6 +48,7 @@ async def create_show(body: ShowCreate, db: AsyncSession = Depends(get_db)):
 
 @router.get("/{show_id}", response_model=ShowOut)
 async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    await _auto_transition_statuses(db)
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")

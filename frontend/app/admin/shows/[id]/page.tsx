@@ -1,17 +1,20 @@
 import Link from 'next/link';
-import { fetchShow, fetchClasses, fetchHorses, fetchRiders } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchHorses, fetchRiders, fetchVenues } from '@/lib/api';
 import CreateClassForm from './CreateClassForm';
 import CreateHorseForm from './CreateHorseForm';
 import CreateRiderForm from './CreateRiderForm';
 import CreateEntryForm from './CreateEntryForm';
+import ShowStatusControl from './ShowStatusControl';
+import EditShowForm from './EditShowForm';
 
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, classes, horses, riders] = await Promise.all([
+  const [show, classes, horses, riders, venues] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchHorses(),
     fetchRiders(),
+    fetchVenues(),
   ]);
 
   return (
@@ -24,6 +27,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
               📍 {show.venue} · 📅 {show.start_date} – {show.end_date}
             </p>
+            <div className="mt-2">
+              <ShowStatusControl showId={id} currentStatus={show.status} />
+            </div>
           </div>
           <Link href={`/admin/shows/${id}/back-numbers`}
             className="text-sm px-4 py-2 rounded font-medium whitespace-nowrap"
@@ -32,6 +38,11 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           </Link>
         </div>
       </div>
+
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Edit Show</h2>
+        <EditShowForm show={show} venues={venues} />
+      </section>
 
       <section>
         <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Add Class</h2>

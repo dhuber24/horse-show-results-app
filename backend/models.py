@@ -9,16 +9,32 @@ from sqlalchemy.orm import relationship
 from database import Base
 
 
+class Venue(Base):
+    __tablename__ = "venues"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    address = Column(Text)
+    city = Column(Text)
+    state = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    shows = relationship("Show", back_populates="venue_rel")
+
+
 class Show(Base):
     __tablename__ = "shows"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     venue = Column(Text)
+    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id"), nullable=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    status = Column(Text, nullable=False, default="DRAFT")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    venue_rel = relationship("Venue", back_populates="shows")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
@@ -89,6 +105,7 @@ class Horse(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     entries = relationship("Entry", back_populates="horse")
+    rider_horses = relationship("RiderHorse", back_populates="horse", cascade="all, delete")
 
 
 class Rider(Base):
@@ -101,6 +118,21 @@ class Rider(Base):
 
     user = relationship("User", back_populates="rider")
     entries = relationship("Entry", back_populates="rider")
+    rider_horses = relationship("RiderHorse", back_populates="rider", cascade="all, delete")
+
+
+class RiderHorse(Base):
+    __tablename__ = "rider_horses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("rider_id", "horse_id"),)
+
+    rider = relationship("Rider", back_populates="rider_horses")
+    horse = relationship("Horse", back_populates="rider_horses")
 
 
 class Entry(Base):

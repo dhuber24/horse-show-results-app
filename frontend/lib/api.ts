@@ -66,6 +66,18 @@ export async function fetchRiderHorses(riderId: string) {
   return res.json();
 }
 
+export async function fetchVenues() {
+  const res = await fetch(`${API_URL}/venues/`);
+  if (!res.ok) throw new Error('Failed to fetch venues');
+  return res.json();
+}
+
+export async function fetchVenue(venueId: string) {
+  const res = await fetch(`${API_URL}/venues/${venueId}`);
+  if (!res.ok) throw new Error('Failed to fetch venue');
+  return res.json();
+}
+
 export async function fetchUsers() {
   const res = await fetch(`${API_URL}/users/`);
   if (!res.ok) throw new Error('Failed to fetch users');
