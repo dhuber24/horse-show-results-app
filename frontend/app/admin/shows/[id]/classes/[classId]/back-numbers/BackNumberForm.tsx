@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 interface Entry {
   id: string;
   back_number: number | null;
-  riderName: string;
+  exhibitorName: string;
   horseName: string;
 }
 
@@ -38,7 +38,7 @@ export default function BackNumberForm({ showId, classId, entries }: {
 
   const handleSave = async () => {
     if (hasDuplicates) {
-      setMessage({ type: 'error', text: `Duplicate back numbers: ${[...duplicates].join(', ')}. Each rider must have a unique number.` });
+      setMessage({ type: 'error', text: `Duplicate back numbers: ${[...duplicates].join(', ')}. Each exhibitor must have a unique number.` });
       return;
     }
     setSaving(true);
@@ -100,7 +100,7 @@ export default function BackNumberForm({ showId, classId, entries }: {
         <table className="w-full">
           <thead>
             <tr style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
-              <th className="py-3 px-4 text-left text-sm font-semibold">Rider</th>
+              <th className="py-3 px-4 text-left text-sm font-semibold">Exhibitor</th>
               <th className="py-3 px-4 text-left text-sm font-semibold hidden md:table-cell">Horse</th>
               <th className="py-3 px-4 text-left text-sm font-semibold">Back #</th>
             </tr>
@@ -112,7 +112,7 @@ export default function BackNumberForm({ showId, classId, entries }: {
               return (
                 <tr key={entry.id}
                   style={{ backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf7f2', borderTop: '1px solid #d4b896' }}>
-                  <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.riderName}</td>
+                  <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
                   <td className="py-3 px-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
                   <td className="py-3 px-4">
                     <input

@@ -7,12 +7,12 @@ interface Props {
   showId: string;
   classes: any[];
   horses: any[];
-  riders: any[];
+  exhibitors: any[];
 }
 
-export default function CreateEntryForm({ showId, classes, horses, riders }: Props) {
+export default function CreateEntryForm({ showId, classes, horses, exhibitors }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState({ classId: '', rider_id: '', horse_id: '', back_number: '' });
+  const [form, setForm] = useState({ classId: '', exhibitor_id: '', horse_id: '', back_number: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +21,8 @@ export default function CreateEntryForm({ showId, classes, horses, riders }: Pro
   };
 
   const handleSubmit = async () => {
-    if (!form.classId || !form.rider_id || !form.horse_id) {
-      setError('Class, rider, and horse are required.');
+    if (!form.classId || !form.exhibitor_id || !form.horse_id) {
+      setError('Class, exhibitor, and horse are required.');
       return;
     }
     setSaving(true);
@@ -33,7 +33,7 @@ export default function CreateEntryForm({ showId, classes, horses, riders }: Pro
       body: JSON.stringify({
         showId,
         classId: form.classId,
-        rider_id: form.rider_id,
+        exhibitor_id: form.exhibitor_id,
         horse_id: form.horse_id,
         back_number: form.back_number ? parseInt(form.back_number) : null,
       }),
@@ -41,7 +41,7 @@ export default function CreateEntryForm({ showId, classes, horses, riders }: Pro
     setSaving(false);
     if (res.ok) {
       router.refresh();
-      setForm({ classId: '', rider_id: '', horse_id: '', back_number: '' });
+      setForm({ classId: '', exhibitor_id: '', horse_id: '', back_number: '' });
     } else {
       setError('Failed to add entry. May already exist.');
     }
@@ -57,10 +57,10 @@ export default function CreateEntryForm({ showId, classes, horses, riders }: Pro
         ))}
       </select>
       <div className="flex gap-3">
-        <select name="rider_id" value={form.rider_id} onChange={handleChange}
+        <select name="exhibitor_id" value={form.exhibitor_id} onChange={handleChange}
           className="flex-1 border rounded px-3 py-2">
-          <option value="">Select rider *</option>
-          {riders.map((r) => (
+          <option value="">Select exhibitor *</option>
+          {exhibitors.map((r) => (
             <option key={r.id} value={r.id}>{r.full_name}</option>
           ))}
         </select>

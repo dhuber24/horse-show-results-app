@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchRider, fetchShowBackNumbers } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor, fetchShowBackNumbers } from '@/lib/api';
 import { auth } from '@/auth';
 
 // Standard US horse show placement ribbon colors
@@ -80,16 +80,16 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   ]);
 
   const cls = classes.find((c: any) => c.id === classId);
-  const backNumberMap = Object.fromEntries(backNumbers.map((b: any) => [b.rider_id, b.back_number]));
+  const backNumberMap = Object.fromEntries(backNumbers.map((b: any) => [b.exhibitor_id, b.back_number]));
 
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
-      const [rider, horse] = await Promise.all([fetchRider(entry.rider_id), fetchHorse(entry.horse_id)]);
+      const [exhibitor, horse] = await Promise.all([fetchExhibitor(entry.exhibitor_id), fetchHorse(entry.horse_id)]);
       return {
         ...entry,
-        riderName: rider.full_name,
+        exhibitorName: exhibitor.full_name,
         horseName: horse.name,
-        back_number: backNumberMap[entry.rider_id] ?? entry.back_number,
+        back_number: backNumberMap[entry.exhibitor_id] ?? entry.back_number,
       };
     })
   );
@@ -133,7 +133,7 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
               <tr style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
                 <th className="py-3 px-4 text-left text-sm font-semibold">Place</th>
                 <th className="py-3 px-4 text-left text-sm font-semibold">Back #</th>
-                <th className="py-3 px-4 text-left text-sm font-semibold">Rider</th>
+                <th className="py-3 px-4 text-left text-sm font-semibold">Exhibitor</th>
                 <th className="py-3 px-4 text-left text-sm font-semibold hidden md:table-cell">Horse</th>
               </tr>
             </thead>
@@ -163,7 +163,7 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
                         ) : '—'}
                       </td>
                       <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.back_number ?? '—'}</td>
-                      <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.riderName}</td>
+                      <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
                       <td className="py-3 px-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
                     </tr>
                   );

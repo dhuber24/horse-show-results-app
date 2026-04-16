@@ -93,7 +93,7 @@ class User(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
-    rider = relationship("Rider", back_populates="user", uselist=False)
+    exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
 
 
 class Horse(Base):
@@ -105,34 +105,34 @@ class Horse(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     entries = relationship("Entry", back_populates="horse")
-    rider_horses = relationship("RiderHorse", back_populates="horse", cascade="all, delete")
+    exhibitor_horses = relationship("ExhibitorHorse", back_populates="horse", cascade="all, delete")
 
 
-class Rider(Base):
-    __tablename__ = "riders"
+class Exhibitor(Base):
+    __tablename__ = "exhibitors"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     full_name = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    user = relationship("User", back_populates="rider")
-    entries = relationship("Entry", back_populates="rider")
-    rider_horses = relationship("RiderHorse", back_populates="rider", cascade="all, delete")
+    user = relationship("User", back_populates="exhibitor")
+    entries = relationship("Entry", back_populates="exhibitor")
+    exhibitor_horses = relationship("ExhibitorHorse", back_populates="exhibitor", cascade="all, delete")
 
 
-class RiderHorse(Base):
-    __tablename__ = "rider_horses"
+class ExhibitorHorse(Base):
+    __tablename__ = "exhibitor_horses"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id", ondelete="CASCADE"), nullable=False)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
     horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("rider_id", "horse_id"),)
+    __table_args__ = (UniqueConstraint("exhibitor_id", "horse_id"),)
 
-    rider = relationship("Rider", back_populates="rider_horses")
-    horse = relationship("Horse", back_populates="rider_horses")
+    exhibitor = relationship("Exhibitor", back_populates="exhibitor_horses")
+    horse = relationship("Horse", back_populates="exhibitor_horses")
 
 
 class Entry(Base):
@@ -140,16 +140,16 @@ class Entry(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
-    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id"), nullable=False)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
     horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id"), nullable=False)
     back_number = Column(Integer)
     status = Column(Text, nullable=False, default="ENTERED")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("class_id", "rider_id", "horse_id"),)
+    __table_args__ = (UniqueConstraint("class_id", "exhibitor_id", "horse_id"),)
 
     class_ = relationship("Class", back_populates="entries")
-    rider = relationship("Rider", back_populates="entries")
+    exhibitor = relationship("Exhibitor", back_populates="entries")
     horse = relationship("Horse", back_populates="entries")
     result = relationship("Result", back_populates="entry", uselist=False)
 
@@ -194,14 +194,14 @@ class ShowEntry(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
-    rider_id = Column(UUID(as_uuid=True), ForeignKey("riders.id"), nullable=False)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
     back_number = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("show_id", "rider_id"),
+        UniqueConstraint("show_id", "exhibitor_id"),
         UniqueConstraint("show_id", "back_number"),
     )
 
     show = relationship("Show")
-    rider = relationship("Rider")
+    exhibitor = relationship("Exhibitor")

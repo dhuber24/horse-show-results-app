@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const userId = (session.user as any).id;
-  const res = await fetch(`${API_URL}/dashboard/rider/${userId}`);
+  const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`);
   const json = await res.json();
   return NextResponse.json(json);
 }

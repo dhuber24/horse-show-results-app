@@ -8,7 +8,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <span className="text-5xl">🐴</span>
-          <h1 className="text-2xl font-bold mt-3" style={{ color: '#2c1810' }}>Create Rider Account</h1>
+          <h1 className="text-2xl font-bold mt-3" style={{ color: '#2c1810' }}>Create Exhibitor Account</h1>
           <p className="text-sm mt-1" style={{ color: '#8b7355' }}>Sign up to view your entries and results</p>
         </div>
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>

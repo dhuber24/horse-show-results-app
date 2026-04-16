@@ -15,7 +15,7 @@ export default function LoginPage() {
           <LoginForm />
         </div>
         <p className="text-center text-sm mt-4" style={{ color: '#8b7355' }}>
-          New rider?{' '}
+          New exhibitor?{' '}
           <Link href="/register" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
             Create an account
           </Link>

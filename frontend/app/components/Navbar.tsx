@@ -24,7 +24,7 @@ export default async function Navbar() {
             <span className="text-sm hidden md:block" style={{ color: '#d4b896' }}>
               {session.user?.name} · {role}
             </span>
-            {role === 'RIDER' && (
+            {role === 'EXHIBITOR' && (
               <Link href="/dashboard"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>

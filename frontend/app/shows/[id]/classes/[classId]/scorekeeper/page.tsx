@@ -1,4 +1,4 @@
-import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchRider } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor } from '@/lib/api';
 import ScorekeeperForm from './ScorekeeperForm';
 
 export default async function ScorekeeperPage({ params }: { params: Promise<{ id: string; classId: string }> }) {
@@ -14,11 +14,11 @@ export default async function ScorekeeperPage({ params }: { params: Promise<{ id
 
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
-      const [rider, horse] = await Promise.all([
-        fetchRider(entry.rider_id),
+      const [exhibitor, horse] = await Promise.all([
+        fetchExhibitor(entry.exhibitor_id),
         fetchHorse(entry.horse_id),
       ]);
-      return { ...entry, riderName: rider.full_name, horseName: horse.name };
+      return { ...entry, exhibitorName: exhibitor.full_name, horseName: horse.name };
     })
   );
 

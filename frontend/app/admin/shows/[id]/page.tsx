@@ -1,19 +1,20 @@
 import Link from 'next/link';
-import { fetchShow, fetchClasses, fetchHorses, fetchRiders, fetchVenues } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchHorses, fetchExhibitors, fetchVenues } from '@/lib/api';
 import CreateClassForm from './CreateClassForm';
 import CreateHorseForm from './CreateHorseForm';
-import CreateRiderForm from './CreateRiderForm';
+import CreateExhibitorForm from './CreateExhibitorForm';
 import CreateEntryForm from './CreateEntryForm';
 import ShowStatusControl from './ShowStatusControl';
 import EditShowForm from './EditShowForm';
+import EditClassCard from './EditClassCard';
 
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, classes, horses, riders, venues] = await Promise.all([
+  const [show, classes, horses, exhibitors, venues] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchHorses(),
-    fetchRiders(),
+    fetchExhibitors(),
     fetchVenues(),
   ]);
 
@@ -46,7 +47,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
 
       <section>
         <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Add Class</h2>
-        <CreateClassForm showId={id} />
+        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} />
       </section>
 
       <section>
@@ -56,17 +57,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
         ) : (
           <ul className="space-y-2">
             {classes.map((cls: any) => (
-              <li key={cls.id}
-                className="p-3 rounded-lg border flex justify-between items-center"
-                style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-                <span className="font-medium" style={{ color: '#2c1810' }}>
-                  {cls.class_number} — {cls.class_name}
-                </span>
-                <span className="text-xs px-2 py-1 rounded-full"
-                  style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
-                  {cls.status}
-                </span>
-              </li>
+              <EditClassCard
+                key={cls.id}
+                cls={cls}
+                showId={id}
+                showStartDate={show.start_date}
+                showEndDate={show.end_date}
+              />
             ))}
           </ul>
         )}
@@ -78,13 +75,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Add Rider</h2>
-        <CreateRiderForm />
+        <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Add Exhibitor</h2>
+        <CreateExhibitorForm />
       </section>
 
       <section>
         <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Add Entry</h2>
-        <CreateEntryForm showId={id} classes={classes} horses={horses} riders={riders} />
+        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={exhibitors} />
       </section>
     </main>
   );

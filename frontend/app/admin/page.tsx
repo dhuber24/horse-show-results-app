@@ -78,13 +78,13 @@ export default async function AdminPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-4">Riders & Horses</h2>
+        <h2 className="text-xl font-semibold mb-4">Exhibitors & Horses</h2>
         <Link
-          href="/admin/riders"
+          href="/admin/exhibitors"
           className="block p-4 border rounded-lg hover:bg-gray-50 transition"
         >
-          <div className="font-semibold">Manage Riders & Horses</div>
-          <div className="text-sm text-gray-500">View all riders, edit names, and see horse associations</div>
+          <div className="font-semibold">Manage Exhibitors & Horses</div>
+          <div className="text-sm text-gray-500">View all exhibitors, edit names, and see horse associations</div>
         </Link>
       </section>
     </main>

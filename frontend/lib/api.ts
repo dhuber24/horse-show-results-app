@@ -30,9 +30,9 @@ export async function fetchHorse(horseId: string) {
   return res.json();
 }
 
-export async function fetchRider(riderId: string) {
-  const res = await fetch(`${API_URL}/riders/${riderId}`);
-  if (!res.ok) throw new Error('Failed to fetch rider');
+export async function fetchExhibitor(exhibitorId: string) {
+  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}`);
+  if (!res.ok) throw new Error('Failed to fetch exhibitor');
   return res.json();
 }
 
@@ -48,9 +48,9 @@ export async function fetchHorses() {
   return res.json();
 }
 
-export async function fetchRiders() {
-  const res = await fetch(`${API_URL}/riders/`);
-  if (!res.ok) throw new Error('Failed to fetch riders');
+export async function fetchExhibitors() {
+  const res = await fetch(`${API_URL}/exhibitors/`);
+  if (!res.ok) throw new Error('Failed to fetch exhibitors');
   return res.json();
 }
 
@@ -60,9 +60,9 @@ export async function fetchShowBackNumbers(showId: string) {
   return res.json();
 }
 
-export async function fetchRiderHorses(riderId: string) {
-  const res = await fetch(`${API_URL}/riders/${riderId}/horses`);
-  if (!res.ok) throw new Error('Failed to fetch rider horses');
+export async function fetchExhibitorHorses(exhibitorId: string) {
+  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}/horses`);
+  if (!res.ok) throw new Error('Failed to fetch exhibitor horses');
   return res.json();
 }
 

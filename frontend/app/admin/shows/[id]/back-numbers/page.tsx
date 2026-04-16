@@ -1,49 +1,49 @@
-import { fetchShow, fetchRiders } from '@/lib/api';
+import { fetchShow } from '@/lib/api';
 import BackNumberForm from './BackNumberForm';
 import Link from 'next/link';
 
-async function fetchShowRiders(showId: string) {
+async function fetchShowBackNumbers(showId: string) {
   const API_URL = process.env.API_URL || 'http://backend:8000';
   const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/`, { cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
 }
 
-async function fetchShowEntryRiders(showId: string) {
+async function fetchShowEntryExhibitors(showId: string) {
   const API_URL = process.env.API_URL || 'http://backend:8000';
-  // Get all unique riders entered in any class of this show
+  // Get all unique exhibitors entered in any class of this show
   const classesRes = await fetch(`${API_URL}/shows/${showId}/classes/`);
   const classes = await classesRes.json();
 
-  const riderMap = new Map<string, { rider_id: string; full_name: string; back_number: number | null }>();
+  const exhibitorMap = new Map<string, { exhibitor_id: string; full_name: string; back_number: number | null }>();
 
   for (const cls of classes) {
     const entriesRes = await fetch(`${API_URL}/shows/${showId}/classes/${cls.id}/entries/`);
     const entries = await entriesRes.json();
     for (const entry of entries) {
-      if (!riderMap.has(entry.rider_id)) {
-        const riderRes = await fetch(`${API_URL}/riders/${entry.rider_id}`);
-        const rider = await riderRes.json();
-        riderMap.set(entry.rider_id, { rider_id: entry.rider_id, full_name: rider.full_name, back_number: null });
+      if (!exhibitorMap.has(entry.exhibitor_id)) {
+        const exhibitorRes = await fetch(`${API_URL}/exhibitors/${entry.exhibitor_id}`);
+        const exhibitor = await exhibitorRes.json();
+        exhibitorMap.set(entry.exhibitor_id, { exhibitor_id: entry.exhibitor_id, full_name: exhibitor.full_name, back_number: null });
       }
     }
   }
 
-  return Array.from(riderMap.values());
+  return Array.from(exhibitorMap.values());
 }
 
 export default async function BackNumbersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, existingNumbers, riders] = await Promise.all([
+  const [show, existingNumbers, exhibitors] = await Promise.all([
     fetchShow(id),
-    fetchShowRiders(id),
-    fetchShowEntryRiders(id),
+    fetchShowBackNumbers(id),
+    fetchShowEntryExhibitors(id),
   ]);
 
-  const existingMap = Object.fromEntries(existingNumbers.map((e: any) => [e.rider_id, e.back_number]));
-  const enrichedRiders = riders.map((r: any) => ({
+  const existingMap = Object.fromEntries(existingNumbers.map((e: any) => [e.exhibitor_id, e.back_number]));
+  const enrichedExhibitors = exhibitors.map((r: any) => ({
     ...r,
-    back_number: existingMap[r.rider_id] ?? null,
+    back_number: existingMap[r.exhibitor_id] ?? null,
   }));
 
   return (
@@ -54,13 +54,13 @@ export default async function BackNumbersPage({ params }: { params: Promise<{ id
       <div className="mt-4 mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Back Number Assignment</h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          {show.name} — one back number per rider, valid across all classes
+          {show.name} — one back number per exhibitor, valid across all classes
         </p>
       </div>
-      {enrichedRiders.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No riders entered in this show yet.</p>
+      {enrichedExhibitors.length === 0 ? (
+        <p style={{ color: '#8b7355' }}>No exhibitors entered in this show yet.</p>
       ) : (
-        <BackNumberForm showId={id} riders={enrichedRiders} />
+        <BackNumberForm showId={id} exhibitors={enrichedExhibitors} />
       )}
     </main>
   );

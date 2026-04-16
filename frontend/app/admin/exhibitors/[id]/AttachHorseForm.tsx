@@ -8,8 +8,8 @@ interface Horse {
   name: string;
 }
 
-export default function AttachHorseForm({ riderId, allHorses, attachedHorseIds }: {
-  riderId: string;
+export default function AttachHorseForm({ exhibitorId, allHorses, attachedHorseIds }: {
+  exhibitorId: string;
   allHorses: Horse[];
   attachedHorseIds: string[];
 }) {
@@ -24,7 +24,7 @@ export default function AttachHorseForm({ riderId, allHorses, attachedHorseIds }
     if (!selectedHorseId) return;
     setSaving(true);
     setError(null);
-    const res = await fetch(`/api/riders/${riderId}/horses`, {
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/horses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ horse_id: selectedHorseId }),
@@ -40,7 +40,7 @@ export default function AttachHorseForm({ riderId, allHorses, attachedHorseIds }
   };
 
   const handleDetach = async (horseId: string) => {
-    const res = await fetch(`/api/riders/${riderId}/horses/${horseId}`, {
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/horses/${horseId}`, {
       method: 'DELETE',
     });
     if (res.ok) {

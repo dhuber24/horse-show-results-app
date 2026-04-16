@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const userRes = await fetch(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, role: 'RIDER' }),
+    body: JSON.stringify({ ...body, role: 'EXHIBITOR' }),
   });
 
   if (!userRes.ok) {
@@ -19,23 +19,23 @@ export async function POST(request: NextRequest) {
 
   const user = await userRes.json();
 
-  // Check if a rider with this name already exists and is unlinked
-  const ridersRes = await fetch(`${API_URL}/riders/`);
-  const riders = await ridersRes.json();
-  const existing = riders.find(
+  // Check if an exhibitor with this name already exists and is unlinked
+  const exhibitorsRes = await fetch(`${API_URL}/exhibitors/`);
+  const exhibitors = await exhibitorsRes.json();
+  const existing = exhibitors.find(
     (r: any) => r.full_name.toLowerCase() === body.full_name.toLowerCase() && !r.user_id
   );
 
   if (existing) {
-    // Link existing rider to new user
-    await fetch(`${API_URL}/riders/${existing.id}/link`, {
+    // Link existing exhibitor to new user
+    await fetch(`${API_URL}/exhibitors/${existing.id}/link`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: user.id }),
     });
   } else {
-    // Create new rider record
-    await fetch(`${API_URL}/riders/`, {
+    // Create new exhibitor record
+    await fetch(`${API_URL}/exhibitors/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: body.full_name, user_id: user.id }),

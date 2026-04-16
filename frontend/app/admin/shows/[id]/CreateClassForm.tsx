@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function CreateClassForm({ showId }: { showId: string }) {
+export default function CreateClassForm({ showId, showStartDate, showEndDate }: { showId: string; showStartDate: string; showEndDate: string }) {
   const router = useRouter();
   const [form, setForm] = useState({ class_number: '', class_name: '', class_date: '', status: 'OPEN' });
   const [saving, setSaving] = useState(false);
@@ -30,7 +30,8 @@ export default function CreateClassForm({ showId }: { showId: string }) {
       router.refresh();
       setForm({ class_number: '', class_name: '', class_date: '', status: 'OPEN' });
     } else {
-      setError('Failed to create class.');
+      const err = await res.json().catch(() => ({}));
+      setError(err.detail ?? 'Failed to create class.');
     }
   };
 
@@ -45,7 +46,7 @@ export default function CreateClassForm({ showId }: { showId: string }) {
       <div className="flex gap-3">
         <div className="flex-1">
           <label className="text-sm text-gray-500">Class date *</label>
-          <input name="class_date" type="date" value={form.class_date} onChange={handleChange}
+          <input name="class_date" type="date" min={showStartDate} max={showEndDate} value={form.class_date} onChange={handleChange}
             className="w-full border rounded px-3 py-2" />
         </div>
         <div className="flex-1">

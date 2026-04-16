@@ -7,7 +7,7 @@ async function getDashboard() {
   const session = await auth();
   if (!session) redirect('/login');
   const userId = (session.user as any).id;
-  const res = await fetch(`${API_URL}/dashboard/rider/${userId}`, { cache: 'no-store' });
+  const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' });
   return res.json();
 }
 
@@ -20,14 +20,14 @@ export default async function DashboardPage() {
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <div className="mb-6">
         <h2 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Entries</h2>
-        {data.rider && (
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.rider.full_name}</p>
+        {data.exhibitor && (
+          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.exhibitor.full_name}</p>
         )}
       </div>
 
-      {!data.rider ? (
+      {!data.exhibitor ? (
         <div className="rounded-lg border p-4" style={{ backgroundColor: '#fdf8e8', borderColor: '#c4860a' }}>
-          <p className="font-medium" style={{ color: '#8b6200' }}>No rider profile linked to your account.</p>
+          <p className="font-medium" style={{ color: '#8b6200' }}>No exhibitor profile linked to your account.</p>
           <p className="text-sm mt-1" style={{ color: '#8b7355' }}>Contact the show admin to link your entries.</p>
         </div>
       ) : data.entries.length === 0 ? (

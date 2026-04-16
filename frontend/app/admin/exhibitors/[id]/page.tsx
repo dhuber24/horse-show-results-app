@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { fetchRider, fetchRiderHorses, fetchHorses } from '@/lib/api';
+import { fetchExhibitor, fetchExhibitorHorses, fetchHorses } from '@/lib/api';
 import { auth } from '@/auth';
 import { notFound } from 'next/navigation';
-import EditRiderForm from './EditRiderForm';
+import EditExhibitorForm from './EditExhibitorForm';
 import AttachHorseForm from './AttachHorseForm';
 
-export default async function AdminRiderDetailPage({
+export default async function AdminExhibitorDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -15,24 +15,24 @@ export default async function AdminRiderDetailPage({
   const role = (session?.user as any)?.role;
   if (role !== 'ADMIN') notFound();
 
-  const [rider, horses, allHorses] = await Promise.all([
-    fetchRider(id).catch(() => null),
-    fetchRiderHorses(id).catch(() => []),
+  const [exhibitor, horses, allHorses] = await Promise.all([
+    fetchExhibitor(id).catch(() => null),
+    fetchExhibitorHorses(id).catch(() => []),
     fetchHorses().catch(() => []),
   ]);
 
-  if (!rider) notFound();
+  if (!exhibitor) notFound();
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin/riders" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Riders & Horses
+        <Link href="/admin/exhibitors" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+          ← Back to Exhibitors & Horses
         </Link>
         <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
-          {rider.full_name}
+          {exhibitor.full_name}
         </h1>
-        {rider.user_id && (
+        {exhibitor.user_id && (
           <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
             Linked to a user account
           </p>
@@ -41,8 +41,8 @@ export default async function AdminRiderDetailPage({
 
       {/* Edit name */}
       <section>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Rider Name</h2>
-        <EditRiderForm rider={rider} />
+        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Exhibitor Name</h2>
+        <EditExhibitorForm exhibitor={exhibitor} />
       </section>
 
       {/* Horses */}
@@ -55,20 +55,20 @@ export default async function AdminRiderDetailPage({
         </h2>
 
         <AttachHorseForm
-          riderId={id}
+          exhibitorId={id}
           allHorses={allHorses}
           attachedHorseIds={horses.map((h: any) => h.id)}
         />
       </section>
 
-      {/* Rider ID for reference */}
+      {/* Exhibitor ID for reference */}
       <section className="pt-4 border-t" style={{ borderColor: '#d4b896' }}>
         <p className="text-xs" style={{ color: '#8b7355' }}>
-          Rider ID: <span className="font-mono">{rider.id}</span>
+          Exhibitor ID: <span className="font-mono">{exhibitor.id}</span>
         </p>
-        {rider.user_id && (
+        {exhibitor.user_id && (
           <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
-            User ID: <span className="font-mono">{rider.user_id}</span>
+            User ID: <span className="font-mono">{exhibitor.user_id}</span>
           </p>
         )}
       </section>

@@ -6,7 +6,7 @@ from routers.shows import router as shows_router
 from routers.rings import router as rings_router
 from routers.divisions import router as divisions_router
 from routers.classes import router as classes_router
-from routers.people import users_router, horses_router, riders_router
+from routers.people import users_router, horses_router, exhibitors_router
 from routers.entries import router as entries_router
 from routers.results import router as results_router
 from routers.auth import router as auth_router
@@ -42,7 +42,7 @@ app.include_router(divisions_router)
 app.include_router(classes_router)
 app.include_router(users_router)
 app.include_router(horses_router)
-app.include_router(riders_router)
+app.include_router(exhibitors_router)
 app.include_router(entries_router)
 app.include_router(results_router)
 app.include_router(backnumbers_router)

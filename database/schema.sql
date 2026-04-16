@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS horses (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS riders (
+CREATE TABLE IF NOT EXISTS exhibitors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -55,12 +55,12 @@ CREATE TABLE IF NOT EXISTS riders (
 CREATE TABLE IF NOT EXISTS entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     class_id UUID NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-    rider_id UUID NOT NULL REFERENCES riders(id),
+    exhibitor_id UUID NOT NULL REFERENCES exhibitors(id),
     horse_id UUID NOT NULL REFERENCES horses(id),
     back_number INTEGER,
     status TEXT NOT NULL DEFAULT 'ENTERED',
     created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (class_id, rider_id, horse_id)
+    UNIQUE (class_id, exhibitor_id, horse_id)
 );
 
 -- Results (manual placings)
@@ -86,16 +86,16 @@ CREATE TABLE IF NOT EXISTS result_audit (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS hashed_password TEXT;
 
-ALTER TABLE riders ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);
+ALTER TABLE exhibitors ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id);
 
 ALTER TABLE shows ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'DRAFT';
 
-CREATE TABLE IF NOT EXISTS rider_horses (
+CREATE TABLE IF NOT EXISTS exhibitor_horses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rider_id UUID NOT NULL REFERENCES riders(id) ON DELETE CASCADE,
+    exhibitor_id UUID NOT NULL REFERENCES exhibitors(id) ON DELETE CASCADE,
     horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (rider_id, horse_id)
+    UNIQUE (exhibitor_id, horse_id)
 );
 
 CREATE TABLE IF NOT EXISTS venues (
@@ -112,9 +112,9 @@ ALTER TABLE shows ADD COLUMN IF NOT EXISTS venue_id UUID REFERENCES venues(id);
 CREATE TABLE IF NOT EXISTS show_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     show_id UUID NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
-    rider_id UUID NOT NULL REFERENCES riders(id),
+    exhibitor_id UUID NOT NULL REFERENCES exhibitors(id),
     back_number INTEGER,
     created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (show_id, rider_id),
+    UNIQUE (show_id, exhibitor_id),
     UNIQUE (show_id, back_number)
 );

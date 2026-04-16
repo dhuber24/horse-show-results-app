@@ -5,22 +5,22 @@ from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from database import get_db
-from models import Rider, Entry, Class, Show, Horse, Result
+from models import Exhibitor, Entry, Class, Show, Horse, Result
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
-@router.get("/rider/{user_id}")
-async def get_rider_dashboard(user_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Rider).where(Rider.user_id == user_id))
-    rider = result.scalar_one_or_none()
+@router.get("/exhibitor/{user_id}")
+async def get_exhibitor_dashboard(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user_id))
+    exhibitor = result.scalar_one_or_none()
 
-    if not rider:
-        return {"rider": None, "entries": []}
+    if not exhibitor:
+        return {"exhibitor": None, "entries": []}
 
     entries_result = await db.execute(
         select(Entry)
-        .where(Entry.rider_id == rider.id)
+        .where(Entry.exhibitor_id == exhibitor.id)
         .options(
             selectinload(Entry.class_).selectinload(Class.show),
             selectinload(Entry.horse),
@@ -52,6 +52,6 @@ async def get_rider_dashboard(user_id: UUID, db: AsyncSession = Depends(get_db))
         })
 
     return {
-        "rider": {"id": str(rider.id), "full_name": rider.full_name},
+        "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "entries": sorted(output, key=lambda x: x["class_date"] or "", reverse=True),
     }

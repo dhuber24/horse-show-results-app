@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from database import get_db
 from dependencies import require_admin
-from models import User, Horse, Rider, Entry, RiderHorse
-from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, RiderCreate, RiderUpdate, RiderOut
+from models import User, Horse, Exhibitor, Entry, ExhibitorHorse
+from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, ExhibitorCreate, ExhibitorUpdate, ExhibitorOut
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -88,104 +88,104 @@ async def delete_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
-# ── Riders ─────────────────────────────────────────────────────────────────────
+# ── Exhibitors ─────────────────────────────────────────────────────────────────
 
-class RiderCreateWithUser(BaseModel):
+class ExhibitorCreateWithUser(BaseModel):
     full_name: str
     user_id: Optional[UUID] = None
 
-class RiderLink(BaseModel):
+class ExhibitorLink(BaseModel):
     user_id: UUID
 
-riders_router = APIRouter(prefix="/riders", tags=["Riders"])
+exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 
-@riders_router.get("/", response_model=list[RiderOut])
-async def list_riders(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Rider).order_by(Rider.full_name))
+@exhibitors_router.get("/", response_model=list[ExhibitorOut])
+async def list_exhibitors(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Exhibitor).order_by(Exhibitor.full_name))
     return result.scalars().all()
 
-@riders_router.post("/", response_model=RiderOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_rider(body: RiderCreateWithUser, db: AsyncSession = Depends(get_db)):
-    rider = Rider(**body.model_dump())
-    db.add(rider)
+@exhibitors_router.post("/", response_model=ExhibitorOut, status_code=201, dependencies=[Depends(require_admin)])
+async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Depends(get_db)):
+    exhibitor = Exhibitor(**body.model_dump())
+    db.add(exhibitor)
     await db.commit()
-    await db.refresh(rider)
-    return rider
+    await db.refresh(exhibitor)
+    return exhibitor
 
-@riders_router.get("/{rider_id}", response_model=RiderOut)
-async def get_rider(rider_id: UUID, db: AsyncSession = Depends(get_db)):
-    rider = await db.get(Rider, rider_id)
-    if not rider:
-        raise HTTPException(404, "Rider not found")
-    return rider
+@exhibitors_router.get("/{exhibitor_id}", response_model=ExhibitorOut)
+async def get_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    return exhibitor
 
-@riders_router.patch("/{rider_id}", response_model=RiderOut, dependencies=[Depends(require_admin)])
-async def update_rider(rider_id: UUID, body: RiderUpdate, db: AsyncSession = Depends(get_db)):
-    rider = await db.get(Rider, rider_id)
-    if not rider:
-        raise HTTPException(404, "Rider not found")
+@exhibitors_router.patch("/{exhibitor_id}", response_model=ExhibitorOut, dependencies=[Depends(require_admin)])
+async def update_exhibitor(exhibitor_id: UUID, body: ExhibitorUpdate, db: AsyncSession = Depends(get_db)):
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
     for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(rider, k, v)
+        setattr(exhibitor, k, v)
     await db.commit()
-    await db.refresh(rider)
-    return rider
+    await db.refresh(exhibitor)
+    return exhibitor
 
-class RiderHorseAttach(BaseModel):
+class ExhibitorHorseAttach(BaseModel):
     horse_id: UUID
 
-@riders_router.get("/{rider_id}/horses", response_model=list[HorseOut])
-async def get_rider_horses(rider_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Returns horses directly attached to this rider, plus any from entries."""
-    from_link = select(Horse.id).join(RiderHorse, RiderHorse.horse_id == Horse.id).where(RiderHorse.rider_id == rider_id)
-    from_entry = select(Horse.id).join(Entry, Entry.horse_id == Horse.id).where(Entry.rider_id == rider_id)
+@exhibitors_router.get("/{exhibitor_id}/horses", response_model=list[HorseOut])
+async def get_exhibitor_horses(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Returns horses directly attached to this exhibitor, plus any from entries."""
+    from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)
+    from_entry = select(Horse.id).join(Entry, Entry.horse_id == Horse.id).where(Entry.exhibitor_id == exhibitor_id)
     combined = union(from_link, from_entry).subquery()
     result = await db.execute(
         select(Horse).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
     )
     return result.scalars().all()
 
-@riders_router.post("/{rider_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
-async def attach_horse_to_rider(rider_id: UUID, body: RiderHorseAttach, db: AsyncSession = Depends(get_db)):
-    rider = await db.get(Rider, rider_id)
-    if not rider:
-        raise HTTPException(404, "Rider not found")
+@exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
+async def attach_horse_to_exhibitor(exhibitor_id: UUID, body: ExhibitorHorseAttach, db: AsyncSession = Depends(get_db)):
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
     horse = await db.get(Horse, body.horse_id)
     if not horse:
         raise HTTPException(404, "Horse not found")
-    link = RiderHorse(rider_id=rider_id, horse_id=body.horse_id)
+    link = ExhibitorHorse(exhibitor_id=exhibitor_id, horse_id=body.horse_id)
     db.add(link)
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(409, "Horse is already attached to this rider")
+        raise HTTPException(409, "Horse is already attached to this exhibitor")
     return horse
 
-@riders_router.delete("/{rider_id}/horses/{horse_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def detach_horse_from_rider(rider_id: UUID, horse_id: UUID, db: AsyncSession = Depends(get_db)):
+@exhibitors_router.delete("/{exhibitor_id}/horses/{horse_id}", status_code=204, dependencies=[Depends(require_admin)])
+async def detach_horse_from_exhibitor(exhibitor_id: UUID, horse_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(RiderHorse).where(RiderHorse.rider_id == rider_id, RiderHorse.horse_id == horse_id)
+        select(ExhibitorHorse).where(ExhibitorHorse.exhibitor_id == exhibitor_id, ExhibitorHorse.horse_id == horse_id)
     )
     link = result.scalar_one_or_none()
     if not link:
-        raise HTTPException(404, "Horse is not attached to this rider")
+        raise HTTPException(404, "Horse is not attached to this exhibitor")
     await db.delete(link)
     await db.commit()
 
-@riders_router.patch("/{rider_id}/link", response_model=RiderOut, dependencies=[Depends(require_admin)])
-async def link_rider(rider_id: UUID, body: RiderLink, db: AsyncSession = Depends(get_db)):
-    rider = await db.get(Rider, rider_id)
-    if not rider:
-        raise HTTPException(404, "Rider not found")
-    rider.user_id = body.user_id
+@exhibitors_router.patch("/{exhibitor_id}/link", response_model=ExhibitorOut, dependencies=[Depends(require_admin)])
+async def link_exhibitor(exhibitor_id: UUID, body: ExhibitorLink, db: AsyncSession = Depends(get_db)):
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    exhibitor.user_id = body.user_id
     await db.commit()
-    await db.refresh(rider)
-    return rider
+    await db.refresh(exhibitor)
+    return exhibitor
 
-@riders_router.delete("/{rider_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def delete_rider(rider_id: UUID, db: AsyncSession = Depends(get_db)):
-    rider = await db.get(Rider, rider_id)
-    if not rider:
-        raise HTTPException(404, "Rider not found")
-    await db.delete(rider)
+@exhibitors_router.delete("/{exhibitor_id}", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    await db.delete(exhibitor)
     await db.commit()

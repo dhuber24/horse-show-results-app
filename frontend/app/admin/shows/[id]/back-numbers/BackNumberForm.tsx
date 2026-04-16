@@ -3,19 +3,19 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface RiderEntry {
-  rider_id: string;
+interface ExhibitorEntry {
+  exhibitor_id: string;
   full_name: string;
   back_number: number | null;
 }
 
-export default function BackNumberForm({ showId, riders }: {
+export default function BackNumberForm({ showId, exhibitors }: {
   showId: string;
-  riders: RiderEntry[];
+  exhibitors: ExhibitorEntry[];
 }) {
   const router = useRouter();
   const [numbers, setNumbers] = useState<Record<string, string>>(
-    Object.fromEntries(riders.map((r) => [r.rider_id, r.back_number?.toString() ?? '']))
+    Object.fromEntries(exhibitors.map((r) => [r.exhibitor_id, r.back_number?.toString() ?? '']))
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -35,14 +35,14 @@ export default function BackNumberForm({ showId, riders }: {
 
   const handleSave = async () => {
     if (hasDuplicates) {
-      setMessage({ type: 'error', text: `Duplicate back numbers: ${[...duplicates].join(', ')}. Each rider must have a unique number.` });
+      setMessage({ type: 'error', text: `Duplicate back numbers: ${[...duplicates].join(', ')}. Each exhibitor must have a unique number.` });
       return;
     }
     setSaving(true);
     setMessage(null);
-    const assignments = riders.map((r) => ({
-      rider_id: r.rider_id,
-      back_number: numbers[r.rider_id] ? parseInt(numbers[r.rider_id]) : null,
+    const assignments = exhibitors.map((r) => ({
+      exhibitor_id: r.exhibitor_id,
+      back_number: numbers[r.exhibitor_id] ? parseInt(numbers[r.exhibitor_id]) : null,
     }));
     const res = await fetch('/api/back-numbers', {
       method: 'PATCH',
@@ -72,24 +72,24 @@ export default function BackNumberForm({ showId, riders }: {
         <table className="w-full">
           <thead>
             <tr style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
-              <th className="py-3 px-4 text-left text-sm font-semibold">Rider</th>
+              <th className="py-3 px-4 text-left text-sm font-semibold">Exhibitor</th>
               <th className="py-3 px-4 text-left text-sm font-semibold">Back #</th>
             </tr>
           </thead>
           <tbody>
-            {riders.map((rider, i) => {
-              const val = numbers[rider.rider_id];
+            {exhibitors.map((exhibitor, i) => {
+              const val = numbers[exhibitor.exhibitor_id];
               const isDupe = val !== '' && duplicates.has(val);
               return (
-                <tr key={rider.rider_id}
+                <tr key={exhibitor.exhibitor_id}
                   style={{ backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf7f2', borderTop: '1px solid #d4b896' }}>
-                  <td className="py-3 px-4" style={{ color: '#2c1810' }}>{rider.full_name}</td>
+                  <td className="py-3 px-4" style={{ color: '#2c1810' }}>{exhibitor.full_name}</td>
                   <td className="py-3 px-4">
                     <input
                       type="number"
                       min="1"
-                      value={numbers[rider.rider_id]}
-                      onChange={(e) => setNumbers((prev) => ({ ...prev, [rider.rider_id]: e.target.value }))}
+                      value={numbers[exhibitor.exhibitor_id]}
+                      onChange={(e) => setNumbers((prev) => ({ ...prev, [exhibitor.exhibitor_id]: e.target.value }))}
                       className="w-20 border rounded px-2 py-1 text-sm text-center"
                       style={{
                         borderColor: isDupe ? '#e53e3e' : '#d4b896',

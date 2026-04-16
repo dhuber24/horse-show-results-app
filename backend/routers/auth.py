@@ -60,7 +60,7 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
     user = User(
         email=body.email,
         full_name=body.full_name,
-        role="RIDER",  # self-registration always creates RIDER accounts
+        role="EXHIBITOR",  # self-registration always creates EXHIBITOR accounts
         hashed_password=hash_password(body.password),
     )
     db.add(user)

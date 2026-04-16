@@ -14,7 +14,7 @@ router = APIRouter(prefix="/shows/{show_id}/back-numbers", tags=["Back Numbers"]
 
 
 class BackNumberAssignment(BaseModel):
-    rider_id: UUID
+    exhibitor_id: UUID
     back_number: Optional[int] = None
 
 
@@ -32,7 +32,7 @@ async def get_back_numbers(show_id: UUID, db: AsyncSession = Depends(get_db)):
         select(ShowEntry).where(ShowEntry.show_id == show_id).order_by(ShowEntry.back_number)
     )
     entries = result.scalars().all()
-    return [{"rider_id": str(e.rider_id), "back_number": e.back_number} for e in entries]
+    return [{"exhibitor_id": str(e.exhibitor_id), "back_number": e.back_number} for e in entries]
 
 
 @router.patch("/", dependencies=[Depends(require_admin)])
@@ -53,7 +53,7 @@ async def bulk_update_back_numbers(
         result = await db.execute(
             select(ShowEntry).where(
                 ShowEntry.show_id == show_id,
-                ShowEntry.rider_id == assignment.rider_id
+                ShowEntry.exhibitor_id == assignment.exhibitor_id
             )
         )
         show_entry = result.scalar_one_or_none()
@@ -62,7 +62,7 @@ async def bulk_update_back_numbers(
         else:
             show_entry = ShowEntry(
                 show_id=show_id,
-                rider_id=assignment.rider_id,
+                exhibitor_id=assignment.exhibitor_id,
                 back_number=assignment.back_number
             )
             db.add(show_entry)
@@ -71,7 +71,7 @@ async def bulk_update_back_numbers(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(409, "Duplicate back number — each rider must have a unique number in this show")
+        raise HTTPException(409, "Duplicate back number — each exhibitor must have a unique number in this show")
 
     return {"updated": len(body.assignments)}
 
@@ -83,24 +83,24 @@ async def auto_assign_back_numbers(show_id: UUID, db: AsyncSession = Depends(get
         raise HTTPException(404, "Show not found")
 
     result = await db.execute(
-        select(Entry.rider_id).join(
+        select(Entry.exhibitor_id).join(
             Entry.class_
         ).where(Entry.class_.has(show_id=show_id)).distinct()
     )
-    rider_ids = result.scalars().all()
+    exhibitor_ids = result.scalars().all()
 
-    for i, rider_id in enumerate(rider_ids, start=1):
+    for i, exhibitor_id in enumerate(exhibitor_ids, start=1):
         existing = await db.execute(
             select(ShowEntry).where(
                 ShowEntry.show_id == show_id,
-                ShowEntry.rider_id == rider_id
+                ShowEntry.exhibitor_id == exhibitor_id
             )
         )
         show_entry = existing.scalar_one_or_none()
         if show_entry:
             show_entry.back_number = i
         else:
-            db.add(ShowEntry(show_id=show_id, rider_id=rider_id, back_number=i))
+            db.add(ShowEntry(show_id=show_id, exhibitor_id=exhibitor_id, back_number=i))
 
     await db.commit()
-    return {"assigned": len(rider_ids)}
+    return {"assigned": len(exhibitor_ids)}

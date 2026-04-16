@@ -39,7 +39,7 @@ async def create_entry(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(409, "Entry already exists for this rider/horse/class combination")
+        raise HTTPException(409, "Entry already exists for this exhibitor/horse/class combination")
     await db.refresh(entry)
     return entry
 

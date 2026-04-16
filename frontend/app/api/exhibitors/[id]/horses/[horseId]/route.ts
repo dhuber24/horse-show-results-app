@@ -6,7 +6,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const res = await fetch(`${API_URL}/riders/${id}/horses/${horseId}`, {
+  const res = await fetch(`${API_URL}/exhibitors/${id}/horses/${horseId}`, {
     method: 'DELETE',
     headers,
   });

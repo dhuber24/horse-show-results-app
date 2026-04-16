@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 interface Entry {
   id: string;
   back_number: number | null;
-  riderName: string;
+  exhibitorName: string;
   horseName: string;
 }
 
@@ -94,7 +94,7 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
         <thead>
           <tr className="text-left border-b">
             <th className="py-2 pr-4">Back #</th>
-            <th className="py-2 pr-4">Rider</th>
+            <th className="py-2 pr-4">Exhibitor</th>
             <th className="py-2 pr-4">Horse</th>
             <th className="py-2">Place</th>
           </tr>
@@ -105,7 +105,7 @@ export default function ScorekeeperForm({ showId, classId, entries, results }: P
             return (
               <tr key={entry.id} className={`border-b transition-colors ${tied ? 'bg-amber-50' : ''}`}>
                 <td className="py-3 pr-4">{entry.back_number ?? '—'}</td>
-                <td className="py-3 pr-4">{entry.riderName}</td>
+                <td className="py-3 pr-4">{entry.exhibitorName}</td>
                 <td className="py-3 pr-4">{entry.horseName}</td>
                 <td className="py-3">
                   <div className="flex items-center gap-2">

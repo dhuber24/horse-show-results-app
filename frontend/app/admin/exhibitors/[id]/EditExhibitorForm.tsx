@@ -4,32 +4,32 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Props {
-  rider: { id: string; full_name: string };
+  exhibitor: { id: string; full_name: string };
 }
 
-export default function EditRiderForm({ rider }: Props) {
+export default function EditExhibitorForm({ exhibitor }: Props) {
   const router = useRouter();
-  const [name, setName] = useState(rider.full_name);
+  const [name, setName] = useState(exhibitor.full_name);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const isDirty = name.trim() !== rider.full_name;
+  const isDirty = name.trim() !== exhibitor.full_name;
 
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
     setMessage(null);
-    const res = await fetch(`/api/riders/${rider.id}`, {
+    const res = await fetch(`/api/exhibitors/${exhibitor.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ full_name: name.trim() }),
     });
     setSaving(false);
     if (res.ok) {
-      setMessage({ type: 'success', text: 'Rider updated.' });
+      setMessage({ type: 'success', text: 'Exhibitor updated.' });
       router.refresh();
     } else {
-      setMessage({ type: 'error', text: 'Failed to update rider.' });
+      setMessage({ type: 'error', text: 'Failed to update exhibitor.' });
     }
   };
 
@@ -41,7 +41,7 @@ export default function EditRiderForm({ rider }: Props) {
           onChange={(e) => setName(e.target.value)}
           className="flex-1 border rounded-lg px-3 py-2"
           style={{ borderColor: '#d4b896' }}
-          placeholder="Rider full name"
+          placeholder="Exhibitor full name"
         />
         <button
           onClick={handleSave}

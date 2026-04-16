@@ -161,15 +161,15 @@ class HorseOut(BaseModel):
         from_attributes = True
 
 
-# ── Riders ─────────────────────────────────────────────────────────────────────
+# ── Exhibitors ────────────────────────────────────────────────────────────────
 
-class RiderCreate(BaseModel):
+class ExhibitorCreate(BaseModel):
     full_name: str
 
-class RiderUpdate(BaseModel):
+class ExhibitorUpdate(BaseModel):
     full_name: Optional[str] = None
 
-class RiderOut(BaseModel):
+class ExhibitorOut(BaseModel):
     id: UUID
     full_name: str
     user_id: Optional[UUID] = None
@@ -182,7 +182,7 @@ class RiderOut(BaseModel):
 # ── Entries ────────────────────────────────────────────────────────────────────
 
 class EntryCreate(BaseModel):
-    rider_id: UUID
+    exhibitor_id: UUID
     horse_id: UUID
     back_number: Optional[int] = None
     status: str = "ENTERED"
@@ -194,7 +194,7 @@ class EntryUpdate(BaseModel):
 class EntryOut(BaseModel):
     id: UUID
     class_id: UUID
-    rider_id: UUID
+    exhibitor_id: UUID
     horse_id: UUID
     back_number: Optional[int]
     status: str
@@ -253,6 +253,6 @@ class AuditOut(BaseModel):
         from_attributes = True
 
 
-class RiderCreateWithUser(BaseModel):
+class ExhibitorCreateWithUser(BaseModel):
     full_name: str
     user_id: Optional[UUID] = None
