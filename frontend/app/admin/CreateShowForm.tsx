@@ -11,9 +11,15 @@ interface Venue {
   state: string | null;
 }
 
-export default function CreateShowForm({ venues }: { venues: Venue[] }) {
+interface ShowType {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export default function CreateShowForm({ venues, showTypes }: { venues: Venue[]; showTypes: ShowType[] }) {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', venue_id: '', start_date: '', end_date: '' });
+  const [form, setForm] = useState({ name: '', venue_id: '', show_type_id: '', start_date: '', end_date: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,8 +28,8 @@ export default function CreateShowForm({ venues }: { venues: Venue[] }) {
   };
 
   const handleSubmit = async () => {
-    if (!form.name || !form.start_date || !form.end_date) {
-      setError('Name, start date, and end date are required.');
+    if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
+      setError('Name, show type, start date, and end date are required.');
       return;
     }
     setSaving(true);
@@ -41,6 +47,7 @@ export default function CreateShowForm({ venues }: { venues: Venue[] }) {
         name: form.name,
         venue: venueLabel,
         venue_id: form.venue_id || null,
+        show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
       }),
@@ -58,6 +65,13 @@ export default function CreateShowForm({ venues }: { venues: Venue[] }) {
     <div className="border rounded-lg p-4 space-y-3">
       <input name="name" placeholder="Show name *" value={form.name} onChange={handleChange}
         className="w-full border rounded px-3 py-2" />
+      <select name="show_type_id" value={form.show_type_id} onChange={handleChange}
+        className="w-full border rounded px-3 py-2">
+        <option value="">Select show type *</option>
+        {showTypes.map((t) => (
+          <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
+        ))}
+      </select>
       <select name="venue_id" value={form.venue_id} onChange={handleChange}
         className="w-full border rounded px-3 py-2">
         <option value="">Select a venue (optional)</option>

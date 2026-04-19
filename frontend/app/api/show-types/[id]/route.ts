@@ -7,7 +7,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/horses/${id}`, {
+  const res = await fetch(`${API_URL}/show-types/${id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(body),
@@ -21,7 +21,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;
-  const res = await fetch(`${API_URL}/horses/${id}`, { method: 'DELETE', headers });
+  const res = await fetch(`${API_URL}/show-types/${id}`, { method: 'DELETE', headers });
   if (res.status === 204) return new NextResponse(null, { status: 204 });
   const json = await res.json().catch(() => ({}));
   return NextResponse.json(json, { status: res.status });

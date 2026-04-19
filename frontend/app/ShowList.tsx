@@ -10,6 +10,15 @@ interface Show {
   start_date: string;
   end_date: string;
   status: string;
+  show_type_id?: string | null;
+  show_type_code?: string | null;
+  show_type_name?: string | null;
+}
+
+interface ShowType {
+  id: string;
+  code: string;
+  name: string;
 }
 
 const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
@@ -18,11 +27,12 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> 
   COMPLETED: { label: 'Completed', bg: '#dbeafe', text: '#1e40af' },
 };
 
-export default function ShowList({ shows }: { shows: Show[] }) {
+export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; showTypes?: ShowType[] }) {
   const [query, setQuery] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
-  const [activeFilters, setActiveFilters] = useState<{ query: string; fromDate: string; toDate: string } | null>(null);
+  const [showTypeId, setShowTypeId] = useState('');
+  const [activeFilters, setActiveFilters] = useState<{ query: string; fromDate: string; toDate: string; showTypeId: string } | null>(null);
 
   const hasFilters = activeFilters !== null;
 
@@ -38,18 +48,20 @@ export default function ShowList({ shows }: { shows: Show[] }) {
     }
     if (activeFilters.fromDate && show.end_date < activeFilters.fromDate) return false;
     if (activeFilters.toDate && show.start_date > activeFilters.toDate) return false;
+    if (activeFilters.showTypeId && show.show_type_id !== activeFilters.showTypeId) return false;
     return true;
   });
 
   const handleSearch = () => {
-    if (!query.trim() && !fromDate && !toDate) return;
-    setActiveFilters({ query, fromDate, toDate });
+    if (!query.trim() && !fromDate && !toDate && !showTypeId) return;
+    setActiveFilters({ query, fromDate, toDate, showTypeId });
   };
 
   const clearFilters = () => {
     setQuery('');
     setFromDate('');
     setToDate('');
+    setShowTypeId('');
     setActiveFilters(null);
   };
 
@@ -64,6 +76,22 @@ export default function ShowList({ shows }: { shows: Show[] }) {
           className="w-full border rounded-lg px-4 py-2"
           style={{ borderColor: '#d4b896', color: '#2c1810' }}
         />
+        {showTypes.length > 0 && (
+          <div>
+            <label className="text-sm" style={{ color: '#8b7355' }}>Show type</label>
+            <select
+              value={showTypeId}
+              onChange={(e) => setShowTypeId(e.target.value)}
+              className="w-full border rounded-lg px-4 py-2"
+              style={{ borderColor: '#d4b896', color: '#2c1810' }}
+            >
+              <option value="">All types</option>
+              {showTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex gap-3 items-end">
           <div className="flex-1">
             <label className="text-sm" style={{ color: '#8b7355' }}>From</label>
@@ -116,6 +144,11 @@ export default function ShowList({ shows }: { shows: Show[] }) {
                 style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-lg" style={{ color: '#2c1810' }}>{show.name}</span>
+                  {show.show_type_code && (
+                    <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                      {show.show_type_code}
+                    </span>
+                  )}
                   {STATUS_BADGE[show.status] && (
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{
                       backgroundColor: STATUS_BADGE[show.status].bg,

@@ -13,6 +13,7 @@ from routers.auth import router as auth_router
 from routers.dashboard import router as dashboard_router
 from routers.backnumbers import router as backnumbers_router
 from routers.venues import router as venues_router
+from routers.show_types import router as show_types_router
 
 app = FastAPI(
     title="Horse Show Results API",
@@ -47,6 +48,7 @@ app.include_router(entries_router)
 app.include_router(results_router)
 app.include_router(backnumbers_router)
 app.include_router(venues_router)
+app.include_router(show_types_router)
 
 
 @app.get("/", tags=["Health"])

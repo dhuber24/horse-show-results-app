@@ -1,7 +1,30 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, Any
 from datetime import date, datetime
 from uuid import UUID
+
+
+# ── Show Types ─────────────────────────────────────────────────────────────────
+
+class ShowTypeCreate(BaseModel):
+    code: str
+    name: str
+    config: dict[str, Any] = {}
+
+class ShowTypeUpdate(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+
+class ShowTypeOut(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    config: dict[str, Any]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 # ── Venues ─────────────────────────────────────────────────────────────────────
@@ -36,6 +59,7 @@ class ShowCreate(BaseModel):
     name: str
     venue: Optional[str] = None
     venue_id: Optional[UUID] = None
+    show_type_id: UUID
     start_date: date
     end_date: date
     status: str = "DRAFT"
@@ -44,6 +68,7 @@ class ShowUpdate(BaseModel):
     name: Optional[str] = None
     venue: Optional[str] = None
     venue_id: Optional[UUID] = None
+    show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: Optional[str] = None
@@ -53,6 +78,9 @@ class ShowOut(BaseModel):
     name: str
     venue: Optional[str]
     venue_id: Optional[UUID]
+    show_type_id: UUID
+    show_type_code: Optional[str] = None
+    show_type_name: Optional[str] = None
     start_date: date
     end_date: date
     status: str

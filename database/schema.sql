@@ -1,7 +1,22 @@
+CREATE TABLE IF NOT EXISTS show_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO show_types (code, name) VALUES
+    ('APHA', 'American Paint Horse Association'),
+    ('AQHA', 'American Quarter Horse Association'),
+    ('OPEN', 'Open / Unaffiliated')
+ON CONFLICT (code) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS shows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     venue TEXT,
+    show_type_id UUID NOT NULL REFERENCES show_types(id),
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()

@@ -15,15 +15,31 @@ interface Show {
   name: string;
   venue: string | null;
   venue_id: string | null;
+  show_type_id: string | null;
   start_date: string;
   end_date: string;
 }
 
-export default function EditShowForm({ show, venues }: { show: Show; venues: Venue[] }) {
+interface ShowType {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export default function EditShowForm({
+  show,
+  venues,
+  showTypes,
+}: {
+  show: Show;
+  venues: Venue[];
+  showTypes: ShowType[];
+}) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: show.name,
     venue_id: show.venue_id ?? '',
+    show_type_id: show.show_type_id ?? '',
     start_date: show.start_date,
     end_date: show.end_date,
   });
@@ -37,8 +53,8 @@ export default function EditShowForm({ show, venues }: { show: Show; venues: Ven
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.start_date || !form.end_date) {
-      setError('Name, start date, and end date are required.');
+    if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
+      setError('Name, show type, start date, and end date are required.');
       return;
     }
     setSaving(true);
@@ -56,6 +72,7 @@ export default function EditShowForm({ show, venues }: { show: Show; venues: Ven
         name: form.name,
         venue: venueLabel,
         venue_id: form.venue_id || null,
+        show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
       }),
@@ -83,6 +100,13 @@ export default function EditShowForm({ show, venues }: { show: Show; venues: Ven
     <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
       <input name="name" value={form.name} onChange={handleChange}
         className="w-full border rounded px-3 py-2" placeholder="Show name *" />
+      <select name="show_type_id" value={form.show_type_id} onChange={handleChange}
+        className="w-full border rounded px-3 py-2">
+        <option value="">Select show type *</option>
+        {showTypes.map((t) => (
+          <option key={t.id} value={t.id}>{t.code} — {t.name}</option>
+        ))}
+      </select>
       <select name="venue_id" value={form.venue_id} onChange={handleChange}
         className="w-full border rounded px-3 py-2">
         <option value="">Select a venue (optional)</option>

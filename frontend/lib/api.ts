@@ -78,6 +78,18 @@ export async function fetchVenue(venueId: string) {
   return res.json();
 }
 
+export async function fetchShowTypes() {
+  const res = await fetch(`${API_URL}/show-types/`);
+  if (!res.ok) throw new Error('Failed to fetch show types');
+  return res.json();
+}
+
+export async function fetchShowType(id: string) {
+  const res = await fetch(`${API_URL}/show-types/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch show type');
+  return res.json();
+}
+
 export async function fetchUsers() {
   const res = await fetch(`${API_URL}/users/`);
   if (!res.ok) throw new Error('Failed to fetch users');

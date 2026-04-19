@@ -4,9 +4,21 @@ from sqlalchemy import (
     Column, Text, Date, Boolean, Integer, ForeignKey,
     TIMESTAMP, UniqueConstraint, CheckConstraint, func
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+class ShowType(Base):
+    __tablename__ = "show_types"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(Text, nullable=False, unique=True)
+    name = Column(Text, nullable=False)
+    config = Column(JSONB, nullable=False, server_default="{}")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    shows = relationship("Show", back_populates="show_type")
 
 
 class Venue(Base):
@@ -29,12 +41,14 @@ class Show(Base):
     name = Column(Text, nullable=False)
     venue = Column(Text)
     venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id"), nullable=True)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     venue_rel = relationship("Venue", back_populates="shows")
+    show_type = relationship("ShowType", back_populates="shows")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")

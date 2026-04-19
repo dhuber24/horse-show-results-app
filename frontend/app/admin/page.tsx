@@ -1,92 +1,64 @@
 import Link from 'next/link';
-import { fetchShows, fetchVenues } from '@/lib/api';
 
-export default async function AdminPage() {
-  const [shows, venues] = await Promise.all([fetchShows(), fetchVenues()]);
+const tiles = [
+  {
+    href: '/admin/shows',
+    title: 'Shows',
+    description: 'Create, edit, and manage horse shows, classes, and entries.',
+    icon: '🏆',
+  },
+  {
+    href: '/admin/venues',
+    title: 'Venues',
+    description: 'Add and update venues where shows are held.',
+    icon: '📍',
+  },
+  {
+    href: '/admin/exhibitors',
+    title: 'Exhibitors',
+    description: 'Manage exhibitors and their associated horses.',
+    icon: '👤',
+  },
+  {
+    href: '/admin/horses',
+    title: 'Horses',
+    description: 'Add and edit horses in the system.',
+    icon: '🐴',
+  },
+];
 
+export default function AdminPage() {
   return (
-    <main className="max-w-3xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Admin</h1>
-        <Link href="/" className="text-sm text-blue-500 hover:underline">← Back to Shows</Link>
+    <main className="max-w-4xl mx-auto p-4 md:p-6">
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>Admin</h1>
+        <Link href="/" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+          ← Back to Shows
+        </Link>
       </div>
 
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-4">Shows</h2>
-        <Link
-          href="/admin/shows/new"
-          className="inline-block bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 mb-4"
-        >
-          + Create New Show
-        </Link>
-        {shows.length === 0 ? (
-          <p className="text-gray-500">No shows yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {shows.map((show: any) => (
-              <li key={show.id}>
-                <Link
-                  href={`/admin/shows/${show.id}`}
-                  className="block p-4 border rounded-lg hover:bg-gray-50 transition"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{show.name}</span>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                      show.status === 'ACTIVE' ? 'bg-green-100 text-green-800' :
-                      show.status === 'PUBLISHED' ? 'bg-amber-100 text-amber-800' :
-                      show.status === 'COMPLETED' ? 'bg-blue-100 text-blue-800' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {show.status}
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-500">{show.venue} · {show.start_date} – {show.end_date}</div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-4">Venues</h2>
-        <Link
-          href="/admin/venues/new"
-          className="inline-block bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 mb-4"
-        >
-          + Add New Venue
-        </Link>
-        {venues.length === 0 ? (
-          <p className="text-gray-500">No venues yet.</p>
-        ) : (
-          <ul className="space-y-3">
-            {(venues as any[]).map((venue: any) => (
-              <li key={venue.id}>
-                <Link
-                  href={`/admin/venues/${venue.id}`}
-                  className="block p-3 border rounded-lg hover:bg-gray-50 transition"
-                >
-                  <div className="font-semibold">{venue.name}</div>
-                  <div className="text-sm text-gray-500">
-                    {[venue.address, venue.city, venue.state].filter(Boolean).join(', ') || 'No address'}
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="mb-10">
-        <h2 className="text-xl font-semibold mb-4">Exhibitors & Horses</h2>
-        <Link
-          href="/admin/exhibitors"
-          className="block p-4 border rounded-lg hover:bg-gray-50 transition"
-        >
-          <div className="font-semibold">Manage Exhibitors & Horses</div>
-          <div className="text-sm text-gray-500">View all exhibitors, edit names, and see horse associations</div>
-        </Link>
-      </section>
+      <div className="grid sm:grid-cols-2 gap-4">
+        {tiles.map((tile) => (
+          <Link
+            key={tile.href}
+            href={tile.href}
+            className="block p-6 rounded-lg border transition-colors hover:bg-amber-50"
+            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          >
+            <div className="flex items-start gap-4">
+              <div className="text-3xl" aria-hidden>{tile.icon}</div>
+              <div>
+                <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+                  {tile.title}
+                </h2>
+                <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                  {tile.description}
+                </p>
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
     </main>
   );
 }
