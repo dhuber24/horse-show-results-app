@@ -157,11 +157,16 @@ async def bulk_save_results(
     await _require_active_show(show_id, db)
     await _get_class_or_404(show_id, class_id, db)
 
-    # Validate all entries belong to this class
-    for item in body.results:
-        entry = await db.get(Entry, item.entry_id)
-        if not entry or entry.class_id != class_id:
-            raise HTTPException(400, f"Entry {item.entry_id} does not belong to this class")
+    # Validate all entries belong to this class in a single query
+    entry_ids = [item.entry_id for item in body.results]
+    if entry_ids:
+        rows = await db.execute(
+            select(Entry.id).where(Entry.id.in_(entry_ids), Entry.class_id == class_id)
+        )
+        valid_ids = {row for row in rows.scalars().all()}
+        missing = [eid for eid in entry_ids if eid not in valid_ids]
+        if missing:
+            raise HTTPException(400, f"Entry {missing[0]} does not belong to this class")
 
     # Delete all existing results for this class
     await db.execute(delete(Result).where(Result.class_id == class_id))

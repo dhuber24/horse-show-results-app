@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,25 +10,33 @@ from dependencies import require_admin
 from models import Show
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
 
 async def _auto_transition_statuses(db: AsyncSession):
-    """Transition PUBLISHED→ACTIVE on start_date, ACTIVE→COMPLETED after end_date."""
-    today = date.today()
-    result = await db.execute(
-        select(Show).where(Show.status.in_(["PUBLISHED", "ACTIVE"]))
-    )
-    changed = False
-    for show in result.scalars().all():
-        if show.status == "PUBLISHED" and today >= show.start_date:
-            show.status = "ACTIVE"
-            changed = True
-        elif show.status == "ACTIVE" and today > show.end_date:
-            show.status = "COMPLETED"
-            changed = True
-    if changed:
-        await db.commit()
+    """Transition PUBLISHED→ACTIVE on start_date, ACTIVE→COMPLETED after end_date.
+
+    Best-effort: a failure here must not break read endpoints.
+    """
+    try:
+        today = date.today()
+        result = await db.execute(
+            select(Show).where(Show.status.in_(["PUBLISHED", "ACTIVE"]))
+        )
+        changed = False
+        for show in result.scalars().all():
+            if show.status == "PUBLISHED" and today >= show.start_date:
+                show.status = "ACTIVE"
+                changed = True
+            elif show.status == "ACTIVE" and today > show.end_date:
+                show.status = "COMPLETED"
+                changed = True
+        if changed:
+            await db.commit()
+    except Exception:
+        logger.exception("auto_transition_statuses failed")
+        await db.rollback()
 
 
 @router.get("/", response_model=list[ShowOut])
