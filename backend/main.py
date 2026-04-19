@@ -1,7 +1,10 @@
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from database import engine, Base
+import models  # noqa: F401 — ensure all models are registered before create_all
 from routers.shows import router as shows_router
 from routers.rings import router as rings_router
 from routers.divisions import router as divisions_router
@@ -15,8 +18,16 @@ from routers.backnumbers import router as backnumbers_router
 from routers.venues import router as venues_router
 from routers.show_types import router as show_types_router
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
 app = FastAPI(
     title="Horse Show Results API",
+    lifespan=lifespan,
     description="Entry and results management for ranch and western pleasure horse shows.",
     version="0.1.0",
 )
