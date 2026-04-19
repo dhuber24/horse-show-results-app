@@ -1,4 +1,163 @@
-__pycache__/
-*.pyc
-*.pyo
+# Horse Show Results App - .gitignore
+
+## Environment Variables
 .env
+.env.local
+.env.*.local
+.env.production.local
+
+## Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+## Python Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+## IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+*.iml
+
+## Node/Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+
+## Next.js
+.next/
+out/
+.next/
+*.tsbuildinfo
+dist/
+build/
+
+## npm
+package-lock.json
+yarn.lock
+
+## Frontend build artifacts
+.parcel-cache
+.cache
+
+## Testing
+coverage/
+.nyc_output
+
+## Logs
+logs/
+*.log
+lerna-debug.log*
+
+## Database
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+pgdata/
+
+## Docker
+docker-compose.override.yml
+.dockerignore
+
+## OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+## IDE Generated Files
+*.bak
+*.swp
+*~
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+## Miscellaneous
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/extensions.json
+.grunt
+.gumdrop
+.idea
+.netrwhist
+.pairs
+.rubocop.yml
+.ruby-version
+.screenrc
+.slocdata
+.socket
+.ssh-id
+.tool-versions
+.tern-port
+.vagrant
+Makefile.local
+Rakefile.local
+local_config.rb
+config/local_env.rb
+
+## Backup Files
+*.backup
+*.bak
+*.swp
+*~
+
+## Temporary Files
+tmp/
+temp/
+*.tmp
