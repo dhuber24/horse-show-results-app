@@ -12,7 +12,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         try {
-          const res = await fetch(`${API_URL}/auth/login`, {
+          const res = await fetch(`${API_URL}/auth/verify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -21,21 +21,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             }),
           });
           if (!res.ok) return null;
-          const data = await res.json();
-
-          // Decode JWT payload to extract user info without an extra round-trip
-          const [, payloadB64] = data.access_token.split('.');
-          const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
-
-          return {
-            id: payload.sub,
-            email: payload.email,
-            name: payload.full_name,
-            role: payload.role,
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
-            expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
-          };
+          const user = await res.json();
+          return user;
         } catch {
           return null;
         }
@@ -45,46 +32,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
         token.role = (user as any).role;
-        token.accessToken = (user as any).accessToken;
-        token.refreshToken = (user as any).refreshToken;
-        token.expiresAt = (user as any).expiresAt;
-        return token;
+        token.id = (user as any).id;
       }
-
-      // Return token unchanged if still valid (60s buffer)
-      if (Date.now() / 1000 < (token.expiresAt as number) - 60) {
-        return token;
-      }
-
-      // Silently refresh the access token
-      try {
-        const res = await fetch(`${API_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: token.refreshToken }),
-        });
-        if (!res.ok) throw new Error('Refresh failed');
-        const refreshed = await res.json();
-        return {
-          ...token,
-          accessToken: refreshed.access_token,
-          refreshToken: refreshed.refresh_token,
-          expiresAt: Math.floor(Date.now() / 1000) + refreshed.expires_in,
-          error: undefined,
-        };
-      } catch {
-        return { ...token, error: 'RefreshTokenError' };
-      }
+      return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.id;
         (session.user as any).role = token.role;
+        (session.user as any).id = token.id;
       }
-      (session as any).accessToken = token.accessToken;
-      (session as any).error = token.error;
       return session;
     },
   },

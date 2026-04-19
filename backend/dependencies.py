@@ -1,48 +1,32 @@
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from jose import JWTError
-from uuid import UUID
+from fastapi import Header, HTTPException
+import os
 
-from database import get_db
-from models import User
-from auth_utils import decode_access_token
-
-bearer_scheme = HTTPBearer()
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    token = credentials.credentials
-    try:
-        payload = decode_access_token(token)
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    user = await db.get(User, UUID(payload["sub"]))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
+async def require_api_key(x_api_key: str = Header(...)):
+    """Validates that the request comes from the trusted Next.js server."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-async def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "ADMIN":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    return current_user
+async def require_admin(
+    x_api_key: str = Header(...),
+    x_user_role: str = Header(...),
+):
+    """Requires a valid API key and ADMIN role."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if x_user_role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 async def require_admin_or_scorekeeper(
-    current_user: User = Depends(get_current_user),
-) -> User:
-    if current_user.role not in ("ADMIN", "SCOREKEEPER"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin or scorekeeper access required")
-    return current_user
+    x_api_key: str = Header(...),
+    x_user_role: str = Header(...),
+):
+    """Requires a valid API key and ADMIN or SCOREKEEPER role."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if x_user_role not in ("ADMIN", "SCOREKEEPER"):
+        raise HTTPException(status_code=403, detail="Admin or scorekeeper access required")

@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 
 export const API_URL = process.env.API_URL || 'http://backend:8000';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 /**
  * Returns headers for authenticated server-to-backend requests.
@@ -9,10 +10,11 @@ export const API_URL = process.env.API_URL || 'http://backend:8000';
 export async function getAuthHeaders(): Promise<Record<string, string> | null> {
   const session = await auth();
   if (!session?.user) return null;
-  const accessToken = (session as any).accessToken;
-  if (!accessToken) return null;
+  const user = session.user as any;
   return {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${accessToken}`,
+    'X-API-Key': INTERNAL_API_KEY,
+    'X-User-Id': user.id ?? '',
+    'X-User-Role': user.role ?? '',
   };
 }
