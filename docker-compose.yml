@@ -15,7 +15,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/horseshow
+      DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-horse-show-internal-dev-key}
       CORS_ORIGINS: http://localhost:3000,https://expert-guide-pjw5wj5pj9p37jrr-3000.app.github.dev
     depends_on:
