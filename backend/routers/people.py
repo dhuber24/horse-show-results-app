@@ -1,15 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, union
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+import bcrypt
 
 from database import get_db
-from dependencies import require_admin
+from dependencies import require_admin, require_admin_or_show_admin
 from models import User, Horse, Exhibitor, Entry, ExhibitorHorse
 from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, ExhibitorCreate, ExhibitorUpdate, ExhibitorOut
+
+VALID_ROLES = {"ADMIN", "SHOW_ADMIN", "SCOREKEEPER", "EXHIBITOR"}
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -27,6 +30,65 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
     return user
+
+
+class UserWithPasswordCreate(BaseModel):
+    email: EmailStr
+    full_name: str
+    role: str
+    password: str
+
+
+@users_router.post("/with-password", response_model=UserOut, status_code=201)
+async def create_user_with_password(
+    body: UserWithPasswordCreate,
+    x_api_key: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    ADMIN can create any role. SHOW_ADMIN can only create SCOREKEEPER accounts.
+    """
+    from dependencies import INTERNAL_API_KEY
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if x_user_role == "SHOW_ADMIN" and body.role != "SCOREKEEPER":
+        raise HTTPException(status_code=403, detail="Show Admins can only create Scorekeeper accounts")
+    if x_user_role not in ("ADMIN", "SHOW_ADMIN"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if body.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    user = User(email=body.email, full_name=body.full_name, role=body.role, hashed_password=hashed)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+class RoleUpdate(BaseModel):
+    role: str
+
+
+@users_router.patch("/{user_id}/role", response_model=UserOut, dependencies=[Depends(require_admin)])
+async def update_user_role(user_id: UUID, body: RoleUpdate, db: AsyncSession = Depends(get_db)):
+    if body.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.role = body.role
+    await db.commit()
+    await db.refresh(user)
+    return user
+
 
 @users_router.get("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
 async def get_user(user_id: UUID, db: AsyncSession = Depends(get_db)):

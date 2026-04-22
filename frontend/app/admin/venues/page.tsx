@@ -1,8 +1,27 @@
 import Link from 'next/link';
-import { fetchVenues } from '@/lib/api';
+import { auth } from '@/auth';
+import { API_URL } from '@/lib/backend-fetch';
+
+async function fetchVenuesForUser(headers: Record<string, string>) {
+  const res = await fetch(`${API_URL}/venues/`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
 
 export default async function AdminVenuesPage() {
-  const venues = await fetchVenues();
+  const session = await auth();
+  const user = session?.user as any;
+  const role = user?.role;
+  const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-API-Key': INTERNAL_API_KEY,
+    'X-User-Id': user?.id ?? '',
+    'X-User-Role': role ?? '',
+  };
+
+  const venues = await fetchVenuesForUser(headers);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -11,19 +30,25 @@ export default async function AdminVenuesPage() {
           ← Back to Admin
         </Link>
         <div className="flex items-center justify-between mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Venues</h1>
-          <Link
-            href="/admin/venues/new"
-            className="text-sm px-4 py-2 rounded font-medium"
-            style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-          >
-            + Add New Venue
-          </Link>
+          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+            {role === 'SHOW_ADMIN' ? 'My Venues' : 'Venues'}
+          </h1>
+          {role === 'ADMIN' && (
+            <Link
+              href="/admin/venues/new"
+              className="text-sm px-4 py-2 rounded font-medium"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              + Add New Venue
+            </Link>
+          )}
         </div>
       </div>
 
       {venues.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No venues yet.</p>
+        <p style={{ color: '#8b7355' }}>
+          {role === 'SHOW_ADMIN' ? 'No venues have been assigned to you yet.' : 'No venues yet.'}
+        </p>
       ) : (
         <ul className="space-y-3">
           {(venues as any[]).map((venue: any) => (

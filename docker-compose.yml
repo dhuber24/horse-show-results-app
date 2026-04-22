@@ -1,15 +1,4 @@
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: horseshow
-    ports:
-      - "5432:5432"
-    volumes:
-      - horseshow_pgdata:/var/lib/postgresql/data
-
   backend:
     build: ./backend
     ports:
@@ -18,8 +7,6 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-horse-show-internal-dev-key}
       CORS_ORIGINS: http://localhost:3000,https://expert-guide-pjw5wj5pj9p37jrr-3000.app.github.dev
-    depends_on:
-      - db
     volumes:
       - ./backend:/app
 
@@ -38,5 +25,3 @@ services:
       - ./frontend:/app
       - /app/node_modules
 
-volumes:
-  horseshow_pgdata:

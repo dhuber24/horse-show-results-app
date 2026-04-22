@@ -1,6 +1,9 @@
 import Link from 'next/link';
+import { auth } from '@/auth';
 import { fetchShow } from '@/lib/api';
+import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
+import ShowStaffPanel from './ShowStaffPanel';
 
 const tiles = (showId: string) => [
   {
@@ -29,9 +32,38 @@ const tiles = (showId: string) => [
   },
 ];
 
+async function getShowStaff(showId: string, headers: Record<string, string>) {
+  const [adminsRes, keepersRes, allUsersRes] = await Promise.all([
+    fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
+    fetch(`${API_URL}/shows/${showId}/scorekeepers`, { headers, cache: 'no-store' }),
+    fetch(`${API_URL}/users/`, { headers, cache: 'no-store' }),
+  ]);
+  return {
+    admins: adminsRes.ok ? await adminsRes.json() : [],
+    scorekeepers: keepersRes.ok ? await keepersRes.json() : [],
+    allUsers: allUsersRes.ok ? await allUsersRes.json() : [],
+  };
+}
+
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const show = await fetchShow(id);
+  const session = await auth();
+  const user = session?.user as any;
+  const isAdmin = user?.role === 'ADMIN';
+  const isShowAdmin = user?.role === 'SHOW_ADMIN';
+
+  let staffData = { admins: [], scorekeepers: [], allUsers: [] };
+  if ((isAdmin || isShowAdmin) && user?.id) {
+    const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-API-Key': INTERNAL_API_KEY,
+      'X-User-Id': user.id,
+      'X-User-Role': user.role,
+    };
+    staffData = await getShowStaff(id, headers);
+  }
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
@@ -77,6 +109,17 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           </Link>
         ))}
       </div>
+
+      {(isAdmin || isShowAdmin) && (
+        <ShowStaffPanel
+          showId={id}
+          currentUserRole={user?.role ?? ''}
+          initialAdmins={staffData.admins}
+          initialScorekeepers={staffData.scorekeepers}
+          allUsers={staffData.allUsers}
+          isAdmin={isAdmin}
+        />
+      )}
     </main>
   );
 }

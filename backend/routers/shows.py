@@ -1,14 +1,15 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import date
+from typing import Optional
 
 from database import get_db
-from dependencies import require_admin
-from models import Show
+from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY
+from models import Show, ShowAdmin
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
 logger = logging.getLogger(__name__)
@@ -60,20 +61,50 @@ async def _get_show_with_type(db: AsyncSession, show_id: UUID) -> Show | None:
     return result.scalar_one_or_none()
 
 
-@router.get("/", response_model=list[ShowOut])
-async def list_shows(db: AsyncSession = Depends(get_db)):
+@router.get("/")
+async def list_shows(
+    x_api_key: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None),
+    x_user_role: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
     await _auto_transition_statuses(db)
-    result = await db.execute(
-        select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
-    )
+    query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+
+    if x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SHOW_ADMIN" and x_user_id:
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type))
+            .join(ShowAdmin, ShowAdmin.show_id == Show.id)
+            .where(ShowAdmin.user_id == UUID(x_user_id))
+            .order_by(Show.start_date)
+        )
+
+    result = await db.execute(query)
     return [_serialize(s) for s in result.scalars().all()]
 
 
-@router.post("/", response_model=ShowOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_show(body: ShowCreate, db: AsyncSession = Depends(get_db)):
-    show = Show(**body.model_dump())
+@router.post("/", response_model=ShowOut, status_code=201)
+async def create_show(
+    body: ShowCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    if x_user_role not in ("ADMIN", "SHOW_ADMIN"):
+        raise HTTPException(403, "Admin or Show Admin access required")
+
+    show = Show(**body.model_dump(), created_by_user_id=UUID(x_user_id))
     db.add(show)
     await db.commit()
+
+    if x_user_role == "SHOW_ADMIN":
+        db.add(ShowAdmin(show_id=show.id, user_id=UUID(x_user_id)))
+        await db.commit()
+
     show = await _get_show_with_type(db, show.id)
     return _serialize(show)
 
@@ -87,8 +118,30 @@ async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return _serialize(show)
 
 
-@router.patch("/{show_id}", response_model=ShowOut, dependencies=[Depends(require_admin)])
-async def update_show(show_id: UUID, body: ShowUpdate, db: AsyncSession = Depends(get_db)):
+async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_user_role: str, db: AsyncSession):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    if x_user_role == "ADMIN":
+        return
+    if x_user_role == "SHOW_ADMIN":
+        row = await db.execute(
+            select(ShowAdmin).where(ShowAdmin.show_id == show_id, ShowAdmin.user_id == UUID(x_user_id))
+        )
+        if row.scalar_one_or_none():
+            return
+    raise HTTPException(403, "Not authorized for this show")
+
+
+@router.patch("/{show_id}", response_model=ShowOut)
+async def update_show(
+    show_id: UUID,
+    body: ShowUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
@@ -99,8 +152,15 @@ async def update_show(show_id: UUID, body: ShowUpdate, db: AsyncSession = Depend
     return _serialize(show)
 
 
-@router.delete("/{show_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def delete_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/{show_id}", status_code=204)
+async def delete_show(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")

@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { auth } from '@/auth';
+import { redirect } from 'next/navigation';
 
-const tiles = [
+const adminTiles = [
   {
     href: '/admin/shows',
     title: 'Shows',
@@ -25,13 +27,38 @@ const tiles = [
     description: 'Add and edit horses in the system.',
     icon: '🐴',
   },
+  {
+    href: '/admin/users',
+    title: 'Users',
+    description: 'Create users, assign roles, and manage Show Admins and Scorekeepers.',
+    icon: '🔐',
+  },
 ];
 
-export default function AdminPage() {
+const showAdminTiles = [
+  {
+    href: '/admin/shows',
+    title: 'My Shows',
+    description: 'Create and manage the shows you own.',
+    icon: '🏆',
+  },
+];
+
+export default async function AdminPage() {
+  const session = await auth();
+  const role = (session?.user as any)?.role;
+
+  if (!session?.user) redirect('/login');
+  if (role !== 'ADMIN' && role !== 'SHOW_ADMIN') redirect('/');
+
+  const tiles = role === 'SHOW_ADMIN' ? showAdminTiles : adminTiles;
+
   return (
     <main className="max-w-4xl mx-auto p-4 md:p-6">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>Admin</h1>
+        <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>
+          {role === 'SHOW_ADMIN' ? 'Show Admin' : 'Admin'}
+        </h1>
         <Link href="/" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
           ← Back to Shows
         </Link>

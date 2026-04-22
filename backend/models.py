@@ -32,6 +32,7 @@ class Venue(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     shows = relationship("Show", back_populates="venue_rel")
+    venue_admins = relationship("VenueAdmin", back_populates="venue", cascade="all, delete")
 
 
 class Show(Base):
@@ -45,13 +46,17 @@ class Show(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     venue_rel = relationship("Venue", back_populates="shows")
     show_type = relationship("ShowType", back_populates="shows")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
+    show_admins = relationship("ShowAdmin", back_populates="show", cascade="all, delete")
+    show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
 
 
 class Ring(Base):
@@ -108,6 +113,51 @@ class User(Base):
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
     exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
+    admin_shows = relationship("ShowAdmin", back_populates="user", cascade="all, delete")
+    scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
+    admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
+
+
+class VenueAdmin(Base):
+    __tablename__ = "venue_admins"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("venue_id", "user_id"),)
+
+    venue = relationship("Venue", back_populates="venue_admins")
+    user = relationship("User", back_populates="admin_venues")
+
+
+class ShowAdmin(Base):
+    __tablename__ = "show_admins"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "user_id"),)
+
+    show = relationship("Show", back_populates="show_admins")
+    user = relationship("User", back_populates="admin_shows")
+
+
+class ShowScorekeeper(Base):
+    __tablename__ = "show_scorekeepers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "user_id"),)
+
+    show = relationship("Show", back_populates="show_scorekeepers")
+    user = relationship("User", back_populates="scorekeeper_shows")
 
 
 class Horse(Base):
