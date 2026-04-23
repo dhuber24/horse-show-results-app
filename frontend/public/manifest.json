@@ -1,0 +1,19 @@
+{
+  "name": "Horse Show Results",
+  "short_name": "ShowResults",
+  "description": "Entry and results management for ranch and western pleasure horse shows",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9fafb",
+  "theme_color": "#1e3a5f",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
