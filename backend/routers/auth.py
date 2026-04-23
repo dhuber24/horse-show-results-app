@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
+from datetime import datetime, timezone
 import bcrypt
 
 from database import get_db
@@ -39,6 +40,9 @@ async def verify_user(body: UserVerify, db: AsyncSession = Depends(get_db)):
 
     if not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
 
     return {
         "id": str(user.id),

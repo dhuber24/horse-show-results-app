@@ -1,8 +1,8 @@
+import Link from 'next/link';
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { API_URL } from '@/lib/backend-fetch';
 import UserTable from './UserTable';
-import CreateUserForm from './CreateUserForm';
 
 async function getUsers(headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/users/`, { headers, cache: 'no-store' });
@@ -16,10 +16,9 @@ export default async function UsersPage() {
   const user = session.user as any;
   if (user.role !== 'ADMIN') redirect('/admin');
 
-  const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
   const headers = {
     'Content-Type': 'application/json',
-    'X-API-Key': INTERNAL_API_KEY,
+    'X-API-Key': process.env.INTERNAL_API_KEY || '',
     'X-User-Id': user.id ?? '',
     'X-User-Role': user.role ?? '',
   };
@@ -35,9 +34,14 @@ export default async function UsersPage() {
         </a>
       </div>
 
-      <div className="mb-8 p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Create New User</h2>
-        <CreateUserForm />
+      <div className="flex justify-end mb-4">
+        <Link
+          href="/admin/users/new"
+          className="px-4 py-2 rounded text-sm font-medium text-white"
+          style={{ backgroundColor: '#8b4513' }}
+        >
+          + Add User
+        </Link>
       </div>
 
       <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>

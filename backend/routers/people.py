@@ -12,7 +12,7 @@ from dependencies import require_admin, require_admin_or_show_admin
 from models import User, Horse, Exhibitor, Entry, ExhibitorHorse
 from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, ExhibitorCreate, ExhibitorUpdate, ExhibitorOut
 
-VALID_ROLES = {"ADMIN", "SHOW_ADMIN", "SCOREKEEPER", "EXHIBITOR"}
+VALID_ROLES = {"ADMIN", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -47,14 +47,14 @@ async def create_user_with_password(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    ADMIN can create any role. SHOW_ADMIN can only create SCOREKEEPER accounts.
+    ADMIN can create any role. SHOW_SECRETARY can only create SCOREKEEPER accounts.
     """
     from dependencies import INTERNAL_API_KEY
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    if x_user_role == "SHOW_ADMIN" and body.role != "SCOREKEEPER":
-        raise HTTPException(status_code=403, detail="Show Admins can only create Scorekeeper accounts")
-    if x_user_role not in ("ADMIN", "SHOW_ADMIN"):
+    if x_user_role == "SHOW_SECRETARY" and body.role != "SCOREKEEPER":
+        raise HTTPException(status_code=403, detail="Show Secretaries can only create Scorekeeper accounts")
+    if x_user_role not in ("ADMIN", "SHOW_SECRETARY"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     if body.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
@@ -75,6 +75,42 @@ async def create_user_with_password(
 
 class RoleUpdate(BaseModel):
     role: str
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+
+@users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
+async def update_user(user_id: UUID, body: UserProfileUpdate, db: AsyncSession = Depends(get_db)):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(user, k, v)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Email already in use")
+    return user
+
+
+class PasswordReset(BaseModel):
+    new_password: str
+
+
+@users_router.patch("/{user_id}/password", status_code=204, dependencies=[Depends(require_admin)])
+async def reset_user_password(user_id: UUID, body: PasswordReset, db: AsyncSession = Depends(get_db)):
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.hashed_password = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    await db.commit()
 
 
 @users_router.patch("/{user_id}/role", response_model=UserOut, dependencies=[Depends(require_admin)])

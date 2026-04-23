@@ -1,19 +1,26 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
-const ROLES = ['ADMIN', 'SHOW_ADMIN', 'SCOREKEEPER', 'EXHIBITOR'];
+const ROLES = ['ADMIN', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Admin',
+  SHOW_SECRETARY: 'Show Secretary',
+  SCOREKEEPER: 'Scorekeeper',
+  EXHIBITOR: 'Exhibitor',
+};
 
 export default function CreateUserForm() {
-  const [form, setForm] = useState({ email: '', full_name: '', role: 'SHOW_ADMIN', password: '' });
+  const router = useRouter();
+  const [form, setForm] = useState({ email: '', full_name: '', role: 'SHOW_SECRETARY', password: '' });
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    setSuccess('');
     setLoading(true);
     try {
       const res = await fetch('/api/users', {
@@ -25,16 +32,14 @@ export default function CreateUserForm() {
       if (!res.ok) {
         setError(json.detail || 'Failed to create user');
       } else {
-        setSuccess(`Created ${json.full_name} (${json.role})`);
-        setForm({ email: '', full_name: '', role: 'SHOW_ADMIN', password: '' });
-        window.location.reload();
+        router.push('/admin/users');
       }
     } finally {
       setLoading(false);
     }
   }
 
-  const inputClass = "w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1";
+  const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
   const inputStyle = { borderColor: '#d4b896' };
 
   return (
@@ -68,7 +73,7 @@ export default function CreateUserForm() {
           value={form.role}
           onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
         >
-          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+          {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>)}
         </select>
       </div>
       <div>
@@ -85,7 +90,6 @@ export default function CreateUserForm() {
       </div>
 
       {error && <p className="sm:col-span-2 text-sm text-red-600">{error}</p>}
-      {success && <p className="sm:col-span-2 text-sm text-green-700">{success}</p>}
 
       <div className="sm:col-span-2">
         <button

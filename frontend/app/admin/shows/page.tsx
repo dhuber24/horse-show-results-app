@@ -40,7 +40,7 @@ export default async function AdminShowsPage() {
         </Link>
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
-            {role === 'SHOW_ADMIN' ? 'My Shows' : 'Shows'}
+            {role === 'SHOW_SECRETARY' ? 'My Shows' : 'Shows'}
           </h1>
           <div className="flex items-center gap-2">
             {role === 'ADMIN' && (
@@ -65,7 +65,7 @@ export default async function AdminShowsPage() {
 
       {shows.length === 0 ? (
         <p style={{ color: '#8b7355' }}>
-          {role === 'SHOW_ADMIN' ? 'No shows assigned to you yet.' : 'No shows yet.'}
+          {role === 'SHOW_SECRETARY' ? 'No shows assigned to you yet.' : 'No shows yet.'}
         </p>
       ) : (
         <ul className="space-y-3">

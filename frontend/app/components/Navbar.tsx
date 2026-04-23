@@ -38,7 +38,7 @@ export default async function Navbar() {
                 Shows
               </Link>
             )}
-            {(role === 'ADMIN' || role === 'SHOW_ADMIN') && (
+            {(role === 'ADMIN' || role === 'SHOW_SECRETARY') && (
               <Link href="/admin"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>

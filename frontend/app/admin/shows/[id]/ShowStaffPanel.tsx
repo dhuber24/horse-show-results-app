@@ -33,7 +33,7 @@ export default function ShowStaffPanel({
   const [createSuccess, setCreateSuccess] = useState('');
 
   const availableShowAdmins = allUsers.filter(
-    u => u.role === 'SHOW_ADMIN' && !admins.find(a => a.id === u.id)
+    u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
   );
   const availableScorekeepers = allUsers.filter(
     u => u.role === 'SCOREKEEPER' && !scorekeepers.find(s => s.id === u.id)
@@ -132,7 +132,7 @@ export default function ShowStaffPanel({
 
       {isAdmin && (
         <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Admins</h2>
+          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Secretaries</h2>
 
           {admins.length === 0 && (
             <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No show admins assigned.</p>
@@ -152,7 +152,7 @@ export default function ShowStaffPanel({
           {availableShowAdmins.length > 0 ? (
             <div className="flex items-center gap-2">
               <select id="add-admin-select" className={`${inputClass} flex-1`} style={inputStyle} defaultValue="">
-                <option value="" disabled>Select a Show Admin to add…</option>
+                <option value="" disabled>Select a Show Secretary to add…</option>
                 {availableShowAdmins.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
@@ -166,7 +166,7 @@ export default function ShowStaffPanel({
             </div>
           ) : (
             <p className="text-xs" style={{ color: '#8b7355' }}>
-              No additional Show Admins available. Create one in{' '}
+              No additional Show Secretaries available. Create one in{' '}
               <a href="/admin/users" className="underline">User Management</a>.
             </p>
           )}

@@ -18,7 +18,7 @@ export default function VenueAdminPanel({
   const [error, setError] = useState('');
 
   const available = allUsers.filter(
-    u => u.role === 'SHOW_ADMIN' && !admins.find(a => a.id === u.id)
+    u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
   );
 
   async function add(userId: string) {
@@ -51,7 +51,7 @@ export default function VenueAdminPanel({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {admins.length === 0 && (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No Show Admins assigned to this venue.</p>
+        <p className="text-sm" style={{ color: '#8b7355' }}>No Show Secretarys assigned to this venue.</p>
       )}
 
       <ul className="space-y-1">
@@ -79,7 +79,7 @@ export default function VenueAdminPanel({
             style={{ borderColor: '#d4b896' }}
             defaultValue=""
           >
-            <option value="" disabled>Select a Show Admin to add…</option>
+            <option value="" disabled>Select a Show Secretary to add…</option>
             {available.map(u => (
               <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
             ))}
@@ -98,7 +98,7 @@ export default function VenueAdminPanel({
         </div>
       ) : (
         <p className="text-xs" style={{ color: '#8b7355' }}>
-          No additional Show Admins available. Create one in{' '}
+          No additional Show Secretarys available. Create one in{' '}
           <a href="/admin/users" className="underline">User Management</a>.
         </p>
       )}

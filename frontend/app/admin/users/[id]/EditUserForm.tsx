@@ -1,0 +1,79 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+interface Props {
+  user: { id: string; full_name: string; email: string };
+}
+
+export default function EditUserForm({ user }: Props) {
+  const router = useRouter();
+  const [fullName, setFullName] = useState(user.full_name);
+  const [email, setEmail] = useState(user.email);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const isDirty = fullName.trim() !== user.full_name || email.trim() !== user.email;
+
+  const handleSave = async () => {
+    if (!fullName.trim() || !email.trim()) return;
+    setSaving(true);
+    setMessage(null);
+    const res = await fetch(`/api/users/${user.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name: fullName.trim(), email: email.trim() }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setMessage({ type: 'success', text: 'Profile updated.' });
+      router.refresh();
+    } else {
+      const json = await res.json();
+      setMessage({ type: 'error', text: json.detail || 'Failed to update profile.' });
+    }
+  };
+
+  const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
+  const inputStyle = { borderColor: '#d4b896' };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Full Name</label>
+        <input
+          value={fullName}
+          onChange={e => setFullName(e.target.value)}
+          className={inputClass}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          className={inputClass}
+          style={inputStyle}
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSave}
+          disabled={saving || !isDirty}
+          className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+          style={{ backgroundColor: '#8b4513' }}
+        >
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+        {message && (
+          <p className={`text-sm ${message.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
+            {message.text}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

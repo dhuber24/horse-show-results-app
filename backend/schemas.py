@@ -163,6 +163,7 @@ class UserOut(BaseModel):
     role: str
     full_name: str
     email: str
+    last_login_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:

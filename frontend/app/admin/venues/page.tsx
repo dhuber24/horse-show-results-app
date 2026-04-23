@@ -31,7 +31,7 @@ export default async function AdminVenuesPage() {
         </Link>
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
-            {role === 'SHOW_ADMIN' ? 'My Venues' : 'Venues'}
+            {role === 'SHOW_SECRETARY' ? 'My Venues' : 'Venues'}
           </h1>
           {role === 'ADMIN' && (
             <Link
@@ -47,7 +47,7 @@ export default async function AdminVenuesPage() {
 
       {venues.length === 0 ? (
         <p style={{ color: '#8b7355' }}>
-          {role === 'SHOW_ADMIN' ? 'No venues have been assigned to you yet.' : 'No venues yet.'}
+          {role === 'SHOW_SECRETARY' ? 'No venues have been assigned to you yet.' : 'No venues yet.'}
         </p>
       ) : (
         <ul className="space-y-3">

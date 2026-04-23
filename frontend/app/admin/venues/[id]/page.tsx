@@ -50,7 +50,7 @@ export default async function AdminVenuePage({ params }: { params: Promise<{ id:
 
       {isAdmin && (
         <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Admins for this Venue</h2>
+          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Secretaries for this Venue</h2>
           <VenueAdminPanel
             venueId={id}
             initialAdmins={panelData.admins}

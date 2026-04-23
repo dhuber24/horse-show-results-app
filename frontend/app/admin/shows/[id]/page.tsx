@@ -51,7 +51,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const session = await auth();
   const user = session?.user as any;
   const isAdmin = user?.role === 'ADMIN';
-  const isShowAdmin = user?.role === 'SHOW_ADMIN';
+  const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
   let staffData = { admins: [], scorekeepers: [], allUsers: [] };
   if ((isAdmin || isShowAdmin) && user?.id) {

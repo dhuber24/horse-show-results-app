@@ -55,7 +55,7 @@ class Show(Base):
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
-    show_admins = relationship("ShowAdmin", back_populates="show", cascade="all, delete")
+    show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
 
 
@@ -109,11 +109,12 @@ class User(Base):
     full_name = Column(Text, nullable=False)
     email = Column(Text, unique=True, nullable=False)
     hashed_password = Column(Text, nullable=True)
+    last_login_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
     exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
-    admin_shows = relationship("ShowAdmin", back_populates="user", cascade="all, delete")
+    secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
 
@@ -132,8 +133,8 @@ class VenueAdmin(Base):
     user = relationship("User", back_populates="admin_venues")
 
 
-class ShowAdmin(Base):
-    __tablename__ = "show_admins"
+class ShowSecretary(Base):
+    __tablename__ = "show_secretaries"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
@@ -142,8 +143,8 @@ class ShowAdmin(Base):
 
     __table_args__ = (UniqueConstraint("show_id", "user_id"),)
 
-    show = relationship("Show", back_populates="show_admins")
-    user = relationship("User", back_populates="admin_shows")
+    show = relationship("Show", back_populates="show_secretaries")
+    user = relationship("User", back_populates="secretary_shows")
 
 
 class ShowScorekeeper(Base):

@@ -19,7 +19,7 @@ async def list_venues(
     x_user_role: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    if x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SHOW_ADMIN" and x_user_id:
+    if x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SHOW_SECRETARY" and x_user_id:
         result = await db.execute(
             select(Venue)
             .join(VenueAdmin, VenueAdmin.venue_id == Venue.id)
@@ -96,8 +96,8 @@ async def add_venue_admin(venue_id: UUID, body: dict, db: AsyncSession = Depends
     user = await db.get(User, UUID(user_id))
     if not user:
         raise HTTPException(404, "User not found")
-    if user.role != "SHOW_ADMIN":
-        raise HTTPException(400, "User must have SHOW_ADMIN role")
+    if user.role != "SHOW_SECRETARY":
+        raise HTTPException(400, "User must have SHOW_SECRETARY role")
     existing = await db.execute(
         select(VenueAdmin).where(VenueAdmin.venue_id == venue_id, VenueAdmin.user_id == user.id)
     )
