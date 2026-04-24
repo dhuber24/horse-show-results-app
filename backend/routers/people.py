@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, union
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr
@@ -9,8 +10,13 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated
-from models import User, Horse, Exhibitor, Entry, ExhibitorHorse
-from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, ExhibitorCreate, ExhibitorUpdate, ExhibitorOut
+from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration
+from schemas import (
+    UserCreate, UserOut,
+    HorseCreate, HorseUpdate, HorseOut,
+    HorseRegistrationCreate, HorseRegistrationOut,
+    ExhibitorCreate, ExhibitorUpdate, ExhibitorOut,
+)
 
 VALID_ROLES = {"ADMIN", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
 
@@ -199,9 +205,11 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
 
 horses_router = APIRouter(prefix="/horses", tags=["Horses"])
 
+_horse_options = [selectinload(Horse.breed), selectinload(Horse.color), selectinload(Horse.owner_exhibitor)]
+
 @horses_router.get("/", response_model=list[HorseOut])
 async def list_horses(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Horse).order_by(Horse.name))
+    result = await db.execute(select(Horse).options(*_horse_options).order_by(Horse.name))
     return result.scalars().all()
 
 @horses_router.post("/", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -209,26 +217,28 @@ async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
     horse = Horse(**body.model_dump())
     db.add(horse)
     await db.commit()
-    await db.refresh(horse)
-    return horse
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
+    return result.scalar_one()
 
 @horses_router.get("/{horse_id}", response_model=HorseOut)
 async def get_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
-    horse = await db.get(Horse, horse_id)
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
+    horse = result.scalar_one_or_none()
     if not horse:
         raise HTTPException(404, "Horse not found")
     return horse
 
 @horses_router.patch("/{horse_id}", response_model=HorseOut, dependencies=[Depends(require_admin)])
 async def update_horse(horse_id: UUID, body: HorseUpdate, db: AsyncSession = Depends(get_db)):
-    horse = await db.get(Horse, horse_id)
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
+    horse = result.scalar_one_or_none()
     if not horse:
         raise HTTPException(404, "Horse not found")
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(horse, k, v)
     await db.commit()
-    await db.refresh(horse)
-    return horse
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
+    return result.scalar_one()
 
 @horses_router.delete("/{horse_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
@@ -236,6 +246,52 @@ async def delete_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
     if not horse:
         raise HTTPException(404, "Horse not found")
     await db.delete(horse)
+    await db.commit()
+
+
+# ── Horse Registrations ─────────────────────────────────────────────────────────
+
+@horses_router.get("/{horse_id}/registrations", response_model=list[HorseRegistrationOut])
+async def list_horse_registrations(horse_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(HorseRegistration)
+        .options(selectinload(HorseRegistration.show_type))
+        .where(HorseRegistration.horse_id == horse_id)
+        .order_by(HorseRegistration.created_at)
+    )
+    return result.scalars().all()
+
+@horses_router.post("/{horse_id}/registrations", response_model=HorseRegistrationOut, status_code=201, dependencies=[Depends(require_admin)])
+async def create_horse_registration(horse_id: UUID, body: HorseRegistrationCreate, db: AsyncSession = Depends(get_db)):
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    reg = HorseRegistration(horse_id=horse_id, **body.model_dump())
+    db.add(reg)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "This horse already has a registration for that association")
+    result = await db.execute(
+        select(HorseRegistration)
+        .options(selectinload(HorseRegistration.show_type))
+        .where(HorseRegistration.id == reg.id)
+    )
+    return result.scalar_one()
+
+@horses_router.delete("/{horse_id}/registrations/{reg_id}", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_horse_registration(horse_id: UUID, reg_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(HorseRegistration).where(
+            HorseRegistration.id == reg_id,
+            HorseRegistration.horse_id == horse_id,
+        )
+    )
+    reg = result.scalar_one_or_none()
+    if not reg:
+        raise HTTPException(404, "Registration not found")
+    await db.delete(reg)
     await db.commit()
 
 
@@ -291,7 +347,7 @@ async def get_exhibitor_horses(exhibitor_id: UUID, db: AsyncSession = Depends(ge
     from_entry = select(Horse.id).join(Entry, Entry.horse_id == Horse.id).where(Entry.exhibitor_id == exhibitor_id)
     combined = union(from_link, from_entry).subquery()
     result = await db.execute(
-        select(Horse).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
+        select(Horse).options(*_horse_options).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
     )
     return result.scalars().all()
 

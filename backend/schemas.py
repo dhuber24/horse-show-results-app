@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 from typing import Optional, Any
 from datetime import date, datetime
 from uuid import UUID
@@ -170,21 +170,138 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+# ── Breeds ─────────────────────────────────────────────────────────────────────
+
+class BreedCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+class BreedUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+
+class BreedOut(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Horse Colors ────────────────────────────────────────────────────────────────
+
+class HorseColorCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+class HorseColorUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+
+class HorseColorOut(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Horse Registrations ─────────────────────────────────────────────────────────
+
+class HorseRegistrationCreate(BaseModel):
+    show_type_id: UUID
+    registration_number: str
+
+class HorseRegistrationOut(BaseModel):
+    id: UUID
+    horse_id: UUID
+    show_type_id: UUID
+    show_type_code: Optional[str] = None
+    show_type_name: Optional[str] = None
+    registration_number: str
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def extract_show_type(cls, v):
+        if isinstance(v, dict):
+            return v
+        show_type = getattr(v, 'show_type', None)
+        return {
+            'id': v.id,
+            'horse_id': v.horse_id,
+            'show_type_id': v.show_type_id,
+            'show_type_code': show_type.code if show_type else None,
+            'show_type_name': show_type.name if show_type else None,
+            'registration_number': v.registration_number,
+            'created_at': v.created_at,
+        }
+
+    class Config:
+        from_attributes = True
+
+
 # ── Horses ─────────────────────────────────────────────────────────────────────
 
 class HorseCreate(BaseModel):
     name: str
-    owner_name: Optional[str] = None
+    owner_exhibitor_id: Optional[UUID] = None
+    foaling_date: Optional[date] = None
+    sex: Optional[str] = None
+    breed_id: Optional[UUID] = None
+    color_id: Optional[UUID] = None
 
 class HorseUpdate(BaseModel):
     name: Optional[str] = None
-    owner_name: Optional[str] = None
+    owner_exhibitor_id: Optional[UUID] = None
+    foaling_date: Optional[date] = None
+    sex: Optional[str] = None
+    breed_id: Optional[UUID] = None
+    color_id: Optional[UUID] = None
 
 class HorseOut(BaseModel):
     id: UUID
     name: str
-    owner_name: Optional[str]
+    owner_exhibitor_id: Optional[UUID] = None
+    owner_name: Optional[str] = None
+    foaling_date: Optional[date] = None
+    sex: Optional[str] = None
+    breed_id: Optional[UUID] = None
+    breed_name: Optional[str] = None
+    color_id: Optional[UUID] = None
+    color_name: Optional[str] = None
+    age: Optional[int] = None
     created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def compute_derived(cls, v):
+        if isinstance(v, dict):
+            return v
+        foaling_date = getattr(v, 'foaling_date', None)
+        breed = getattr(v, 'breed', None)
+        color = getattr(v, 'color', None)
+        owner_exhibitor = getattr(v, 'owner_exhibitor', None)
+        data = {
+            'id': v.id,
+            'name': v.name,
+            'owner_exhibitor_id': v.owner_exhibitor_id,
+            'owner_name': owner_exhibitor.full_name if owner_exhibitor else None,
+            'foaling_date': foaling_date,
+            'sex': v.sex,
+            'breed_id': v.breed_id,
+            'breed_name': breed.name if breed else None,
+            'color_id': v.color_id,
+            'color_name': color.name if color else None,
+            'created_at': v.created_at,
+        }
+        if foaling_date:
+            data['age'] = max(0, datetime.now().year - foaling_date.year)
+        return data
 
     class Config:
         from_attributes = True

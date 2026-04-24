@@ -38,6 +38,8 @@
 
 Show Secretaries self-register at `/register/show-secretary` (linked from the login page). During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded from the certification list since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`.
 
+All authenticated users can access `/profile` to view and edit their name/email and change their password. Exhibitors additionally see a list of horses linked to their exhibitor profile. The admin Exhibitors page has been removed — exhibitor management is handled through the Users admin page.
+
 ## Technology Stack
 
 | Layer | Technology | Details |
@@ -84,14 +86,17 @@ horse-show-results-app/
 ### Database (`/database`)
 - **System:** PostgreSQL
 - **Purpose:** Persistent storage for shows, exhibitors, entries, and results
-- **Expected Entities:**
+- **Entities:**
   - Shows (events)
   - Exhibitors/Riders
   - Classes (competition categories)
   - Entries (exhibitor + class registrations)
   - Placings (results with order)
   - Users (with roles)
-  - Associations (AQHA, APHA, WSCA, NSBA)
+  - Associations via `show_types` table (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR, OPEN)
+  - Horses — with foaling date, sex, breed, color, association registrations, and owner (exhibitor FK)
+  - Breeds — managed lookup table, seeded with 17 common western breeds, sorted alphabetically
+  - Horse Colors — managed lookup table, seeded with 27 coat colors/patterns, sorted alphabetically
 
 ## Development Environment
 
@@ -112,7 +117,7 @@ docker-compose up
 - `docker-compose.yml` — Defines services for local development (backend, frontend, database)
 
 ## Current Status
-🔨 **Active Development** — Core infrastructure is in place. User management, show/class/entry management, results entry, and back number assignment are all functional.
+🔨 **Active Development** — Core infrastructure is in place. User management, show/class/entry management, results entry, and back number assignment are all functional. Exhibitors have a self-service account/profile page at `/profile`.
 
 ## Development Guidelines for Claude
 
@@ -152,6 +157,20 @@ docker-compose up
 
 ### Association Classes
 Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) may have different class structures and naming conventions. The app should support flexible class definitions per association. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
+
+### Horse Data Model
+Horses have the following attributes:
+- `name` (required)
+- `owner_exhibitor_id` — FK to `exhibitors`. Owners are always linked to an exhibitor record, not a raw user. If the exhibitor is later linked to a user account, ownership carries through automatically. `HorseOut.owner_name` is derived from `owner_exhibitor.full_name`.
+- `sex` — constrained to `'Mare'`, `'Gelding'`, `'Stallion'` (nullable)
+- `foaling_date` — actual birth date (DATE, nullable). **Age is calculated, never stored:** `max(0, current_year - foaling_year)`. Every horse turns one year older on January 1 regardless of actual foaling date. Computed in `HorseOut.age` via `model_validator`.
+- `breed_id` — FK to `breeds` lookup table (admin-managed, alphabetically sorted)
+- `color_id` — FK to `horse_colors` lookup table (admin-managed, alphabetically sorted)
+- `horse_registrations` — child table linking a horse to a `show_type` + `registration_number`. One registration per association per horse. `OPEN` is excluded from the association registration UI (same `UNCERTIFIED_SHOW_TYPE_CODES` pattern as Show Secretary certifications — constant defined at top of `EditHorseForm.tsx`).
+
+`HorseOut` uses a `model_validator(mode='before')` to derive `breed_name`, `color_name`, `owner_name`, and `age` from loaded relationships. Horse routes always use `selectinload` for `breed`, `color`, and `owner_exhibitor` — never rely on lazy loading.
+
+Admin manages breeds at `/admin/horses/breeds` and colors at `/admin/horses/colors`.
 
 ## Future Considerations
 
@@ -194,6 +213,8 @@ Applied migrations:
 - `004_user_last_login.sql` — last_login_at column on users
 - `005_rename_show_admins_table.sql` — renamed show_admins → show_secretaries
 - `006_secretary_certifications.sql` — show_secretary_certifications table (user ↔ show_type + secretary_id_number)
+- `007_horse_attributes.sql` — breeds table (17 seeded), horse_colors table (27 seeded), adds foaling_date/sex/breed_id/color_id to horses, horse_registrations table (horse ↔ show_type + registration_number)
+- `008_horse_owner_exhibitor.sql` — adds owner_exhibitor_id FK (horses → exhibitors)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -209,6 +230,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026  
+**Last Updated:** April 2026 (migrations 007–008, horse attributes)
 **Project Status:** 🔨 Active Development
 
