@@ -14,20 +14,12 @@ export default function RegisterPage() {
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
           <RegisterForm />
         </div>
-        <div className="text-center text-sm mt-4 space-y-1">
-          <p style={{ color: '#8b7355' }}>
-            Already have an account?{' '}
-            <Link href="/login" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
-              Sign in
-            </Link>
-          </p>
-          <p style={{ color: '#8b7355' }}>
-            Are you a Show Secretary?{' '}
-            <Link href="/register/show-secretary" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
-              Register here
-            </Link>
-          </p>
-        </div>
+        <p className="text-center text-sm mt-4" style={{ color: '#8b7355' }}>
+          Already have an account?{' '}
+          <Link href="/login" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+            Sign in
+          </Link>
+        </p>
       </div>
     </main>
   );

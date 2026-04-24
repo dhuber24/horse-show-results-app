@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
+// Show types whose code appears here are excluded from the certification list.
+// Add codes here for any show type that does not require association affiliation.
+const UNCERTIFIED_SHOW_TYPE_CODES = ['OPEN'];
+
 interface ShowType {
   id: string;
   code: string;
@@ -26,7 +30,7 @@ export default function ShowSecretaryRegisterForm() {
   useEffect(() => {
     fetch('/api/show-types')
       .then((r) => r.json())
-      .then((data) => setShowTypes(Array.isArray(data) ? data : []))
+      .then((data) => setShowTypes(Array.isArray(data) ? data.filter((st: ShowType) => !UNCERTIFIED_SHOW_TYPE_CODES.includes(st.code)) : []))
       .catch(() => {});
   }, []);
 
@@ -157,7 +161,7 @@ export default function ShowSecretaryRegisterForm() {
                       </label>
                       <input
                         type="text"
-                        placeholder={`Your ${st.code} Secretary ID`}
+                        placeholder={`Your ${st.code} Secretary ID (if applicable)`}
                         value={certifications[st.id].secretary_id_number}
                         onChange={(e) => handleSecretaryId(st.id, e.target.value)}
                         className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
