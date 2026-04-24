@@ -16,12 +16,6 @@ const adminTiles = [
     icon: '📍',
   },
   {
-    href: '/admin/exhibitors',
-    title: 'Exhibitors',
-    description: 'Manage exhibitors and their associated horses.',
-    icon: '👤',
-  },
-  {
     href: '/admin/horses',
     title: 'Horses',
     description: 'Add and edit horses in the system.',

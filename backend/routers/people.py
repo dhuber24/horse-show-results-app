@@ -8,7 +8,7 @@ from pydantic import BaseModel, EmailStr
 import bcrypt
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin
+from dependencies import require_admin, require_admin_or_show_admin, require_authenticated
 from models import User, Horse, Exhibitor, Entry, ExhibitorHorse
 from schemas import UserCreate, UserOut, HorseCreate, HorseUpdate, HorseOut, ExhibitorCreate, ExhibitorUpdate, ExhibitorOut
 
@@ -80,6 +80,59 @@ class RoleUpdate(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@users_router.get("/me", response_model=UserOut)
+async def get_current_user(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, UUID(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    return user
+
+
+@users_router.patch("/me", response_model=UserOut)
+async def update_current_user(
+    body: UserProfileUpdate,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, UUID(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(user, k, v)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Email already in use")
+    return user
+
+
+@users_router.patch("/me/password", status_code=204)
+async def change_current_user_password(
+    body: PasswordChange,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    user = await db.get(User, UUID(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not user.hashed_password or not bcrypt.checkpw(body.current_password.encode(), user.hashed_password.encode()):
+        raise HTTPException(400, "Current password is incorrect")
+    user.hashed_password = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    await db.commit()
 
 
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])

@@ -25,13 +25,8 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {!data.exhibitor ? (
-        <div className="rounded-lg border p-4" style={{ backgroundColor: '#fdf8e8', borderColor: '#c4860a' }}>
-          <p className="font-medium" style={{ color: '#8b6200' }}>No exhibitor profile linked to your account.</p>
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>Contact the show admin to link your entries.</p>
-        </div>
-      ) : data.entries.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No entries found.</p>
+      {!data.exhibitor || data.entries.length === 0 ? (
+        <p style={{ color: '#8b7355' }}>You are not yet registered for any shows.</p>
       ) : (
         <ul className="space-y-3">
           {data.entries.map((entry: any) => (
