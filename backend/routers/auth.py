@@ -8,7 +8,7 @@ from uuid import UUID
 import bcrypt
 
 from database import get_db
-from models import User, ShowSecretaryCertification, ShowType
+from models import User, Exhibitor, ShowSecretaryCertification, ShowType
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -82,6 +82,11 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
         hashed_password=hash_password(body.password),
     )
     db.add(user)
+    await db.flush()
+
+    exhibitor = Exhibitor(full_name=body.full_name, user_id=user.id)
+    db.add(exhibitor)
+
     await db.commit()
     await db.refresh(user)
 
