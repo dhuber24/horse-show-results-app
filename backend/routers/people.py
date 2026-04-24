@@ -342,10 +342,11 @@ class ExhibitorHorseAttach(BaseModel):
 
 @exhibitors_router.get("/{exhibitor_id}/horses", response_model=list[HorseOut])
 async def get_exhibitor_horses(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Returns horses directly attached to this exhibitor, plus any from entries."""
+    """Returns horses owned by, directly attached to, or entered by this exhibitor."""
+    from_ownership = select(Horse.id).where(Horse.owner_exhibitor_id == exhibitor_id)
     from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)
     from_entry = select(Horse.id).join(Entry, Entry.horse_id == Horse.id).where(Entry.exhibitor_id == exhibitor_id)
-    combined = union(from_link, from_entry).subquery()
+    combined = union(from_ownership, from_link, from_entry).subquery()
     result = await db.execute(
         select(Horse).options(*_horse_options).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
     )

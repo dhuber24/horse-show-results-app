@@ -163,7 +163,7 @@ Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) may
 ### Horse Data Model
 Horses have the following attributes:
 - `name` (required)
-- `owner_exhibitor_id` — FK to `exhibitors`. Owners are always linked to an exhibitor record, not a raw user. If the exhibitor is later linked to a user account, ownership carries through automatically. `HorseOut.owner_name` is derived from `owner_exhibitor.full_name`.
+- `owner_exhibitor_id` — FK to `exhibitors`. Owners are always linked to an exhibitor record, not a raw user. If the exhibitor is later linked to a user account, ownership carries through automatically. `HorseOut.owner_name` is derived from `owner_exhibitor.full_name`. The `GET /exhibitors/{id}/horses` endpoint includes horses via ownership, direct link (`exhibitor_horses`), and entries — all three sources are unioned.
 - `sex` — constrained to `'Mare'`, `'Gelding'`, `'Stallion'` (nullable)
 - `foaling_date` — actual birth date (DATE, nullable). **Age is calculated, never stored:** `max(0, current_year - foaling_year)`. Every horse turns one year older on January 1 regardless of actual foaling date. Computed in `HorseOut.age` via `model_validator`.
 - `breed_id` — FK to `breeds` lookup table (admin-managed, alphabetically sorted)
