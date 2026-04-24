@@ -1,14 +1,8 @@
 import Link from 'next/link';
-import { fetchHorses, fetchBreeds, fetchHorseColors, fetchExhibitors } from '@/lib/api';
-import CreateHorseForm from '../shows/[id]/CreateHorseForm';
+import { fetchHorses } from '@/lib/api';
 
 export default async function AdminHorsesPage() {
-  const [horses, breeds, colors, exhibitors] = await Promise.all([
-    fetchHorses(),
-    fetchBreeds(),
-    fetchHorseColors(),
-    fetchExhibitors(),
-  ]);
+  const horses = await fetchHorses();
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
@@ -33,14 +27,16 @@ export default async function AdminHorsesPage() {
             >
               Manage Colors
             </Link>
+            <Link
+              href="/admin/horses/new"
+              className="text-sm px-3 py-1.5 rounded font-medium"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              + New Horse
+            </Link>
           </div>
         </div>
       </div>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Horse</h2>
-        <CreateHorseForm breeds={breeds} colors={colors} exhibitors={exhibitors} />
-      </section>
 
       <section>
         <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>

@@ -319,6 +319,14 @@ async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Dep
     await db.refresh(exhibitor)
     return exhibitor
 
+@exhibitors_router.get("/by-user/{user_id}", response_model=ExhibitorOut)
+async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user_id))
+    exhibitor = result.scalar_one_or_none()
+    if not exhibitor:
+        raise HTTPException(404, "No exhibitor record found for this user")
+    return exhibitor
+
 @exhibitors_router.get("/{exhibitor_id}", response_model=ExhibitorOut)
 async def get_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
     exhibitor = await db.get(Exhibitor, exhibitor_id)

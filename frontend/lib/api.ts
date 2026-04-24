@@ -120,6 +120,13 @@ export async function fetchHorseColor(id: string) {
   return res.json();
 }
 
+export async function fetchExhibitorByUser(userId: string) {
+  const res = await fetch(`${API_URL}/exhibitors/by-user/${userId}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to fetch exhibitor');
+  return res.json();
+}
+
 export async function fetchHorseRegistrations(horseId: string) {
   const res = await fetch(`${API_URL}/horses/${horseId}/registrations`);
   if (!res.ok) throw new Error('Failed to fetch horse registrations');
