@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -150,13 +151,22 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => handleRemove(horse.id)}
-                disabled={removingId === horse.id}
-                className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50 ml-4 shrink-0"
-              >
-                {removingId === horse.id ? 'Removing…' : 'Remove'}
-              </button>
+              <div className="flex items-center gap-3 ml-4 shrink-0">
+                <Link
+                  href={`/profile/horses/${horse.id}`}
+                  className="text-xs font-medium hover:underline"
+                  style={{ color: '#8b4513' }}
+                >
+                  Documents
+                </Link>
+                <button
+                  onClick={() => handleRemove(horse.id)}
+                  disabled={removingId === horse.id}
+                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                >
+                  {removingId === horse.id ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
             </li>
           ))}
         </ul>

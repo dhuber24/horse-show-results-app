@@ -174,6 +174,17 @@ Horses have the following attributes:
 
 Admin manages breeds at `/admin/horses/breeds` and colors at `/admin/horses/colors`.
 
+### Horse Documents
+Four document types per horse: `COGGINS` (EIA test), `VACCINATION`, `HEALTH_CERTIFICATE` (CVI), `REGISTRATION` (breed papers/membership). Each document stores: type, original filename, file bytes (BYTEA in Neon for now), mime type, file size, issue date, expiry date (both manually entered — no auto-calculation), and uploader user ID.
+
+**S3 migration path:** Add a `storage_key TEXT` column, backfill from file_data, then drop file_data. No schema changes needed beyond that.
+
+**Auth:** ADMIN has full access. EXHIBITORs can only upload/view/delete documents for horses they own (`owner_exhibitor_id` matches their exhibitor record).
+
+**Backend:** `backend/routers/horse_documents.py` — GET list, POST upload (multipart), GET download, DELETE. Max 10 MB, accepts PDF and images. The `HorseDocumentOut` schema never includes `file_data` — only the download endpoint returns bytes.
+
+**Frontend:** Shared `HorseDocuments` client component at `frontend/components/HorseDocuments.tsx` — used by both admin edit horse page and exhibitor horse detail page. Displays docs grouped by type with expiry badges (green/yellow/red). Exhibitors access documents via `/profile/horses/[id]`, linked from the "Documents" button on each horse in MyHorsesPanel.
+
 ## Future Considerations
 
 - Real-time notifications to exhibitors
@@ -217,6 +228,7 @@ Applied migrations:
 - `006_secretary_certifications.sql` — show_secretary_certifications table (user ↔ show_type + secretary_id_number)
 - `007_horse_attributes.sql` — breeds table (17 seeded), horse_colors table (27 seeded), adds foaling_date/sex/breed_id/color_id to horses, horse_registrations table (horse ↔ show_type + registration_number)
 - `008_horse_owner_exhibitor.sql` — adds owner_exhibitor_id FK (horses → exhibitors)
+- `009_horse_documents.sql` — horse_documents table (BYTEA file storage in Neon; migrate to S3 later by adding a storage_key column and dropping file_data)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT

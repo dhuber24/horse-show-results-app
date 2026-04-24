@@ -12,6 +12,7 @@ from routers.classes import router as classes_router
 from routers.people import users_router, horses_router, exhibitors_router
 from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
+from routers.horse_documents import router as horse_documents_router
 from routers.entries import router as entries_router
 from routers.results import router as results_router
 from routers.auth import router as auth_router
@@ -59,6 +60,7 @@ app.include_router(users_router)
 app.include_router(horses_router)
 app.include_router(breeds_router)
 app.include_router(horse_colors_router)
+app.include_router(horse_documents_router)
 app.include_router(exhibitors_router)
 app.include_router(entries_router)
 app.include_router(results_router)

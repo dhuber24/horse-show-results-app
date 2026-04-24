@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import HorseDocuments from '@/components/HorseDocuments';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -296,6 +297,12 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
           </div>
         )}
         {regError && <p className="text-red-600 text-sm">{regError}</p>}
+      </div>
+
+      {/* Documents */}
+      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Health & Registration Documents</h2>
+        <HorseDocuments horseId={horse.id} />
       </div>
     </div>
   );

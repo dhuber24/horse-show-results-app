@@ -170,6 +170,51 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+# ── Horse Documents ─────────────────────────────────────────────────────────────
+
+DOC_TYPE_LABELS = {
+    'COGGINS': 'Coggins Test (EIA)',
+    'VACCINATION': 'Vaccination Records',
+    'HEALTH_CERTIFICATE': 'Health Certificate (CVI)',
+    'REGISTRATION': 'Registration & Membership',
+}
+
+class HorseDocumentOut(BaseModel):
+    id: UUID
+    horse_id: UUID
+    document_type: str
+    document_type_label: Optional[str] = None
+    original_filename: str
+    mime_type: str
+    file_size: int
+    issue_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    uploaded_by_user_id: Optional[UUID] = None
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def add_label(cls, v):
+        if isinstance(v, dict):
+            return v
+        return {
+            'id': v.id,
+            'horse_id': v.horse_id,
+            'document_type': v.document_type,
+            'document_type_label': DOC_TYPE_LABELS.get(v.document_type, v.document_type),
+            'original_filename': v.original_filename,
+            'mime_type': v.mime_type,
+            'file_size': v.file_size,
+            'issue_date': v.issue_date,
+            'expiry_date': v.expiry_date,
+            'uploaded_by_user_id': v.uploaded_by_user_id,
+            'created_at': v.created_at,
+        }
+
+    class Config:
+        from_attributes = True
+
+
 # ── Breeds ─────────────────────────────────────────────────────────────────────
 
 class BreedCreate(BaseModel):

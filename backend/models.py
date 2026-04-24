@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from sqlalchemy import (
-    Column, Text, Date, Boolean, Integer, ForeignKey,
+    Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
     TIMESTAMP, UniqueConstraint, CheckConstraint, func
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -201,6 +201,7 @@ class Horse(Base):
     breed = relationship("Breed", back_populates="horses")
     color = relationship("HorseColor", back_populates="horses")
     registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")
+    documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
     owner_exhibitor = relationship("Exhibitor", foreign_keys=[owner_exhibitor_id])
 
 
@@ -244,6 +245,29 @@ class HorseRegistration(Base):
 
     horse = relationship("Horse", back_populates="registrations")
     show_type = relationship("ShowType")
+
+
+class HorseDocument(Base):
+    __tablename__ = "horse_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    document_type = Column(
+        Text,
+        CheckConstraint("document_type IN ('COGGINS','VACCINATION','HEALTH_CERTIFICATE','REGISTRATION')"),
+        nullable=False,
+    )
+    original_filename = Column(Text, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    issue_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horse = relationship("Horse", back_populates="documents")
+    uploaded_by = relationship("User")
 
 
 class Entry(Base):
