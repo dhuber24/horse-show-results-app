@@ -352,6 +352,54 @@ async def get_exhibitor_horses(exhibitor_id: UUID, db: AsyncSession = Depends(ge
     )
     return result.scalars().all()
 
+@exhibitors_router.get("/{exhibitor_id}/owned-horses", response_model=list[HorseOut])
+async def get_exhibitor_owned_horses(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Horses where this exhibitor is the registered owner."""
+    result = await db.execute(
+        select(Horse).options(*_horse_options)
+        .where(Horse.owner_exhibitor_id == exhibitor_id)
+        .order_by(Horse.name)
+    )
+    return result.scalars().all()
+
+@exhibitors_router.post("/{exhibitor_id}/owned-horses", response_model=HorseOut, status_code=201)
+async def create_owned_horse(
+    exhibitor_id: UUID,
+    body: HorseCreate,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a horse and set this exhibitor as owner. Caller must own this exhibitor record."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == UUID(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only add horses to your own profile")
+    horse = Horse(**body.model_dump(exclude={'owner_exhibitor_id'}), owner_exhibitor_id=exhibitor_id)
+    db.add(horse)
+    await db.commit()
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
+    return result.scalar_one()
+
+@exhibitors_router.delete("/{exhibitor_id}/owned-horses/{horse_id}", status_code=204)
+async def remove_owned_horse(
+    exhibitor_id: UUID,
+    horse_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear ownership of a horse. Caller must own this exhibitor record."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == UUID(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only remove horses from your own profile")
+    horse = await db.get(Horse, horse_id)
+    if not horse or horse.owner_exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Horse not found in your profile")
+    horse.owner_exhibitor_id = None
+    await db.commit()
+
 @exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
 async def attach_horse_to_exhibitor(exhibitor_id: UUID, body: ExhibitorHorseAttach, db: AsyncSession = Depends(get_db)):
     exhibitor = await db.get(Exhibitor, exhibitor_id)

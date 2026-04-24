@@ -1,8 +1,10 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { fetchBreeds, fetchHorseColors } from '@/lib/api';
 import EditProfileForm from './EditProfileForm';
 import ChangePasswordForm from './ChangePasswordForm';
+import MyHorsesPanel from './MyHorsesPanel';
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -18,14 +20,22 @@ export default async function ProfilePage() {
 
   let exhibitor: any = null;
   let horses: any[] = [];
+  let breeds: any[] = [];
+  let colors: any[] = [];
 
   if (role === 'EXHIBITOR') {
-    const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' });
+    const [dashRes, breedsData, colorsData] = await Promise.all([
+      fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' }),
+      fetchBreeds(),
+      fetchHorseColors(),
+    ]);
     const dash = await dashRes.json();
     exhibitor = dash.exhibitor ?? null;
+    breeds = breedsData;
+    colors = colorsData;
 
     if (exhibitor) {
-      const horsesRes = await fetch(`${API_URL}/exhibitors/${exhibitor.id}/horses`, { cache: 'no-store' });
+      const horsesRes = await fetch(`${API_URL}/exhibitors/${exhibitor.id}/owned-horses`, { headers: headers!, cache: 'no-store' });
       if (horsesRes.ok) horses = await horsesRes.json();
     }
   }
@@ -42,26 +52,15 @@ export default async function ProfilePage() {
           <EditProfileForm user={user} />
         </div>
 
-        {role === 'EXHIBITOR' && (
+        {role === 'EXHIBITOR' && exhibitor && (
           <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
             <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>
-            {!exhibitor || horses.length === 0 ? (
-              <p className="text-sm" style={{ color: '#8b7355' }}>No horses have been linked to your profile yet.</p>
-            ) : (
-              <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
-                {horses.map((horse: any) => (
-                  <li key={horse.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                    <span className="text-xl">🐴</span>
-                    <div>
-                      <div className="font-medium text-sm" style={{ color: '#2c1810' }}>{horse.name}</div>
-                      {horse.owner_name && (
-                        <div className="text-xs" style={{ color: '#8b7355' }}>Owner: {horse.owner_name}</div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <MyHorsesPanel
+              exhibitorId={exhibitor.id}
+              initialHorses={horses}
+              breeds={breeds}
+              colors={colors}
+            />
           </div>
         )}
 
