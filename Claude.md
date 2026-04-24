@@ -25,12 +25,18 @@
 - APHA (American Paint Horse Association)
 - WSCA (Western States Cutting Association)
 - NSBA (National Snaffle Bit Association)
+- ARHA (American Ranch Horse Association)
+- ApHC (Appaloosa Horse Club)
+- FQHR (Foundation Quarter Horse Registry)
+- OPEN (Open / Unaffiliated) — no Secretary certification required
 
 ## User Roles
 - **Admin (`ADMIN`):** Full system access — show setup, user management, venue management, all configuration
 - **Show Secretary (`SHOW_SECRETARY`):** Scoped access — manages their assigned shows and scorekeepers; formerly called "Show Admin"
 - **Scorekeeper (`SCOREKEEPER`):** Entry of placings and results for assigned shows
-- **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration
+- **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration at `/register`
+
+Show Secretaries self-register at `/register/show-secretary` (linked from the login page). During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded from the certification list since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`.
 
 ## Technology Stack
 
@@ -145,7 +151,7 @@ docker-compose up
 5. Results are immediately published (no review/approval process)
 
 ### Association Classes
-Different horse show associations (AQHA, APHA, WSCA, NSBA) may have different class structures and naming conventions. The app should support flexible class definitions per association.
+Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) may have different class structures and naming conventions. The app should support flexible class definitions per association. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
 
 ## Future Considerations
 
@@ -182,11 +188,15 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -c \
 ```
 
 Applied migrations:
-- `001_show_types.sql` — show_types table
+- `001_show_types.sql` — show_types table; seeds AQHA, APHA, OPEN
 - `002_show_admin_role.sql` — show_secretaries join table (originally show_admins)
 - `003_venue_admins.sql` — venue_admins join table
 - `004_user_last_login.sql` — last_login_at column on users
 - `005_rename_show_admins_table.sql` — renamed show_admins → show_secretaries
+- `006_secretary_certifications.sql` — show_secretary_certifications table (user ↔ show_type + secretary_id_number)
+
+Data seeded directly (not via migration file):
+- show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
 
 ### Testing
 ```bash
