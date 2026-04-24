@@ -27,9 +27,10 @@
 - NSBA (National Snaffle Bit Association)
 
 ## User Roles
-- **Admin:** Show setup, configuration, and management
-- **Scorekeeper:** Entry of placings and results
-- **Exhibitor:** Viewing personal entries and results
+- **Admin (`ADMIN`):** Full system access — show setup, user management, venue management, all configuration
+- **Show Secretary (`SHOW_SECRETARY`):** Scoped access — manages their assigned shows and scorekeepers; formerly called "Show Admin"
+- **Scorekeeper (`SCOREKEEPER`):** Entry of placings and results for assigned shows
+- **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration
 
 ## Technology Stack
 
@@ -105,7 +106,7 @@ docker-compose up
 - `docker-compose.yml` — Defines services for local development (backend, frontend, database)
 
 ## Current Status
-🚧 **Initial Setup** — Project is in early development phase with core infrastructure being established.
+🔨 **Active Development** — Core infrastructure is in place. User management, show/class/entry management, results entry, and back number assignment are all functional.
 
 ## Development Guidelines for Claude
 
@@ -117,7 +118,7 @@ docker-compose up
 
 3. **Frontend Components**: Use Next.js best practices. Consider PWA capabilities for offline access.
 
-4. **Authentication**: Plan for role-based access control (Admin, Scorekeeper, Exhibitor roles).
+4. **Authentication**: Role-based access control is implemented. Roles: `ADMIN`, `SHOW_SECRETARY`, `SCOREKEEPER`, `EXHIBITOR`. The internal API key (`INTERNAL_API_KEY`) is passed via `X-API-Key` header for server-to-server calls; user identity is passed via `X-User-Id` and `X-User-Role` headers.
 
 5. **Data Validation**: Implement validation at both API and database layers.
 
@@ -169,9 +170,23 @@ docker-compose logs -f [service-name]
 ```
 
 ### Database Migrations
+
+Migrations live in `database/migrations/` and are tracked in the `_migrations` table. The migrate script uses Docker + psql and has a Windows path bug with volume mounts, so apply migrations directly via `psql -c`:
+
 ```bash
-# Instructions will be added once migration system is configured
+# Apply a migration directly (replace SQL as needed)
+PSQL_URL="${DATABASE_URL/postgresql+asyncpg/postgresql}"
+docker run --rm postgres:16-alpine psql "$PSQL_URL" -c "<SQL statement>"
+docker run --rm postgres:16-alpine psql "$PSQL_URL" -c \
+  "INSERT INTO _migrations (name) VALUES ('<filename>.sql') ON CONFLICT DO NOTHING;"
 ```
+
+Applied migrations:
+- `001_show_types.sql` — show_types table
+- `002_show_admin_role.sql` — show_secretaries join table (originally show_admins)
+- `003_venue_admins.sql` — venue_admins join table
+- `004_user_last_login.sql` — last_login_at column on users
+- `005_rename_show_admins_table.sql` — renamed show_admins → show_secretaries
 
 ### Testing
 ```bash
@@ -185,5 +200,5 @@ https://github.com/dhuber24/horse-show-results-app
 ---
 
 **Last Updated:** April 2026  
-**Project Status:** 🚧 Initial Development
+**Project Status:** 🔨 Active Development
 

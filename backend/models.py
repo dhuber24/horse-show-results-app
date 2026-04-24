@@ -117,6 +117,7 @@ class User(Base):
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
+    secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
 
 
 class VenueAdmin(Base):
@@ -270,3 +271,18 @@ class ShowEntry(Base):
 
     show = relationship("Show")
     exhibitor = relationship("Exhibitor")
+
+
+class ShowSecretaryCertification(Base):
+    __tablename__ = "show_secretary_certifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    secretary_id_number = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "show_type_id"),)
+
+    user = relationship("User", back_populates="secretary_certifications")
+    show_type = relationship("ShowType")
