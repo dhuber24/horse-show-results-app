@@ -1,7 +1,6 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
-import { fetchBreeds, fetchHorseColors } from '@/lib/api';
 import EditProfileForm from './EditProfileForm';
 import ChangePasswordForm from './ChangePasswordForm';
 import MyHorsesPanel from './MyHorsesPanel';
@@ -20,19 +19,11 @@ export default async function ProfilePage() {
 
   let exhibitor: any = null;
   let horses: any[] = [];
-  let breeds: any[] = [];
-  let colors: any[] = [];
 
   if (role === 'EXHIBITOR') {
-    const [dashRes, breedsData, colorsData] = await Promise.all([
-      fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' }),
-      fetchBreeds(),
-      fetchHorseColors(),
-    ]);
+    const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' });
     const dash = await dashRes.json();
     exhibitor = dash.exhibitor ?? null;
-    breeds = breedsData;
-    colors = colorsData;
 
     if (exhibitor) {
       const horsesRes = await fetch(`${API_URL}/exhibitors/${exhibitor.id}/owned-horses`, { headers: headers!, cache: 'no-store' });
@@ -58,8 +49,6 @@ export default async function ProfilePage() {
             <MyHorsesPanel
               exhibitorId={exhibitor.id}
               initialHorses={horses}
-              breeds={breeds}
-              colors={colors}
             />
           </div>
         )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -16,19 +16,24 @@ interface Horse {
 interface Props {
   exhibitorId: string;
   initialHorses: Horse[];
-  breeds: Breed[];
-  colors: HorseColor[];
 }
 
 const emptyForm = { name: '', sex: '', foaling_date: '', breed_id: '', color_id: '' };
 
-export default function MyHorsesPanel({ exhibitorId, initialHorses, breeds, colors }: Props) {
+export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [horses, setHorses] = useState<Horse[]>(initialHorses);
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [breeds, setBreeds] = useState<Breed[]>([]);
+  const [colors, setColors] = useState<HorseColor[]>([]);
+
+  useEffect(() => {
+    fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
+    fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
