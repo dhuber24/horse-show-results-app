@@ -133,6 +133,31 @@ docker-compose up
 
 4. **Authentication**: Role-based access control is implemented. Roles: `ADMIN`, `SHOW_SECRETARY`, `SCOREKEEPER`, `EXHIBITOR`. The internal API key (`INTERNAL_API_KEY`) is passed via `X-API-Key` header for server-to-server calls; user identity is passed via `X-User-Id` and `X-User-Role` headers.
 
+```mermaid
+flowchart LR
+    subgraph Frontend["Frontend (Next.js)"]
+        S[NextAuth Session JWT]
+        H["getAuthHeaders()\nX-API-Key\nX-User-Id\nX-User-Role"]
+        S --> H
+    end
+
+    subgraph Backend["Backend (dependencies.py)"]
+        AK[require_api_key]
+        AU[require_authenticated]
+        ADM[require_admin]
+        SA[require_admin_or_show_admin]
+        SK[require_admin_or_scorekeeper]
+        SS["_assert_show_access()\n(show_secretaries join)"]
+    end
+
+    H -->|X-API-Key| AK
+    H -->|"X-API-Key + X-User-Id"| AU
+    H -->|"X-API-Key + ADMIN role"| ADM
+    H -->|"X-API-Key + role"| SA
+    H -->|"X-API-Key + role"| SK
+    SA -->|SHOW_SECRETARY| SS
+```
+
 5. **Data Validation**: Implement validation at both API and database layers.
 
 6. **Testing**: Include unit tests and integration tests as features are added.
@@ -157,6 +182,44 @@ docker-compose up
 4. Scorekeepers enter placings after each class
 5. Results are immediately published (no review/approval process)
 
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : Admin creates show
+    DRAFT --> PUBLISHED : Secretary publishes
+    PUBLISHED --> ACTIVE : auto on start_date
+    ACTIVE --> COMPLETED : auto after end_date
+```
+
+### Core Data Model
+
+```mermaid
+erDiagram
+    ShowType { uuid id; text code }
+    Show { uuid id; text status; uuid show_type_id FK; text apha_show_number }
+    Class { uuid id; uuid show_id FK; uuid ring_id FK; uuid division_id FK; text apha_class_code }
+    Entry { uuid id; uuid class_id FK; uuid exhibitor_id FK; uuid horse_id FK; text apha_division; bool is_disqualified }
+    Result { uuid id; uuid class_id FK; uuid entry_id FK; int place; bool is_tie }
+    ShowEntry { uuid id; uuid show_id FK; uuid exhibitor_id FK; int back_number }
+    ShowSecretary { uuid show_id FK; uuid user_id FK }
+    ShowScorekeeper { uuid show_id FK; uuid user_id FK }
+    User { uuid id; text role }
+    Exhibitor { uuid id; uuid user_id FK; text full_name }
+
+    ShowType ||--o{ Show : "typed by"
+    Show ||--o{ Class : contains
+    Class ||--o{ Entry : "entered in"
+    Class ||--o{ Result : "results for"
+    Entry ||--o| Result : placing
+    Entry }o--|| Exhibitor : by
+    Show ||--o{ ShowEntry : "back numbers"
+    ShowEntry }o--|| Exhibitor : "assigned to"
+    Show ||--o{ ShowSecretary : "managed by"
+    Show ||--o{ ShowScorekeeper : "scored by"
+    ShowSecretary }o--|| User : ""
+    ShowScorekeeper }o--|| User : ""
+    User ||--o| Exhibitor : "1:1 optional"
+```
+
 ### Association Classes
 Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) may have different class structures and naming conventions. The app should support flexible class definitions per association. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
 
@@ -171,6 +234,27 @@ Horses have the following attributes:
 - `horse_registrations` — child table linking a horse to a `show_type` + `registration_number`. One registration per association per horse. `OPEN` is excluded from the association registration UI (same `UNCERTIFIED_SHOW_TYPE_CODES` pattern as Show Secretary certifications — constant defined at top of `EditHorseForm.tsx`).
 
 `HorseOut` uses a `model_validator(mode='before')` to derive `breed_name`, `color_name`, `owner_name`, `is_solid_paint_bred`, and `age` from loaded relationships. Horse routes always use `selectinload` for `breed`, `color`, and `owner_exhibitor` — never rely on lazy loading.
+
+```mermaid
+erDiagram
+    Horse { uuid id; text name; uuid owner_exhibitor_id FK; date foaling_date; text sex; uuid breed_id FK; uuid color_id FK; bool is_solid_paint_bred }
+    Breed { uuid id; text name }
+    HorseColor { uuid id; text name }
+    Exhibitor { uuid id; text full_name }
+    ExhibitorHorse { uuid exhibitor_id FK; uuid horse_id FK }
+    HorseRegistration { uuid id; uuid horse_id FK; uuid show_type_id FK; text registration_number }
+    ShowType { uuid id; text code }
+    HorseDocument { uuid id; uuid horse_id FK; text document_type; date expiry_date }
+
+    Horse }o--|| Breed : breed
+    Horse }o--|| HorseColor : color
+    Horse }o--o| Exhibitor : owner
+    Exhibitor ||--o{ ExhibitorHorse : ""
+    Horse ||--o{ ExhibitorHorse : ""
+    Horse ||--o{ HorseRegistration : registered
+    HorseRegistration }o--|| ShowType : "per association"
+    Horse ||--o{ HorseDocument : documents
+```
 
 Admin manages breeds at `/admin/horses/breeds` and colors at `/admin/horses/colors`.
 
