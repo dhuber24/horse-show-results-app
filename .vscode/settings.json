@@ -4,6 +4,7 @@
         "git add": true,
         "git commit": true,
         "git push": true,
-        "git rm": true
+        "git rm": true,
+        "git pull": true
     }
 }
