@@ -17,22 +17,35 @@ A browser-based application for ranch and western pleasure horse shows.
 Placings entered by the show office are final.
 
 ## Supported Associations
-- AQHA
-- APHA
-- WSCA
-- NSBA
+- AQHA (American Quarter Horse Association)
+- APHA (American Paint Horse Association)
+- WSCA (Western States Cutting Association)
+- NSBA (National Snaffle Bit Association)
+- ARHA (American Ranch Horse Association)
+- ApHC (Appaloosa Horse Club)
+- FQHR (Foundation Quarter Horse Registry)
+- OPEN (Open / Unaffiliated)
 
 ## Roles
-- Admin (show setup)
-- Scorekeeper (enter placings)
-- Exhibitor (view entries & results)
+- **Admin** — full system access, show setup, user management
+- **Show Secretary** — manages assigned shows and scorekeepers
+- **Scorekeeper** — enters placings for assigned shows
+- **Exhibitor** — views personal entries and results
 
-## Tech Plan
-- Backend: FastAPI
+## Tech Stack
+- Backend: FastAPI (Python)
 - Frontend: Next.js (PWA)
 - Database: PostgreSQL
-- Deployment: GitHub Codespaces + Docker
+- Deployment: Docker + GitHub Codespaces
 
 ## Status
-🚧 Initial setup
-``
+🔨 Active Development
+
+## Getting Started
+```bash
+docker-compose up
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+```
+
+See [CLAUDE.md](./CLAUDE.md) for full project documentation.
