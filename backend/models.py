@@ -199,7 +199,7 @@ class Horse(Base):
     is_solid_paint_bred = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    entries = relationship("Entry", back_populates="horse")
+    entries = relationship("Entry", back_populates="horse", passive_deletes=True)
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="horse", cascade="all, delete")
     breed = relationship("Breed", back_populates="horses")
     color = relationship("HorseColor", back_populates="horses")
@@ -285,7 +285,7 @@ class Entry(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
-    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id"), nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
     back_number = Column(Integer)
     status = Column(Text, nullable=False, default="ENTERED")
     apha_division = Column(Text, nullable=True)

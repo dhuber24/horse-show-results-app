@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr
 import bcrypt
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin, require_authenticated
+from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key
 from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration
 from schemas import (
     UserCreate, UserOut,
@@ -207,6 +207,16 @@ horses_router = APIRouter(prefix="/horses", tags=["Horses"])
 
 _horse_options = [selectinload(Horse.breed), selectinload(Horse.color), selectinload(Horse.owner_exhibitor)]
 
+
+async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
+    """Raises 403 if caller is not ADMIN and doesn't own this horse."""
+    if role == 'ADMIN':
+        return
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == UUID(user_id)))
+    exhibitor = result.scalar_one_or_none()
+    if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
+        raise HTTPException(403, "You can only modify your own horses")
+
 @horses_router.get("/", response_model=list[HorseOut])
 async def list_horses(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Horse).options(*_horse_options).order_by(Horse.name))
@@ -228,13 +238,24 @@ async def get_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Horse not found")
     return horse
 
-@horses_router.patch("/{horse_id}", response_model=HorseOut, dependencies=[Depends(require_admin)])
-async def update_horse(horse_id: UUID, body: HorseUpdate, db: AsyncSession = Depends(get_db)):
+@horses_router.patch("/{horse_id}", response_model=HorseOut)
+async def update_horse(
+    horse_id: UUID,
+    body: HorseUpdate,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
     horse = result.scalar_one_or_none()
     if not horse:
         raise HTTPException(404, "Horse not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    await _check_horse_access(horse, user_id, x_user_role, db)
+    update_data = body.model_dump(exclude_unset=True)
+    # Exhibitors cannot reassign ownership
+    if x_user_role != 'ADMIN':
+        update_data.pop('owner_exhibitor_id', None)
+    for k, v in update_data.items():
         setattr(horse, k, v)
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
@@ -261,11 +282,18 @@ async def list_horse_registrations(horse_id: UUID, db: AsyncSession = Depends(ge
     )
     return result.scalars().all()
 
-@horses_router.post("/{horse_id}/registrations", response_model=HorseRegistrationOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_horse_registration(horse_id: UUID, body: HorseRegistrationCreate, db: AsyncSession = Depends(get_db)):
+@horses_router.post("/{horse_id}/registrations", response_model=HorseRegistrationOut, status_code=201)
+async def create_horse_registration(
+    horse_id: UUID,
+    body: HorseRegistrationCreate,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     horse = await db.get(Horse, horse_id)
     if not horse:
         raise HTTPException(404, "Horse not found")
+    await _check_horse_access(horse, user_id, x_user_role, db)
     reg = HorseRegistration(horse_id=horse_id, **body.model_dump())
     db.add(reg)
     try:
@@ -280,8 +308,18 @@ async def create_horse_registration(horse_id: UUID, body: HorseRegistrationCreat
     )
     return result.scalar_one()
 
-@horses_router.delete("/{horse_id}/registrations/{reg_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def delete_horse_registration(horse_id: UUID, reg_id: UUID, db: AsyncSession = Depends(get_db)):
+@horses_router.delete("/{horse_id}/registrations/{reg_id}", status_code=204)
+async def delete_horse_registration(
+    horse_id: UUID,
+    reg_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    await _check_horse_access(horse, user_id, x_user_role, db)
     result = await db.execute(
         select(HorseRegistration).where(
             HorseRegistration.id == reg_id,

@@ -160,7 +160,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   className="text-xs font-medium hover:underline"
                   style={{ color: '#8b4513' }}
                 >
-                  Documents
+                  Edit
                 </Link>
                 <button
                   onClick={() => handleRemove(horse.id)}
