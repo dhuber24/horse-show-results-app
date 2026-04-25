@@ -19,7 +19,7 @@ interface ShowType {
 
 export default function CreateShowForm({ venues, showTypes }: { venues: Venue[]; showTypes: ShowType[] }) {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', venue_id: '', show_type_id: '', start_date: '', end_date: '' });
+  const [form, setForm] = useState({ name: '', venue_id: '', show_type_id: '', start_date: '', end_date: '', apha_show_number: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +50,7 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
         show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
+        apha_show_number: form.apha_show_number || null,
       }),
     });
     setSaving(false);
@@ -93,6 +94,18 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
             className="w-full border rounded px-3 py-2" />
         </div>
       </div>
+      {showTypes.find((t) => t.id === form.show_type_id)?.code === 'APHA' && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Show Number</label>
+          <input
+            name="apha_show_number"
+            value={form.apha_show_number}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. 2024-TX-0042"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button onClick={handleSubmit} disabled={saving}
         className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">

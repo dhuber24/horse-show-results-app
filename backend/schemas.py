@@ -63,6 +63,7 @@ class ShowCreate(BaseModel):
     start_date: date
     end_date: date
     status: str = "DRAFT"
+    apha_show_number: Optional[str] = None
 
 class ShowUpdate(BaseModel):
     name: Optional[str] = None
@@ -72,6 +73,7 @@ class ShowUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: Optional[str] = None
+    apha_show_number: Optional[str] = None
 
 class ShowOut(BaseModel):
     id: UUID
@@ -84,6 +86,7 @@ class ShowOut(BaseModel):
     start_date: date
     end_date: date
     status: str
+    apha_show_number: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -127,6 +130,7 @@ class ClassCreate(BaseModel):
     class_name: str
     class_date: date
     status: str = "OPEN"
+    apha_class_code: Optional[str] = None
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -135,6 +139,7 @@ class ClassUpdate(BaseModel):
     class_name: Optional[str] = None
     class_date: Optional[date] = None
     status: Optional[str] = None
+    apha_class_code: Optional[str] = None
 
 class ClassOut(BaseModel):
     id: UUID
@@ -145,6 +150,7 @@ class ClassOut(BaseModel):
     class_name: str
     class_date: date
     status: str
+    apha_class_code: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -299,6 +305,7 @@ class HorseCreate(BaseModel):
     sex: Optional[str] = None
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
+    is_solid_paint_bred: bool = False
 
 class HorseUpdate(BaseModel):
     name: Optional[str] = None
@@ -307,6 +314,7 @@ class HorseUpdate(BaseModel):
     sex: Optional[str] = None
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
+    is_solid_paint_bred: Optional[bool] = None
 
 class HorseOut(BaseModel):
     id: UUID
@@ -319,6 +327,7 @@ class HorseOut(BaseModel):
     breed_name: Optional[str] = None
     color_id: Optional[UUID] = None
     color_name: Optional[str] = None
+    is_solid_paint_bred: bool = False
     age: Optional[int] = None
     created_at: datetime
 
@@ -342,6 +351,7 @@ class HorseOut(BaseModel):
             'breed_name': breed.name if breed else None,
             'color_id': v.color_id,
             'color_name': color.name if color else None,
+            'is_solid_paint_bred': getattr(v, 'is_solid_paint_bred', False),
             'created_at': v.created_at,
         }
         if foaling_date:
@@ -356,14 +366,32 @@ class HorseOut(BaseModel):
 
 class ExhibitorCreate(BaseModel):
     full_name: str
+    apha_member_number: Optional[str] = None
+    apha_member_expiry: Optional[date] = None
+    amateur_card_number: Optional[str] = None
+    amateur_card_expiry: Optional[date] = None
+    amateur_novice_codes: Optional[str] = None
+    date_of_birth: Optional[date] = None
 
 class ExhibitorUpdate(BaseModel):
     full_name: Optional[str] = None
+    apha_member_number: Optional[str] = None
+    apha_member_expiry: Optional[date] = None
+    amateur_card_number: Optional[str] = None
+    amateur_card_expiry: Optional[date] = None
+    amateur_novice_codes: Optional[str] = None
+    date_of_birth: Optional[date] = None
 
 class ExhibitorOut(BaseModel):
     id: UUID
     full_name: str
     user_id: Optional[UUID] = None
+    apha_member_number: Optional[str] = None
+    apha_member_expiry: Optional[date] = None
+    amateur_card_number: Optional[str] = None
+    amateur_card_expiry: Optional[date] = None
+    amateur_novice_codes: Optional[str] = None
+    date_of_birth: Optional[date] = None
     created_at: datetime
 
     class Config:
@@ -377,10 +405,16 @@ class EntryCreate(BaseModel):
     horse_id: UUID
     back_number: Optional[int] = None
     status: str = "ENTERED"
+    apha_division: Optional[str] = None
+    relationship_to_owner: Optional[str] = None
+    is_disqualified: bool = False
 
 class EntryUpdate(BaseModel):
     back_number: Optional[int] = None
     status: Optional[str] = None
+    apha_division: Optional[str] = None
+    relationship_to_owner: Optional[str] = None
+    is_disqualified: Optional[bool] = None
 
 class EntryOut(BaseModel):
     id: UUID
@@ -389,6 +423,9 @@ class EntryOut(BaseModel):
     horse_id: UUID
     back_number: Optional[int]
     status: str
+    apha_division: Optional[str] = None
+    relationship_to_owner: Optional[str] = None
+    is_disqualified: bool = False
     created_at: datetime
 
     class Config:
@@ -447,3 +484,9 @@ class AuditOut(BaseModel):
 class ExhibitorCreateWithUser(BaseModel):
     full_name: str
     user_id: Optional[UUID] = None
+    apha_member_number: Optional[str] = None
+    apha_member_expiry: Optional[date] = None
+    amateur_card_number: Optional[str] = None
+    amateur_card_expiry: Optional[date] = None
+    amateur_novice_codes: Optional[str] = None
+    date_of_birth: Optional[date] = None

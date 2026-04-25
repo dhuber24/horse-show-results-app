@@ -46,6 +46,7 @@ class Show(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
+    apha_show_number = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -92,6 +93,7 @@ class Class(Base):
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="OPEN")
+    apha_class_code = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -194,6 +196,7 @@ class Horse(Base):
     sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
     breed_id = Column(UUID(as_uuid=True), ForeignKey("breeds.id"), nullable=True)
     color_id = Column(UUID(as_uuid=True), ForeignKey("horse_colors.id"), nullable=True)
+    is_solid_paint_bred = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     entries = relationship("Entry", back_populates="horse")
@@ -211,6 +214,12 @@ class Exhibitor(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     full_name = Column(Text, nullable=False)
+    apha_member_number = Column(Text, nullable=True)
+    apha_member_expiry = Column(Date, nullable=True)
+    amateur_card_number = Column(Text, nullable=True)
+    amateur_card_expiry = Column(Date, nullable=True)
+    amateur_novice_codes = Column(Text, nullable=True)
+    date_of_birth = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="exhibitor")
@@ -279,9 +288,18 @@ class Entry(Base):
     horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id"), nullable=False)
     back_number = Column(Integer)
     status = Column(Text, nullable=False, default="ENTERED")
+    apha_division = Column(Text, nullable=True)
+    relationship_to_owner = Column(Text, nullable=True)
+    is_disqualified = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("class_id", "exhibitor_id", "horse_id"),)
+    __table_args__ = (
+        UniqueConstraint("class_id", "exhibitor_id", "horse_id"),
+        CheckConstraint(
+            "apha_division IN ('OPEN','SOLID_PAINT_BRED','AMATEUR','NOVICE_AMATEUR','YOUTH','NOVICE_YOUTH')",
+            name="ck_entries_apha_division",
+        ),
+    )
 
     class_ = relationship("Class", back_populates="entries")
     exhibitor = relationship("Exhibitor", back_populates="entries")

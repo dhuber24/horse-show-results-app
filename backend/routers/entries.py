@@ -6,7 +6,7 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin
-from models import Entry, Class
+from models import Entry, Class, Horse
 from schemas import EntryCreate, EntryUpdate, EntryOut
 
 router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/entries", tags=["Entries"])
@@ -33,6 +33,10 @@ async def create_entry(
     show_id: UUID, class_id: UUID, body: EntryCreate, db: AsyncSession = Depends(get_db)
 ):
     await _get_class_or_404(show_id, class_id, db)
+    if body.apha_division == "OPEN":
+        horse = await db.get(Horse, body.horse_id)
+        if horse and horse.is_solid_paint_bred:
+            raise HTTPException(400, "Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1)")
     entry = Entry(class_id=class_id, **body.model_dump())
     db.add(entry)
     try:

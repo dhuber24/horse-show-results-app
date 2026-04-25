@@ -110,6 +110,35 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
         ))}
       </div>
 
+      {show.show_type_code === 'APHA' && (
+        <div className="border rounded-lg p-4" style={{ borderColor: '#d4b896' }}>
+          <h2 className="font-semibold mb-2" style={{ color: '#2c1810' }}>APHA Submission</h2>
+          {show.apha_show_number ? (
+            <div className="flex items-center gap-4">
+              <span className="text-sm" style={{ color: '#8b7355' }}>
+                Show #: <span className="font-mono font-medium" style={{ color: '#2c1810' }}>{show.apha_show_number}</span>
+              </span>
+              <a
+                href={`/api/shows/${id}/apha-export`}
+                download
+                className="px-4 py-2 rounded text-sm font-medium"
+                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              >
+                Export APHA Results (CSV)
+              </a>
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: '#8b7355' }}>
+              Set the APHA Show Number in{' '}
+              <a href={`/admin/shows/${id}/edit`} className="hover:underline" style={{ color: '#8b4513' }}>
+                Edit Show Details
+              </a>{' '}
+              to enable export.
+            </p>
+          )}
+        </div>
+      )}
+
       {(isAdmin || isShowAdmin) && (
         <ShowStaffPanel
           showId={id}

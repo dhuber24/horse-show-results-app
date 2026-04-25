@@ -18,6 +18,7 @@ interface Horse {
   sex: string | null;
   breed_id: string | null;
   color_id: string | null;
+  is_solid_paint_bred: boolean;
   age: number | null;
 }
 
@@ -41,6 +42,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     foaling_date: horse.foaling_date ?? '',
     breed_id: horse.breed_id ?? '',
     color_id: horse.color_id ?? '',
+    is_solid_paint_bred: horse.is_solid_paint_bred,
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -67,6 +69,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       foaling_date: form.foaling_date || null,
       breed_id: form.breed_id || null,
       color_id: form.color_id || null,
+      is_solid_paint_bred: form.is_solid_paint_bred,
     };
     const res = await fetch(`/api/horses/${horse.id}`, {
       method: 'PATCH',
@@ -200,6 +203,18 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
               <option value="">— Not specified —</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          </div>
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <input
+              type="checkbox"
+              id="is_solid_paint_bred"
+              checked={form.is_solid_paint_bred}
+              onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))}
+              className="h-4 w-4"
+            />
+            <label htmlFor="is_solid_paint_bred" className="text-sm" style={{ color: '#8b7355' }}>
+              Solid Paint-Bred (SPB) — cannot enter Regular Registry Open classes
+            </label>
           </div>
         </div>
 

@@ -19,7 +19,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
 
       <section>
         <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Class</h2>
-        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} />
+        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
 
       <section>
@@ -40,6 +40,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
                 showId={id}
                 showStartDate={show.start_date}
                 showEndDate={show.end_date}
+                isAphaShow={show.show_type_code === 'APHA'}
               />
             ))}
           </ul>

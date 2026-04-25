@@ -36,7 +36,7 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
 
       <section>
         <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Entry</h2>
-        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={exhibitors} />
+        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={exhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
 
       <section className="space-y-4">

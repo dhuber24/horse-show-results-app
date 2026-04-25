@@ -16,8 +16,10 @@ interface Show {
   venue: string | null;
   venue_id: string | null;
   show_type_id: string | null;
+  show_type_code: string | null;
   start_date: string;
   end_date: string;
+  apha_show_number: string | null;
 }
 
 interface ShowType {
@@ -36,12 +38,15 @@ export default function EditShowForm({
   showTypes: ShowType[];
 }) {
   const router = useRouter();
+  const isAphaShow = show.show_type_code === 'APHA';
+
   const [form, setForm] = useState({
     name: show.name,
     venue_id: show.venue_id ?? '',
     show_type_id: show.show_type_id ?? '',
     start_date: show.start_date,
     end_date: show.end_date,
+    apha_show_number: show.apha_show_number ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -75,6 +80,7 @@ export default function EditShowForm({
         show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
+        apha_show_number: form.apha_show_number || null,
       }),
     });
     setSaving(false);
@@ -128,6 +134,18 @@ export default function EditShowForm({
             className="w-full border rounded px-3 py-2" />
         </div>
       </div>
+      {isAphaShow && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Show Number</label>
+          <input
+            name="apha_show_number"
+            value={form.apha_show_number}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. 2024-TX-0042"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between pt-2">
         <button onClick={handleSave} disabled={saving}

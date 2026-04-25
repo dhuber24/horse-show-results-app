@@ -27,6 +27,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     foaling_date: '',
     breed_id: '',
     color_id: '',
+    is_solid_paint_bred: false,
   });
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
@@ -63,7 +64,10 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     setSaving(true);
     setError(null);
 
-    const body: Record<string, unknown> = { name: form.name.trim() };
+    const body: Record<string, unknown> = {
+      name: form.name.trim(),
+      is_solid_paint_bred: form.is_solid_paint_bred,
+    };
     if (form.owner_exhibitor_id) body.owner_exhibitor_id = form.owner_exhibitor_id;
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
@@ -164,6 +168,18 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
               <option value="">— Not specified —</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+          </div>
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <input
+              type="checkbox"
+              id="is_solid_paint_bred"
+              checked={form.is_solid_paint_bred}
+              onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))}
+              className="h-4 w-4"
+            />
+            <label htmlFor="is_solid_paint_bred" className="text-sm" style={{ color: '#8b7355' }}>
+              Solid Paint-Bred (SPB) — cannot enter Regular Registry Open classes
+            </label>
           </div>
         </div>
       </div>

@@ -9,13 +9,15 @@ interface ClassItem {
   class_name: string;
   class_date: string;
   status: string;
+  apha_class_code: string | null;
 }
 
-export default function EditClassCard({ cls, showId, showStartDate, showEndDate }: {
+export default function EditClassCard({ cls, showId, showStartDate, showEndDate, isAphaShow }: {
   cls: ClassItem;
   showId: string;
   showStartDate: string;
   showEndDate: string;
+  isAphaShow: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -24,6 +26,7 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
     class_name: cls.class_name,
     class_date: cls.class_date,
     status: cls.status,
+    apha_class_code: cls.apha_class_code ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -43,7 +46,7 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
     const res = await fetch('/api/classes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId, classId: cls.id, ...form }),
+      body: JSON.stringify({ showId, classId: cls.id, ...form, apha_class_code: form.apha_class_code || null }),
     });
     setSaving(false);
     if (res.ok) {
@@ -75,6 +78,7 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
       class_name: cls.class_name,
       class_date: cls.class_date,
       status: cls.status,
+      apha_class_code: cls.apha_class_code ?? '',
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -93,6 +97,11 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
             {cls.class_number} — {cls.class_name}
           </span>
           <span className="text-sm ml-2" style={{ color: '#8b7355' }}>{cls.class_date}</span>
+          {cls.apha_class_code && (
+            <span className="text-xs ml-2 font-mono px-1 rounded" style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+              {cls.apha_class_code}
+            </span>
+          )}
         </div>
         <span className="text-xs px-2 py-1 rounded-full"
           style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
@@ -127,6 +136,18 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
           </select>
         </div>
       </div>
+      {isAphaShow && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Class Code</label>
+          <input
+            name="apha_class_code"
+            value={form.apha_class_code}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. WP01, AMH4"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between">
         <div className="flex gap-2">

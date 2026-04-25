@@ -15,7 +15,7 @@ from schemas import (
     UserCreate, UserOut,
     HorseCreate, HorseUpdate, HorseOut,
     HorseRegistrationCreate, HorseRegistrationOut,
-    ExhibitorCreate, ExhibitorUpdate, ExhibitorOut,
+    ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
 )
 
 VALID_ROLES = {"ADMIN", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
@@ -296,10 +296,6 @@ async def delete_horse_registration(horse_id: UUID, reg_id: UUID, db: AsyncSessi
 
 
 # ── Exhibitors ─────────────────────────────────────────────────────────────────
-
-class ExhibitorCreateWithUser(BaseModel):
-    full_name: str
-    user_id: Optional[UUID] = None
 
 class ExhibitorLink(BaseModel):
     user_id: UUID

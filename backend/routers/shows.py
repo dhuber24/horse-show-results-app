@@ -1,5 +1,8 @@
+import csv
+import io
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -9,7 +12,7 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY
-from models import Show, ShowSecretary
+from models import Show, ShowSecretary, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,7 @@ def _serialize(show: Show) -> dict:
         "start_date": show.start_date,
         "end_date": show.end_date,
         "status": show.status,
+        "apha_show_number": show.apha_show_number,
         "created_at": show.created_at,
     }
 
@@ -166,3 +170,88 @@ async def delete_show(
         raise HTTPException(404, "Show not found")
     await db.delete(show)
     await db.commit()
+
+
+@router.get("/{show_id}/apha-export")
+async def apha_export(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_with_type(db, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if not show.show_type or show.show_type.code != "APHA":
+        raise HTTPException(400, "This show is not an APHA sanctioned show")
+    if not show.apha_show_number:
+        raise HTTPException(400, "Set the APHA Show Number on the show before exporting")
+
+    # Load APHA show type id for registration lookup
+    apha_type_result = await db.execute(
+        select(ShowType).where(ShowType.code == "APHA")
+    )
+    apha_show_type = apha_type_result.scalar_one_or_none()
+
+    # Fetch all entries for this show with related data
+    entries_result = await db.execute(
+        select(Entry)
+        .join(Class, Entry.class_id == Class.id)
+        .where(Class.show_id == show_id)
+        .options(
+            selectinload(Entry.class_),
+            selectinload(Entry.exhibitor),
+            selectinload(Entry.horse).selectinload(Horse.registrations),
+        )
+        .order_by(Entry.exhibitor_id, Class.class_number)
+    )
+    entries = entries_result.scalars().all()
+
+    # Build exhibitor → back number map from show_entries
+    show_entries_result = await db.execute(
+        select(ShowEntry).where(ShowEntry.show_id == show_id)
+    )
+    back_number_map: dict = {
+        se.exhibitor_id: se.back_number for se in show_entries_result.scalars().all()
+    }
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "SHOW NBR", "SHOW YR", "BACK#", "REG NUMBER",
+        "HORSE'S NAME", "CLASS CODE", "CLASS DESCRIPTION",
+        "EXHIBITOR ID", "EXHIBITOR'S NAME",
+    ])
+
+    show_yr = show.start_date.year if show.start_date else ""
+
+    for entry in entries:
+        reg_number = ""
+        if apha_show_type:
+            for reg in entry.horse.registrations:
+                if reg.show_type_id == apha_show_type.id:
+                    reg_number = reg.registration_number
+                    break
+
+        writer.writerow([
+            show.apha_show_number,
+            show_yr,
+            back_number_map.get(entry.exhibitor_id, ""),
+            reg_number,
+            entry.horse.name,
+            entry.class_.apha_class_code or "",
+            entry.class_.class_name,
+            entry.exhibitor.apha_member_number or "",
+            entry.exhibitor.full_name,
+        ])
+
+    csv_content = output.getvalue()
+    filename = f"apha_results_{show_id}.csv"
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

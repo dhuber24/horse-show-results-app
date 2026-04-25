@@ -22,7 +22,7 @@ interface Props {
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
-const emptyForm = { name: '', sex: '', foaling_date: '', breed_id: '', color_id: '' };
+const emptyForm = { name: '', sex: '', foaling_date: '', breed_id: '', color_id: '', is_solid_paint_bred: false };
 
 export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [horses, setHorses] = useState<Horse[]>(initialHorses);
@@ -75,7 +75,10 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     setSaving(true);
     setError(null);
 
-    const body: Record<string, unknown> = { name: form.name.trim() };
+    const body: Record<string, unknown> = {
+      name: form.name.trim(),
+      is_solid_paint_bred: form.is_solid_paint_bred,
+    };
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.breed_id) body.breed_id = form.breed_id;
@@ -209,6 +212,18 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               <option value="">Color</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            <div className="flex items-center gap-2 col-span-full">
+              <input
+                type="checkbox"
+                id="spb_new"
+                checked={form.is_solid_paint_bred}
+                onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))}
+                className="h-4 w-4"
+              />
+              <label htmlFor="spb_new" className="text-sm" style={{ color: '#8b7355' }}>
+                Solid Paint-Bred (SPB)
+              </label>
+            </div>
           </div>
 
           {/* Association registrations */}
