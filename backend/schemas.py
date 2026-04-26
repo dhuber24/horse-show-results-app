@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from typing import Optional, Any
 from datetime import date, datetime
 from uuid import UUID
@@ -74,6 +74,13 @@ class ShowUpdate(BaseModel):
     end_date: Optional[date] = None
     status: Optional[str] = None
     apha_show_number: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def status_not_completed(cls, v):
+        if v == "COMPLETED":
+            raise ValueError("COMPLETED status can only be set automatically by date transition.")
+        return v
 
 class ShowOut(BaseModel):
     id: UUID
@@ -420,7 +427,7 @@ class EntryOut(BaseModel):
     id: UUID
     class_id: UUID
     exhibitor_id: UUID
-    horse_id: UUID
+    horse_id: Optional[UUID]
     back_number: Optional[int]
     status: str
     apha_division: Optional[str] = None

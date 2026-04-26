@@ -32,11 +32,11 @@ export default async function Navbar() {
               </Link>
             )}
             {role === 'SCOREKEEPER' && (
-              <Link href="/"
+              <a href="/"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
                 Shows
-              </Link>
+              </a>
             )}
             {(role === 'ADMIN' || role === 'SHOW_SECRETARY') && (
               <Link href="/admin"

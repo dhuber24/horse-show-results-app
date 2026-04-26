@@ -84,11 +84,14 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
 
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
-      const [exhibitor, horse] = await Promise.all([fetchExhibitor(entry.exhibitor_id), fetchHorse(entry.horse_id)]);
+      const [exhibitor, horse] = await Promise.all([
+        fetchExhibitor(entry.exhibitor_id),
+        entry.horse_id ? fetchHorse(entry.horse_id) : Promise.resolve(null),
+      ]);
       return {
         ...entry,
         exhibitorName: exhibitor.full_name,
-        horseName: horse.name,
+        horseName: horse?.name ?? '—',
         back_number: backNumberMap[entry.exhibitor_id] ?? entry.back_number,
       };
     })

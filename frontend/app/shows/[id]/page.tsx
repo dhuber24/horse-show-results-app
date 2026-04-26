@@ -15,6 +15,16 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         </p>
       </div>
 
+      {show.status !== 'ACTIVE' && (
+        <div
+          className="mb-4 px-4 py-3 rounded border text-sm font-medium"
+          style={{ backgroundColor: '#fef3c7', borderColor: '#d4b896', color: '#92400e' }}
+        >
+          Read-only — results can only be entered when the show is Active.
+          Current status: <strong>{show.status}</strong>.
+        </div>
+      )}
+
       <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Classes</h2>
       {classes.length === 0 ? (
         <p style={{ color: '#8b7355' }}>No classes found.</p>

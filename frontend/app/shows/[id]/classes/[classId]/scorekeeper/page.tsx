@@ -16,9 +16,9 @@ export default async function ScorekeeperPage({ params }: { params: Promise<{ id
     entries.map(async (entry: any) => {
       const [exhibitor, horse] = await Promise.all([
         fetchExhibitor(entry.exhibitor_id),
-        fetchHorse(entry.horse_id),
+        entry.horse_id ? fetchHorse(entry.horse_id) : Promise.resolve(null),
       ]);
-      return { ...entry, exhibitorName: exhibitor.full_name, horseName: horse.name };
+      return { ...entry, exhibitorName: exhibitor.full_name, horseName: horse?.name ?? '—' };
     })
   );
 

@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import date
@@ -136,6 +136,13 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
     raise HTTPException(403, "Not authorized for this show")
 
 
+async def _count_show_classes(db: AsyncSession, show_id: UUID) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Class).where(Class.show_id == show_id)
+    )
+    return result.scalar_one()
+
+
 @router.patch("/{show_id}", response_model=ShowOut)
 async def update_show(
     show_id: UUID,
@@ -149,7 +156,27 @@ async def update_show(
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+
+    updates = body.model_dump(exclude_unset=True)
+    new_status = updates.get("status")
+
+    # Block status changes if end_date is in the past
+    if new_status is not None and date.today() > show.end_date:
+        raise HTTPException(
+            400,
+            "Cannot change show status: the show's end date is in the past. Update the show dates first.",
+        )
+
+    # Publishing gates
+    if new_status == "PUBLISHED":
+        effective_venue_id = updates.get("venue_id", show.venue_id)
+        if not effective_venue_id:
+            raise HTTPException(400, "Cannot publish: a venue must be selected before publishing.")
+        class_count = await _count_show_classes(db, show_id)
+        if class_count == 0:
+            raise HTTPException(400, "Cannot publish: the show must have at least one class before publishing.")
+
+    for k, v in updates.items():
         setattr(show, k, v)
     await db.commit()
     show = await _get_show_with_type(db, show_id)

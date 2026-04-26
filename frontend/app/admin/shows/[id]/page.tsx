@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
-import { fetchShow } from '@/lib/api';
+import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
 import ShowStaffPanel from './ShowStaffPanel';
@@ -47,7 +47,7 @@ async function getShowStaff(showId: string, headers: Record<string, string>) {
 
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = await fetchShow(id);
+  const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
   const session = await auth();
   const user = session?.user as any;
   const isAdmin = user?.role === 'ADMIN';
@@ -83,7 +83,12 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           📍 {show.venue} · 📅 {show.start_date} – {show.end_date}
         </p>
         <div className="mt-2">
-          <ShowStatusControl showId={id} currentStatus={show.status} />
+          <ShowStatusControl
+            showId={id}
+            currentStatus={show.status}
+            classCount={classes.length}
+            endDate={show.end_date}
+          />
         </div>
       </div>
 
