@@ -52,6 +52,7 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const classIndex = classes.findIndex((c) => c.id === classId);
   const prevClass = classIndex > 0 ? classes[classIndex - 1] : null;
@@ -176,14 +177,24 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
           {placedCount} of {activeEntries.length} placed
           {dqEntries.length > 0 && ` · ${dqEntries.length} DQ`}
         </span>
-        <button
-          type="button"
-          onClick={handleClearAll}
-          className="text-xs hover:underline"
-          style={{ color: '#8b7355' }}
-        >
-          Clear all
-        </button>
+        {confirmClear ? (
+          <span className="flex items-center gap-2">
+            <span className="text-xs" style={{ color: '#5c3d1e' }}>Clear all placings?</span>
+            <button type="button" onClick={() => { setConfirmClear(false); handleClearAll(); }}
+              className="text-xs text-red-600 hover:underline">Yes</button>
+            <button type="button" onClick={() => setConfirmClear(false)}
+              className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirmClear(true)}
+            className="text-xs hover:underline"
+            style={{ color: '#8b7355' }}
+          >
+            Clear all
+          </button>
+        )}
       </div>
 
       <table className="w-full border-collapse mb-4">

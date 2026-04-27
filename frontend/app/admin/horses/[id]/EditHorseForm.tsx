@@ -53,6 +53,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
   const [addingReg, setAddingReg] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
+  const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -264,12 +265,22 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
                   <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
                   <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
                 </div>
-                <button
-                  onClick={() => handleDeleteReg(r.id)}
-                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
-                >
-                  Remove
-                </button>
+                {confirmDeleteRegId === r.id ? (
+                  <span className="flex items-center gap-2 ml-4 shrink-0">
+                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                    <button onClick={() => { setConfirmDeleteRegId(null); handleDeleteReg(r.id); }}
+                      className="text-xs text-red-600 hover:text-red-800">Yes</button>
+                    <button onClick={() => setConfirmDeleteRegId(null)}
+                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteRegId(r.id)}
+                    className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
+                  >
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>

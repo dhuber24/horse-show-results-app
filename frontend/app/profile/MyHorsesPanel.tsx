@@ -31,6 +31,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [breeds, setBreeds] = useState<Breed[]>([]);
@@ -175,13 +176,32 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 >
                   Documents
                 </Link>
-                <button
-                  onClick={() => handleRemove(horse.id)}
-                  disabled={removingId === horse.id}
-                  className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-                >
-                  {removingId === horse.id ? 'Removing…' : 'Remove'}
-                </button>
+                {confirmRemoveId === horse.id ? (
+                  <span className="flex items-center gap-2">
+                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {horse.name}?</span>
+                    <button
+                      onClick={() => { setConfirmRemoveId(null); handleRemove(horse.id); }}
+                      disabled={removingId === horse.id}
+                      className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                    >
+                      {removingId === horse.id ? 'Removing…' : 'Yes'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmRemoveId(null)}
+                      className="text-xs hover:underline"
+                      style={{ color: '#8b7355' }}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setConfirmRemoveId(horse.id)}
+                    className="text-xs text-red-600 hover:text-red-800"
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
             </li>
           ))}

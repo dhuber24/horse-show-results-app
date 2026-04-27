@@ -27,6 +27,9 @@ export default function ShowStaffPanel({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [confirmRemoveAdminId, setConfirmRemoveAdminId] = useState<string | null>(null);
+  const [confirmRemoveKeeperId, setConfirmRemoveKeeperId] = useState<string | null>(null);
+
   const [showAddAdminForm, setShowAddAdminForm] = useState(false);
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -141,12 +144,22 @@ export default function ShowStaffPanel({
           )}
           <ul className="space-y-1 mb-4">
             {admins.map(a => (
-              <li key={a.id} className="flex items-center justify-between text-sm py-1">
+              <li key={a.id} className="flex items-center justify-between text-sm py-1 gap-2">
                 <span style={{ color: '#2c1810' }}>{a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span></span>
-                <button disabled={busy} onClick={() => removeAdmin(a.id)}
-                  className="text-xs text-red-600 hover:underline disabled:opacity-50">
-                  Remove
-                </button>
+                {confirmRemoveAdminId === a.id ? (
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
+                    <button disabled={busy} onClick={() => { removeAdmin(a.id); setConfirmRemoveAdminId(null); }}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50">Yes</button>
+                    <button onClick={() => setConfirmRemoveAdminId(null)}
+                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -198,12 +211,22 @@ export default function ShowStaffPanel({
         )}
         <ul className="space-y-1 mb-4">
           {scorekeepers.map(s => (
-            <li key={s.id} className="flex items-center justify-between text-sm py-1">
+            <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
               <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
-              <button disabled={busy} onClick={() => removeScorekeeper(s.id)}
-                className="text-xs text-red-600 hover:underline disabled:opacity-50">
-                Remove
-              </button>
+              {confirmRemoveKeeperId === s.id ? (
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {s.full_name}?</span>
+                  <button disabled={busy} onClick={() => { removeScorekeeper(s.id); setConfirmRemoveKeeperId(null); }}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50">Yes</button>
+                  <button onClick={() => setConfirmRemoveKeeperId(null)}
+                    className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                </span>
+              ) : (
+                <button disabled={busy} onClick={() => setConfirmRemoveKeeperId(s.id)}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>

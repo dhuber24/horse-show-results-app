@@ -77,6 +77,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -156,7 +157,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
                         <span>{formatSize(doc.file_size)}</span>
                       </div>
                     </div>
-                    <div className="flex gap-3 ml-3 shrink-0">
+                    <div className="flex gap-3 ml-3 shrink-0 items-center">
                       <a
                         href={`/api/horses/${horseId}/documents/${doc.id}/download`}
                         className="text-xs font-medium hover:underline"
@@ -164,13 +165,32 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
                       >
                         Download
                       </a>
-                      <button
-                        onClick={() => handleDelete(doc.id)}
-                        disabled={deletingId === doc.id}
-                        className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-                      >
-                        {deletingId === doc.id ? 'Removing…' : 'Remove'}
-                      </button>
+                      {confirmDeleteId === doc.id ? (
+                        <span className="flex items-center gap-2">
+                          <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                          <button
+                            onClick={() => { setConfirmDeleteId(null); handleDelete(doc.id); }}
+                            disabled={deletingId === doc.id}
+                            className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                          >
+                            {deletingId === doc.id ? 'Removing…' : 'Yes'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="text-xs hover:underline"
+                            style={{ color: '#8b7355' }}
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteId(doc.id)}
+                          className="text-xs text-red-600 hover:text-red-800"
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   </li>
                 ))}
