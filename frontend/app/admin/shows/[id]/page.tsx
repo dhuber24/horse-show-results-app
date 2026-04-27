@@ -32,6 +32,13 @@ const tiles = (showId: string) => [
   },
 ];
 
+const scoringTile = (showId: string) => ({
+  href: `/shows/${showId}`,
+  title: 'Score Classes',
+  description: 'Enter placings for each class.',
+  icon: '🏆',
+});
+
 async function getShowStaff(showId: string, headers: Record<string, string>) {
   const [adminsRes, keepersRes, allUsersRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
@@ -113,6 +120,28 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             </div>
           </Link>
         ))}
+        {show.status === 'ACTIVE' && (() => {
+          const tile = scoringTile(id);
+          return (
+            <Link
+              href={tile.href}
+              className="block p-6 rounded-lg border transition-colors hover:opacity-90"
+              style={{ borderColor: '#2c1810', backgroundColor: '#2c1810' }}
+            >
+              <div className="flex items-start gap-4">
+                <div className="text-3xl" aria-hidden>{tile.icon}</div>
+                <div>
+                  <h2 className="text-lg font-semibold" style={{ color: '#f5ede0' }}>
+                    {tile.title}
+                  </h2>
+                  <p className="text-sm mt-1" style={{ color: '#d4b896' }}>
+                    {tile.description}
+                  </p>
+                </div>
+              </div>
+            </Link>
+          );
+        })()}
       </div>
 
       {show.show_type_code === 'APHA' && (

@@ -35,61 +35,51 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         <p style={{ color: '#8b7355' }}>No classes found.</p>
       ) : (
         <ul className="space-y-3">
-          {classes.map((cls: any) => (
+          {classes.filter((cls: any) => !(canScore && show.status === 'ACTIVE' && cls.status === 'CLOSED')).map((cls: any) => (
             <li key={cls.id}>
-              <div
-                className="flex items-stretch rounded-lg border overflow-hidden"
-                style={{ borderColor: '#d4b896' }}
+              <Link
+                href={
+                  canScore && show.status === 'ACTIVE'
+                    ? `/shows/${id}/classes/${cls.id}/scorekeeper`
+                    : `/shows/${id}/classes/${cls.id}`
+                }
+                className="flex-1 block p-4 rounded-lg border transition hover:bg-amber-50"
+                style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
               >
-                <Link
-                  href={`/shows/${id}/classes/${cls.id}`}
-                  className="flex-1 p-4 transition hover:bg-amber-50"
-                  style={{ backgroundColor: '#ffffff' }}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-semibold" style={{ color: '#2c1810' }}>
-                        {cls.class_number} — {cls.class_name}
-                      </div>
-                      <div className="text-sm mt-1" style={{ color: '#8b7355' }}>📅 {cls.class_date}</div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold" style={{ color: '#2c1810' }}>
+                      {cls.class_number} — {cls.class_name}
                     </div>
-                    <div className="flex items-center gap-2 ml-3 shrink-0">
-                      {canScore && (
-                        cls.placed_count > 0 ? (
-                          <span
-                            className="text-xs font-medium px-2 py-1 rounded-full"
-                            style={{ backgroundColor: '#d1fae5', color: '#065f46' }}
-                          >
-                            {cls.placed_count} placed
-                          </span>
-                        ) : (
-                          <span
-                            className="text-xs font-medium px-2 py-1 rounded-full"
-                            style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
-                          >
-                            Pending
-                          </span>
-                        )
-                      )}
-                      <span
-                        className="text-xs font-medium px-2 py-1 rounded-full"
-                        style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}
-                      >
-                        {cls.status}
-                      </span>
-                    </div>
+                    <div className="text-sm mt-1" style={{ color: '#8b7355' }}>📅 {cls.class_date}</div>
                   </div>
-                </Link>
-                {canScore && show.status === 'ACTIVE' && (
-                  <Link
-                    href={`/shows/${id}/classes/${cls.id}/scorekeeper`}
-                    className="flex items-center px-4 text-sm font-medium border-l transition hover:opacity-80"
-                    style={{ backgroundColor: '#2c1810', color: '#f5ede0', borderColor: '#3d2010' }}
-                  >
-                    Score
-                  </Link>
-                )}
-              </div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    {canScore && (
+                      cls.placed_count > 0 ? (
+                        <span
+                          className="text-xs font-medium px-2 py-1 rounded-full"
+                          style={{ backgroundColor: '#d1fae5', color: '#065f46' }}
+                        >
+                          {cls.placed_count} placed
+                        </span>
+                      ) : (
+                        <span
+                          className="text-xs font-medium px-2 py-1 rounded-full"
+                          style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                        >
+                          Pending
+                        </span>
+                      )
+                    )}
+                    <span
+                      className="text-xs font-medium px-2 py-1 rounded-full"
+                      style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}
+                    >
+                      {cls.status}
+                    </span>
+                  </div>
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
