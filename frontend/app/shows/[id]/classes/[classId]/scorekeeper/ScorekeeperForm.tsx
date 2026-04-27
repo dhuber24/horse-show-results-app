@@ -80,6 +80,22 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
     [activeEntries, places]
   );
 
+  // Detect skipped place numbers (e.g. 1, 2, 4 missing 3)
+  const gapWarning = useMemo(() => {
+    const assigned = new Set<number>();
+    for (const val of Object.values(places)) {
+      const p = parseInt(val);
+      if (!isNaN(p) && p >= 1) assigned.add(p);
+    }
+    if (assigned.size === 0) return null;
+    const max = Math.max(...assigned);
+    const missing: number[] = [];
+    for (let i = 1; i <= max; i++) {
+      if (!assigned.has(i)) missing.push(i);
+    }
+    return missing.length > 0 ? missing : null;
+  }, [places]);
+
   // Auto-focus the first empty active input on mount
   const firstEmptyRef = useRef<HTMLInputElement>(null);
   useEffect(() => { firstEmptyRef.current?.focus(); }, []);
@@ -268,6 +284,15 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {gapWarning && (
+        <div
+          className="mb-3 px-3 py-2 rounded text-sm"
+          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+        >
+          ⚠ Place gap — missing: {gapWarning.join(', ')}
         </div>
       )}
 
