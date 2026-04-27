@@ -86,6 +86,26 @@
 			"type": "shell",
 			"command": "echo STOP",
 			"args": []
+		},
+		{
+			"label": "Update git automation agent for Claude.md",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$path = 'c:\\Users\\Home\\projects\\horse-show-results-app\\.github\\agents\\git-automation.agent.md'; $text = Get-Content -Path $path -Raw; $text = $text -replace 'description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, and updating Markdown documentation after commit, and pushing to main branch\"','description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, ensuring Claude.md documentation is updated with the new context, and pushing to main branch\"'; $text = $text -replace 'You are a git automation specialist. Your job is to update the local repository from origin main, commit any staged or unstaged changes with AI-generated commit messages, update relevant Markdown documentation files after the commit, and push the final changes to the main branch.','You are a git automation specialist. Your job is to update the local repository from origin main, commit any staged or unstaged changes with AI-generated commit messages, ensure `Claude.md` is updated to reflect recent changes, and push the final changes to the main branch.'; $text = $text -replace '4. Update relevant Markdown documentation files to reflect the committed changes','4. Update relevant Markdown documentation files to reflect the committed changes, with a priority on ensuring `Claude.md` includes the new context'; $text = $text -replace 'Provide a summary of the actions performed, including:\\n- Whether a pull was successful\\n- What changes were staged and committed (if any)\\n- What Markdown files were updated, if any\\n- The generated commit message\\n- Whether the push was successful\\n- Any relevant git command outputs or error messages','Provide a summary of the actions performed, including:\\n- Whether a pull was successful\\n- What changes were staged and committed (if any)\\n- What Markdown files were updated, especially whether `Claude.md` was updated\\n- The generated commit message\\n- Whether the push was successful\\n- Any relevant git command outputs or error messages'; Set-Content -Path $path -Value $text -Encoding UTF8"
+			]
+		},
+		{
+			"label": "Patch git automation agent directly",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"exit 0"
+			],
+			"isBackground": false
 		}
 	]
 }

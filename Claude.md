@@ -295,12 +295,44 @@ CSV columns: `SHOW NBR | SHOW YR | BACK# | REG NUMBER | HORSE'S NAME | CLASS COD
 
 All APHA-specific form fields are conditionally rendered based on `show_type_code === 'APHA'`.
 
+## Scorekeeper UX
+
+### Scorekeeper Navigation Flow
+1. Scorekeeper logs in → clicks **Shows** in the navbar → lands on `/scorekeeper` (their dedicated page)
+2. `/scorekeeper` page — lists only shows they are assigned to (filtered via `show_scorekeepers` join); reuses the `ShowList` client component from the public home page
+3. `/shows/{id}` — show detail page with class list; shows **"Pending"** (amber) or **"X placed"** (green) scoring progress badges per class, visible only to SCOREKEEPER/ADMIN
+4. `/shows/{id}/classes/{classId}/scorekeeper` — the scoring form
+
+### Scorekeeper-Filtered Show List
+`GET /shows/` in `backend/routers/shows.py` has role-based filtering:
+- **SHOW_SECRETARY**: joins `ShowSecretary` → returns only their assigned shows
+- **SCOREKEEPER**: joins `ShowScorekeeper` → returns only their assigned shows
+- **Everyone else**: returns all non-draft shows
+
+Both filters use the same pattern (conditional `elif` on the query before execution). The `ShowScorekeeper` model is the `show_scorekeepers` join table; scorekeepers are assigned to shows via the admin show staff management UI.
+
+### Class Scoring Progress (`placed_count`)
+`GET /shows/{show_id}/classes/` in `backend/routers/classes.py` returns each class with a `placed_count` field — the number of entries that have a result recorded — computed via a correlated subquery (no N+1). The frontend uses this to render progress badges on the show detail page.
+
+### Scoring Form (`ScorekeeperForm`)
+`frontend/app/shows/[id]/classes/[classId]/scorekeeper/ScorekeeperForm.tsx`:
+- Entries sorted by back number; DQ'd entries (`is_disqualified=true`) rendered at the bottom with a red **DQ** badge and no place input — excluded from the save payload
+- Progress counter ("X of Y placed") and **Clear all** button
+- Auto-focuses the first empty place input on mount
+- Tie detection: any place number shared by 2+ entries automatically shows a **TIE** badge
+- After a successful save: inline **View Results** and **Next Class →** links appear in the success banner
+- Class navigation bar (← prev class | N of M | next class →) for moving between classes without returning to the show page
+
+### Show Detail Page (`/shows/{id}`)
+Each class card is split into two clickable zones:
+- Left: links to the class results view (`/shows/{id}/classes/{classId}`)
+- Right: dark **Score** button (SCOREKEEPER/ADMIN only, ACTIVE shows only) links directly to the scoring form — saves one click vs. going through the results view
+
 ## Future Considerations
 
 - Real-time notifications to exhibitors
 - Export results to various formats (PDF, Excel)
 - Integration with association websites
-- Mobile-optimized scorekeeping interface
 - Undo/correction workflows for entered placings
 - Multi-arena/multi-ring support for larger shows
 
@@ -356,6 +388,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (migration 010, APHA sanctioned show fields)
+**Last Updated:** April 2026 (Scorekeeper UX improvements)
 **Project Status:** 🔨 Active Development
 

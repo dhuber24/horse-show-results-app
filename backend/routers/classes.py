@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin
-from models import Class, Show
+from models import Class, Show, Result
 from schemas import ClassCreate, ClassUpdate, ClassOut
 
 router = APIRouter(prefix="/shows/{show_id}/classes", tags=["Classes"])
@@ -18,13 +18,24 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession):
     return show
 
 
-@router.get("/", response_model=list[ClassOut])
+@router.get("/")
 async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
-    result = await db.execute(
-        select(Class).where(Class.show_id == show_id).order_by(Class.class_number)
+    placed_subq = (
+        select(func.count(Result.id))
+        .where(Result.class_id == Class.id)
+        .correlate(Class)
+        .scalar_subquery()
     )
-    return result.scalars().all()
+    result = await db.execute(
+        select(Class, placed_subq.label("placed_count"))
+        .where(Class.show_id == show_id)
+        .order_by(Class.class_number)
+    )
+    return [
+        {**ClassOut.model_validate(cls).model_dump(), "placed_count": placed_count}
+        for cls, placed_count in result.all()
+    ]
 
 
 @router.post("/", response_model=ClassOut, status_code=201, dependencies=[Depends(require_admin)])

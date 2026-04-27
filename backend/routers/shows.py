@@ -12,7 +12,7 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY
-from models import Show, ShowSecretary, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
+from models import Show, ShowSecretary, ShowScorekeeper, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,14 @@ async def list_shows(
             .options(selectinload(Show.show_type))
             .join(ShowSecretary, ShowSecretary.show_id == Show.id)
             .where(ShowSecretary.user_id == UUID(x_user_id))
+            .order_by(Show.start_date)
+        )
+    elif x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SCOREKEEPER" and x_user_id:
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type))
+            .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
+            .where(ShowScorekeeper.user_id == UUID(x_user_id))
             .order_by(Show.start_date)
         )
 
