@@ -37,7 +37,7 @@ export default async function ExhibitorHorsePage({ params }: { params: Promise<{
 
       <EditMyHorseForm horse={horse} registrations={registrations} />
 
-      <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+      <div id="documents" className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
         <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>
           Health &amp; Registration Documents
         </h2>

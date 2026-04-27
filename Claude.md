@@ -34,7 +34,7 @@
 - **Admin (`ADMIN`):** Full system access — show setup, user management, venue management, all configuration
 - **Show Secretary (`SHOW_SECRETARY`):** Scoped access — manages their assigned shows and scorekeepers; formerly called "Show Admin"
 - **Scorekeeper (`SCOREKEEPER`):** Entry of placings and results for assigned shows
-- **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration at `/register`
+- **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration at `/register`. Exhibitors have a personalized **My Show Entries** dashboard at `/dashboard` and a profile/horse management page at `/profile`.
 
 Show Secretaries self-register at `/register/show-secretary` (linked from the login page). During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded from the certification list since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`.
 
@@ -258,7 +258,7 @@ erDiagram
 
 Admin manages breeds at `/admin/horses/breeds` and colors at `/admin/horses/colors`.
 
-`is_solid_paint_bred` — BOOLEAN, defaults false. SPB horses cannot enter Regular Registry Open classes (APHA SC-325.A.1). The entry creation endpoint enforces this with an HTTP 400 when `apha_division == 'OPEN'` and `horse.is_solid_paint_bred == true`. Shown as "(SPB)" suffix in horse dropdowns on the entry form.
+`is_solid_paint_bred` — BOOLEAN, defaults false. SPB horses cannot enter Regular Registry Open classes (APHA SC-325.A.1). The entry creation endpoint enforces this with an HTTP 400 when `apha_division == 'OPEN'` and `horse.is_solid_paint_bred == true`. Shown as "(SPB)" suffix in horse dropdowns on the entry form. Exhibitors see an amber **SPB** badge next to the horse name in their horse list (`MyHorsesPanel`) so they understand why an entry may be rejected.
 
 ### Horse Documents
 Four document types per horse: `COGGINS` (EIA test), `VACCINATION`, `HEALTH_CERTIFICATE` (CVI), `REGISTRATION` (breed papers/membership). Each document stores: type, original filename, file bytes (BYTEA in Neon for now), mime type, file size, issue date, expiry date (both manually entered — no auto-calculation), and uploader user ID.
@@ -333,6 +333,41 @@ A compact scorekeeper summary line appears below the status badge, showing assig
 
 **Status transitions** (handled by `ShowStatusControl.tsx`): Each forward transition (DRAFT → PUBLISHED, PUBLISHED → ACTIVE) requires confirmation via an inline dialog that describes what the change does and states that it cannot be undone. The button is labelled "Yes, confirm". Transitions are blocked if the end date is in the past or if trying to publish with zero classes.
 
+## Exhibitor UX
+
+### My Show Entries Dashboard (`/dashboard`)
+The exhibitor's primary view. Linked from the **My Entries** button in the navbar (visible to EXHIBITOR role only).
+
+**Data source:** `GET /dashboard/exhibitor/{user_id}` — returns the exhibitor record and all their entries with class, show, horse, and result details. The response includes `show_status`, `show_start_date`, `show_end_date`, `show_venue`, `is_disqualified`, and `entry_created_at` so the frontend can group and contextualize entries without additional requests.
+
+**Layout:**
+- Entries are **grouped by show** — each show renders as a card with the show name (linked to `/shows/{id}`), date range, venue, and a status badge:
+  - Amber "In Progress" (ACTIVE), blue "Open for Registration" (PUBLISHED), gray "Completed" (COMPLETED)
+- Shows are ordered: Active → Published → Completed
+- Two labeled sections: **Active & Upcoming** and **Past Shows**
+- Within a show card, entries are sorted by class number
+
+**Entry states:**
+- Result recorded → ordinal place (1st, 2nd, 3rd…) with "T" suffix for ties
+- `is_disqualified = true` → red **DQ** badge
+- No result yet → gray **Pending** badge
+- No result, not DQ'd, `entry_created_at` within last 7 days → blue **New** badge (entry confirmation signal); a banner at the top of the page summarises how many new classes were recently added
+
+**Empty state:** Shows a prompt to contact the show secretary with a link to the public show list.
+
+### Profile & Horses (`/profile`)
+Account info (name, email), horse list, and change-password form. The horse section is rendered by `MyHorsesPanel` (`frontend/app/profile/MyHorsesPanel.tsx`).
+
+**MyHorsesPanel horse list** — each horse row shows:
+- Horse name, sex badge, and an amber **SPB** badge when `is_solid_paint_bred = true`
+- Breed, color, age metadata
+- **Edit** link → `/profile/horses/{id}` (edit details + registrations)
+- **Documents** link → `/profile/horses/{id}#documents` (scrolls directly to the documents section)
+- **Remove** button (soft-removes the ownership link)
+
+### Exhibitor Horse Detail (`/profile/horses/[id]`)
+Edit horse details (name, sex, foaling date, breed, color, SPB flag) and manage association registration numbers. Below the edit form is the `HorseDocuments` component anchored at `id="documents"` for deep-linking from the profile horse list.
+
 ### Entries Page (`/admin/shows/{id}/entries`)
 - An **"Assign Back Numbers →"** link in the page header provides direct navigation to the back numbers page without returning to the show detail.
 - The entries-by-class listing uses the `EntryListSection` client component (`entries/EntryListSection.tsx`) which renders each entry with **Edit** and **Remove** inline actions.
@@ -342,7 +377,7 @@ A compact scorekeeper summary line appears below the status badge, showing assig
 
 ## Future Considerations
 
-- Real-time notifications to exhibitors
+- Real-time push notifications to exhibitors when added to a class (currently surfaced via "New" badge on dashboard)
 - Export results to various formats (PDF, Excel)
 - Integration with association websites
 - Undo/correction workflows for entered placings
@@ -400,6 +435,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Show Secretary UX improvements)
+**Last Updated:** April 2026 (Exhibitor UX improvements — My Show Entries dashboard, SPB badge, Documents link)
 **Project Status:** 🔨 Active Development
 

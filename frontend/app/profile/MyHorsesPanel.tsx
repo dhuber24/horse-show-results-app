@@ -14,6 +14,7 @@ interface Horse {
   age: number | null;
   breed_name: string | null;
   color_name: string | null;
+  is_solid_paint_bred: boolean;
 }
 
 interface Props {
@@ -139,11 +140,16 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               <div className="flex items-center gap-3">
                 <span className="text-xl">🐴</span>
                 <div>
-                  <div className="font-medium text-sm" style={{ color: '#2c1810' }}>
+                  <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
                     {horse.name}
                     {horse.sex && (
-                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
                         {horse.sex}
+                      </span>
+                    )}
+                    {horse.is_solid_paint_bred && (
+                      <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                        SPB
                       </span>
                     )}
                   </div>
@@ -161,6 +167,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   style={{ color: '#8b4513' }}
                 >
                   Edit
+                </Link>
+                <Link
+                  href={`/profile/horses/${horse.id}#documents`}
+                  className="text-xs font-medium hover:underline"
+                  style={{ color: '#8b4513' }}
+                >
+                  Documents
                 </Link>
                 <button
                   onClick={() => handleRemove(horse.id)}
