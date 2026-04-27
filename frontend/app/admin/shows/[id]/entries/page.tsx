@@ -7,6 +7,7 @@ import {
   fetchExhibitors,
 } from '@/lib/api';
 import CreateEntryForm from '../CreateEntryForm';
+import EntryListSection from './EntryListSection';
 
 export default async function ShowEntriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -30,8 +31,19 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
         <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
           ← Back to Show
         </Link>
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Entries</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{show.name}</p>
+        <div className="flex items-center justify-between mt-2">
+          <div>
+            <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Entries</h1>
+            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{show.name}</p>
+          </div>
+          <Link
+            href={`/admin/shows/${id}/back-numbers`}
+            className="text-sm px-3 py-1.5 rounded border hover:bg-amber-50 transition-colors"
+            style={{ borderColor: '#d4b896', color: '#8b4513' }}
+          >
+            Assign Back Numbers →
+          </Link>
+        </div>
       </div>
 
       <section>
@@ -41,44 +53,11 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Entries by Class</h2>
-        {entriesByClass.length === 0 ? (
-          <p style={{ color: '#8b7355' }}>No classes yet. Add a class first.</p>
-        ) : (
-          entriesByClass.map(({ cls, entries }) => (
-            <div
-              key={cls.id}
-              className="p-4 rounded-lg border"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold" style={{ color: '#2c1810' }}>
-                  {cls.name}
-                  <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
-                    ({entries.length})
-                  </span>
-                </div>
-              </div>
-              {entries.length === 0 ? (
-                <p className="text-sm" style={{ color: '#8b7355' }}>No entries yet.</p>
-              ) : (
-                <ul className="text-sm space-y-1">
-                  {entries.map((entry: any) => (
-                    <li key={entry.id} style={{ color: '#2c1810' }}>
-                      {entry.back_number != null && (
-                        <span className="font-mono mr-2" style={{ color: '#8b4513' }}>
-                          #{entry.back_number}
-                        </span>
-                      )}
-                      {entry.horse_name ?? entry.horse?.name ?? 'Horse'}
-                      <span style={{ color: '#8b7355' }}> — </span>
-                      {entry.exhibitor_name ?? entry.exhibitor?.full_name ?? 'Exhibitor'}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))
-        )}
+        <EntryListSection
+          showId={id}
+          entriesByClass={entriesByClass}
+          isAphaShow={show.show_type_code === 'APHA'}
+        />
       </section>
     </main>
   );

@@ -97,6 +97,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             endDate={show.end_date}
           />
         </div>
+        {(isAdmin || isShowAdmin) && (
+          <p className="text-sm mt-2" style={{ color: '#8b7355' }}>
+            {staffData.scorekeepers.length > 0
+              ? <>Scorekeepers: {(staffData.scorekeepers as any[]).map((s: any) => s.full_name).join(' · ')}</>
+              : 'No scorekeepers assigned yet — add one below.'}
+          </p>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">

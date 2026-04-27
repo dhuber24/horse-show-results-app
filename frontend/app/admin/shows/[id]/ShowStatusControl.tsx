@@ -12,10 +12,21 @@ const STATUS_STYLES: Record<ShowStatus, { bg: string; text: string }> = {
   COMPLETED: { bg: '#dbeafe', text: '#1e40af' },
 };
 
-function getNextAction(status: ShowStatus): { label: string; targetStatus: ShowStatus } | null {
-  if (status === 'DRAFT')     return { label: 'Publish Show',  targetStatus: 'PUBLISHED' };
-  if (status === 'PUBLISHED') return { label: 'Set to Active', targetStatus: 'ACTIVE' };
-  return null;
+const STATUS_TRANSITION_INFO: Partial<Record<ShowStatus, { label: string; targetStatus: ShowStatus; warning: string }>> = {
+  DRAFT: {
+    label: 'Publish Show',
+    targetStatus: 'PUBLISHED',
+    warning: 'Publishing makes this show visible to exhibitors so they can view classes and register entries. This cannot be undone.',
+  },
+  PUBLISHED: {
+    label: 'Set to Active',
+    targetStatus: 'ACTIVE',
+    warning: 'Activating the show opens scoring for scorekeepers. This cannot be undone.',
+  },
+};
+
+function getNextAction(status: ShowStatus): { label: string; targetStatus: ShowStatus; warning: string } | null {
+  return STATUS_TRANSITION_INFO[status] ?? null;
 }
 
 interface Props {
@@ -99,30 +110,33 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, e
         <p className="text-sm" style={{ color: '#dc2626' }}>{error}</p>
       )}
 
-      {pendingStatus && (
+      {pendingStatus && nextAction && (
         <div
-          className="flex items-center gap-3 text-sm border rounded p-3"
+          className="text-sm border rounded p-3 space-y-2"
           style={{ borderColor: '#d4b896', backgroundColor: '#fefce8' }}
         >
-          <span style={{ color: '#2c1810' }}>
+          <p className="font-medium" style={{ color: '#2c1810' }}>
             Change status to <strong>{pendingStatus}</strong>?
-          </span>
-          <button
-            onClick={handleConfirm}
-            disabled={saving}
-            className="px-3 py-1 rounded text-white text-xs font-medium"
-            style={{ backgroundColor: '#2c1810' }}
-          >
-            {saving ? 'Saving…' : 'Confirm'}
-          </button>
-          <button
-            onClick={() => setPendingStatus(null)}
-            disabled={saving}
-            className="text-xs hover:underline"
-            style={{ color: '#8b7355' }}
-          >
-            Cancel
-          </button>
+          </p>
+          <p style={{ color: '#5c3d1e' }}>{nextAction.warning}</p>
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={handleConfirm}
+              disabled={saving}
+              className="px-3 py-1 rounded text-white text-xs font-medium"
+              style={{ backgroundColor: '#2c1810' }}
+            >
+              {saving ? 'Saving…' : 'Yes, confirm'}
+            </button>
+            <button
+              onClick={() => setPendingStatus(null)}
+              disabled={saving}
+              className="text-xs hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -324,9 +324,21 @@ Both filters use the same pattern (conditional `elif` on the query before execut
 - Class navigation bar (← prev class | N of M | next class →) for moving between classes without returning to the show page
 
 ### Show Detail Page (`/shows/{id}`)
-Each class card is split into two clickable zones:
-- Left: links to the class results view (`/shows/{id}/classes/{classId}`)
-- Right: dark **Score** button (SCOREKEEPER/ADMIN only, ACTIVE shows only) links directly to the scoring form — saves one click vs. going through the results view
+Each class card links directly to the scoring form when the viewer is a scorer on an active show (`canScore && show.status === 'ACTIVE'`); otherwise it links to the class results view. CLOSED classes are hidden entirely in scoring mode — only OPEN classes are shown to scorers on an active show.
+
+### Admin Show Page (`/admin/shows/{id}`)
+When a show is ACTIVE, a dark **"Score Classes"** tile appears in the action grid linking to `/shows/{id}`, providing a direct path to per-class scoring without leaving the admin context.
+
+A compact scorekeeper summary line appears below the status badge, showing assigned scorekeeper names (e.g. "Scorekeepers: Jane Smith · Bob Jones") or "No scorekeepers assigned yet" — visible to ADMIN and SHOW_SECRETARY.
+
+**Status transitions** (handled by `ShowStatusControl.tsx`): Each forward transition (DRAFT → PUBLISHED, PUBLISHED → ACTIVE) requires confirmation via an inline dialog that describes what the change does and states that it cannot be undone. The button is labelled "Yes, confirm". Transitions are blocked if the end date is in the past or if trying to publish with zero classes.
+
+### Entries Page (`/admin/shows/{id}/entries`)
+- An **"Assign Back Numbers →"** link in the page header provides direct navigation to the back numbers page without returning to the show detail.
+- The entries-by-class listing uses the `EntryListSection` client component (`entries/EntryListSection.tsx`) which renders each entry with **Edit** and **Remove** inline actions.
+  - **Edit**: expands an inline form for `back_number`, `apha_division` (APHA shows only), `relationship_to_owner` (APHA, shown only for Amateur/Youth divisions), and `is_disqualified`. Saves via `PATCH /api/entries/[entryId]`.
+  - **Remove**: shows an inline "Remove this entry? / Yes, remove / Cancel" confirmation before deleting via `DELETE /api/entries/[entryId]`.
+- Entry PATCH and DELETE are proxied through `frontend/app/api/entries/[entryId]/route.ts` → `backend PATCH/DELETE /shows/{show_id}/classes/{class_id}/entries/{entry_id}`. The PATCH body includes `showId` and `classId`; the DELETE passes them as query params.
 
 ## Future Considerations
 
@@ -388,6 +400,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Scorekeeper UX improvements)
+**Last Updated:** April 2026 (Show Secretary UX improvements)
 **Project Status:** 🔨 Active Development
 
