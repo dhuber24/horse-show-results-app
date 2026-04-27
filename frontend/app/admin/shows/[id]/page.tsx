@@ -4,6 +4,7 @@ import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
 import ShowStaffPanel from './ShowStaffPanel';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 const tiles = (showId: string) => [
   {
@@ -75,9 +76,11 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin/shows" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Shows
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Shows', href: '/admin/shows' },
+          { label: show.name },
+        ]} />
         <div className="flex items-center gap-2 mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
           {show.show_type_code && (

@@ -1,6 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import BackNumberForm from './BackNumberForm';
 import Link from 'next/link';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 async function fetchShowBackNumbers(showId: string) {
   const API_URL = process.env.API_URL || 'http://backend:8000';
@@ -48,9 +49,12 @@ export default async function BackNumbersPage({ params }: { params: Promise<{ id
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-        ← Back to {show.name}
-      </Link>
+      <Breadcrumbs crumbs={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'Shows', href: '/admin/shows' },
+        { label: show.name, href: `/admin/shows/${id}` },
+        { label: 'Back Numbers' },
+      ]} />
       <div className="mt-4 mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Back Number Assignment</h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>

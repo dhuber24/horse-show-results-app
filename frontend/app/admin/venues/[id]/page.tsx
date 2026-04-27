@@ -4,6 +4,7 @@ import { fetchVenue } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import EditVenueForm from './EditVenueForm';
 import VenueAdminPanel from './VenueAdminPanel';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 async function getVenueAdmins(venueId: string, headers: Record<string, string>) {
   const [adminsRes, allUsersRes] = await Promise.all([
@@ -37,11 +38,13 @@ export default async function AdminVenuePage({ params }: { params: Promise<{ id:
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Edit Venue</h1>
-        <Link href="/admin/venues" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Venues
-        </Link>
+      <div>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Venues', href: '/admin/venues' },
+          { label: venue.name },
+        ]} />
+        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Venue</h1>
       </div>
 
       <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>

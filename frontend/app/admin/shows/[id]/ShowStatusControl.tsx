@@ -98,6 +98,7 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, e
           <button
             onClick={handleActionClick}
             disabled={saving}
+            title={saving ? 'Saving, please wait…' : undefined}
             className="text-sm px-3 py-1 rounded font-medium border transition-colors hover:bg-amber-50"
             style={{ borderColor: '#8b4513', color: '#8b4513' }}
           >

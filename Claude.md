@@ -331,7 +331,13 @@ When a show is ACTIVE, a dark **"Score Classes"** tile appears in the action gri
 
 A compact scorekeeper summary line appears below the status badge, showing assigned scorekeeper names (e.g. "Scorekeepers: Jane Smith · Bob Jones") or "No scorekeepers assigned yet" — visible to ADMIN and SHOW_SECRETARY.
 
-**Status transitions** (handled by `ShowStatusControl.tsx`): Each forward transition (DRAFT → PUBLISHED, PUBLISHED → ACTIVE) requires confirmation via an inline dialog that describes what the change does and states that it cannot be undone. The button is labelled "Yes, confirm". Transitions are blocked if the end date is in the past or if trying to publish with zero classes.
+**Status transitions** (handled by `ShowStatusControl.tsx`): Each forward transition (DRAFT → PUBLISHED, PUBLISHED → ACTIVE) requires confirmation via an inline panel that describes what the change does and states that it cannot be undone. The button is labelled "Yes, confirm". Transitions are blocked if the end date is in the past or if trying to publish with zero classes.
+
+**Breadcrumbs**: Deep-nested admin pages (show detail and all sub-pages, user detail, venue detail, horse detail, breed/color edit) display a `Breadcrumbs` trail (`frontend/components/Breadcrumbs.tsx`) instead of a single "← Back" link, e.g. Admin › Shows › [show name] › Classes.
+
+**Delete confirmations**: All destructive delete actions (shows, classes, venues, users) open a `ConfirmDialog` modal (`frontend/components/ConfirmDialog.tsx`) rather than an inline text toggle. The dialog states what will be deleted and that it cannot be undone.
+
+**Disabled button tooltips**: Disabled buttons carry a `title` attribute explaining why they are inactive — e.g. "No changes to save", "Fix duplicate back numbers before saving", "Password must be at least 8 characters".
 
 ## Exhibitor UX
 
@@ -374,6 +380,52 @@ Edit horse details (name, sex, foaling date, breed, color, SPB flag) and manage 
   - **Edit**: expands an inline form for `back_number`, `apha_division` (APHA shows only), `relationship_to_owner` (APHA, shown only for Amateur/Youth divisions), and `is_disqualified`. Saves via `PATCH /api/entries/[entryId]`.
   - **Remove**: shows an inline "Remove this entry? / Yes, remove / Cancel" confirmation before deleting via `DELETE /api/entries/[entryId]`.
 - Entry PATCH and DELETE are proxied through `frontend/app/api/entries/[entryId]/route.ts` → `backend PATCH/DELETE /shows/{show_id}/classes/{class_id}/entries/{entry_id}`. The PATCH body includes `showId` and `classId`; the DELETE passes them as query params.
+
+## Shared Frontend Components
+
+Reusable components live in `frontend/components/`.
+
+### `Breadcrumbs` (`frontend/components/Breadcrumbs.tsx`)
+Renders a horizontal breadcrumb trail. Accept a `crumbs` array of `{ label: string; href?: string }` objects — the last crumb (current page) is rendered as plain text; all others as links.
+
+Use on any admin page that is 2+ levels deep from `/admin`. Convention:
+
+| Page | Crumbs |
+|------|--------|
+| `/admin/shows/[id]` | Admin › Shows › [show name] |
+| `/admin/shows/[id]/classes` | Admin › Shows › [show name] › Classes |
+| `/admin/shows/[id]/entries` | Admin › Shows › [show name] › Entries |
+| `/admin/shows/[id]/back-numbers` | Admin › Shows › [show name] › Back Numbers |
+| `/admin/shows/[id]/edit` | Admin › Shows › [show name] › Edit Details |
+| `/admin/users/[id]` | Admin › Users › [user name] |
+| `/admin/venues/[id]` | Admin › Venues › [venue name] |
+| `/admin/horses/[id]` | Admin › Horses › [horse name] |
+| `/admin/horses/breeds/[id]` | Admin › Horses › Breeds › [breed name] |
+| `/admin/horses/colors/[id]` | Admin › Horses › Colors › [color name] |
+
+### `ConfirmDialog` (`frontend/components/ConfirmDialog.tsx`)
+Modal overlay for destructive confirmations. Props:
+
+- `title` — dialog heading
+- `message` — what will be deleted/affected and that it cannot be undone
+- `confirmLabel` — button label (default `"Confirm"`)
+- `destructive` — renders the confirm button red (default `false`)
+- `confirming` — shows "Please wait…" and disables both buttons while the request is in flight
+- `onConfirm` / `onCancel` — callbacks
+
+Use this for all delete actions (shows, classes, venues, users). Do **not** use the old inline `confirmDelete` boolean toggle pattern.
+
+### Disabled Button Tooltips
+All `<button disabled={...}>` elements should carry a `title` attribute explaining why they are blocked:
+
+```tsx
+<button
+  disabled={saving || !isDirty}
+  title={!isDirty ? 'No changes to save' : saving ? 'Saving, please wait…' : undefined}
+>
+```
+
+Common tooltip values: `"No changes to save"`, `"Saving, please wait…"`, `"Fix duplicate back numbers before saving"`, `"Password must be at least 8 characters"`.
 
 ## Future Considerations
 
@@ -435,6 +487,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Exhibitor UX improvements — My Show Entries dashboard, SPB badge, Documents link)
+**Last Updated:** April 2026 (Admin UX — ConfirmDialog modals for deletes, Breadcrumbs on deep-nested pages, disabled button tooltips)
 **Project Status:** 🔨 Active Development
 

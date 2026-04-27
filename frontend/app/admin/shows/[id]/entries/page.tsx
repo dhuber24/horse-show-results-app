@@ -8,6 +8,7 @@ import {
 } from '@/lib/api';
 import CreateEntryForm from '../CreateEntryForm';
 import EntryListSection from './EntryListSection';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowEntriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -28,9 +29,12 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Show
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Shows', href: '/admin/shows' },
+          { label: show.name, href: `/admin/shows/${id}` },
+          { label: 'Entries' },
+        ]} />
         <div className="flex items-center justify-between mt-2">
           <div>
             <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Entries</h1>

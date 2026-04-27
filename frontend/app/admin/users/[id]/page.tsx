@@ -7,6 +7,7 @@ import EditUserForm from './EditUserForm';
 import ChangeRoleForm from './ChangeRoleForm';
 import ResetPasswordForm from './ResetPasswordForm';
 import DeleteUserButton from './DeleteUserButton';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 async function getUser(id: string, headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/users/${id}`, { headers, cache: 'no-store' });
@@ -54,9 +55,11 @@ export default async function UserDetailPage({
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin/users" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Users
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Users', href: '/admin/users' },
+          { label: user.full_name },
+        ]} />
         <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
           {user.full_name}
         </h1>

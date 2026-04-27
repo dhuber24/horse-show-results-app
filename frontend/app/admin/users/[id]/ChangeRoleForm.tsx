@@ -56,6 +56,7 @@ export default function ChangeRoleForm({ user }: Props) {
         <button
           onClick={handleSave}
           disabled={saving || !isDirty}
+          title={!isDirty ? 'Select a different role to save' : saving ? 'Saving, please wait…' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: '#8b4513' }}
         >

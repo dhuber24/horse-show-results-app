@@ -115,9 +115,13 @@ export default function BackNumberForm({ showId, exhibitors }: {
         </div>
       )}
 
-      <button onClick={handleSave} disabled={saving || hasDuplicates}
+      <button
+        onClick={handleSave}
+        disabled={saving || hasDuplicates}
+        title={hasDuplicates ? 'Fix duplicate back numbers before saving' : saving ? 'Saving, please wait…' : undefined}
         className="px-6 py-2 rounded font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
+        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+      >
         {saving ? 'Saving...' : 'Save Back Numbers'}
       </button>
     </div>
