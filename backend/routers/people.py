@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr
 import bcrypt
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key
+from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
 from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration
 from schemas import (
     UserCreate, UserOut,
@@ -98,7 +98,7 @@ async def get_current_user(
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    user = await db.get(User, UUID(user_id))
+    user = await db.get(User, safe_uuid(user_id))
     if not user:
         raise HTTPException(404, "User not found")
     return user
@@ -110,7 +110,7 @@ async def update_current_user(
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    user = await db.get(User, UUID(user_id))
+    user = await db.get(User, safe_uuid(user_id))
     if not user:
         raise HTTPException(404, "User not found")
     for k, v in body.model_dump(exclude_unset=True).items():
@@ -132,7 +132,7 @@ async def change_current_user_password(
 ):
     if len(body.new_password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
-    user = await db.get(User, UUID(user_id))
+    user = await db.get(User, safe_uuid(user_id))
     if not user:
         raise HTTPException(404, "User not found")
     if not user.hashed_password or not bcrypt.checkpw(body.current_password.encode(), user.hashed_password.encode()):
@@ -212,7 +212,7 @@ async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSe
     """Raises 403 if caller is not ADMIN and doesn't own this horse."""
     if role == 'ADMIN':
         return
-    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == UUID(user_id)))
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id)))
     exhibitor = result.scalar_one_or_none()
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
         raise HTTPException(403, "You can only modify your own horses")
@@ -413,7 +413,7 @@ async def create_owned_horse(
 ):
     """Create a horse and set this exhibitor as owner. Caller must own this exhibitor record."""
     result = await db.execute(
-        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == UUID(user_id))
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
     )
     if not result.scalar_one_or_none():
         raise HTTPException(403, "You can only add horses to your own profile")
@@ -432,7 +432,7 @@ async def remove_owned_horse(
 ):
     """Clear ownership of a horse. Caller must own this exhibitor record."""
     result = await db.execute(
-        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == UUID(user_id))
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
     )
     if not result.scalar_one_or_none():
         raise HTTPException(403, "You can only remove horses from your own profile")

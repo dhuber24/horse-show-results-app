@@ -1,17 +1,27 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
+from typing import Optional
 
 from database import get_db
+from dependencies import require_authenticated
 from models import Exhibitor, Entry, Class, Show, Horse, Result
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 @router.get("/exhibitor/{user_id}")
-async def get_exhibitor_dashboard(user_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_exhibitor_dashboard(
+    user_id: UUID,
+    x_user_role: Optional[str] = Header(None),
+    caller_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    if x_user_role != "ADMIN" and caller_id != str(user_id):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user_id))
     exhibitor = result.scalar_one_or_none()
 

@@ -1,7 +1,16 @@
 from fastapi import Header, HTTPException
+from uuid import UUID
 import os
 
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
+
+
+def safe_uuid(value: str) -> UUID:
+    """Parse a UUID from an untrusted string; raises 400 on invalid format."""
+    try:
+        return UUID(value)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid ID format")
 
 
 async def require_api_key(x_api_key: str = Header(...)):

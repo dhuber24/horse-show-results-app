@@ -11,7 +11,7 @@ from datetime import date
 from typing import Optional
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY
+from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
 from models import Show, ShowSecretary, ShowScorekeeper, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
@@ -83,7 +83,7 @@ async def list_shows(
             select(Show)
             .options(selectinload(Show.show_type))
             .join(ShowSecretary, ShowSecretary.show_id == Show.id)
-            .where(ShowSecretary.user_id == UUID(x_user_id))
+            .where(ShowSecretary.user_id == safe_uuid(x_user_id))
             .order_by(Show.start_date)
         )
     elif is_authenticated and x_user_role == "SCOREKEEPER" and x_user_id:
@@ -92,7 +92,7 @@ async def list_shows(
             select(Show)
             .options(selectinload(Show.show_type))
             .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
-            .where(ShowScorekeeper.user_id == UUID(x_user_id), Show.status != "DRAFT")
+            .where(ShowScorekeeper.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
     else:
@@ -121,12 +121,12 @@ async def create_show(
     if x_user_role not in ("ADMIN", "SHOW_SECRETARY"):
         raise HTTPException(403, "Admin or Show Secretary access required")
 
-    show = Show(**body.model_dump(), created_by_user_id=UUID(x_user_id))
+    show = Show(**body.model_dump(), created_by_user_id=safe_uuid(x_user_id))
     db.add(show)
     await db.commit()
 
     if x_user_role == "SHOW_SECRETARY":
-        db.add(ShowSecretary(show_id=show.id, user_id=UUID(x_user_id)))
+        db.add(ShowSecretary(show_id=show.id, user_id=safe_uuid(x_user_id)))
         await db.commit()
 
     show = await _get_show_with_type(db, show.id)
@@ -149,7 +149,7 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
         return
     if x_user_role == "SHOW_SECRETARY":
         row = await db.execute(
-            select(ShowSecretary).where(ShowSecretary.show_id == show_id, ShowSecretary.user_id == UUID(x_user_id))
+            select(ShowSecretary).where(ShowSecretary.show_id == show_id, ShowSecretary.user_id == safe_uuid(x_user_id))
         )
         if row.scalar_one_or_none():
             return
