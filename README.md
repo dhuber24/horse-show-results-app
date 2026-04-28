@@ -35,7 +35,7 @@ Placings entered by the show office are final.
 ## Tech Stack
 - Backend: FastAPI (Python)
 - Frontend: Next.js (PWA)
-- Database: PostgreSQL
+- Database: PostgreSQL (Neon cloud)
 - Deployment: Docker + GitHub Codespaces
 
 ## Status
@@ -43,6 +43,9 @@ Placings entered by the show office are final.
 
 ## Getting Started
 ```bash
+# Copy and fill in your environment variables (DATABASE_URL, INTERNAL_API_KEY, NEXTAUTH_SECRET)
+cp .env.example .env
+
 docker-compose up
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000

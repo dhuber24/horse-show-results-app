@@ -48,7 +48,7 @@ When an Exhibitor self-registers at `/register`, the backend creates both a `Use
 |-------|-----------|---------|
 | **Frontend** | Next.js (PWA) | Progressive Web App for cross-platform access |
 | **Backend** | FastAPI | Modern Python async API framework |
-| **Database** | PostgreSQL | Relational database for persistent storage |
+| **Database** | PostgreSQL (Neon cloud) | Cloud-hosted Postgres — no local db service |
 | **Deployment** | Docker + GitHub Codespaces | Containerized application with cloud-based dev environment |
 | **Version Control** | Git | GitHub-hosted repository |
 
@@ -104,19 +104,21 @@ horse-show-results-app/
 
 ### Local Development Setup
 ```bash
-# Prerequisites: Docker, Docker Compose
+# Prerequisites: Docker, Docker Compose, a .env file with:
+#   DATABASE_URL       — Neon connection string (postgresql+asyncpg://...)
+#   INTERNAL_API_KEY   — shared secret between Next.js and FastAPI
+#   NEXTAUTH_SECRET    — NextAuth signing secret
 
-# Start all services
+# Start backend + frontend (no local db — Neon is the database)
 docker-compose up
 
 # Services will be available at:
 # - Frontend: http://localhost:3000 (or configured port)
 # - Backend API: http://localhost:8000 (or configured port)
-# - PostgreSQL: localhost:5432 (or configured port)
 ```
 
 ### Key Configuration Files
-- `docker-compose.yml` — Defines services for local development (backend, frontend, database)
+- `docker-compose.yml` — Defines services for local development (backend + frontend only; database is Neon cloud)
 
 ## Current Status
 🔨 **Active Development** — Core infrastructure is in place. User management, show/class/entry management, results entry, and back number assignment are all functional. Exhibitors have a self-service account/profile page at `/profile`.
@@ -487,6 +489,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Admin UX — ConfirmDialog modals for deletes, Breadcrumbs on deep-nested pages, disabled button tooltips)
+**Last Updated:** April 2026 (Neon-only database; security fixes: safe_uuid(), dashboard auth, removed secret fallbacks; database/README reflects current schema)
 **Project Status:** 🔨 Active Development
 

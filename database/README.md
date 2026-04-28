@@ -1,414 +1,370 @@
 # Database
 
-PostgreSQL schema for horse show management system.
+PostgreSQL schema for the Horse Show Results App. The database is hosted on **Neon** (cloud PostgreSQL) — there is no local database service. Connect via the `DATABASE_URL` environment variable.
+
+## Migrations
+
+Migrations live in `database/migrations/` and are tracked in the `_migrations` table. Apply them directly via psql (Windows volume-mount bug prevents using the migration runner script):
+
+```bash
+PSQL_URL="${DATABASE_URL/postgresql+asyncpg/postgresql}"
+docker run --rm postgres:16-alpine psql "$PSQL_URL" -c "<SQL statement>"
+docker run --rm postgres:16-alpine psql "$PSQL_URL" -c \
+  "INSERT INTO _migrations (name) VALUES ('<filename>.sql') ON CONFLICT DO NOTHING;"
+```
+
+Applied migrations (in order):
+| File | Description |
+|------|-------------|
+| `001_show_types.sql` | show_types table; seeds AQHA, APHA, OPEN |
+| `002_show_admin_role.sql` | show_secretaries join table |
+| `003_venue_admins.sql` | venue_admins join table |
+| `004_user_last_login.sql` | last_login_at column on users |
+| `005_rename_show_admins_table.sql` | renamed show_admins → show_secretaries |
+| `006_secretary_certifications.sql` | show_secretary_certifications table |
+| `007_horse_attributes.sql` | breeds (17), horse_colors (27), foaling_date/sex/breed_id/color_id, horse_registrations |
+| `008_horse_owner_exhibitor.sql` | owner_exhibitor_id FK on horses |
+| `009_horse_documents.sql` | horse_documents table (BYTEA storage) |
+| `010_apha_fields.sql` | APHA fields on shows, horses, classes, entries, exhibitors |
+| `011_entries_horse_fk_set_null.sql` | entries.horse_id FK → ON DELETE SET NULL |
+
+Data seeded directly (not via migration file): show_types NSBA, WSCA, ARHA, ApHC, FQHR.
+
+---
 
 ## Core Entities
 
-### Shows
-Horse show events with dates and venues.
+### show_types
+Association types supported by the app.
 
-**Fields:**
-- `id` (UUID, PK)
-- `name` (TEXT)
-- `venue` (TEXT) - legacy field
-- `venue_id` (UUID, FK)
-- `start_date` (DATE)
-- `end_date` (DATE)
-- `status` (TEXT) - DRAFT, ACTIVE, COMPLETED
-- `created_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- One show has many Rings
-- One show has many Divisions
-- One show has many Classes
-- One show has many Entries (via classes)
-- One show has many Results (via classes)
-- One show has many Show Entries (exhibitor registrations)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| code | TEXT UNIQUE | AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR, OPEN |
+| name | TEXT | Full association name |
 
 ---
 
-### Rings
-Performance areas/rings within a show for simultaneous competitions.
+### shows
 
-**Fields:**
-- `id` (UUID, PK)
-- `show_id` (UUID, FK)
-- `name` (TEXT)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| name | TEXT | |
+| venue | TEXT | Legacy field |
+| venue_id | UUID FK → venues | |
+| show_type_id | UUID FK → show_types | |
+| start_date | DATE | |
+| end_date | DATE | |
+| status | TEXT | DRAFT, PUBLISHED, ACTIVE, COMPLETED |
+| apha_show_number | TEXT | Required for APHA export |
+| created_by_user_id | UUID FK → users | |
+| created_at | TIMESTAMPTZ | |
 
-**Relationships:**
-- One ring belongs to one Show
-- One ring has many Classes
-
-**Notes:**
-- Multiple rings support simultaneous competitions
-- Deleted with show (ON DELETE CASCADE)
-
----
-
-### Divisions
-Competition divisions within a show (e.g., Youth, Amateur, Open).
-
-**Fields:**
-- `id` (UUID, PK)
-- `show_id` (UUID, FK)
-- `name` (TEXT)
-
-**Relationships:**
-- One division belongs to one Show
-- One division has many Classes
-
-**Notes:**
-- Organize competitors by skill level
-- Deleted with show (ON DELETE CASCADE)
+**Status flow:** DRAFT → PUBLISHED → ACTIVE (auto on start_date) → COMPLETED (auto after end_date)
 
 ---
 
-### Classes
-Competition classes (specific events within a show).
+### classes
 
-**Fields:**
-- `id` (UUID, PK)
-- `show_id` (UUID, FK)
-- `ring_id` (UUID, FK) - optional
-- `division_id` (UUID, FK) - optional
-- `class_number` (TEXT)
-- `class_name` (TEXT)
-- `class_date` (DATE)
-- `status` (TEXT) - OPEN, IN_PROGRESS, COMPLETED
-- `created_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- One class belongs to one Show
-- One class belongs to one Ring (optional)
-- One class belongs to one Division (optional)
-- One class has many Entries
-- One class has many Results
-
-**Notes:**
-- Ring and division are optional (nullable)
-- Status tracks class progression
-- class_number uniquely identifies within show
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| show_id | UUID FK → shows | CASCADE delete |
+| ring_id | UUID FK → rings | nullable |
+| division_id | UUID FK → divisions | nullable |
+| class_number | TEXT | Unique within show |
+| class_name | TEXT | |
+| class_date | DATE | |
+| status | TEXT | OPEN, IN_PROGRESS, CLOSED |
+| apha_class_code | TEXT | APHA standard code e.g. WP01 |
+| created_at | TIMESTAMPTZ | |
 
 ---
 
-### Entries
-Entry of an exhibitor and horse combination into a specific class.
+### entries
 
-**Fields:**
-- `id` (UUID, PK)
-- `class_id` (UUID, FK)
-- `exhibitor_id` (UUID, FK)
-- `horse_id` (UUID, FK)
-- `back_number` (INTEGER)
-- `status` (TEXT) - ENTERED, WITHDRAWN, DISQUALIFIED
-- `created_at` (TIMESTAMPTZ)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| class_id | UUID FK → classes | CASCADE delete |
+| exhibitor_id | UUID FK → exhibitors | |
+| horse_id | UUID FK → horses | SET NULL on horse delete |
+| back_number | INTEGER | |
+| status | TEXT | ENTERED, WITHDRAWN |
+| apha_division | TEXT | OPEN, SOLID_PAINT_BRED, AMATEUR, NOVICE_AMATEUR, YOUTH, NOVICE_YOUTH |
+| relationship_to_owner | TEXT | Required for Amateur/Youth APHA divisions |
+| is_disqualified | BOOLEAN | DQ'd entries kept in export, no placing |
+| created_at | TIMESTAMPTZ | |
 
-**Unique Constraint:**
-- `(class_id, exhibitor_id, horse_id)` - prevents duplicate entries
-
-**Relationships:**
-- One entry belongs to one Class
-- One entry belongs to one Exhibitor
-- One entry belongs to one Horse
-- One entry has one Result (optional)
-
-**Notes:**
-- Unique constraint prevents same exhibitor/horse in class twice
-- back_number per class entry
-- Status tracks entry lifecycle
+**Unique:** `(class_id, exhibitor_id, horse_id)`
 
 ---
 
-### Results
-Competition results (placings only, manual entry).
+### results
 
-**Fields:**
-- `id` (UUID, PK)
-- `class_id` (UUID, FK)
-- `entry_id` (UUID, FK)
-- `place` (INTEGER) - 1st, 2nd, 3rd, etc.
-- `is_tie` (BOOLEAN)
-- `notes` (TEXT)
-- `created_at` (TIMESTAMPTZ)
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| class_id | UUID FK → classes | CASCADE delete |
+| entry_id | UUID FK → entries | |
+| place | INTEGER | Must be > 0 |
+| is_tie | BOOLEAN | |
+| notes | TEXT | |
+| created_at | TIMESTAMPTZ | |
 
-**Constraints:**
-- `place > 0` - placement must be positive
-- `(class_id, place, entry_id)` - unique placement per entry per class
+**Unique:** `(class_id, place, entry_id)`
 
-**Relationships:**
-- One result belongs to one Class
-- One result belongs to one Entry
-- One result has many Result Audit entries
+---
 
-**Notes:**
-- Manual placement entry only (no automated scoring)
-- Unique constraint prevents duplicate placements
-- `is_tie` allows tracking of tied results
-- Audit trail tracked in `result_audit` table
+### result_audit
+Immutable audit trail for result changes.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| result_id | UUID FK → results | |
+| changed_by | UUID FK → users | |
+| old_place | INTEGER | |
+| new_place | INTEGER | |
+| changed_at | TIMESTAMPTZ | |
+
+---
+
+## People & Auth Entities
+
+### users
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| role | TEXT | ADMIN, SHOW_SECRETARY, SCOREKEEPER, EXHIBITOR |
+| full_name | TEXT | |
+| email | TEXT UNIQUE | |
+| hashed_password | TEXT | bcrypt |
+| last_login_at | TIMESTAMPTZ | |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+### exhibitors
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK → users | nullable; links exhibitor to a login |
+| full_name | TEXT | |
+| apha_member_number | TEXT | |
+| apha_member_expiry | DATE | |
+| amateur_card_number | TEXT | |
+| amateur_card_expiry | DATE | |
+| amateur_novice_codes | TEXT | |
+| date_of_birth | DATE | |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+### show_entries
+Show-level back number assignment (one row per exhibitor per show).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| show_id | UUID FK → shows | |
+| exhibitor_id | UUID FK → exhibitors | |
+| back_number | INTEGER | Unique within show |
+| created_at | TIMESTAMPTZ | |
+
+**Unique:** `(show_id, exhibitor_id)`, `(show_id, back_number)`
+
+---
+
+### show_secretaries
+Links users with SHOW_SECRETARY role to the shows they manage.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| show_id | UUID FK → shows | Composite PK |
+| user_id | UUID FK → users | Composite PK |
+
+---
+
+### show_scorekeepers
+Links users with SCOREKEEPER role to the shows they score.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| show_id | UUID FK → shows | Composite PK |
+| user_id | UUID FK → users | Composite PK |
+
+---
+
+### show_secretary_certifications
+Association certifications per Show Secretary.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK → users | |
+| show_type_id | UUID FK → show_types | |
+| secretary_id_number | TEXT | nullable |
+
+**Unique:** `(user_id, show_type_id)`
+
+---
+
+## Venue Entities
+
+### venues
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| name | TEXT | |
+| address | TEXT | |
+| city | TEXT | |
+| state | TEXT | |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+## Horse Entities
+
+### horses
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| name | TEXT | |
+| owner_exhibitor_id | UUID FK → exhibitors | nullable |
+| foaling_date | DATE | nullable; age calculated, never stored |
+| sex | TEXT | Mare, Gelding, Stallion (nullable) |
+| breed_id | UUID FK → breeds | nullable |
+| color_id | UUID FK → horse_colors | nullable |
+| is_solid_paint_bred | BOOLEAN | defaults false; SPB horses cannot enter APHA Open classes |
+| created_at | TIMESTAMPTZ | |
+
+---
+
+### breeds
+Admin-managed lookup table (17 seeded, alphabetically sorted).
+
+| Column | Type |
+|--------|------|
+| id | UUID PK |
+| name | TEXT UNIQUE |
+
+---
+
+### horse_colors
+Admin-managed lookup table (27 seeded, alphabetically sorted).
+
+| Column | Type |
+|--------|------|
+| id | UUID PK |
+| name | TEXT UNIQUE |
+
+---
+
+### exhibitor_horses
+Junction table — which horses an exhibitor can ride (beyond direct ownership).
+
+| Column | Type |
+|--------|------|
+| exhibitor_id | UUID FK → exhibitors |
+| horse_id | UUID FK → horses |
+
+**Unique:** `(exhibitor_id, horse_id)`
+
+---
+
+### horse_registrations
+Association registration numbers per horse (one per association).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| horse_id | UUID FK → horses | |
+| show_type_id | UUID FK → show_types | |
+| registration_number | TEXT | |
+
+**Unique:** `(horse_id, show_type_id)`
+
+---
+
+### horse_documents
+Documents attached to a horse (Coggins, vaccination, health cert, registration papers). Files stored as BYTEA in Neon; migrate to S3 later by adding `storage_key TEXT` and dropping `file_data`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| horse_id | UUID FK → horses | |
+| document_type | TEXT | COGGINS, VACCINATION, HEALTH_CERTIFICATE, REGISTRATION |
+| original_filename | TEXT | |
+| file_data | BYTEA | Max 10 MB |
+| mime_type | TEXT | |
+| file_size | INTEGER | bytes |
+| issue_date | DATE | nullable |
+| expiry_date | DATE | nullable |
+| uploaded_by_user_id | UUID FK → users | |
+| created_at | TIMESTAMPTZ | |
 
 ---
 
 ## Supporting Entities
 
-### Exhibitors
-People who exhibit in shows.
+### rings
+Performance areas/rings within a show.
 
-**Fields:**
-- `id` (UUID, PK)
-- `full_name` (TEXT)
-- `user_id` (UUID, FK) - optional
-- `created_at` (TIMESTAMPTZ)
+| Column | Type |
+|--------|------|
+| id | UUID PK |
+| show_id | UUID FK → shows (CASCADE) |
+| name | TEXT |
 
-**Relationships:**
-- One exhibitor can be linked to one User
-- One exhibitor has many Entries
-- One exhibitor has many Show Entries
-- One exhibitor has many Horses (via exhibitor_horses)
+### divisions
+Competition divisions within a show (e.g., Youth, Amateur, Open).
 
-**Notes:**
-- Can exist without user account
-- user_id allows exhibitor login (optional)
-
----
-
-### Horses
-Horse information.
-
-**Fields:**
-- `id` (UUID, PK)
-- `name` (TEXT)
-- `owner_name` (TEXT)
-- `created_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- One horse has many Entries
-- One horse has many Exhibitors (via exhibitor_horses)
-
-**Notes:**
-- Represents individual horses competing
-- Owner tracked separately from exhibitor
-
----
-
-### Exhibitor Horses
-Junction table linking exhibitors to horses they exhibit.
-
-**Fields:**
-- `id` (UUID, PK)
-- `exhibitor_id` (UUID, FK)
-- `horse_id` (UUID, FK)
-- `created_at` (TIMESTAMPTZ)
-
-**Unique Constraint:**
-- `(exhibitor_id, horse_id)` - prevents duplicate relationships
-
-**Relationships:**
-- Many-to-One: exhibitor_horses → Exhibitors
-- Many-to-One: exhibitor_horses → Horses
-
-**Notes:**
-- Tracks which horses each exhibitor can ride
-- Unique constraint prevents duplicates
-
----
-
-### Show Entries
-Exhibitor registration for a show (back number assignment).
-
-**Fields:**
-- `id` (UUID, PK)
-- `show_id` (UUID, FK)
-- `exhibitor_id` (UUID, FK)
-- `back_number` (INTEGER)
-- `created_at` (TIMESTAMPTZ)
-
-**Unique Constraints:**
-- `(show_id, exhibitor_id)` - one entry per exhibitor per show
-- `(show_id, back_number)` - back numbers unique within show
-
-**Relationships:**
-- Many-to-One: show_entries → Shows
-- Many-to-One: show_entries → Exhibitors
-
-**Notes:**
-- Tracks show-level registration
-- back_number is unique per show
-- Separate from class entries (Entries table)
-
----
-
-### Users
-System users with role-based access control.
-
-**Fields:**
-- `id` (UUID, PK)
-- `role` (TEXT) - ADMIN, SCOREKEEPER, EXHIBITOR
-- `full_name` (TEXT)
-- `email` (TEXT, UNIQUE)
-- `hashed_password` (TEXT)
-- `created_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- One user can be linked to many Exhibitors
-- One user can create many Shows
-- One user can create many Result Audit entries
-
----
-
-### Venues
-Physical locations where horse shows are held.
-
-**Fields:**
-- `id` (UUID, PK)
-- `name` (TEXT)
-- `address` (TEXT)
-- `city` (TEXT)
-- `state` (TEXT)
-- `created_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- One venue has many Shows
-
----
-
-### Result Audit
-Audit trail for result changes.
-
-**Fields:**
-- `id` (UUID, PK)
-- `result_id` (UUID, FK)
-- `changed_by` (UUID, FK)
-- `old_place` (INTEGER)
-- `new_place` (INTEGER)
-- `changed_at` (TIMESTAMPTZ)
-
-**Relationships:**
-- Many-to-One: result_audit → Results
-- Many-to-One: result_audit → Users
-
-**Notes:**
-- Complete audit trail of all result changes
-- Tracks who made changes and when
-- Immutable record of all edits
+| Column | Type |
+|--------|------|
+| id | UUID PK |
+| show_id | UUID FK → shows (CASCADE) |
+| name | TEXT |
 
 ---
 
 ## Data Integrity
 
 ### Cascading Deletes
-- Deleting a show cascades to: rings, divisions, classes, entries, results, show_entries
-- Deleting a class cascades to: entries, results
-- Deleting an entry cascades to: results
-- Deleting a result cascades to: result_audit
+- Show → rings, divisions, classes, show_entries, show_secretaries, show_scorekeepers
+- Class → entries, results
+- Entry → results → result_audit
+- Horse deleted → entries.horse_id set to NULL (history preserved)
 
-### Audit Trail
-- `result_audit` table tracks all changes to results
-- `created_at` timestamps on all tables
-- `changed_by` tracks which user made changes
+### Common Queries
 
----
-
-## Common Queries
-
-### Get all entries for a class with exhibitor info
 ```sql
-SELECT 
-  e.id, e.back_number, 
-  ex.full_name, h.name as horse_name,
-  r.place, r.notes
+-- All entries for a class with current placements
+SELECT e.id, e.back_number, ex.full_name, h.name AS horse_name,
+       r.place, r.is_tie, e.is_disqualified
 FROM entries e
 JOIN exhibitors ex ON e.exhibitor_id = ex.id
-JOIN horses h ON e.horse_id = h.id
+LEFT JOIN horses h ON e.horse_id = h.id
 LEFT JOIN results r ON e.id = r.entry_id
 WHERE e.class_id = $class_id
 ORDER BY COALESCE(r.place, 999), e.created_at;
-```
 
-### Get results for a class (class placings)
-```sql
-SELECT 
-  r.place, ex.full_name, h.name as horse_name,
-  e.back_number, r.notes, r.is_tie
-FROM results r
-JOIN entries e ON r.entry_id = e.id
-JOIN exhibitors ex ON e.exhibitor_id = ex.id
-JOIN horses h ON e.horse_id = h.id
-WHERE r.class_id = $class_id
-ORDER BY r.place;
-```
+-- Show-level back number roster
+SELECT se.back_number, ex.full_name
+FROM show_entries se
+JOIN exhibitors ex ON se.exhibitor_id = ex.id
+WHERE se.show_id = $show_id
+ORDER BY se.back_number;
 
-### Get result change history (audit trail)
-```sql
-SELECT 
-  ra.changed_at, u.full_name, 
-  ra.old_place, ra.new_place
+-- Result audit trail
+SELECT ra.changed_at, u.full_name, ra.old_place, ra.new_place
 FROM result_audit ra
 LEFT JOIN users u ON ra.changed_by = u.id
 WHERE ra.result_id = $result_id
 ORDER BY ra.changed_at DESC;
 ```
-
-### Get all entries for a show
-```sql
-SELECT 
-  se.id, se.back_number,
-  ex.full_name, h.name as horse_name
-FROM show_entries se
-JOIN exhibitors ex ON se.exhibitor_id = ex.id
-WHERE se.show_id = $show_id
-ORDER BY se.back_number;
-```
-
----
-
-## Performance Considerations
-
-### Indexes
-- Foreign key columns indexed for join performance
-- Status columns indexed for filtering
-- Date columns indexed for range queries
-- back_number indexed for lookup
-- (show_id, exhibitor_id) indexed for unique constraint
-- (class_id, exhibitor_id, horse_id) indexed for unique constraint
-
-### Query Optimization
-- Use indexes for WHERE clauses with status or dates
-- Join exhibitor_horses through exhibitors table
-- Pre-index common filter combinations
-
----
-
-## Migration Strategy
-
-### Version 1.0 (Current)
-- All tables as described above
-- Core functionality for show management
-- Manual result entry only
-
-### Future Enhancements
-- Scoring/time tracking (if rule-based results added)
-- Exhibitor ratings/statistics view
-- Report generation tables
-- Photo/video storage
-- Export functionality (PDF, Excel)
-
----
-
-## Database Setup
-
-### Create Database
-```bash
-createdb horse_show_db
-```
-
-### Connect
-```bash
-psql horse_show_db
-```
-
-### Run Schema
-```bash
-psql horse_show_db < database/schema.sql
-```
-
----
