@@ -1,5 +1,6 @@
 .env
 *.env.local
+.claude/settings.json
 __pycache__/
 *.pyc
 .next/
