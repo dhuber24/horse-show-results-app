@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat)",
+      "Bash(docker run *)",
+      "Bash(git commit -m ' *)",
+      "Bash(chmod +x /c/Projects/horse-show-results-app/database/migrate.sh)",
+      "PowerShell(bash C:/Projects/horse-show-results-app/database/migrate.sh 2>&1)",
+      "Bash(bash database/migrate.sh)",
+      "PowerShell(& \"C:/Projects/horse-show-results-app/database/migrate.ps1\" 2>&1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:/Projects/horse-show-results-app/database/migrate.ps1\" 2>&1)",
+      "Read(//c/Users/DanJH/.claude/projects/c--Projects-horse-show-results-app/memory/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\DanJH\\.claude\\projects\\c--Projects-horse-show-results-app",
+      "C:\\Projects\\horse-show-results-app\\.claude"
+    ]
+  }
+}
