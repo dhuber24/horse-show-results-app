@@ -4,6 +4,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from database import get_db
+from dependencies import require_admin_or_show_admin
 from models import Division, Show
 from schemas import DivisionCreate, DivisionOut
 
@@ -24,7 +25,7 @@ async def list_divisions(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.post("/", response_model=DivisionOut, status_code=201)
+@router.post("/", response_model=DivisionOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
 async def create_division(show_id: UUID, body: DivisionCreate, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
     division = Division(show_id=show_id, **body.model_dump())
@@ -34,7 +35,7 @@ async def create_division(show_id: UUID, body: DivisionCreate, db: AsyncSession 
     return division
 
 
-@router.delete("/{division_id}", status_code=204)
+@router.delete("/{division_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])
 async def delete_division(show_id: UUID, division_id: UUID, db: AsyncSession = Depends(get_db)):
     division = await db.get(Division, division_id)
     if not division or division.show_id != show_id:

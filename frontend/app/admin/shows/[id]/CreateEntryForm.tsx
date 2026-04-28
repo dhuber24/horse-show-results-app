@@ -37,6 +37,7 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cogginsWarning, setCogginsWarning] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -51,17 +52,10 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
   const showRelationship =
     isAphaShow && RELATIONSHIP_REQUIRED_DIVISIONS.has(form.apha_division);
 
-  const handleSubmit = async () => {
-    if (!form.classId || !form.exhibitor_id || !form.horse_id) {
-      setError('Class, exhibitor, and horse are required.');
-      return;
-    }
-    if (showSpbWarning) {
-      setError('Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).');
-      return;
-    }
+  const submitEntry = async (skipCoggins: boolean) => {
     setSaving(true);
     setError(null);
+    setCogginsWarning(null);
 
     const body: Record<string, unknown> = {
       showId,
@@ -73,6 +67,7 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
     };
     if (isAphaShow && form.apha_division) body.apha_division = form.apha_division;
     if (isAphaShow && form.relationship_to_owner) body.relationship_to_owner = form.relationship_to_owner;
+    if (skipCoggins) body.skipCoggins = true;
 
     const res = await fetch('/api/entries', {
       method: 'POST',
@@ -80,13 +75,31 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
       body: JSON.stringify(body),
     });
     setSaving(false);
+
     if (res.ok) {
       router.refresh();
       setForm({ classId: '', exhibitor_id: '', horse_id: '', back_number: '', apha_division: '', relationship_to_owner: '', is_disqualified: false });
     } else {
       const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to add entry. May already exist.');
+      const detail = err.detail;
+      if (res.status === 422 && detail?.code === 'COGGINS_EXPIRED') {
+        setCogginsWarning(detail.message);
+      } else {
+        setError(typeof detail === 'string' ? detail : 'Failed to add entry. May already exist.');
+      }
     }
+  };
+
+  const handleSubmit = async () => {
+    if (!form.classId || !form.exhibitor_id || !form.horse_id) {
+      setError('Class, exhibitor, and horse are required.');
+      return;
+    }
+    if (showSpbWarning) {
+      setError('Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).');
+      return;
+    }
+    await submitEntry(false);
   };
 
   return (
@@ -164,11 +177,35 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
         </div>
       )}
 
+      {cogginsWarning && (
+        <div className="rounded border border-yellow-300 bg-yellow-50 p-3 text-sm" style={{ color: '#92400e' }}>
+          <p className="font-medium mb-2">⚠ {cogginsWarning}</p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => submitEntry(true)}
+              disabled={saving}
+              className="px-3 py-1 rounded text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: '#92400e', color: '#fff' }}
+            >
+              Add anyway
+            </button>
+            <button
+              onClick={() => setCogginsWarning(null)}
+              className="text-sm hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
-      <button onClick={handleSubmit} disabled={saving || showSpbWarning}
-        className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-        {saving ? 'Adding...' : 'Add Entry'}
-      </button>
+      {!cogginsWarning && (
+        <button onClick={handleSubmit} disabled={saving || showSpbWarning}
+          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+          {saving ? 'Adding...' : 'Add Entry'}
+        </button>
+      )}
     </div>
   );
 }

@@ -447,16 +447,37 @@ class ResultCreate(BaseModel):
     is_tie: bool = False
     notes: Optional[str] = None
 
+    @field_validator("place")
+    @classmethod
+    def place_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("place must be 1 or greater")
+        return v
+
 class ResultUpdate(BaseModel):
     place: Optional[int] = None
     is_tie: Optional[bool] = None
     notes: Optional[str] = None
+
+    @field_validator("place")
+    @classmethod
+    def place_positive(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 1:
+            raise ValueError("place must be 1 or greater")
+        return v
 
 class ResultBulkItem(BaseModel):
     entry_id: UUID
     place: int
     is_tie: bool = False
     notes: Optional[str] = None
+
+    @field_validator("place")
+    @classmethod
+    def place_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("place must be 1 or greater")
+        return v
 
 class ResultBulkSave(BaseModel):
     results: list[ResultBulkItem]
@@ -478,7 +499,8 @@ class ResultOut(BaseModel):
 
 class AuditOut(BaseModel):
     id: UUID
-    result_id: UUID
+    result_id: Optional[UUID]
+    entry_id: Optional[UUID]
     changed_by: Optional[UUID]
     old_place: Optional[int]
     new_place: Optional[int]

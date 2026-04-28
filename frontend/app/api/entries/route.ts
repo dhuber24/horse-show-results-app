@@ -6,8 +6,9 @@ export async function POST(request: NextRequest) {
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { showId, classId, ...data } = body;
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/entries/`, {
+  const { showId, classId, skipCoggins, ...data } = body;
+  const qs = skipCoggins ? '?skip_coggins_check=true' : '';
+  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/entries/${qs}`, {
     method: 'POST',
     headers,
     body: JSON.stringify(data),

@@ -150,7 +150,7 @@ export default function ShowStaffPanel({
                   <span className="flex items-center gap-2 shrink-0">
                     <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
                     <button disabled={busy} onClick={() => { removeAdmin(a.id); setConfirmRemoveAdminId(null); }}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50">Yes</button>
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
                     <button onClick={() => setConfirmRemoveAdminId(null)}
                       className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
                   </span>
@@ -181,7 +181,7 @@ export default function ShowStaffPanel({
                 onClick={() => { const s = document.getElementById('add-admin-select') as HTMLSelectElement; if (s.value) { addAdmin(s.value); setShowAddAdminForm(false); } }}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
                 style={{ backgroundColor: '#8b4513' }}>
-                Add
+                {busy ? 'Adding…' : 'Add'}
               </button>
               <button type="button" onClick={() => setShowAddAdminForm(false)}
                 className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
@@ -217,7 +217,7 @@ export default function ShowStaffPanel({
                 <span className="flex items-center gap-2 shrink-0">
                   <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {s.full_name}?</span>
                   <button disabled={busy} onClick={() => { removeScorekeeper(s.id); setConfirmRemoveKeeperId(null); }}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50">Yes</button>
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
                   <button onClick={() => setConfirmRemoveKeeperId(null)}
                     className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
                 </span>
@@ -262,7 +262,7 @@ export default function ShowStaffPanel({
               onClick={() => { const s = document.getElementById('add-keeper-select') as HTMLSelectElement; if (s.value) { addScorekeeper(s.value); setShowAssignForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
               style={{ backgroundColor: '#8b4513' }}>
-              Assign
+              {busy ? 'Assigning…' : 'Assign'}
             </button>
             <button type="button" onClick={() => setShowAssignForm(false)}
               className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>

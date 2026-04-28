@@ -72,10 +72,13 @@ async def list_shows(
     x_user_role: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    await _auto_transition_statuses(db)
-    query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+    is_authenticated = x_api_key and x_api_key == INTERNAL_API_KEY
 
-    if x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SHOW_SECRETARY" and x_user_id:
+    if is_authenticated and x_user_role == "ADMIN":
+        # Admins see all shows including DRAFTs
+        query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+    elif is_authenticated and x_user_role == "SHOW_SECRETARY" and x_user_id:
+        # Secretaries see their own assigned shows (including DRAFTs)
         query = (
             select(Show)
             .options(selectinload(Show.show_type))
@@ -83,12 +86,21 @@ async def list_shows(
             .where(ShowSecretary.user_id == UUID(x_user_id))
             .order_by(Show.start_date)
         )
-    elif x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SCOREKEEPER" and x_user_id:
+    elif is_authenticated and x_user_role == "SCOREKEEPER" and x_user_id:
+        # Scorekeepers see their assigned shows, but not DRAFTs
         query = (
             select(Show)
             .options(selectinload(Show.show_type))
             .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
-            .where(ShowScorekeeper.user_id == UUID(x_user_id))
+            .where(ShowScorekeeper.user_id == UUID(x_user_id), Show.status != "DRAFT")
+            .order_by(Show.start_date)
+        )
+    else:
+        # Public / exhibitors — no DRAFTs
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type))
+            .where(Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
 

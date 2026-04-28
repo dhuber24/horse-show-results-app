@@ -53,6 +53,7 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmGapSave, setConfirmGapSave] = useState(false);
 
   const classIndex = classes.findIndex((c) => c.id === classId);
   const prevClass = classIndex > 0 ? classes[classIndex - 1] : null;
@@ -97,10 +98,31 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
     return missing.length > 0 ? missing : null;
   }, [places]);
 
+  // Per-row input refs for keyboard navigation
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   // Auto-focus the first empty active input on mount
-  const firstEmptyRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { firstEmptyRef.current?.focus(); }, []);
   const firstEmptyIndex = activeEntries.findIndex((e) => !places[e.id]);
+  useEffect(() => {
+    if (firstEmptyIndex >= 0) inputRefs.current[firstEmptyIndex]?.focus();
+    else inputRefs.current[0]?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, index: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleSaveClick = () => {
+    if (gapWarning && !confirmGapSave) {
+      setConfirmGapSave(true);
+      return;
+    }
+    setConfirmGapSave(false);
+    handleSave();
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -225,15 +247,18 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
                 <td className="py-3">
                   <div className="flex items-center gap-2">
                     <input
-                      ref={i === firstEmptyIndex ? firstEmptyRef : undefined}
+                      ref={(el) => { inputRefs.current[i] = el; }}
                       type="number"
                       min="1"
                       value={places[entry.id] ?? ''}
                       onChange={(e) => {
                         setPlaces((prev) => ({ ...prev, [entry.id]: e.target.value }));
                         setSaved(false);
+                        setConfirmGapSave(false);
                       }}
-                      className="w-16 border rounded px-2 py-1 text-center text-sm"
+                      onKeyDown={(e) => handleKeyDown(e, i)}
+                      disabled={saving}
+                      className="w-16 border rounded px-2 py-1 text-center text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ borderColor: '#d4b896' }}
                       placeholder="—"
                     />
@@ -303,18 +328,34 @@ export default function ScorekeeperForm({ showId, classId, classes, entries, res
           className="mb-3 px-3 py-2 rounded text-sm"
           style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
         >
-          ⚠ Place gap — missing: {gapWarning.join(', ')}
+          {confirmGapSave ? (
+            <span className="flex items-center gap-3 flex-wrap">
+              <span>⚠ Place gap (missing: {gapWarning.join(', ')}) — save anyway?</span>
+              <button type="button" onClick={handleSave}
+                className="font-semibold hover:underline" style={{ color: '#b45309' }}>
+                Yes, save
+              </button>
+              <button type="button" onClick={() => setConfirmGapSave(false)}
+                className="hover:underline">
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <span>⚠ Place gap — missing: {gapWarning.join(', ')}</span>
+          )}
         </div>
       )}
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        className="px-6 py-2 rounded font-medium text-sm transition-opacity"
-        style={{ backgroundColor: '#2c1810', color: '#f5ede0', opacity: saving ? 0.6 : 1 }}
-      >
-        {saving ? 'Saving…' : 'Save Placings'}
-      </button>
+      {!confirmGapSave && (
+        <button
+          onClick={handleSaveClick}
+          disabled={saving}
+          className="px-6 py-2 rounded font-medium text-sm transition-opacity"
+          style={{ backgroundColor: '#2c1810', color: '#f5ede0', opacity: saving ? 0.6 : 1 }}
+        >
+          {saving ? 'Saving…' : 'Save Placings'}
+        </button>
+      )}
     </div>
   );
 }

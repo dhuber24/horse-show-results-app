@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from uuid import UUID
 
 from database import get_db
-from dependencies import require_admin
+from dependencies import require_admin, require_admin_or_show_admin
 from models import Class, Show, Result
 from schemas import ClassCreate, ClassUpdate, ClassOut
+from routers.shows import _assert_show_access
 
 router = APIRouter(prefix="/shows/{show_id}/classes", tags=["Classes"])
 
@@ -38,8 +39,16 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     ]
 
 
-@router.post("/", response_model=ClassOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_class(show_id: UUID, body: ClassCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/", response_model=ClassOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
+async def create_class(
+    show_id: UUID,
+    body: ClassCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
     if body.class_date < show.start_date or body.class_date > show.end_date:
         raise HTTPException(
@@ -61,8 +70,17 @@ async def get_class(show_id: UUID, class_id: UUID, db: AsyncSession = Depends(ge
     return class_
 
 
-@router.patch("/{class_id}", response_model=ClassOut, dependencies=[Depends(require_admin)])
-async def update_class(show_id: UUID, class_id: UUID, body: ClassUpdate, db: AsyncSession = Depends(get_db)):
+@router.patch("/{class_id}", response_model=ClassOut, dependencies=[Depends(require_admin_or_show_admin)])
+async def update_class(
+    show_id: UUID,
+    class_id: UUID,
+    body: ClassUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
     class_ = await db.get(Class, class_id)
     if not class_ or class_.show_id != show_id:
@@ -79,8 +97,16 @@ async def update_class(show_id: UUID, class_id: UUID, body: ClassUpdate, db: Asy
     return class_
 
 
-@router.delete("/{class_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def delete_class(show_id: UUID, class_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/{class_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])
+async def delete_class(
+    show_id: UUID,
+    class_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await db.get(Class, class_id)
     if not class_ or class_.show_id != show_id:
         raise HTTPException(404, "Class not found")
