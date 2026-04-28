@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base, AsyncSessionLocal
+from dependencies import INTERNAL_API_KEY
 import models  # noqa: F401 — ensure all models are registered before create_all
 from routers.shows import router as shows_router, _auto_transition_statuses
 from routers.rings import router as rings_router
@@ -40,6 +41,8 @@ async def _status_transition_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not INTERNAL_API_KEY:
+        raise RuntimeError("INTERNAL_API_KEY environment variable is not set — refusing to start")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     task = asyncio.create_task(_status_transition_loop())

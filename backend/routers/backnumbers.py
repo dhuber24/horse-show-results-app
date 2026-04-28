@@ -24,7 +24,14 @@ class BulkBackNumberUpdate(BaseModel):
 
 
 @router.get("/")
-async def get_back_numbers(show_id: UUID, db: AsyncSession = Depends(get_db)):
+async def get_back_numbers(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
@@ -37,8 +44,15 @@ async def get_back_numbers(show_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/exhibitors")
-async def list_back_number_exhibitors(show_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_back_number_exhibitors(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     """Return all exhibitors entered in any class of this show with their current back number."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
