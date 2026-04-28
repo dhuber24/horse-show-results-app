@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Venue {
   id: string;
@@ -21,7 +22,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -74,29 +75,32 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between pt-2">
-        <button onClick={handleSave} disabled={saving}
-          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          title={saving ? 'Saving, please wait…' : undefined}
+          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
-        {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)}
-            className="text-sm text-red-600 hover:text-red-800">
-            Delete Venue
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-red-600">Are you sure?</span>
-            <button onClick={handleDelete} disabled={deleting}
-              className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 disabled:opacity-50">
-              {deleting ? 'Deleting...' : 'Yes, Delete'}
-            </button>
-            <button onClick={() => setConfirmDelete(false)}
-              className="text-sm text-gray-500 hover:text-gray-700">
-              Cancel
-            </button>
-          </div>
-        )}
+        <button
+          onClick={() => setShowDeleteDialog(true)}
+          className="text-sm text-red-600 hover:text-red-800"
+        >
+          Delete Venue
+        </button>
       </div>
+      {showDeleteDialog && (
+        <ConfirmDialog
+          title="Delete Venue"
+          message={`Delete "${venue.name}"? This cannot be undone. The venue must not be linked to any shows.`}
+          confirmLabel="Yes, Delete"
+          destructive
+          confirming={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteDialog(false)}
+        />
+      )}
     </div>
   );
 }

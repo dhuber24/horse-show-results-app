@@ -14,12 +14,20 @@ export default function LoginPage() {
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
           <LoginForm />
         </div>
-        <p className="text-center text-sm mt-4" style={{ color: '#8b7355' }}>
-          New exhibitor?{' '}
-          <Link href="/register" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
-            Create an account
-          </Link>
-        </p>
+        <div className="text-center text-sm mt-4 space-y-1">
+          <p style={{ color: '#8b7355' }}>
+            New exhibitor?{' '}
+            <Link href="/register" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+              Create an account
+            </Link>
+          </p>
+          <p style={{ color: '#8b7355' }}>
+            Are you a Show Secretary?{' '}
+            <Link href="/register/show-secretary" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+              Register here
+            </Link>
+          </p>
+        </div>
       </div>
     </main>
   );

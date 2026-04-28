@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function CreateClassForm({ showId, showStartDate, showEndDate }: { showId: string; showStartDate: string; showEndDate: string }) {
+export default function CreateClassForm({ showId, showStartDate, showEndDate, isAphaShow }: { showId: string; showStartDate: string; showEndDate: string; isAphaShow: boolean }) {
   const router = useRouter();
-  const [form, setForm] = useState({ class_number: '', class_name: '', class_date: '', status: 'OPEN' });
+  const [form, setForm] = useState({ class_number: '', class_name: '', class_date: '', status: 'OPEN', apha_class_code: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,12 +23,12 @@ export default function CreateClassForm({ showId, showStartDate, showEndDate }: 
     const res = await fetch('/api/classes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId, ...form }),
+      body: JSON.stringify({ showId, ...form, apha_class_code: form.apha_class_code || null }),
     });
     setSaving(false);
     if (res.ok) {
       router.refresh();
-      setForm({ class_number: '', class_name: '', class_date: '', status: 'OPEN' });
+      setForm({ class_number: '', class_name: '', class_date: '', status: 'OPEN', apha_class_code: '' });
     } else {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to create class.');
@@ -59,6 +59,18 @@ export default function CreateClassForm({ showId, showStartDate, showEndDate }: 
           </select>
         </div>
       </div>
+      {isAphaShow && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Class Code</label>
+          <input
+            name="apha_class_code"
+            value={form.apha_class_code}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. WP01, AMH4"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button onClick={handleSubmit} disabled={saving}
         className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">

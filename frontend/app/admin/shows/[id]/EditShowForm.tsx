@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Venue {
   id: string;
@@ -16,8 +17,10 @@ interface Show {
   venue: string | null;
   venue_id: string | null;
   show_type_id: string | null;
+  show_type_code: string | null;
   start_date: string;
   end_date: string;
+  apha_show_number: string | null;
 }
 
 interface ShowType {
@@ -36,16 +39,19 @@ export default function EditShowForm({
   showTypes: ShowType[];
 }) {
   const router = useRouter();
+  const isAphaShow = show.show_type_code === 'APHA';
+
   const [form, setForm] = useState({
     name: show.name,
     venue_id: show.venue_id ?? '',
     show_type_id: show.show_type_id ?? '',
     start_date: show.start_date,
     end_date: show.end_date,
+    apha_show_number: show.apha_show_number ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -75,6 +81,7 @@ export default function EditShowForm({
         show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
+        apha_show_number: form.apha_show_number || null,
       }),
     });
     setSaving(false);
@@ -128,31 +135,46 @@ export default function EditShowForm({
             className="w-full border rounded px-3 py-2" />
         </div>
       </div>
+      {isAphaShow && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Show Number</label>
+          <input
+            name="apha_show_number"
+            value={form.apha_show_number}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. 2024-TX-0042"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between pt-2">
-        <button onClick={handleSave} disabled={saving}
-          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          title={saving ? 'Saving, please wait…' : undefined}
+          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+        >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
-        {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)}
-            className="text-sm text-red-600 hover:text-red-800">
-            Delete Show
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-red-600">Are you sure?</span>
-            <button onClick={handleDelete} disabled={deleting}
-              className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 disabled:opacity-50">
-              {deleting ? 'Deleting...' : 'Yes, Delete'}
-            </button>
-            <button onClick={() => setConfirmDelete(false)}
-              className="text-sm text-gray-500 hover:text-gray-700">
-              Cancel
-            </button>
-          </div>
-        )}
+        <button
+          onClick={() => setShowDeleteDialog(true)}
+          className="text-sm text-red-600 hover:text-red-800"
+        >
+          Delete Show
+        </button>
       </div>
+      {showDeleteDialog && (
+        <ConfirmDialog
+          title="Delete Show"
+          message={`Delete "${show.name}"? All classes and entries will be permanently removed. This cannot be undone.`}
+          confirmLabel="Yes, Delete"
+          destructive
+          confirming={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteDialog(false)}
+        />
+      )}
     </div>
   );
 }

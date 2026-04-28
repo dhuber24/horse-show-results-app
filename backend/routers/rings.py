@@ -4,6 +4,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from database import get_db
+from dependencies import require_admin_or_show_admin
 from models import Ring, Show
 from schemas import RingCreate, RingOut
 
@@ -24,7 +25,7 @@ async def list_rings(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.post("/", response_model=RingOut, status_code=201)
+@router.post("/", response_model=RingOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
 async def create_ring(show_id: UUID, body: RingCreate, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
     ring = Ring(show_id=show_id, **body.model_dump())
@@ -34,7 +35,7 @@ async def create_ring(show_id: UUID, body: RingCreate, db: AsyncSession = Depend
     return ring
 
 
-@router.delete("/{ring_id}", status_code=204)
+@router.delete("/{ring_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])
 async def delete_ring(show_id: UUID, ring_id: UUID, db: AsyncSession = Depends(get_db)):
     ring = await db.get(Ring, ring_id)
     if not ring or ring.show_id != show_id:

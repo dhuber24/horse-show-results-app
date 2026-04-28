@@ -1,0 +1,111 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Update git automation agent file",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$path='c:\\Users\\Home\\projects\\horse-show-results-app\\.github\\agents\\git-automation.agent.md'; $text = Get-Content $path -Raw; $text = $text -replace 'commit them\\n4\\. Push the committed changes to the origin main branch','commit them\\n4. Update relevant Markdown documentation files to reflect the committed changes\\n5. Push the committed changes to the origin main branch'; $text = $text -replace 'Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, and pushing to main branch','Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, updating Markdown documentation after commit, and pushing to main branch'; $text = $text -replace 'Generate meaningful commit messages based on the changes made','Generate meaningful commit messages based on the changes made\\n- After committing changes, update any relevant Markdown documentation files with a brief summary of the new changes'; Set-Content -Path $path -Value $text -Encoding UTF8"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Patch git automation agent file",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"(Get-Content 'c:\\Users\\Home\\projects\\horse-show-results-app\\.github\\agents\\git-automation.agent.md') -replace 'description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, and pushing to main branch\"','description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated commit messages, updating Markdown documentation after commit, and pushing to main branch\"' | Set-Content 'c:\\Users\\Home\\projects\\horse-show-results-app\\.github\\agents\\git-automation.agent.md'"
+			]
+		},
+		{
+			"label": "No-op",
+			"type": "shell",
+			"command": "echo no-op",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "Patch git automation agent file",
+			"type": "shell",
+			"command": "echo patching",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "noop",
+			"type": "shell",
+			"command": "echo noop",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "No-op",
+			"type": "shell",
+			"command": "echo done",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "unused",
+			"type": "shell",
+			"command": "echo",
+			"args": []
+		},
+		{
+			"label": "placeholder",
+			"type": "shell",
+			"command": "echo placeholder",
+			"args": []
+		},
+		{
+			"label": "dummy",
+			"type": "shell",
+			"command": "echo dummy",
+			"args": [],
+			"isBackground": false
+		},
+		{
+			"label": "ignore",
+			"type": "shell",
+			"command": "echo ignore",
+			"args": []
+		},
+		{
+			"label": "noop",
+			"type": "shell",
+			"command": "echo noop",
+			"args": []
+		},
+		{
+			"label": "STOP",
+			"type": "shell",
+			"command": "echo STOP",
+			"args": []
+		},
+		{
+			"label": "Update git automation agent for Claude.md",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$path = 'c:\\Users\\Home\\projects\\horse-show-results-app\\.github\\agents\\git-automation.agent.md'; $text = Get-Content -Path $path -Raw; $text = $text -replace 'description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, and updating Markdown documentation after commit, and pushing to main branch\"','description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, ensuring Claude.md documentation is updated with the new context, and pushing to main branch\"'; $text = $text -replace 'You are a git automation specialist. Your job is to update the local repository from origin main, commit any staged or unstaged changes with AI-generated commit messages, update relevant Markdown documentation files after the commit, and push the final changes to the main branch.','You are a git automation specialist. Your job is to update the local repository from origin main, commit any staged or unstaged changes with AI-generated commit messages, ensure `Claude.md` is updated to reflect recent changes, and push the final changes to the main branch.'; $text = $text -replace '4. Update relevant Markdown documentation files to reflect the committed changes','4. Update relevant Markdown documentation files to reflect the committed changes, with a priority on ensuring `Claude.md` includes the new context'; $text = $text -replace 'Provide a summary of the actions performed, including:\\n- Whether a pull was successful\\n- What changes were staged and committed (if any)\\n- What Markdown files were updated, if any\\n- The generated commit message\\n- Whether the push was successful\\n- Any relevant git command outputs or error messages','Provide a summary of the actions performed, including:\\n- Whether a pull was successful\\n- What changes were staged and committed (if any)\\n- What Markdown files were updated, especially whether `Claude.md` was updated\\n- The generated commit message\\n- Whether the push was successful\\n- Any relevant git command outputs or error messages'; Set-Content -Path $path -Value $text -Encoding UTF8"
+			]
+		},
+		{
+			"label": "Patch git automation agent directly",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/c",
+				"exit 0"
+			],
+			"isBackground": false
+		}
+	]
+}

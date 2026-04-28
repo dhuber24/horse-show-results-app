@@ -27,6 +27,11 @@ export default function ShowStaffPanel({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [confirmRemoveAdminId, setConfirmRemoveAdminId] = useState<string | null>(null);
+  const [confirmRemoveKeeperId, setConfirmRemoveKeeperId] = useState<string | null>(null);
+
+  const [showAddAdminForm, setShowAddAdminForm] = useState(false);
+  const [showAssignForm, setShowAssignForm] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [createForm, setCreateForm] = useState(emptyForm);
   const [createError, setCreateError] = useState('');
@@ -139,36 +144,61 @@ export default function ShowStaffPanel({
           )}
           <ul className="space-y-1 mb-4">
             {admins.map(a => (
-              <li key={a.id} className="flex items-center justify-between text-sm py-1">
+              <li key={a.id} className="flex items-center justify-between text-sm py-1 gap-2">
                 <span style={{ color: '#2c1810' }}>{a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span></span>
-                <button disabled={busy} onClick={() => removeAdmin(a.id)}
-                  className="text-xs text-red-600 hover:underline disabled:opacity-50">
-                  Remove
-                </button>
+                {confirmRemoveAdminId === a.id ? (
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
+                    <button disabled={busy} onClick={() => { removeAdmin(a.id); setConfirmRemoveAdminId(null); }}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
+                    <button onClick={() => setConfirmRemoveAdminId(null)}
+                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>
 
-          {availableShowAdmins.length > 0 ? (
+          {!showAddAdminForm ? (
+            <button onClick={() => setShowAddAdminForm(true)}
+              className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+              + Add Show Secretary
+            </button>
+          ) : availableShowAdmins.length > 0 ? (
             <div className="flex items-center gap-2">
               <select id="add-admin-select" className={`${inputClass} flex-1`} style={inputStyle} defaultValue="">
-                <option value="" disabled>Select a Show Secretary to add…</option>
+                <option value="" disabled>Select a Show Secretary…</option>
                 {availableShowAdmins.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
               </select>
               <button disabled={busy}
-                onClick={() => { const s = document.getElementById('add-admin-select') as HTMLSelectElement; if (s.value) addAdmin(s.value); }}
+                onClick={() => { const s = document.getElementById('add-admin-select') as HTMLSelectElement; if (s.value) { addAdmin(s.value); setShowAddAdminForm(false); } }}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
                 style={{ backgroundColor: '#8b4513' }}>
-                Add
+                {busy ? 'Adding…' : 'Add'}
+              </button>
+              <button type="button" onClick={() => setShowAddAdminForm(false)}
+                className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+                Cancel
               </button>
             </div>
           ) : (
-            <p className="text-xs" style={{ color: '#8b7355' }}>
-              No additional Show Secretaries available. Create one in{' '}
-              <a href="/admin/users" className="underline">User Management</a>.
-            </p>
+            <div className="space-y-1">
+              <p className="text-xs" style={{ color: '#8b7355' }}>
+                No additional Show Secretaries available. Create one in{' '}
+                <a href="/admin/users" className="underline">User Management</a>.
+              </p>
+              <button type="button" onClick={() => setShowAddAdminForm(false)}
+                className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+                Cancel
+              </button>
+            </div>
           )}
         </section>
       )}
@@ -181,43 +211,68 @@ export default function ShowStaffPanel({
         )}
         <ul className="space-y-1 mb-4">
           {scorekeepers.map(s => (
-            <li key={s.id} className="flex items-center justify-between text-sm py-1">
+            <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
               <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
-              <button disabled={busy} onClick={() => removeScorekeeper(s.id)}
-                className="text-xs text-red-600 hover:underline disabled:opacity-50">
-                Remove
-              </button>
+              {confirmRemoveKeeperId === s.id ? (
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {s.full_name}?</span>
+                  <button disabled={busy} onClick={() => { removeScorekeeper(s.id); setConfirmRemoveKeeperId(null); }}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
+                  <button onClick={() => setConfirmRemoveKeeperId(null)}
+                    className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                </span>
+              ) : (
+                <button disabled={busy} onClick={() => setConfirmRemoveKeeperId(s.id)}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                  Remove
+                </button>
+              )}
             </li>
           ))}
         </ul>
 
         {createSuccess && <p className="text-sm text-green-700 mb-3">{createSuccess}</p>}
 
+        {/* Assign / create — collapsed behind buttons */}
+        {!showAssignForm && !showCreateForm && (
+          <div className="flex flex-wrap gap-3">
+            {isAdmin && availableScorekeepers.length > 0 && (
+              <button onClick={() => setShowAssignForm(true)}
+                className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+                + Assign existing scorekeeper
+              </button>
+            )}
+            <button onClick={() => setShowCreateForm(true)}
+              className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+              + Create new scorekeeper
+            </button>
+          </div>
+        )}
+
         {/* Assign existing scorekeeper — ADMIN only */}
-        {isAdmin && availableScorekeepers.length > 0 && (
+        {isAdmin && showAssignForm && (
           <div className="flex items-center gap-2 mb-3">
             <select id="add-keeper-select" className={`${inputClass} flex-1`} style={inputStyle} defaultValue="">
-              <option value="" disabled>Assign existing scorekeeper…</option>
+              <option value="" disabled>Select a scorekeeper…</option>
               {availableScorekeepers.map(u => (
                 <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
               ))}
             </select>
             <button disabled={busy}
-              onClick={() => { const s = document.getElementById('add-keeper-select') as HTMLSelectElement; if (s.value) addScorekeeper(s.value); }}
+              onClick={() => { const s = document.getElementById('add-keeper-select') as HTMLSelectElement; if (s.value) { addScorekeeper(s.value); setShowAssignForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
               style={{ backgroundColor: '#8b4513' }}>
-              Assign
+              {busy ? 'Assigning…' : 'Assign'}
+            </button>
+            <button type="button" onClick={() => setShowAssignForm(false)}
+              className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              Cancel
             </button>
           </div>
         )}
 
-        {/* Create new scorekeeper */}
-        {!showCreateForm ? (
-          <button onClick={() => setShowCreateForm(true)}
-            className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-            + Create new scorekeeper
-          </button>
-        ) : (
+        {/* Create new scorekeeper form */}
+        {showCreateForm && (
           <form onSubmit={createAndAssignScorekeeper} className="mt-3 space-y-3">
             <p className="text-sm font-medium" style={{ color: '#2c1810' }}>New Scorekeeper</p>
             <div className="grid sm:grid-cols-2 gap-3">

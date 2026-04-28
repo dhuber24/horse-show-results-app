@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
-import { fetchShow } from '@/lib/api';
+import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
 import ShowStaffPanel from './ShowStaffPanel';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 const tiles = (showId: string) => [
   {
@@ -32,6 +33,13 @@ const tiles = (showId: string) => [
   },
 ];
 
+const scoringTile = (showId: string) => ({
+  href: `/shows/${showId}`,
+  title: 'Score Classes',
+  description: 'Enter placings for each class.',
+  icon: '🏆',
+});
+
 async function getShowStaff(showId: string, headers: Record<string, string>) {
   const [adminsRes, keepersRes, allUsersRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
@@ -47,7 +55,7 @@ async function getShowStaff(showId: string, headers: Record<string, string>) {
 
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = await fetchShow(id);
+  const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
   const session = await auth();
   const user = session?.user as any;
   const isAdmin = user?.role === 'ADMIN';
@@ -68,9 +76,11 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin/shows" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Shows
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Shows', href: '/admin/shows' },
+          { label: show.name },
+        ]} />
         <div className="flex items-center gap-2 mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
           {show.show_type_code && (
@@ -83,8 +93,20 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           📍 {show.venue} · 📅 {show.start_date} – {show.end_date}
         </p>
         <div className="mt-2">
-          <ShowStatusControl showId={id} currentStatus={show.status} />
+          <ShowStatusControl
+            showId={id}
+            currentStatus={show.status}
+            classCount={classes.length}
+            endDate={show.end_date}
+          />
         </div>
+        {(isAdmin || isShowAdmin) && (
+          <p className="text-sm mt-2" style={{ color: '#8b7355' }}>
+            {staffData.scorekeepers.length > 0
+              ? <>Scorekeepers: {(staffData.scorekeepers as any[]).map((s: any) => s.full_name).join(' · ')}</>
+              : 'No scorekeepers assigned yet — add one below.'}
+          </p>
+        )}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -108,7 +130,58 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             </div>
           </Link>
         ))}
+        {show.status === 'ACTIVE' && (() => {
+          const tile = scoringTile(id);
+          return (
+            <Link
+              href={tile.href}
+              className="block p-6 rounded-lg border transition-colors hover:opacity-90"
+              style={{ borderColor: '#2c1810', backgroundColor: '#2c1810' }}
+            >
+              <div className="flex items-start gap-4">
+                <div className="text-3xl" aria-hidden>{tile.icon}</div>
+                <div>
+                  <h2 className="text-lg font-semibold" style={{ color: '#f5ede0' }}>
+                    {tile.title}
+                  </h2>
+                  <p className="text-sm mt-1" style={{ color: '#d4b896' }}>
+                    {tile.description}
+                  </p>
+                </div>
+              </div>
+            </Link>
+          );
+        })()}
       </div>
+
+      {show.show_type_code === 'APHA' && (
+        <div className="border rounded-lg p-4" style={{ borderColor: '#d4b896' }}>
+          <h2 className="font-semibold mb-2" style={{ color: '#2c1810' }}>APHA Submission</h2>
+          {show.apha_show_number ? (
+            <div className="flex items-center gap-4">
+              <span className="text-sm" style={{ color: '#8b7355' }}>
+                Show #: <span className="font-mono font-medium" style={{ color: '#2c1810' }}>{show.apha_show_number}</span>
+              </span>
+              <a
+                href={`/api/shows/${id}/apha-export`}
+                download
+                className="px-4 py-2 rounded text-sm font-medium"
+                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              >
+                Export APHA Results (CSV)
+              </a>
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: '#8b7355' }}>
+              Set the APHA Show Number in{' '}
+              <a href={`/admin/shows/${id}/edit`} className="hover:underline" style={{ color: '#8b4513' }}>
+                Edit Show Details
+              </a>{' '}
+              to enable export.
+            </p>
+          )}
+        </div>
+      )}
 
       {(isAdmin || isShowAdmin) && (
         <ShowStaffPanel

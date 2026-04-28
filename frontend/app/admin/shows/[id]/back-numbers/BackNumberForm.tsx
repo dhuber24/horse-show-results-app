@@ -18,6 +18,8 @@ export default function BackNumberForm({ showId, exhibitors }: {
     Object.fromEntries(exhibitors.map((r) => [r.exhibitor_id, r.back_number?.toString() ?? '']))
   );
   const [saving, setSaving] = useState(false);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [confirmAutoAssign, setConfirmAutoAssign] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const duplicates = useMemo(() => {
@@ -32,6 +34,25 @@ export default function BackNumberForm({ showId, exhibitors }: {
   }, [numbers]);
 
   const hasDuplicates = duplicates.size > 0;
+
+  const handleAutoAssign = async () => {
+    setAutoAssigning(true);
+    setMessage(null);
+    setConfirmAutoAssign(false);
+    const res = await fetch('/api/back-numbers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ showId }),
+    });
+    setAutoAssigning(false);
+    if (res.ok) {
+      setMessage({ type: 'success', text: 'Back numbers auto-assigned. Reload to see updated values.' });
+      router.refresh();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setMessage({ type: 'error', text: data.detail || 'Auto-assign failed.' });
+    }
+  };
 
   const handleSave = async () => {
     if (hasDuplicates) {
@@ -115,11 +136,45 @@ export default function BackNumberForm({ showId, exhibitors }: {
         </div>
       )}
 
-      <button onClick={handleSave} disabled={saving || hasDuplicates}
-        className="px-6 py-2 rounded font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
-        {saving ? 'Saving...' : 'Save Back Numbers'}
-      </button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={handleSave}
+          disabled={saving || hasDuplicates}
+          title={hasDuplicates ? 'Fix duplicate back numbers before saving' : saving ? 'Saving, please wait…' : undefined}
+          className="px-6 py-2 rounded font-medium transition disabled:opacity-50"
+          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        >
+          {saving ? 'Saving...' : 'Save Back Numbers'}
+        </button>
+        {confirmAutoAssign ? (
+          <span className="flex items-center gap-2 text-sm">
+            <span style={{ color: '#5c3d1e' }}>Overwrite all back numbers?</span>
+            <button
+              onClick={handleAutoAssign}
+              disabled={autoAssigning}
+              className="text-sm font-medium px-3 py-1 rounded disabled:opacity-50"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              {autoAssigning ? 'Assigning…' : 'Yes, auto-assign'}
+            </button>
+            <button
+              onClick={() => setConfirmAutoAssign(false)}
+              className="text-sm hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmAutoAssign(true)}
+            className="text-sm hover:underline"
+            style={{ color: '#8b7355' }}
+          >
+            Auto-assign numbers
+          </button>
+        )}
+      </div>
     </div>
   );
 }

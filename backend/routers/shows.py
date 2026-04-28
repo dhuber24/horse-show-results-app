@@ -1,7 +1,10 @@
+import csv
+import io
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import date
@@ -9,7 +12,7 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY
-from models import Show, ShowSecretary
+from models import Show, ShowSecretary, ShowScorekeeper, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,7 @@ def _serialize(show: Show) -> dict:
         "start_date": show.start_date,
         "end_date": show.end_date,
         "status": show.status,
+        "apha_show_number": show.apha_show_number,
         "created_at": show.created_at,
     }
 
@@ -68,15 +72,35 @@ async def list_shows(
     x_user_role: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    await _auto_transition_statuses(db)
-    query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+    is_authenticated = x_api_key and x_api_key == INTERNAL_API_KEY
 
-    if x_api_key and x_api_key == INTERNAL_API_KEY and x_user_role == "SHOW_SECRETARY" and x_user_id:
+    if is_authenticated and x_user_role == "ADMIN":
+        # Admins see all shows including DRAFTs
+        query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+    elif is_authenticated and x_user_role == "SHOW_SECRETARY" and x_user_id:
+        # Secretaries see their own assigned shows (including DRAFTs)
         query = (
             select(Show)
             .options(selectinload(Show.show_type))
             .join(ShowSecretary, ShowSecretary.show_id == Show.id)
             .where(ShowSecretary.user_id == UUID(x_user_id))
+            .order_by(Show.start_date)
+        )
+    elif is_authenticated and x_user_role == "SCOREKEEPER" and x_user_id:
+        # Scorekeepers see their assigned shows, but not DRAFTs
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type))
+            .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
+            .where(ShowScorekeeper.user_id == UUID(x_user_id), Show.status != "DRAFT")
+            .order_by(Show.start_date)
+        )
+    else:
+        # Public / exhibitors — no DRAFTs
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type))
+            .where(Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
 
@@ -132,6 +156,13 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
     raise HTTPException(403, "Not authorized for this show")
 
 
+async def _count_show_classes(db: AsyncSession, show_id: UUID) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Class).where(Class.show_id == show_id)
+    )
+    return result.scalar_one()
+
+
 @router.patch("/{show_id}", response_model=ShowOut)
 async def update_show(
     show_id: UUID,
@@ -145,7 +176,27 @@ async def update_show(
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+
+    updates = body.model_dump(exclude_unset=True)
+    new_status = updates.get("status")
+
+    # Block status changes if end_date is in the past
+    if new_status is not None and date.today() > show.end_date:
+        raise HTTPException(
+            400,
+            "Cannot change show status: the show's end date is in the past. Update the show dates first.",
+        )
+
+    # Publishing gates
+    if new_status == "PUBLISHED":
+        effective_venue_id = updates.get("venue_id", show.venue_id)
+        if not effective_venue_id:
+            raise HTTPException(400, "Cannot publish: a venue must be selected before publishing.")
+        class_count = await _count_show_classes(db, show_id)
+        if class_count == 0:
+            raise HTTPException(400, "Cannot publish: the show must have at least one class before publishing.")
+
+    for k, v in updates.items():
         setattr(show, k, v)
     await db.commit()
     show = await _get_show_with_type(db, show_id)
@@ -166,3 +217,88 @@ async def delete_show(
         raise HTTPException(404, "Show not found")
     await db.delete(show)
     await db.commit()
+
+
+@router.get("/{show_id}/apha-export")
+async def apha_export(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_with_type(db, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if not show.show_type or show.show_type.code != "APHA":
+        raise HTTPException(400, "This show is not an APHA sanctioned show")
+    if not show.apha_show_number:
+        raise HTTPException(400, "Set the APHA Show Number on the show before exporting")
+
+    # Load APHA show type id for registration lookup
+    apha_type_result = await db.execute(
+        select(ShowType).where(ShowType.code == "APHA")
+    )
+    apha_show_type = apha_type_result.scalar_one_or_none()
+
+    # Fetch all entries for this show with related data
+    entries_result = await db.execute(
+        select(Entry)
+        .join(Class, Entry.class_id == Class.id)
+        .where(Class.show_id == show_id)
+        .options(
+            selectinload(Entry.class_),
+            selectinload(Entry.exhibitor),
+            selectinload(Entry.horse).selectinload(Horse.registrations),
+        )
+        .order_by(Entry.exhibitor_id, Class.class_number)
+    )
+    entries = entries_result.scalars().all()
+
+    # Build exhibitor → back number map from show_entries
+    show_entries_result = await db.execute(
+        select(ShowEntry).where(ShowEntry.show_id == show_id)
+    )
+    back_number_map: dict = {
+        se.exhibitor_id: se.back_number for se in show_entries_result.scalars().all()
+    }
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "SHOW NBR", "SHOW YR", "BACK#", "REG NUMBER",
+        "HORSE'S NAME", "CLASS CODE", "CLASS DESCRIPTION",
+        "EXHIBITOR ID", "EXHIBITOR'S NAME",
+    ])
+
+    show_yr = show.start_date.year if show.start_date else ""
+
+    for entry in entries:
+        reg_number = ""
+        if apha_show_type:
+            for reg in entry.horse.registrations:
+                if reg.show_type_id == apha_show_type.id:
+                    reg_number = reg.registration_number
+                    break
+
+        writer.writerow([
+            show.apha_show_number,
+            show_yr,
+            back_number_map.get(entry.exhibitor_id, ""),
+            reg_number,
+            entry.horse.name,
+            entry.class_.apha_class_code or "",
+            entry.class_.class_name,
+            entry.exhibitor.apha_member_number or "",
+            entry.exhibitor.full_name,
+        ])
+
+    csv_content = output.getvalue()
+    filename = f"apha_results_{show_id}.csv"
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -29,7 +29,7 @@ Thank you for contributing! This document provides guidelines for working on thi
    docker-compose up
    ```
 
-   Or for local development without Docker, see [DEVELOPMENT.md](./DEVELOPMENT.md)
+   Or for local development without Docker, refer to CLAUDE.md for environment details.
 
 ## Development Workflow
 
@@ -57,7 +57,7 @@ git checkout -b fix/correct-placing-validation
 ### Before You Start Coding
 
 1. Check [Issues](https://github.com/dhuber24/horse-show-results-app/issues) for existing work
-2. Read [ARCHITECTURE.md](./ARCHITECTURE.md) to understand system design
+2. Read [CLAUDE.md](./CLAUDE.md) to understand system design and project conventions
 3. Check if your change aligns with the [Roadmap](#roadmap) (if available)
 
 ## Code Style
@@ -409,7 +409,7 @@ Tests cover validation, authorization, and database persistence.
 
 - Check existing [Issues](https://github.com/dhuber24/horse-show-results-app/issues)
 - Open a new [Issue](https://github.com/dhuber24/horse-show-results-app/issues/new) for questions
-- Check [ARCHITECTURE.md](./ARCHITECTURE.md) for design decisions
+- Check [CLAUDE.md](./CLAUDE.md) for design decisions and architecture overview
 
 ---
 

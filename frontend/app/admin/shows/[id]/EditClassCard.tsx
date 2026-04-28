@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ClassItem {
   id: string;
@@ -9,13 +10,15 @@ interface ClassItem {
   class_name: string;
   class_date: string;
   status: string;
+  apha_class_code: string | null;
 }
 
-export default function EditClassCard({ cls, showId, showStartDate, showEndDate }: {
+export default function EditClassCard({ cls, showId, showStartDate, showEndDate, isAphaShow }: {
   cls: ClassItem;
   showId: string;
   showStartDate: string;
   showEndDate: string;
+  isAphaShow: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -24,9 +27,11 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
     class_name: cls.class_name,
     class_date: cls.class_date,
     status: cls.status,
+    apha_class_code: cls.apha_class_code ?? '',
   });
   const [saving, setSaving] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -43,7 +48,7 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
     const res = await fetch('/api/classes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId, classId: cls.id, ...form }),
+      body: JSON.stringify({ showId, classId: cls.id, ...form, apha_class_code: form.apha_class_code || null }),
     });
     setSaving(false);
     if (res.ok) {
@@ -56,14 +61,17 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
   };
 
   const handleDelete = async () => {
+    setDeleting(true);
     const res = await fetch('/api/classes', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ showId, classId: cls.id }),
     });
+    setDeleting(false);
     if (res.ok) {
       router.refresh();
     } else {
+      setShowDeleteDialog(false);
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to delete class.');
     }
@@ -75,9 +83,10 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
       class_name: cls.class_name,
       class_date: cls.class_date,
       status: cls.status,
+      apha_class_code: cls.apha_class_code ?? '',
     });
     setEditing(false);
-    setConfirmDelete(false);
+    setShowDeleteDialog(false);
     setError(null);
   };
 
@@ -93,6 +102,11 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
             {cls.class_number} — {cls.class_name}
           </span>
           <span className="text-sm ml-2" style={{ color: '#8b7355' }}>{cls.class_date}</span>
+          {cls.apha_class_code && (
+            <span className="text-xs ml-2 font-mono px-1 rounded" style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+              {cls.apha_class_code}
+            </span>
+          )}
         </div>
         <span className="text-xs px-2 py-1 rounded-full"
           style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
@@ -127,37 +141,51 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate 
           </select>
         </div>
       </div>
+      {isAphaShow && (
+        <div>
+          <label className="text-sm text-gray-500">APHA Class Code</label>
+          <input
+            name="apha_class_code"
+            value={form.apha_class_code}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            placeholder="e.g. WP01, AMH4"
+          />
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
-          <button onClick={handleSave} disabled={saving}
-            className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            title={saving ? 'Saving, please wait…' : undefined}
+            className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
             {saving ? 'Saving...' : 'Save'}
           </button>
-          <button onClick={handleCancel}
-            className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">
+          <button onClick={handleCancel} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">
             Cancel
           </button>
         </div>
-        {!confirmDelete ? (
-          <button onClick={() => setConfirmDelete(true)}
-            className="text-sm text-red-600 hover:text-red-800">
-            Delete
-          </button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-red-600">Are you sure?</span>
-            <button onClick={handleDelete}
-              className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700">
-              Yes, Delete
-            </button>
-            <button onClick={() => setConfirmDelete(false)}
-              className="text-sm text-gray-500 hover:text-gray-700">
-              No
-            </button>
-          </div>
-        )}
+        <button
+          onClick={() => setShowDeleteDialog(true)}
+          className="text-sm text-red-600 hover:text-red-800"
+        >
+          Delete
+        </button>
       </div>
+      {showDeleteDialog && (
+        <ConfirmDialog
+          title="Delete Class"
+          message={`Delete class "${cls.class_number} — ${cls.class_name}"? All entries for this class will also be removed. This cannot be undone.`}
+          confirmLabel="Yes, Delete"
+          destructive
+          confirming={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteDialog(false)}
+        />
+      )}
     </li>
   );
 }

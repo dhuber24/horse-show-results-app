@@ -1,15 +1,20 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import engine, Base
+from database import engine, Base, AsyncSessionLocal
 import models  # noqa: F401 — ensure all models are registered before create_all
-from routers.shows import router as shows_router
+from routers.shows import router as shows_router, _auto_transition_statuses
 from routers.rings import router as rings_router
 from routers.divisions import router as divisions_router
 from routers.classes import router as classes_router
 from routers.people import users_router, horses_router, exhibitors_router
+from routers.breeds import router as breeds_router
+from routers.horse_colors import router as horse_colors_router
+from routers.horse_documents import router as horse_documents_router
 from routers.entries import router as entries_router
 from routers.results import router as results_router
 from routers.auth import router as auth_router
@@ -19,11 +24,31 @@ from routers.venues import router as venues_router
 from routers.show_types import router as show_types_router
 from routers.show_staff import router as show_staff_router
 
+logger = logging.getLogger(__name__)
+
+
+async def _status_transition_loop():
+    """Run show status auto-transitions every 60 seconds."""
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                await _auto_transition_statuses(db)
+        except Exception:
+            logger.exception("Status transition loop error")
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    task = asyncio.create_task(_status_transition_loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -43,7 +68,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key", "X-User-Id", "X-User-Role"],
 )
 
@@ -55,6 +80,9 @@ app.include_router(divisions_router)
 app.include_router(classes_router)
 app.include_router(users_router)
 app.include_router(horses_router)
+app.include_router(breeds_router)
+app.include_router(horse_colors_router)
+app.include_router(horse_documents_router)
 app.include_router(exhibitors_router)
 app.include_router(entries_router)
 app.include_router(results_router)

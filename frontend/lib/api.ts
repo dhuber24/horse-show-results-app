@@ -95,3 +95,40 @@ export async function fetchUsers() {
   if (!res.ok) throw new Error('Failed to fetch users');
   return res.json();
 }
+
+export async function fetchBreeds() {
+  const res = await fetch(`${API_URL}/breeds/`);
+  if (!res.ok) throw new Error('Failed to fetch breeds');
+  return res.json();
+}
+
+export async function fetchBreed(id: string) {
+  const res = await fetch(`${API_URL}/breeds/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch breed');
+  return res.json();
+}
+
+export async function fetchHorseColors() {
+  const res = await fetch(`${API_URL}/horse-colors/`);
+  if (!res.ok) throw new Error('Failed to fetch horse colors');
+  return res.json();
+}
+
+export async function fetchHorseColor(id: string) {
+  const res = await fetch(`${API_URL}/horse-colors/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch horse color');
+  return res.json();
+}
+
+export async function fetchExhibitorByUser(userId: string) {
+  const res = await fetch(`${API_URL}/exhibitors/by-user/${userId}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Failed to fetch exhibitor');
+  return res.json();
+}
+
+export async function fetchHorseRegistrations(horseId: string) {
+  const res = await fetch(`${API_URL}/horses/${horseId}/registrations`);
+  if (!res.ok) throw new Error('Failed to fetch horse registrations');
+  return res.json();
+}

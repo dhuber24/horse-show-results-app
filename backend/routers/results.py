@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.exc import IntegrityError
@@ -88,7 +88,7 @@ async def update_result(
     class_id: UUID,
     result_id: UUID,
     body: ResultUpdate,
-    changed_by: Optional[UUID] = Query(None, description="User ID making the change"),
+    x_user_id: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
     await _require_active_show(show_id, db)
@@ -129,9 +129,16 @@ async def update_result(
         setattr(result, k, v)
 
     if "place" in updates and updates["place"] != old_place:
+        changed_by_uuid: Optional[UUID] = None
+        if x_user_id:
+            try:
+                changed_by_uuid = UUID(x_user_id)
+            except ValueError:
+                pass
         audit = ResultAudit(
             result_id=result_id,
-            changed_by=changed_by,
+            entry_id=result.entry_id,
+            changed_by=changed_by_uuid,
             old_place=old_place,
             new_place=updates["place"],
         )
@@ -152,7 +159,11 @@ async def update_result(
     dependencies=[Depends(require_admin_or_scorekeeper)],
 )
 async def bulk_save_results(
-    show_id: UUID, class_id: UUID, body: ResultBulkSave, db: AsyncSession = Depends(get_db)
+    show_id: UUID,
+    class_id: UUID,
+    body: ResultBulkSave,
+    x_user_id: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
 ):
     await _require_active_show(show_id, db)
     await _get_class_or_404(show_id, class_id, db)
@@ -167,6 +178,20 @@ async def bulk_save_results(
         missing = [eid for eid in entry_ids if eid not in valid_ids]
         if missing:
             raise HTTPException(400, f"Entry {missing[0]} does not belong to this class")
+
+    # Snapshot existing places before deleting so we can audit changes
+    existing_rows = await db.execute(
+        select(Result).where(Result.class_id == class_id)
+    )
+    old_by_entry: dict[UUID, Result] = {r.entry_id: r for r in existing_rows.scalars().all()}
+    new_by_entry: dict[UUID, int] = {item.entry_id: item.place for item in body.results}
+
+    changed_by_uuid: Optional[UUID] = None
+    if x_user_id:
+        try:
+            changed_by_uuid = UUID(x_user_id)
+        except ValueError:
+            pass
 
     # Delete all existing results for this class
     await db.execute(delete(Result).where(Result.class_id == class_id))
@@ -186,6 +211,23 @@ async def bulk_save_results(
 
     for r in new_results:
         await db.refresh(r)
+
+    # Write audit records for entries whose place changed (or was newly assigned / removed)
+    all_entry_ids = set(old_by_entry.keys()) | set(new_by_entry.keys())
+    for eid in all_entry_ids:
+        old_place = old_by_entry[eid].place if eid in old_by_entry else None
+        new_place = new_by_entry.get(eid)
+        if old_place != new_place:
+            new_result = next((r for r in new_results if r.entry_id == eid), None)
+            db.add(ResultAudit(
+                result_id=new_result.id if new_result else None,
+                entry_id=eid,
+                changed_by=changed_by_uuid,
+                old_place=old_place,
+                new_place=new_place,
+            ))
+    await db.commit()
+
     return new_results
 
 

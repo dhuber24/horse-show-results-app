@@ -32,7 +32,7 @@ export default async function Navbar() {
               </Link>
             )}
             {role === 'SCOREKEEPER' && (
-              <Link href="/"
+              <Link href="/scorekeeper"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
                 Shows
@@ -45,6 +45,12 @@ export default async function Navbar() {
                 Admin
               </Link>
             )}
+            <Link href="/profile"
+              className="text-sm px-3 py-2 rounded font-medium transition"
+              style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}
+              title="My Account">
+              👤
+            </Link>
             <SignOutButton />
           </>
         ) : (

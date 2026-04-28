@@ -1,0 +1,29 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "docker-compose": true,
+        "git add": true,
+        "git commit": true,
+        "git push": true,
+        "git rm": true,
+        "git pull": true,
+        "true": true,
+        "Set-Content": true,
+        "/^powershell -NoProfile -Command \"Set-Content -Path 'c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\\\.github\\\\agents\\\\git-automation\\.agent\\.md' -Value \\(\\(Get-Content -Path 'c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\\\.github\\\\agents\\\\git-automation\\.agent\\.md' -Raw\\)\\.Replace\\('description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated messages, and pushing to main branch\"','description: \"Use when: automating git operations like pulling from origin main, committing changes with AI-generated commit messages, updating Markdown documentation after commit, and pushing to main branch\"'\\)\\)\\.Replace\\('Generate meaningful commit messages based on the changes made','Generate meaningful commit messages based on the changes made`n- After committing changes, update any relevant Markdown documentation files with a brief summary of the new changes'\\)\\.Replace\\('4\\. Push the committed changes to the origin main branch','4\\. Update relevant Markdown documentation files to reflect the committed changes`n5\\. Push the committed changes to the origin main branch'\\)\\) -Encoding UTF8\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "text": true,
+        "p.write_text(text,": true,
+        "ForEach-Object": true,
+        "/^powershell -NoProfile -Command \"Get-Content 'c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\\\.github\\\\agents\\\\git-automation\\.agent\\.md' \\| ForEach-Object \\{ \\$_ -replace 'pushing to main branch','updating Markdown documentation after commit, and pushing to main branch' \\} \\| Set-Content -Path 'c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\\\.github\\\\agents\\\\git-automation\\.agent\\.md' -Encoding UTF8\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "user-invocable:": true,
+        "2.": true,
+        "4.": true,
+        "5.": true,
+        "Provide": true,
+        "if": true
+    }
+}

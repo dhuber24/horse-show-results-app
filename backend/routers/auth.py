@@ -2,11 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
+from typing import Optional
 from datetime import datetime, timezone
+from uuid import UUID
 import bcrypt
 
 from database import get_db
-from models import User
+from models import User, Exhibitor, ShowSecretaryCertification, ShowType
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -20,6 +22,18 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+
+
+class SecretaryCertificationIn(BaseModel):
+    show_type_id: UUID
+    secretary_id_number: Optional[str] = None
+
+
+class ShowSecretaryRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    certifications: list[SecretaryCertificationIn] = []
 
 
 def hash_password(password: str) -> str:
@@ -68,6 +82,52 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
         hashed_password=hash_password(body.password),
     )
     db.add(user)
+    await db.flush()
+
+    exhibitor = Exhibitor(full_name=body.full_name, user_id=user.id)
+    db.add(exhibitor)
+
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+    }
+
+
+@router.post("/register/show-secretary")
+async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession = Depends(get_db)):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, "Email already registered")
+
+    for cert in body.certifications:
+        st = await db.get(ShowType, cert.show_type_id)
+        if not st:
+            raise HTTPException(400, f"Unknown show type: {cert.show_type_id}")
+
+    user = User(
+        email=body.email,
+        full_name=body.full_name,
+        role="SHOW_SECRETARY",
+        hashed_password=hash_password(body.password),
+    )
+    db.add(user)
+    await db.flush()
+
+    for cert in body.certifications:
+        db.add(ShowSecretaryCertification(
+            user_id=user.id,
+            show_type_id=cert.show_type_id,
+            secretary_id_number=cert.secretary_id_number,
+        ))
+
     await db.commit()
     await db.refresh(user)
 

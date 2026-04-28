@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from sqlalchemy import (
-    Column, Text, Date, Boolean, Integer, ForeignKey,
+    Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
     TIMESTAMP, UniqueConstraint, CheckConstraint, func
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -46,6 +46,7 @@ class Show(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
+    apha_show_number = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -92,6 +93,7 @@ class Class(Base):
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="OPEN")
+    apha_class_code = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -117,6 +119,7 @@ class User(Base):
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
+    secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
 
 
 class VenueAdmin(Base):
@@ -161,16 +164,48 @@ class ShowScorekeeper(Base):
     user = relationship("User", back_populates="scorekeeper_shows")
 
 
+class Breed(Base):
+    __tablename__ = "breeds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horses = relationship("Horse", back_populates="breed")
+
+
+class HorseColor(Base):
+    __tablename__ = "horse_colors"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horses = relationship("Horse", back_populates="color")
+
+
 class Horse(Base):
     __tablename__ = "horses"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    owner_name = Column(Text)
+    owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
+    foaling_date = Column(Date, nullable=True)
+    sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
+    breed_id = Column(UUID(as_uuid=True), ForeignKey("breeds.id"), nullable=True)
+    color_id = Column(UUID(as_uuid=True), ForeignKey("horse_colors.id"), nullable=True)
+    is_solid_paint_bred = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    entries = relationship("Entry", back_populates="horse")
+    entries = relationship("Entry", back_populates="horse", passive_deletes=True)
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="horse", cascade="all, delete")
+    breed = relationship("Breed", back_populates="horses")
+    color = relationship("HorseColor", back_populates="horses")
+    registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")
+    documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
+    owner_exhibitor = relationship("Exhibitor", foreign_keys=[owner_exhibitor_id])
 
 
 class Exhibitor(Base):
@@ -179,6 +214,12 @@ class Exhibitor(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     full_name = Column(Text, nullable=False)
+    apha_member_number = Column(Text, nullable=True)
+    apha_member_expiry = Column(Date, nullable=True)
+    amateur_card_number = Column(Text, nullable=True)
+    amateur_card_expiry = Column(Date, nullable=True)
+    amateur_novice_codes = Column(Text, nullable=True)
+    date_of_birth = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="exhibitor")
@@ -200,18 +241,65 @@ class ExhibitorHorse(Base):
     horse = relationship("Horse", back_populates="exhibitor_horses")
 
 
+class HorseRegistration(Base):
+    __tablename__ = "horse_registrations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    registration_number = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("horse_id", "show_type_id"),)
+
+    horse = relationship("Horse", back_populates="registrations")
+    show_type = relationship("ShowType")
+
+
+class HorseDocument(Base):
+    __tablename__ = "horse_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    document_type = Column(
+        Text,
+        CheckConstraint("document_type IN ('COGGINS','VACCINATION','HEALTH_CERTIFICATE','REGISTRATION')"),
+        nullable=False,
+    )
+    original_filename = Column(Text, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    issue_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horse = relationship("Horse", back_populates="documents")
+    uploaded_by = relationship("User")
+
+
 class Entry(Base):
     __tablename__ = "entries"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
-    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id"), nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
     back_number = Column(Integer)
     status = Column(Text, nullable=False, default="ENTERED")
+    apha_division = Column(Text, nullable=True)
+    relationship_to_owner = Column(Text, nullable=True)
+    is_disqualified = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("class_id", "exhibitor_id", "horse_id"),)
+    __table_args__ = (
+        UniqueConstraint("class_id", "exhibitor_id", "horse_id"),
+        CheckConstraint(
+            "apha_division IN ('OPEN','SOLID_PAINT_BRED','AMATEUR','NOVICE_AMATEUR','YOUTH','NOVICE_YOUTH')",
+            name="ck_entries_apha_division",
+        ),
+    )
 
     class_ = relationship("Class", back_populates="entries")
     exhibitor = relationship("Exhibitor", back_populates="entries")
@@ -244,7 +332,8 @@ class ResultAudit(Base):
     __tablename__ = "result_audit"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    result_id = Column(UUID(as_uuid=True), ForeignKey("results.id", ondelete="CASCADE"), nullable=False)
+    result_id = Column(UUID(as_uuid=True), ForeignKey("results.id", ondelete="CASCADE"), nullable=True)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True)
     changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     old_place = Column(Integer)
     new_place = Column(Integer)
@@ -270,3 +359,18 @@ class ShowEntry(Base):
 
     show = relationship("Show")
     exhibitor = relationship("Exhibitor")
+
+
+class ShowSecretaryCertification(Base):
+    __tablename__ = "show_secretary_certifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    secretary_id_number = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "show_type_id"),)
+
+    user = relationship("User", back_populates="secretary_certifications")
+    show_type = relationship("ShowType")

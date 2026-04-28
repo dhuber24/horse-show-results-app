@@ -14,6 +14,7 @@ _use_ssl = "neon.tech" in DATABASE_URL or os.getenv("DB_SSL", "false").lower() =
 engine = create_async_engine(
     _clean_url,
     echo=os.getenv("SQL_ECHO") == "true",
+    pool_pre_ping=True,
     connect_args={"ssl": True} if _use_ssl else {},
 )
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
