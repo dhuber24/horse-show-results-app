@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import Optional, Any
 from datetime import date, datetime
 from uuid import UUID
@@ -7,13 +7,13 @@ from uuid import UUID
 # ── Show Types ─────────────────────────────────────────────────────────────────
 
 class ShowTypeCreate(BaseModel):
-    code: str
-    name: str
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=100)
     config: dict[str, Any] = {}
 
 class ShowTypeUpdate(BaseModel):
-    code: Optional[str] = None
-    name: Optional[str] = None
+    code: Optional[str] = Field(default=None, max_length=20)
+    name: Optional[str] = Field(default=None, max_length=100)
     config: Optional[dict[str, Any]] = None
 
 class ShowTypeOut(BaseModel):
@@ -30,16 +30,16 @@ class ShowTypeOut(BaseModel):
 # ── Venues ─────────────────────────────────────────────────────────────────────
 
 class VenueCreate(BaseModel):
-    name: str
-    address: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
+    name: str = Field(min_length=1, max_length=200)
+    address: Optional[str] = Field(default=None, max_length=300)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
 
 class VenueUpdate(BaseModel):
-    name: Optional[str] = None
-    address: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=200)
+    address: Optional[str] = Field(default=None, max_length=300)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
 
 class VenueOut(BaseModel):
     id: UUID
@@ -56,24 +56,24 @@ class VenueOut(BaseModel):
 # ── Shows ──────────────────────────────────────────────────────────────────────
 
 class ShowCreate(BaseModel):
-    name: str
-    venue: Optional[str] = None
+    name: str = Field(min_length=1, max_length=200)
+    venue: Optional[str] = Field(default=None, max_length=200)
     venue_id: Optional[UUID] = None
     show_type_id: UUID
     start_date: date
     end_date: date
-    status: str = "DRAFT"
-    apha_show_number: Optional[str] = None
+    status: str = Field(default="DRAFT", max_length=20)
+    apha_show_number: Optional[str] = Field(default=None, max_length=50)
 
 class ShowUpdate(BaseModel):
-    name: Optional[str] = None
-    venue: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=200)
+    venue: Optional[str] = Field(default=None, max_length=200)
     venue_id: Optional[UUID] = None
     show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: Optional[str] = None
-    apha_show_number: Optional[str] = None
+    status: Optional[str] = Field(default=None, max_length=20)
+    apha_show_number: Optional[str] = Field(default=None, max_length=50)
 
     @field_validator("status")
     @classmethod
@@ -103,7 +103,7 @@ class ShowOut(BaseModel):
 # ── Rings ──────────────────────────────────────────────────────────────────────
 
 class RingCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
 
 class RingOut(BaseModel):
     id: UUID
@@ -117,7 +117,7 @@ class RingOut(BaseModel):
 # ── Divisions ──────────────────────────────────────────────────────────────────
 
 class DivisionCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
 
 class DivisionOut(BaseModel):
     id: UUID
@@ -133,20 +133,20 @@ class DivisionOut(BaseModel):
 class ClassCreate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
-    class_number: str
-    class_name: str
+    class_number: str = Field(min_length=1, max_length=50)
+    class_name: str = Field(min_length=1, max_length=200)
     class_date: date
-    status: str = "OPEN"
-    apha_class_code: Optional[str] = None
+    status: str = Field(default="OPEN", max_length=20)
+    apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
-    class_number: Optional[str] = None
-    class_name: Optional[str] = None
+    class_number: Optional[str] = Field(default=None, max_length=50)
+    class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
-    status: Optional[str] = None
-    apha_class_code: Optional[str] = None
+    status: Optional[str] = Field(default=None, max_length=20)
+    apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassOut(BaseModel):
     id: UUID
@@ -167,8 +167,8 @@ class ClassOut(BaseModel):
 # ── Users ──────────────────────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
-    role: str
-    full_name: str
+    role: str = Field(min_length=1, max_length=20)
+    full_name: str = Field(min_length=1, max_length=200)
     email: EmailStr
 
 class UserOut(BaseModel):
@@ -231,11 +231,11 @@ class HorseDocumentOut(BaseModel):
 # ── Breeds ─────────────────────────────────────────────────────────────────────
 
 class BreedCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     sort_order: int = 0
 
 class BreedUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=100)
     sort_order: Optional[int] = None
 
 class BreedOut(BaseModel):
@@ -251,11 +251,11 @@ class BreedOut(BaseModel):
 # ── Horse Colors ────────────────────────────────────────────────────────────────
 
 class HorseColorCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=100)
     sort_order: int = 0
 
 class HorseColorUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=100)
     sort_order: Optional[int] = None
 
 class HorseColorOut(BaseModel):
@@ -272,7 +272,7 @@ class HorseColorOut(BaseModel):
 
 class HorseRegistrationCreate(BaseModel):
     show_type_id: UUID
-    registration_number: str
+    registration_number: str = Field(min_length=1, max_length=100)
 
 class HorseRegistrationOut(BaseModel):
     id: UUID
@@ -306,19 +306,19 @@ class HorseRegistrationOut(BaseModel):
 # ── Horses ─────────────────────────────────────────────────────────────────────
 
 class HorseCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     foaling_date: Optional[date] = None
-    sex: Optional[str] = None
+    sex: Optional[str] = Field(default=None, max_length=20)
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
 
 class HorseUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     foaling_date: Optional[date] = None
-    sex: Optional[str] = None
+    sex: Optional[str] = Field(default=None, max_length=20)
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: Optional[bool] = None
@@ -372,21 +372,21 @@ class HorseOut(BaseModel):
 # ── Exhibitors ────────────────────────────────────────────────────────────────
 
 class ExhibitorCreate(BaseModel):
-    full_name: str
-    apha_member_number: Optional[str] = None
+    full_name: str = Field(min_length=1, max_length=200)
+    apha_member_number: Optional[str] = Field(default=None, max_length=50)
     apha_member_expiry: Optional[date] = None
-    amateur_card_number: Optional[str] = None
+    amateur_card_number: Optional[str] = Field(default=None, max_length=50)
     amateur_card_expiry: Optional[date] = None
-    amateur_novice_codes: Optional[str] = None
+    amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
 
 class ExhibitorUpdate(BaseModel):
-    full_name: Optional[str] = None
-    apha_member_number: Optional[str] = None
+    full_name: Optional[str] = Field(default=None, max_length=200)
+    apha_member_number: Optional[str] = Field(default=None, max_length=50)
     apha_member_expiry: Optional[date] = None
-    amateur_card_number: Optional[str] = None
+    amateur_card_number: Optional[str] = Field(default=None, max_length=50)
     amateur_card_expiry: Optional[date] = None
-    amateur_novice_codes: Optional[str] = None
+    amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
 
 class ExhibitorOut(BaseModel):
@@ -411,16 +411,16 @@ class EntryCreate(BaseModel):
     exhibitor_id: UUID
     horse_id: UUID
     back_number: Optional[int] = None
-    status: str = "ENTERED"
-    apha_division: Optional[str] = None
-    relationship_to_owner: Optional[str] = None
+    status: str = Field(default="ENTERED", max_length=20)
+    apha_division: Optional[str] = Field(default=None, max_length=50)
+    relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     is_disqualified: bool = False
 
 class EntryUpdate(BaseModel):
     back_number: Optional[int] = None
-    status: Optional[str] = None
-    apha_division: Optional[str] = None
-    relationship_to_owner: Optional[str] = None
+    status: Optional[str] = Field(default=None, max_length=20)
+    apha_division: Optional[str] = Field(default=None, max_length=50)
+    relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     is_disqualified: Optional[bool] = None
 
 class EntryOut(BaseModel):
@@ -445,7 +445,7 @@ class ResultCreate(BaseModel):
     entry_id: UUID
     place: int
     is_tie: bool = False
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("place")
     @classmethod
@@ -457,7 +457,7 @@ class ResultCreate(BaseModel):
 class ResultUpdate(BaseModel):
     place: Optional[int] = None
     is_tie: Optional[bool] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("place")
     @classmethod
@@ -470,7 +470,7 @@ class ResultBulkItem(BaseModel):
     entry_id: UUID
     place: int
     is_tie: bool = False
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
     @field_validator("place")
     @classmethod
@@ -511,11 +511,11 @@ class AuditOut(BaseModel):
 
 
 class ExhibitorCreateWithUser(BaseModel):
-    full_name: str
+    full_name: str = Field(min_length=1, max_length=200)
     user_id: Optional[UUID] = None
-    apha_member_number: Optional[str] = None
+    apha_member_number: Optional[str] = Field(default=None, max_length=50)
     apha_member_expiry: Optional[date] = None
-    amateur_card_number: Optional[str] = None
+    amateur_card_number: Optional[str] = Field(default=None, max_length=50)
     amateur_card_expiry: Optional[date] = None
-    amateur_novice_codes: Optional[str] = None
+    amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None

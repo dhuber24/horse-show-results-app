@@ -13,15 +13,22 @@ from schemas import HorseDocumentOut
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-ALLOWED_TYPES = {
-    'application/pdf',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/tiff',
-}
-
 VALID_DOC_TYPES = {'COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE', 'REGISTRATION'}
+
+
+def _detect_mime(data: bytes) -> str | None:
+    """Return the MIME type based on magic bytes, ignoring the client-supplied Content-Type."""
+    if data[:4] == b'%PDF':
+        return 'application/pdf'
+    if data[:3] == b'\xff\xd8\xff':
+        return 'image/jpeg'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if data[:4] == b'RIFF' and len(data) >= 12 and data[8:12] == b'WEBP':
+        return 'image/webp'
+    if data[:4] in (b'II*\x00', b'MM\x00*'):
+        return 'image/tiff'
+    return None
 
 router = APIRouter(prefix="/horses", tags=["HorseDocuments"])
 
@@ -79,9 +86,9 @@ async def upload_horse_document(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(400, "File too large (max 10 MB)")
 
-    mime = file.content_type or 'application/octet-stream'
-    if mime not in ALLOWED_TYPES:
-        raise HTTPException(400, "Unsupported file type. Upload a PDF or image.")
+    mime = _detect_mime(content)
+    if mime is None:
+        raise HTTPException(400, "Unsupported file type. Upload a PDF or image (JPEG, PNG, WebP, TIFF).")
 
     doc = HorseDocument(
         horse_id=horse_id,
