@@ -137,7 +137,6 @@ async def update_result(
                 pass
         audit = ResultAudit(
             result_id=result_id,
-            entry_id=result.entry_id,
             changed_by=changed_by_uuid,
             old_place=old_place,
             new_place=updates["place"],
@@ -221,7 +220,6 @@ async def bulk_save_results(
             new_result = next((r for r in new_results if r.entry_id == eid), None)
             db.add(ResultAudit(
                 result_id=new_result.id if new_result else None,
-                entry_id=eid,
                 changed_by=changed_by_uuid,
                 old_place=old_place,
                 new_place=new_place,

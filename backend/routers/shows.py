@@ -287,6 +287,20 @@ async def apha_export(
     show_yr = show.start_date.year if show.start_date else ""
 
     for entry in entries:
+        if entry.horse is None:
+            writer.writerow([
+                show.apha_show_number,
+                show_yr,
+                back_number_map.get(entry.exhibitor_id, ""),
+                "",
+                "",
+                entry.class_.apha_class_code or "",
+                entry.class_.class_name,
+                entry.exhibitor.apha_member_number or "",
+                entry.exhibitor.full_name,
+            ])
+            continue
+
         reg_number = ""
         if apha_show_type:
             for reg in entry.horse.registrations:
