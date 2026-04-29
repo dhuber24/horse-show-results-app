@@ -27,6 +27,7 @@ Applied migrations (in order):
 | `009_horse_documents.sql` | horse_documents table (BYTEA storage) |
 | `010_apha_fields.sql` | APHA fields on shows, horses, classes, entries, exhibitors |
 | `011_entries_horse_fk_set_null.sql` | entries.horse_id FK → ON DELETE SET NULL |
+| `012_user_approval.sql` | is_approved BOOLEAN on users (defaults true); self-registered Show Secretaries set to false |
 
 Data seeded directly (not via migration file): show_types NSBA, WSCA, ARHA, ApHC, FQHR.
 
@@ -143,6 +144,7 @@ Immutable audit trail for result changes.
 | email | TEXT UNIQUE | |
 | hashed_password | TEXT | bcrypt |
 | last_login_at | TIMESTAMPTZ | |
+| is_approved | BOOLEAN | defaults true; pending approval workflow for self-registered Show Secretaries |
 | created_at | TIMESTAMPTZ | |
 
 ---

@@ -38,6 +38,14 @@ Placings entered by the show office are final.
 - Database: PostgreSQL (Neon cloud)
 - Deployment: Docker + GitHub Codespaces
 
+## Security
+- Show Secretary registration requires admin approval before login
+- Per-show authorization for secretaries managing rings/divisions/classes
+- Input validation on all user-controlled API endpoints
+- File upload validation via magic-byte detection (not client Content-Type)
+- Audit trail for result changes with user attribution
+- PII endpoints require authentication
+
 ## Status
 🔨 Active Development
 

@@ -38,6 +38,8 @@
 
 Show Secretaries self-register at `/register/show-secretary` (linked from the login page). During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded from the certification list since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`.
 
+**Approval Workflow:** Self-registered Show Secretaries start with `is_approved = false` and cannot log in until an admin approves them via the admin Users page. Upon registration, they see: _"Registration submitted! An admin will review and approve your account before you can log in."_ Login attempts by pending accounts show: _"Your account is pending admin approval. Please check back soon."_ Admins approve accounts via the green **Approve** button next to each pending Show Secretary's **Pending** badge in the Users table.
+
 All authenticated users can access `/profile` to view and edit their name/email and change their password. Exhibitors additionally see a list of horses linked to their exhibitor profile. The admin Exhibitors page has been removed — exhibitor management is handled through the Users admin page.
 
 When an Exhibitor self-registers at `/register`, the backend creates both a `User` record and a linked `Exhibitor` record atomically in `POST /auth/register`. These must always be created together — never create an EXHIBITOR user without a corresponding exhibitor record or the horse owner dropdown and exhibitor-horse associations will be broken.
@@ -524,6 +526,7 @@ Applied migrations:
 - `009_horse_documents.sql` — horse_documents table (BYTEA file storage in Neon; migrate to S3 later by adding a storage_key column and dropping file_data)
 - `010_apha_fields.sql` — APHA sanctioned show fields: `shows.apha_show_number`, `horses.is_solid_paint_bred`, `classes.apha_class_code`, `entries.apha_division/relationship_to_owner/is_disqualified`, exhibitor APHA membership fields (apha_member_number/expiry, amateur_card_number/expiry, amateur_novice_codes, date_of_birth)
 - `011_entries_horse_fk_set_null.sql` — Alters `entries.horse_id` FK to `ON DELETE SET NULL` so horses can be deleted even when they have class entries; historical entry records are preserved with `horse_id = NULL`
+- `012_user_approval.sql` — Adds `is_approved BOOLEAN NOT NULL DEFAULT TRUE` column to users table for Show Secretary approval workflow; new accounts default to approved, self-registered Show Secretaries set to false
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -539,6 +542,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Inline delete pattern throughout admin UI; Breadcrumbs on all admin pages with ← Back link; user management improvements: inline delete all roles, joined/last-login metadata, role-change warning, user count summary; VenueList client component)
+**Last Updated:** April 2026 (Security fixes: Show Secretary approval workflow, per-show auth for rings/divisions, audit endpoint gating, input validation on staff endpoints, PII endpoint auth; crash bug fixes in ResultAudit and APHA export; frontend approval UX with pending badges and approve button in UserTable; auth header propagation in lib/api.ts for admin list endpoints)
 **Project Status:** 🔨 Active Development
 
