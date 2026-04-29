@@ -16,6 +16,7 @@ export default function VenueAdminPanel({
   const [admins, setAdmins] = useState<User[]>(initialAdmins);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   const available = allUsers.filter(
     u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
@@ -56,17 +57,37 @@ export default function VenueAdminPanel({
 
       <ul className="space-y-1">
         {admins.map(a => (
-          <li key={a.id} className="flex items-center justify-between text-sm py-1">
+          <li key={a.id} className="flex items-center justify-between text-sm py-1 flex-wrap gap-2">
             <span style={{ color: '#2c1810' }}>
               {a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span>
             </span>
-            <button
-              disabled={busy}
-              onClick={() => remove(a.id)}
-              className="text-xs text-red-600 hover:underline disabled:opacity-50"
-            >
-              Remove
-            </button>
+            {confirmRemoveId === a.id ? (
+              <span className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
+                <button
+                  disabled={busy}
+                  onClick={() => { remove(a.id); setConfirmRemoveId(null); }}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                >
+                  Yes, remove
+                </button>
+                <button
+                  onClick={() => setConfirmRemoveId(null)}
+                  className="text-xs hover:underline"
+                  style={{ color: '#8b7355' }}
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                disabled={busy}
+                onClick={() => setConfirmRemoveId(a.id)}
+                className="text-xs text-red-600 hover:underline disabled:opacity-50"
+              >
+                Remove
+              </button>
+            )}
           </li>
         ))}
       </ul>

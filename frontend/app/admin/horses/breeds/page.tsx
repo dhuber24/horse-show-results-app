@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { fetchBreeds } from '@/lib/api';
 import BreedForm from './BreedForm';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function AdminBreedsPage() {
   const breeds = await fetchBreeds();
@@ -8,9 +8,11 @@ export default async function AdminBreedsPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin/horses" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Horses
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Horses', href: '/admin/horses' },
+          { label: 'Breeds' },
+        ]} />
         <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Breeds</h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
           Manage the breed options available when adding or editing a horse.

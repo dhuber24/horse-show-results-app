@@ -500,7 +500,6 @@ class ResultOut(BaseModel):
 class AuditOut(BaseModel):
     id: UUID
     result_id: Optional[UUID]
-    entry_id: Optional[UUID]
     changed_by: Optional[UUID]
     old_place: Optional[int]
     new_place: Optional[int]

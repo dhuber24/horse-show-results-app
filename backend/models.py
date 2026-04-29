@@ -58,6 +58,7 @@ class Show(Base):
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
+    show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
 
 
 class Ring(Base):
@@ -333,7 +334,6 @@ class ResultAudit(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     result_id = Column(UUID(as_uuid=True), ForeignKey("results.id", ondelete="CASCADE"), nullable=True)
-    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True)
     changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     old_place = Column(Integer)
     new_place = Column(Integer)
@@ -357,7 +357,7 @@ class ShowEntry(Base):
         UniqueConstraint("show_id", "back_number"),
     )
 
-    show = relationship("Show")
+    show = relationship("Show", back_populates="show_entries")
     exhibitor = relationship("Exhibitor")
 
 

@@ -64,6 +64,10 @@ export default async function UserDetailPage({
           {user.full_name}
         </h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{user.email}</p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs" style={{ color: '#b0956e' }}>
+          <span>Joined {new Date(user.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+          <span>Last login: {user.last_login_at ? new Date(user.last_login_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Never'}</span>
+        </div>
       </div>
 
       <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>

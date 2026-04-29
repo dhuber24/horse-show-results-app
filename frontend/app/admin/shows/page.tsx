@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { API_URL } from '@/lib/backend-fetch';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 const statusStyle = (status: string) => {
   switch (status) {
@@ -35,9 +36,10 @@ export default async function AdminShowsPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Link href="/admin" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Admin
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: role === 'SHOW_SECRETARY' ? 'My Shows' : 'Shows' },
+        ]} />
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
             {role === 'SHOW_SECRETARY' ? 'My Shows' : 'Shows'}

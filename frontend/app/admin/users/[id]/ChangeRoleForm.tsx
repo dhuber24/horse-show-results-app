@@ -42,6 +42,8 @@ export default function ChangeRoleForm({ user }: Props) {
     }
   };
 
+  const showExhibitorWarning = user.role === 'EXHIBITOR' && role !== 'EXHIBITOR';
+
   return (
     <div className="space-y-3">
       <select
@@ -52,6 +54,11 @@ export default function ChangeRoleForm({ user }: Props) {
       >
         {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>)}
       </select>
+      {showExhibitorWarning && (
+        <p className="text-xs px-3 py-2 rounded border" style={{ borderColor: '#fbbf24', backgroundColor: '#fffbeb', color: '#92400e' }}>
+          This user has an Exhibitor profile with horses and show entries. Changing their role will remove access to the exhibitor dashboard — their data will remain intact.
+        </p>
+      )}
       <div className="flex items-center gap-3">
         <button
           onClick={handleSave}

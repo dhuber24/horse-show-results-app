@@ -335,9 +335,9 @@ A compact scorekeeper summary line appears below the status badge, showing assig
 
 **Status transitions** (handled by `ShowStatusControl.tsx`): Each forward transition (DRAFT → PUBLISHED, PUBLISHED → ACTIVE) requires confirmation via an inline panel that describes what the change does and states that it cannot be undone. The button is labelled "Yes, confirm". Transitions are blocked if the end date is in the past or if trying to publish with zero classes.
 
-**Breadcrumbs**: Deep-nested admin pages (show detail and all sub-pages, user detail, venue detail, horse detail, breed/color edit) display a `Breadcrumbs` trail (`frontend/components/Breadcrumbs.tsx`) instead of a single "← Back" link, e.g. Admin › Shows › [show name] › Classes.
+**Breadcrumbs**: All admin pages display a `Breadcrumbs` trail (`frontend/components/Breadcrumbs.tsx`). The component renders a `← Back to [parent]` link above the trail so users always have a one-click escape, in addition to clicking any segment of the trail.
 
-**Delete confirmations**: All destructive delete actions (shows, classes, venues, users) open a `ConfirmDialog` modal (`frontend/components/ConfirmDialog.tsx`) rather than an inline text toggle. The dialog states what will be deleted and that it cannot be undone.
+**Delete confirmations**: All destructive delete actions use an **inline confirm toggle** — clicking "Delete" replaces the button with "Delete [name]? · Yes, delete · Cancel" in-place. No modal overlays. Errors appear inline next to the buttons. The `ConfirmDialog` component (`frontend/components/ConfirmDialog.tsx`) exists but is no longer used — do not add new usages of it.
 
 **Disabled button tooltips**: Disabled buttons carry a `title` attribute explaining why they are inactive — e.g. "No changes to save", "Fix duplicate back numbers before saving", "Password must be at least 8 characters".
 
@@ -376,6 +376,15 @@ Account info (name, email), horse list, and change-password form. The horse sect
 ### Exhibitor Horse Detail (`/profile/horses/[id]`)
 Edit horse details (name, sex, foaling date, breed, color, SPB flag) and manage association registration numbers. Below the edit form is the `HorseDocuments` component anchored at `id="documents"` for deep-linking from the profile horse list.
 
+### User Management (`/admin/users`)
+Admin-only. Rendered by `UserTable` (`frontend/app/admin/users/UserTable.tsx`) — a client component with search, role filter, CSV export, and inline delete for all roles.
+
+- **List page** shows a role breakdown summary (e.g. "2 Admins · 3 Secretaries · 5 Exhibitors") and a total/filtered count below the table.
+- **Inline delete** — available for every role (not just EXHIBITOR). Clicking Delete expands an inline "Delete [name]? · Yes, delete · Cancel" confirmation in the table row.
+- **User detail page** (`/admin/users/[id]`) shows joined date and last login below the user's email.
+- **Role change warning** — `ChangeRoleForm` shows an amber warning banner when changing an EXHIBITOR to another role, noting that their exhibitor data is preserved but dashboard access is removed.
+- **Delete on detail page** — `DeleteUserButton` uses the inline confirm pattern (not a modal); the confirmation text appears inline in the Danger Zone section.
+
 ### Entries Page (`/admin/shows/{id}/entries`)
 - An **"Assign Back Numbers →"** link in the page header provides direct navigation to the back numbers page without returning to the show detail.
 - The entries-by-class listing uses the `EntryListSection` client component (`entries/EntryListSection.tsx`) which renders each entry with **Edit** and **Remove** inline actions.
@@ -388,34 +397,75 @@ Edit horse details (name, sex, foaling date, breed, color, SPB flag) and manage 
 Reusable components live in `frontend/components/`.
 
 ### `Breadcrumbs` (`frontend/components/Breadcrumbs.tsx`)
-Renders a horizontal breadcrumb trail. Accept a `crumbs` array of `{ label: string; href?: string }` objects — the last crumb (current page) is rendered as plain text; all others as links.
+Renders a `← Back to [parent]` link above a horizontal breadcrumb trail. Accepts a `crumbs` array of `{ label: string; href?: string }` objects — the last crumb (current page) is plain text; all others are links. The back link is automatically derived as the last crumb that has an `href`.
 
-Use on any admin page that is 2+ levels deep from `/admin`. Convention:
+Use on **every admin page** — including top-level list pages that are just one level below `/admin`. Convention:
 
 | Page | Crumbs |
 |------|--------|
+| `/admin/shows` | Admin › Shows |
+| `/admin/shows/new` | Admin › Shows › New Show |
 | `/admin/shows/[id]` | Admin › Shows › [show name] |
 | `/admin/shows/[id]/classes` | Admin › Shows › [show name] › Classes |
 | `/admin/shows/[id]/entries` | Admin › Shows › [show name] › Entries |
 | `/admin/shows/[id]/back-numbers` | Admin › Shows › [show name] › Back Numbers |
 | `/admin/shows/[id]/edit` | Admin › Shows › [show name] › Edit Details |
+| `/admin/shows/types` | Admin › Shows › Show Types |
+| `/admin/shows/types/new` | Admin › Shows › Show Types › New Show Type |
+| `/admin/shows/types/[id]` | Admin › Shows › Show Types › [type name] |
+| `/admin/users` | Admin › Users |
+| `/admin/users/new` | Admin › Users › New User |
 | `/admin/users/[id]` | Admin › Users › [user name] |
+| `/admin/venues` | Admin › Venues |
+| `/admin/venues/new` | Admin › Venues › New Venue |
 | `/admin/venues/[id]` | Admin › Venues › [venue name] |
+| `/admin/horses` | Admin › Horses |
+| `/admin/horses/new` | Admin › Horses › New Horse |
 | `/admin/horses/[id]` | Admin › Horses › [horse name] |
+| `/admin/horses/breeds` | Admin › Horses › Breeds |
 | `/admin/horses/breeds/[id]` | Admin › Horses › Breeds › [breed name] |
+| `/admin/horses/colors` | Admin › Horses › Colors |
 | `/admin/horses/colors/[id]` | Admin › Horses › Colors › [color name] |
 
-### `ConfirmDialog` (`frontend/components/ConfirmDialog.tsx`)
-Modal overlay for destructive confirmations. Props:
+### Inline Delete Pattern
+All destructive delete actions use an inline confirm toggle — **not** a modal. The standard pattern:
 
-- `title` — dialog heading
-- `message` — what will be deleted/affected and that it cannot be undone
-- `confirmLabel` — button label (default `"Confirm"`)
-- `destructive` — renders the confirm button red (default `false`)
-- `confirming` — shows "Please wait…" and disables both buttons while the request is in flight
-- `onConfirm` / `onCancel` — callbacks
+```tsx
+// State
+const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+const [deleting, setDeleting] = useState(false);
+const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
 
-Use this for all delete actions (shows, classes, venues, users). Do **not** use the old inline `confirmDelete` boolean toggle pattern.
+// In each row's action cell:
+{confirmDeleteId === item.id ? (
+  <>
+    <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {item.name}?</span>
+    <button onClick={() => handleDelete(item)} disabled={deleting}
+      className="text-xs text-red-600 hover:underline disabled:opacity-50">
+      {deleting ? 'Deleting…' : 'Yes, delete'}
+    </button>
+    <button onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
+      disabled={deleting} className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+      Cancel
+    </button>
+    {deleteError?.id === item.id && (
+      <span className="text-xs text-red-600">{deleteError.message}</span>
+    )}
+  </>
+) : (
+  <button onClick={() => { setConfirmDeleteId(item.id); setDeleteError(null); }}
+    className="text-xs text-red-600 hover:text-red-800">
+    Delete
+  </button>
+)}
+```
+
+For single-item delete on a detail/edit page (e.g. delete show, delete venue), use a simple boolean `confirmDelete` state — same inline text pattern without the per-id tracking.
+
+`ConfirmDialog` (`frontend/components/ConfirmDialog.tsx`) exists but is **no longer used**. Do not add new usages.
+
+### `VenueList` (`frontend/app/admin/venues/VenueList.tsx`)
+Client component used by the admin venues list page. Renders each venue with an Edit link and inline delete (same pattern as `HorseList`). Only shown to ADMIN role — Show Secretaries see a read-only link list.
 
 ### Disabled Button Tooltips
 All `<button disabled={...}>` elements should carry a `title` attribute explaining why they are blocked:
@@ -489,6 +539,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Neon-only database; security fixes: safe_uuid(), dashboard auth, removed secret fallbacks; database/README reflects current schema)
+**Last Updated:** April 2026 (Inline delete pattern throughout admin UI; Breadcrumbs on all admin pages with ← Back link; user management improvements: inline delete all roles, joined/last-login metadata, role-change warning, user count summary; VenueList client component)
 **Project Status:** 🔨 Active Development
 

@@ -50,7 +50,7 @@ function ExpiryBadge({ expiry }: { expiry: string | null }) {
     valid:   'Valid',
   };
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${colors[status]}`}>
+    <span suppressHydrationWarning className={`text-xs px-1.5 py-0.5 rounded font-medium ${colors[status]}`}>
       {labels[status]}
     </span>
   );

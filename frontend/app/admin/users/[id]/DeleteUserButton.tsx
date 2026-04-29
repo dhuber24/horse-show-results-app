@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Props {
   userId: string;
@@ -11,7 +10,7 @@ interface Props {
 
 export default function DeleteUserButton({ userId, userName }: Props) {
   const router = useRouter();
-  const [showDialog, setShowDialog] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,33 +22,46 @@ export default function DeleteUserButton({ userId, userName }: Props) {
       router.push('/admin/users');
     } else {
       setDeleting(false);
-      setShowDialog(false);
+      setConfirmDelete(false);
       const json = await res.json().catch(() => ({}));
       setError(json.detail || 'Failed to delete user.');
     }
   };
 
   return (
-    <div>
-      <button
-        onClick={() => setShowDialog(true)}
-        className="px-4 py-2 rounded text-sm font-medium text-white"
-        style={{ backgroundColor: '#dc2626' }}
-      >
-        Delete User
-      </button>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {showDialog && (
-        <ConfirmDialog
-          title="Delete User"
-          message={`Permanently delete "${userName}"? Their account, login access, and all associated data will be removed. This cannot be undone.`}
-          confirmLabel="Yes, Delete"
-          destructive
-          confirming={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setShowDialog(false)}
-        />
+    <div className="space-y-2">
+      {confirmDelete ? (
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm" style={{ color: '#991b1b' }}>
+            Permanently delete {userName}? This cannot be undone.
+          </span>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
+            style={{ backgroundColor: '#dc2626' }}
+          >
+            {deleting ? 'Deleting…' : 'Yes, delete'}
+          </button>
+          <button
+            onClick={() => setConfirmDelete(false)}
+            disabled={deleting}
+            className="text-sm hover:underline"
+            style={{ color: '#8b7355' }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="px-4 py-2 rounded text-sm font-medium text-white"
+          style={{ backgroundColor: '#dc2626' }}
+        >
+          Delete User
+        </button>
       )}
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { fetchHorses } from '@/lib/api';
 import HorseList from './HorseList';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function AdminHorsesPage() {
   const horses = await fetchHorses();
@@ -8,9 +9,10 @@ export default async function AdminHorsesPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
       <div>
-        <Link href="/admin" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Admin
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Horses' },
+        ]} />
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Horses</h1>
           <div className="flex gap-3">

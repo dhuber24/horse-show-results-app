@@ -212,7 +212,19 @@ async def delete_show(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    show = await db.get(Show, show_id)
+    result = await db.execute(
+        select(Show)
+        .options(
+            selectinload(Show.classes),
+            selectinload(Show.rings),
+            selectinload(Show.divisions),
+            selectinload(Show.show_secretaries),
+            selectinload(Show.show_scorekeepers),
+            selectinload(Show.show_entries),
+        )
+        .where(Show.id == show_id)
+    )
+    show = result.scalar_one_or_none()
     if not show:
         raise HTTPException(404, "Show not found")
     await db.delete(show)

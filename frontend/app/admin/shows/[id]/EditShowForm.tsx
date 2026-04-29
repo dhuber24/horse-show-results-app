@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Venue {
   id: string;
@@ -51,7 +50,7 @@ export default function EditShowForm({
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -99,6 +98,7 @@ export default function EditShowForm({
     if (res.ok) {
       router.push('/admin');
     } else {
+      setConfirmDelete(false);
       setError('Failed to delete show.');
     }
   };
@@ -157,24 +157,34 @@ export default function EditShowForm({
         >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
-        <button
-          onClick={() => setShowDeleteDialog(true)}
-          className="text-sm text-red-600 hover:text-red-800"
-        >
-          Delete Show
-        </button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete show and all its data?</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-xs text-red-600 hover:underline disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Yes, delete'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+              className="text-xs hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-sm text-red-600 hover:text-red-800"
+          >
+            Delete Show
+          </button>
+        )}
       </div>
-      {showDeleteDialog && (
-        <ConfirmDialog
-          title="Delete Show"
-          message={`Delete "${show.name}"? All classes and entries will be permanently removed. This cannot be undone.`}
-          confirmLabel="Yes, Delete"
-          destructive
-          confirming={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setShowDeleteDialog(false)}
-        />
-      )}
     </div>
   );
 }

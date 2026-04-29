@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { API_URL } from '@/lib/backend-fetch';
+import Breadcrumbs from '@/components/Breadcrumbs';
+import VenueList from './VenueList';
 
 async function fetchVenuesForUser(headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/venues/`, { headers, cache: 'no-store' });
@@ -26,9 +28,10 @@ export default async function AdminVenuesPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Link href="/admin" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Admin
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: role === 'SHOW_SECRETARY' ? 'My Venues' : 'Venues' },
+        ]} />
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
             {role === 'SHOW_SECRETARY' ? 'My Venues' : 'Venues'}
@@ -49,6 +52,8 @@ export default async function AdminVenuesPage() {
         <p style={{ color: '#8b7355' }}>
           {role === 'SHOW_SECRETARY' ? 'No venues have been assigned to you yet.' : 'No venues yet.'}
         </p>
+      ) : role === 'ADMIN' ? (
+        <VenueList initialVenues={venues} />
       ) : (
         <ul className="space-y-3">
           {(venues as any[]).map((venue: any) => (

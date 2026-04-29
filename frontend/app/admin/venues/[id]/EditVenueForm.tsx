@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Venue {
   id: string;
@@ -22,7 +21,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,6 +55,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
     if (res.ok) {
       router.push('/admin');
     } else {
+      setConfirmDelete(false);
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to delete venue. It may be linked to existing shows.');
     }
@@ -83,24 +83,34 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
         >
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
-        <button
-          onClick={() => setShowDeleteDialog(true)}
-          className="text-sm text-red-600 hover:text-red-800"
-        >
-          Delete Venue
-        </button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete this venue?</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-xs text-red-600 hover:underline disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Yes, delete'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+              className="text-xs hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-sm text-red-600 hover:text-red-800"
+          >
+            Delete Venue
+          </button>
+        )}
       </div>
-      {showDeleteDialog && (
-        <ConfirmDialog
-          title="Delete Venue"
-          message={`Delete "${venue.name}"? This cannot be undone. The venue must not be linked to any shows.`}
-          confirmLabel="Yes, Delete"
-          destructive
-          confirming={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setShowDeleteDialog(false)}
-        />
-      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from database import get_db
@@ -107,7 +108,12 @@ async def delete_class(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    class_ = await db.get(Class, class_id)
+    result = await db.execute(
+        select(Class)
+        .options(selectinload(Class.entries), selectinload(Class.results))
+        .where(Class.id == class_id)
+    )
+    class_ = result.scalar_one_or_none()
     if not class_ or class_.show_id != show_id:
         raise HTTPException(404, "Class not found")
     await db.delete(class_)

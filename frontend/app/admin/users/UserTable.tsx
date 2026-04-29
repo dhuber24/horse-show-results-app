@@ -37,7 +37,7 @@ function formatLastLogin(value: string | null): string {
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
   if (diffDays < 30) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString('en-US');
 }
 
 function exportCsv(users: User[]) {
@@ -62,17 +62,35 @@ function exportCsv(users: User[]) {
 }
 
 export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
+  const [users, setUsers] = useState<User[]>(initialUsers);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
+
+  const handleDelete = async (user: User) => {
+    setDeleting(true);
+    setDeleteError(null);
+    const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setUsers(prev => prev.filter(u => u.id !== user.id));
+      setConfirmDeleteId(null);
+    } else {
+      const json = await res.json().catch(() => ({}));
+      setDeleteError({ id: user.id, message: json.detail || 'Failed to delete user.' });
+    }
+    setDeleting(false);
+  };
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return initialUsers.filter(u => {
+    return users.filter(u => {
       const matchesSearch = !q || u.full_name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
       const matchesRole = !roleFilter || u.role === roleFilter;
       return matchesSearch && matchesRole;
     });
-  }, [initialUsers, search, roleFilter]);
+  }, [users, search, roleFilter]);
 
   return (
     <div className="space-y-4">
@@ -105,7 +123,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
 
       {filtered.length === 0 ? (
         <p className="text-sm" style={{ color: '#8b7355' }}>
-          {initialUsers.length === 0 ? 'No users found.' : 'No users match the current filters.'}
+          {users.length === 0 ? 'No users found.' : 'No users match the current filters.'}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -140,16 +158,50 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                     {formatLastLogin(user.last_login_at)}
                   </td>
                   <td className="py-3 pr-4 text-xs" style={{ color: '#8b7355' }}>
-                    {new Date(user.created_at).toLocaleDateString()}
+                    {new Date(user.created_at).toLocaleDateString('en-US')}
                   </td>
                   <td className="py-3">
-                    <Link
-                      href={`/admin/users/${user.id}`}
-                      className="text-xs font-medium hover:underline"
-                      style={{ color: '#8b4513' }}
-                    >
-                      Edit
-                    </Link>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {confirmDeleteId === user.id ? (
+                        <>
+                          <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {user.full_name}?</span>
+                          <button
+                            onClick={() => handleDelete(user)}
+                            disabled={deleting}
+                            className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                          >
+                            {deleting ? 'Deleting…' : 'Yes, delete'}
+                          </button>
+                          <button
+                            onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
+                            disabled={deleting}
+                            className="text-xs hover:underline"
+                            style={{ color: '#8b7355' }}
+                          >
+                            Cancel
+                          </button>
+                          {deleteError?.id === user.id && (
+                            <span className="text-xs text-red-600">{deleteError.message}</span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <Link
+                            href={`/admin/users/${user.id}`}
+                            className="text-xs font-medium hover:underline"
+                            style={{ color: '#8b4513' }}
+                          >
+                            Edit
+                          </Link>
+                          <button
+                            onClick={() => { setConfirmDeleteId(user.id); setDeleteError(null); }}
+                            className="text-xs text-red-600 hover:text-red-800"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -158,11 +210,12 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
         </div>
       )}
 
-      {filtered.length > 0 && filtered.length < initialUsers.length && (
-        <p className="text-xs" style={{ color: '#8b7355' }}>
-          Showing {filtered.length} of {initialUsers.length} users
-        </p>
-      )}
+      <p className="text-xs" style={{ color: '#8b7355' }}>
+        {filtered.length === users.length
+          ? `${users.length} user${users.length !== 1 ? 's' : ''}`
+          : `Showing ${filtered.length} of ${users.length} users`}
+      </p>
+
     </div>
   );
 }

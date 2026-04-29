@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { fetchShowTypes } from '@/lib/api';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function AdminShowTypesPage() {
   const types = await fetchShowTypes();
@@ -7,9 +8,11 @@ export default async function AdminShowTypesPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Link href="/admin/shows" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to Shows
-        </Link>
+        <Breadcrumbs crumbs={[
+          { label: 'Admin', href: '/admin' },
+          { label: 'Shows', href: '/admin/shows' },
+          { label: 'Show Types' },
+        ]} />
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Show Types</h1>
           <Link
