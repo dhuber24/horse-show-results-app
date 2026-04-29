@@ -24,6 +24,7 @@ type User = {
   full_name: string;
   email: string;
   role: string;
+  is_approved: boolean;
   last_login_at: string | null;
   created_at: string;
 };
@@ -68,6 +69,8 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<{ id: string; message: string } | null>(null);
 
   const handleDelete = async (user: User) => {
     setDeleting(true);
@@ -81,6 +84,20 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
       setDeleteError({ id: user.id, message: json.detail || 'Failed to delete user.' });
     }
     setDeleting(false);
+  };
+
+  const handleApprove = async (user: User) => {
+    setApproving(true);
+    setApproveError(null);
+    const res = await fetch(`/api/users/${user.id}/approve`, { method: 'POST' });
+    if (res.ok) {
+      const json = await res.json();
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, is_approved: true } : u));
+    } else {
+      const json = await res.json().catch(() => ({}));
+      setApproveError({ id: user.id, message: json.detail || 'Failed to approve user.' });
+    }
+    setApproving(false);
   };
 
   const filtered = useMemo(() => {
@@ -144,15 +161,22 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                   <td className="py-3 pr-4 font-medium" style={{ color: '#2c1810' }}>{user.full_name}</td>
                   <td className="py-3 pr-4" style={{ color: '#5a3e2b' }}>{user.email}</td>
                   <td className="py-3 pr-4">
-                    <span
-                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                      style={{
-                        color: ROLE_COLORS[user.role] ?? '#333',
-                        backgroundColor: (ROLE_COLORS[user.role] ?? '#333') + '18',
-                      }}
-                    >
-                      {ROLE_LABELS[user.role] ?? user.role}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                        style={{
+                          color: ROLE_COLORS[user.role] ?? '#333',
+                          backgroundColor: (ROLE_COLORS[user.role] ?? '#333') + '18',
+                        }}
+                      >
+                        {ROLE_LABELS[user.role] ?? user.role}
+                      </span>
+                      {user.role === 'SHOW_SECRETARY' && !user.is_approved && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100" style={{ color: '#9a3412' }}>
+                          Pending
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 pr-4 text-xs" style={{ color: user.last_login_at ? '#5a3e2b' : '#b0956e' }}>
                     {formatLastLogin(user.last_login_at)}
@@ -186,6 +210,16 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                         </>
                       ) : (
                         <>
+                          {user.role === 'SHOW_SECRETARY' && !user.is_approved && (
+                            <button
+                              onClick={() => handleApprove(user)}
+                              disabled={approving}
+                              className="text-xs font-medium hover:underline disabled:opacity-50"
+                              style={{ color: '#15803d' }}
+                            >
+                              {approving ? 'Approving…' : 'Approve'}
+                            </button>
+                          )}
                           <Link
                             href={`/admin/users/${user.id}`}
                             className="text-xs font-medium hover:underline"
@@ -199,6 +233,9 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                           >
                             Delete
                           </button>
+                          {approveError?.id === user.id && (
+                            <span className="text-xs text-red-600">{approveError.message}</span>
+                          )}
                         </>
                       )}
                     </div>

@@ -26,6 +26,7 @@ export default function ShowSecretaryRegisterForm() {
   const [certifications, setCertifications] = useState<Record<string, CertEntry>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     fetch('/api/show-types')
@@ -91,7 +92,19 @@ export default function ShowSecretaryRegisterForm() {
       return;
     }
 
-    await signIn('credentials', { email: form.email, password: form.password, redirect: false });
+    const signInResult = await signIn('credentials', { email: form.email, password: form.password, redirect: false });
+    if (signInResult?.error && signInResult.error.includes('pending admin approval')) {
+      setSuccess(true);
+      setLoading(false);
+      return;
+    }
+
+    if (signInResult?.error) {
+      setError('Registration succeeded, but auto-sign-in failed. Please log in manually.');
+      setLoading(false);
+      return;
+    }
+
     router.push('/');
     router.refresh();
   };
@@ -180,6 +193,12 @@ export default function ShowSecretaryRegisterForm() {
           </p>
         )}
       </div>
+
+      {success && (
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf4', color: '#166534' }}>
+          Registration submitted! An admin will review and approve your account before you can log in.
+        </p>
+      )}
 
       {error && (
         <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>

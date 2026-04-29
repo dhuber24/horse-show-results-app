@@ -6,17 +6,19 @@ import {
   fetchHorses,
   fetchExhibitors,
 } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import CreateEntryForm from '../CreateEntryForm';
 import EntryListSection from './EntryListSection';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowEntriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const headers = await getAuthHeaders();
   const [show, classes, horses, exhibitors] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
-    fetchHorses(),
-    fetchExhibitors(),
+    fetchHorses(headers || undefined),
+    fetchExhibitors(headers || undefined),
   ]);
 
   const entriesByClass = await Promise.all(

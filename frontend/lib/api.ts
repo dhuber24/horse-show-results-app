@@ -42,14 +42,14 @@ export async function fetchShow(showId: string) {
   return res.json();
 }
 
-export async function fetchHorses() {
-  const res = await fetch(`${API_URL}/horses/`);
+export async function fetchHorses(headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/horses/`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch horses');
   return res.json();
 }
 
-export async function fetchExhibitors() {
-  const res = await fetch(`${API_URL}/exhibitors/`);
+export async function fetchExhibitors(headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/exhibitors/`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch exhibitors');
   return res.json();
 }
@@ -90,8 +90,8 @@ export async function fetchShowType(id: string) {
   return res.json();
 }
 
-export async function fetchUsers() {
-  const res = await fetch(`${API_URL}/users/`);
+export async function fetchUsers(headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/users/`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch users');
   return res.json();
 }

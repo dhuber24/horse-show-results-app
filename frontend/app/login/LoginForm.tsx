@@ -24,7 +24,11 @@ export default function LoginForm() {
     });
     setLoading(false);
     if (result?.error) {
-      setError('Invalid email or password.');
+      if (result.error.includes('pending admin approval')) {
+        setError('Your account is pending admin approval. Please check back soon.');
+      } else {
+        setError('Invalid email or password.');
+      }
     } else {
       router.push('/');
       router.refresh();

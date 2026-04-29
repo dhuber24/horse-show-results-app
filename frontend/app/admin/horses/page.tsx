@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { fetchHorses } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import HorseList from './HorseList';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function AdminHorsesPage() {
-  const horses = await fetchHorses();
+  const headers = await getAuthHeaders();
+  const horses = await fetchHorses(headers || undefined);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
