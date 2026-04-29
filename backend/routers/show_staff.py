@@ -12,6 +12,10 @@ from schemas import UserOut
 router = APIRouter(tags=["Show Staff"])
 
 
+class UserAssignBody(BaseModel):
+    user_id: UUID
+
+
 async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
     show = await db.get(Show, show_id)
     if not show:
@@ -57,12 +61,9 @@ async def list_show_secretaries(show_id: UUID, db: AsyncSession = Depends(get_db
 
 
 @router.post("/shows/{show_id}/admins", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
-async def add_show_admin(show_id: UUID, body: dict, db: AsyncSession = Depends(get_db)):
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(400, "user_id required")
+async def add_show_admin(show_id: UUID, body: UserAssignBody, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
-    user = await _get_user_or_404(UUID(user_id), db)
+    user = await _get_user_or_404(body.user_id, db)
     if user.role != "SHOW_SECRETARY":
         raise HTTPException(400, "User must have SHOW_SECRETARY role")
     existing = await db.execute(
@@ -114,7 +115,7 @@ async def list_show_scorekeepers(
 @router.post("/shows/{show_id}/scorekeepers", response_model=UserOut, status_code=201)
 async def add_show_scorekeeper(
     show_id: UUID,
-    body: dict,
+    body: UserAssignBody,
     x_api_key: str = Header(...),
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
@@ -131,10 +132,7 @@ async def add_show_scorekeeper(
     await _get_show_or_404(show_id, db)
     await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
 
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(400, "user_id required")
-    user = await _get_user_or_404(UUID(user_id), db)
+    user = await _get_user_or_404(body.user_id, db)
     if user.role != "SCOREKEEPER":
         raise HTTPException(400, "User must have SCOREKEEPER role")
 

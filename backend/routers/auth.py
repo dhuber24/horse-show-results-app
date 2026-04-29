@@ -55,6 +55,9 @@ async def verify_user(body: UserVerify, db: AsyncSession = Depends(get_db)):
     if not verify_password(body.password, user.hashed_password):
         raise HTTPException(401, "Invalid credentials")
 
+    if not user.is_approved:
+        raise HTTPException(403, "Account pending admin approval")
+
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -117,6 +120,7 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
         full_name=body.full_name,
         role="SHOW_SECRETARY",
         hashed_password=hash_password(body.password),
+        is_approved=False,
     )
     db.add(user)
     await db.flush()

@@ -177,6 +177,7 @@ class UserOut(BaseModel):
     full_name: str
     email: str
     last_login_at: Optional[datetime] = None
+    is_approved: bool
     created_at: datetime
 
     class Config:

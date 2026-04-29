@@ -6,7 +6,7 @@ from uuid import UUID
 from typing import Optional
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_scorekeeper
+from dependencies import require_admin, require_admin_or_scorekeeper, require_api_key
 from models import Result, ResultAudit, Class, Entry, Show
 from schemas import ResultCreate, ResultUpdate, ResultBulkSave, ResultOut, AuditOut
 
@@ -240,7 +240,7 @@ async def delete_result(
     await db.commit()
 
 
-@router.get("/{result_id}/audit", response_model=list[AuditOut])
+@router.get("/{result_id}/audit", response_model=list[AuditOut], dependencies=[Depends(require_api_key)])
 async def get_result_audit(
     show_id: UUID, class_id: UUID, result_id: UUID, db: AsyncSession = Depends(get_db)
 ):

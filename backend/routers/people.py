@@ -192,6 +192,20 @@ async def get_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "User not found")
     return user
 
+
+@users_router.patch("/{user_id}/approve", response_model=UserOut, dependencies=[Depends(require_admin)])
+async def approve_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.is_approved:
+        raise HTTPException(409, "User is already approved")
+    user.is_approved = True
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 @users_router.delete("/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     user = await db.get(User, user_id)
@@ -217,7 +231,7 @@ async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSe
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
         raise HTTPException(403, "You can only modify your own horses")
 
-@horses_router.get("/", response_model=list[HorseOut])
+@horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin)])
 async def list_horses(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Horse).options(*_horse_options).order_by(Horse.name))
     return result.scalars().all()
@@ -340,7 +354,7 @@ class ExhibitorLink(BaseModel):
 
 exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 
-@exhibitors_router.get("/", response_model=list[ExhibitorOut])
+@exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin)])
 async def list_exhibitors(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Exhibitor).order_by(Exhibitor.full_name))
     return result.scalars().all()

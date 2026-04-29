@@ -113,6 +113,7 @@ class User(Base):
     email = Column(Text, unique=True, nullable=False)
     hashed_password = Column(Text, nullable=True)
     last_login_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    is_approved = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")

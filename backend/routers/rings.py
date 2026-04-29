@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 
 from database import get_db
-from dependencies import require_admin_or_show_admin
 from models import Ring, Show
 from schemas import RingCreate, RingOut
+from routers.shows import _assert_show_access
 
 router = APIRouter(prefix="/shows/{show_id}/rings", tags=["Rings"])
 
@@ -25,8 +25,16 @@ async def list_rings(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
-@router.post("/", response_model=RingOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
-async def create_ring(show_id: UUID, body: RingCreate, db: AsyncSession = Depends(get_db)):
+@router.post("/", response_model=RingOut, status_code=201)
+async def create_ring(
+    show_id: UUID,
+    body: RingCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
     ring = Ring(show_id=show_id, **body.model_dump())
     db.add(ring)
@@ -35,8 +43,16 @@ async def create_ring(show_id: UUID, body: RingCreate, db: AsyncSession = Depend
     return ring
 
 
-@router.delete("/{ring_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])
-async def delete_ring(show_id: UUID, ring_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/{ring_id}", status_code=204)
+async def delete_ring(
+    show_id: UUID,
+    ring_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     ring = await db.get(Ring, ring_id)
     if not ring or ring.show_id != show_id:
         raise HTTPException(404, "Ring not found")
