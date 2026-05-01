@@ -101,7 +101,7 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const hasTies = results.some((r: any) => r.is_tie);
 
   // Collect which ribbon places actually appear, for the legend
-  const placesUsed = [...new Set(results.map((r: any) => r.place as number))].sort((a, b) => a - b);
+  const placesUsed = [...new Set<number>(results.map((r: any) => r.place as number))].sort((a, b) => a - b);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">

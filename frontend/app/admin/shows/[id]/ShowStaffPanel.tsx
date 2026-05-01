@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -201,7 +202,7 @@ export default function ShowStaffPanel({
             <div className="space-y-1">
               <p className="text-xs" style={{ color: '#8b7355' }}>
                 No additional Show Secretaries available. Create one in{' '}
-                <a href="/admin/users" className="underline">User Management</a>.
+                <Link href="/admin/users" className="underline">User Management</Link>.
               </p>
               <button type="button" onClick={() => setShowAddAdminForm(false)}
                 className="text-xs hover:underline" style={{ color: '#8b7355' }}>

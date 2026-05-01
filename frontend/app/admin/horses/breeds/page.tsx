@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { fetchBreeds } from '@/lib/api';
 import BreedForm from './BreedForm';
 import Breadcrumbs from '@/components/Breadcrumbs';

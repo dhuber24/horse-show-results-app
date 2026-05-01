@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 type User = { id: string; full_name: string; email: string; role: string };
@@ -120,7 +121,7 @@ export default function VenueAdminPanel({
       ) : (
         <p className="text-xs" style={{ color: '#8b7355' }}>
           No additional Secretaries available. Create one in{' '}
-          <a href="/admin/users" className="underline">User Management</a>.
+          <Link href="/admin/users" className="underline">User Management</Link>.
         </p>
       )}
     </div>

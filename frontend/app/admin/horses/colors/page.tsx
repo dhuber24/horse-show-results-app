@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { fetchHorseColors } from '@/lib/api';
 import HorseColorForm from './HorseColorForm';
 import Breadcrumbs from '@/components/Breadcrumbs';
