@@ -527,13 +527,21 @@ Applied migrations:
 - `010_apha_fields.sql` — APHA sanctioned show fields: `shows.apha_show_number`, `horses.is_solid_paint_bred`, `classes.apha_class_code`, `entries.apha_division/relationship_to_owner/is_disqualified`, exhibitor APHA membership fields (apha_member_number/expiry, amateur_card_number/expiry, amateur_novice_codes, date_of_birth)
 - `011_entries_horse_fk_set_null.sql` — Alters `entries.horse_id` FK to `ON DELETE SET NULL` so horses can be deleted even when they have class entries; historical entry records are preserved with `horse_id = NULL`
 - `012_user_approval.sql` — Adds `is_approved BOOLEAN NOT NULL DEFAULT TRUE` column to users table for Show Secretary approval workflow; new accounts default to approved, self-registered Show Secretaries set to false
+- `017_drop_legacy_venue_column.sql` — Drops `shows.venue TEXT` column (replaced by `venue_id` FK + `venue_rel` relationship)
+- `018_drop_legacy_owner_name_column.sql` — Drops `horses.owner_name TEXT` column (replaced by `owner_exhibitor_id` FK; `HorseOut.owner_name` derived from `owner_exhibitor.full_name`)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
 
 ### Testing
 ```bash
-# Testing configuration to be established
+# Run frontend type check, lint, and build from frontend/ directory
+npm run type-check
+npm run lint
+npm run build
+
+# Verify code-level changes (run from project root in bash)
+bash RUN_TESTS.sh
 ```
 
 ## Contact & Questions
@@ -542,6 +550,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** April 2026 (Security fixes: Show Secretary approval workflow, per-show auth for rings/divisions, audit endpoint gating, input validation on staff endpoints, PII endpoint auth; crash bug fixes in ResultAudit and APHA export; frontend approval UX with pending badges and approve button in UserTable; auth header propagation in lib/api.ts for admin list endpoints)
+**Last Updated:** May 2026 (Phase 2 improvements: controlled form selects, error boundaries + loading states for 8 route segments, ESLint v9 flat config, next-auth v5 stable, @testing-library/react v16, FastAPI 0.115/cryptography 44/python-multipart 0.0.20 dependency updates, CSS design tokens + Tailwind v4 @theme config, legacy shows.venue and horses.owner_name column removal via migrations 017-018; TypeScript and lint fixes for Link imports)
 **Project Status:** 🔨 Active Development
 
