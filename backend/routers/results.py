@@ -92,6 +92,7 @@ async def update_result(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_active_show(show_id, db)
+    await _get_class_or_404(show_id, class_id, db)
     result = await db.get(Result, result_id)
     if not result or result.class_id != class_id:
         raise HTTPException(404, "Result not found")

@@ -115,14 +115,18 @@ async def bulk_update_back_numbers(
         dupes = list(set(n for n in submitted if submitted.count(n) > 1))
         raise HTTPException(400, f"Duplicate back numbers in submission: {dupes}")
 
-    for assignment in body.assignments:
-        result = await db.execute(
-            select(ShowEntry).where(
-                ShowEntry.show_id == show_id,
-                ShowEntry.exhibitor_id == assignment.exhibitor_id
-            )
+    # Fetch all existing ShowEntry rows for this show in one query
+    exhibitor_ids = [a.exhibitor_id for a in body.assignments]
+    existing_result = await db.execute(
+        select(ShowEntry).where(
+            ShowEntry.show_id == show_id,
+            ShowEntry.exhibitor_id.in_(exhibitor_ids),
         )
-        show_entry = result.scalar_one_or_none()
+    )
+    existing_by_exhibitor = {se.exhibitor_id: se for se in existing_result.scalars().all()}
+
+    for assignment in body.assignments:
+        show_entry = existing_by_exhibitor.get(assignment.exhibitor_id)
         if show_entry:
             show_entry.back_number = assignment.back_number
         else:

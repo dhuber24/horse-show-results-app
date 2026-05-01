@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import HorseDocuments from '@/components/HorseDocuments';
 
 interface Breed { id: string; name: string; }
@@ -124,6 +125,9 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     const res = await fetch(`/api/horses/${horse.id}/registrations/${regId}`, { method: 'DELETE' });
     if (res.ok) {
       setRegistrations((prev) => prev.filter((r) => r.id !== regId));
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setRegError(err.detail ?? 'Failed to remove registration.');
     }
   };
 
@@ -230,26 +234,22 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </button>
-          {!confirmDelete ? (
-            <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">
-              Delete Horse
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-red-600">Are you sure?</span>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? 'Deleting...' : 'Yes, Delete'}
-              </button>
-              <button onClick={() => setConfirmDelete(false)} className="text-sm text-gray-500 hover:text-gray-700">
-                Cancel
-              </button>
-            </div>
-          )}
+          <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">
+            Delete Horse
+          </button>
         </div>
+
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Delete Horse"
+            message={`Delete ${form.name}? This cannot be undone.`}
+            confirmLabel="Yes, delete"
+            destructive
+            confirming={deleting}
+            onConfirm={handleDelete}
+            onCancel={() => setConfirmDelete(false)}
+          />
+        )}
       </div>
 
       {/* Association Registrations */}
@@ -265,21 +265,21 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
                   <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
                   <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
                 </div>
-                {confirmDeleteRegId === r.id ? (
-                  <span className="flex items-center gap-2 ml-4 shrink-0">
-                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
-                    <button onClick={() => { setConfirmDeleteRegId(null); handleDeleteReg(r.id); }}
-                      className="text-xs text-red-600 hover:text-red-800">Yes</button>
-                    <button onClick={() => setConfirmDeleteRegId(null)}
-                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteRegId(r.id)}
-                    className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
-                  >
-                    Remove
-                  </button>
+                <button
+                  onClick={() => setConfirmDeleteRegId(r.id)}
+                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
+                >
+                  Remove
+                </button>
+                {confirmDeleteRegId === r.id && (
+                  <ConfirmDialog
+                    title="Remove Registration"
+                    message={`Remove ${r.show_type_code} registration? This cannot be undone.`}
+                    confirmLabel="Yes, remove"
+                    destructive
+                    onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }}
+                    onCancel={() => setConfirmDeleteRegId(null)}
+                  />
                 )}
               </li>
             ))}

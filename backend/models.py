@@ -40,7 +40,6 @@ class Show(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    venue = Column(Text)
     venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id"), nullable=True)
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
     start_date = Column(Date, nullable=False)

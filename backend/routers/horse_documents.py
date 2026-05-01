@@ -7,7 +7,7 @@ from datetime import date
 from uuid import UUID
 
 from database import get_db
-from dependencies import require_authenticated
+from dependencies import require_authenticated, safe_uuid
 from models import Horse, HorseDocument, Exhibitor
 from schemas import HorseDocumentOut
 
@@ -37,7 +37,7 @@ async def _check_access(horse: Horse, user_id: str, role: str, db: AsyncSession)
     """Raises 403 if the user is not ADMIN and doesn't own this horse."""
     if role == 'ADMIN':
         return
-    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == UUID(user_id)))
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id)))
     exhibitor = result.scalar_one_or_none()
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
         raise HTTPException(403, "You can only manage documents for your own horses")

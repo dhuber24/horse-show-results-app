@@ -6,7 +6,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
-      CORS_ORIGINS: http://localhost:3000,https://expert-guide-pjw5wj5pj9p37jrr-3000.app.github.dev
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     volumes:
       - ./backend:/app
 
@@ -16,7 +16,7 @@ services:
       - "3000:3000"
     environment:
       - API_URL=http://backend:8000
-      - NEXT_PUBLIC_API_URL=https://expert-guide-pjw5wj5pj9p37jrr-8000.app.github.dev
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - AUTH_SECRET=${NEXTAUTH_SECRET}
     depends_on:

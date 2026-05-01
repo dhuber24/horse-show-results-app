@@ -4,6 +4,10 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
 
 from database import engine, Base, AsyncSessionLocal
 from dependencies import INTERNAL_API_KEY
@@ -54,12 +58,23 @@ async def lifespan(app: FastAPI):
         pass
 
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Horse Show Results API",
     lifespan=lifespan,
     description="Entry and results management for ranch and western pleasure horse shows.",
     version="0.1.0",
 )
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again later."}
+    )
 
 ALLOWED_ORIGINS = [
     o.strip()

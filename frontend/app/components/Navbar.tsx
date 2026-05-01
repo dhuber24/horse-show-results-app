@@ -4,7 +4,6 @@ import SignOutButton from '../SignOutButton';
 
 export default async function Navbar() {
   const session = await auth();
-  const role = (session?.user as any)?.role;
 
   return (
     <nav style={{ backgroundColor: '#2c1810', borderBottom: '3px solid #c4860a' }}
@@ -22,23 +21,23 @@ export default async function Navbar() {
         {session ? (
           <>
             <span className="text-sm hidden md:block" style={{ color: '#d4b896' }}>
-              {session.user?.name} · {role}
+              {session.user?.name} · {session.user?.role}
             </span>
-            {role === 'EXHIBITOR' && (
+            {session.user?.role === 'EXHIBITOR' && (
               <Link href="/dashboard"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
                 My Entries
               </Link>
             )}
-            {role === 'SCOREKEEPER' && (
+            {session.user?.role === 'SCOREKEEPER' && (
               <Link href="/scorekeeper"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
                 Shows
               </Link>
             )}
-            {(role === 'ADMIN' || role === 'SHOW_SECRETARY') && (
+            {(session.user?.role === 'ADMIN' || session.user?.role === 'SHOW_SECRETARY') && (
               <Link href="/admin"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>

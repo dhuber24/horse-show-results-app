@@ -17,6 +17,7 @@ export default function VenueAdminPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   const available = allUsers.filter(
     u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
@@ -52,7 +53,7 @@ export default function VenueAdminPanel({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {admins.length === 0 && (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No Show Secretarys assigned to this venue.</p>
+        <p className="text-sm" style={{ color: '#8b7355' }}>No Secretaries assigned to this venue.</p>
       )}
 
       <ul className="space-y-1">
@@ -95,10 +96,10 @@ export default function VenueAdminPanel({
       {available.length > 0 ? (
         <div className="flex items-center gap-2">
           <select
-            id="venue-admin-select"
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
             className="border rounded px-2 py-1 text-sm flex-1"
             style={{ borderColor: '#d4b896' }}
-            defaultValue=""
           >
             <option value="" disabled>Select a Show Secretary to add…</option>
             {available.map(u => (
@@ -108,8 +109,7 @@ export default function VenueAdminPanel({
           <button
             disabled={busy}
             onClick={() => {
-              const sel = document.getElementById('venue-admin-select') as HTMLSelectElement;
-              if (sel.value) add(sel.value);
+              if (selectedUserId) { add(selectedUserId); setSelectedUserId(''); }
             }}
             className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
             style={{ backgroundColor: '#8b4513' }}
@@ -119,7 +119,7 @@ export default function VenueAdminPanel({
         </div>
       ) : (
         <p className="text-xs" style={{ color: '#8b7355' }}>
-          No additional Show Secretarys available. Create one in{' '}
+          No additional Secretaries available. Create one in{' '}
           <a href="/admin/users" className="underline">User Management</a>.
         </p>
       )}

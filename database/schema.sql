@@ -1,3 +1,8 @@
+CREATE TABLE IF NOT EXISTS _migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS show_types (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT NOT NULL UNIQUE,
@@ -15,11 +20,11 @@ ON CONFLICT (code) DO NOTHING;
 CREATE TABLE IF NOT EXISTS shows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    venue TEXT,
     show_type_id UUID NOT NULL REFERENCES show_types(id),
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT now()
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'PUBLISHED', 'ACTIVE', 'COMPLETED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS rings (
@@ -42,13 +47,13 @@ CREATE TABLE IF NOT EXISTS classes (
     class_number TEXT NOT NULL,
     class_name TEXT NOT NULL,
     class_date DATE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'OPEN',
+    status TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    role TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('ADMIN', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR')),
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -57,7 +62,6 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS horses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    owner_name TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -73,7 +77,7 @@ CREATE TABLE IF NOT EXISTS entries (
     exhibitor_id UUID NOT NULL REFERENCES exhibitors(id),
     horse_id UUID NOT NULL REFERENCES horses(id),
     back_number INTEGER,
-    status TEXT NOT NULL DEFAULT 'ENTERED',
+    status TEXT NOT NULL DEFAULT 'ENTERED' CHECK (status IN ('ENTERED', 'WITHDRAWN')),
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (class_id, exhibitor_id, horse_id)
 );

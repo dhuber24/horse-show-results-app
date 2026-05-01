@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type ShowStatus = 'DRAFT' | 'PUBLISHED' | 'ACTIVE' | 'COMPLETED';
 
@@ -112,33 +113,14 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, e
       )}
 
       {pendingStatus && nextAction && (
-        <div
-          className="text-sm border rounded p-3 space-y-2"
-          style={{ borderColor: '#d4b896', backgroundColor: '#fefce8' }}
-        >
-          <p className="font-medium" style={{ color: '#2c1810' }}>
-            Change status to <strong>{pendingStatus}</strong>?
-          </p>
-          <p style={{ color: '#5c3d1e' }}>{nextAction.warning}</p>
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              onClick={handleConfirm}
-              disabled={saving}
-              className="px-3 py-1 rounded text-white text-xs font-medium"
-              style={{ backgroundColor: '#2c1810' }}
-            >
-              {saving ? 'Saving…' : 'Yes, confirm'}
-            </button>
-            <button
-              onClick={() => setPendingStatus(null)}
-              disabled={saving}
-              className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={`Change status to ${pendingStatus}?`}
+          message={nextAction.warning}
+          confirmLabel="Yes, confirm"
+          confirming={saving}
+          onConfirm={handleConfirm}
+          onCancel={() => setPendingStatus(null)}
+        />
       )}
     </div>
   );

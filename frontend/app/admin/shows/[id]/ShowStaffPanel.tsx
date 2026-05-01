@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type User = { id: string; full_name: string; email: string; role: string };
 
@@ -36,6 +37,9 @@ export default function ShowStaffPanel({
   const [createForm, setCreateForm] = useState(emptyForm);
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState('');
+
+  const [selectedAdminId, setSelectedAdminId] = useState('');
+  const [selectedKeeperId, setSelectedKeeperId] = useState('');
 
   const availableShowAdmins = allUsers.filter(
     u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
@@ -146,23 +150,28 @@ export default function ShowStaffPanel({
             {admins.map(a => (
               <li key={a.id} className="flex items-center justify-between text-sm py-1 gap-2">
                 <span style={{ color: '#2c1810' }}>{a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span></span>
-                {confirmRemoveAdminId === a.id ? (
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
-                    <button disabled={busy} onClick={() => { removeAdmin(a.id); setConfirmRemoveAdminId(null); }}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
-                    <button onClick={() => setConfirmRemoveAdminId(null)}
-                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
-                  </span>
-                ) : (
-                  <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
-                    Remove
-                  </button>
-                )}
+                <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
+                  className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                  Remove
+                </button>
               </li>
             ))}
           </ul>
+
+          {confirmRemoveAdminId && (
+            <ConfirmDialog
+              title="Remove Show Secretary"
+              message={`Remove ${admins.find(a => a.id === confirmRemoveAdminId)?.full_name} as a show secretary? This cannot be undone.`}
+              confirmLabel="Yes, remove"
+              destructive
+              confirming={busy}
+              onConfirm={async () => {
+                await removeAdmin(confirmRemoveAdminId);
+                setConfirmRemoveAdminId(null);
+              }}
+              onCancel={() => setConfirmRemoveAdminId(null)}
+            />
+          )}
 
           {!showAddAdminForm ? (
             <button onClick={() => setShowAddAdminForm(true)}
@@ -171,19 +180,19 @@ export default function ShowStaffPanel({
             </button>
           ) : availableShowAdmins.length > 0 ? (
             <div className="flex items-center gap-2">
-              <select id="add-admin-select" className={`${inputClass} flex-1`} style={inputStyle} defaultValue="">
+              <select value={selectedAdminId} onChange={(e) => setSelectedAdminId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
                 <option value="" disabled>Select a Show Secretary…</option>
                 {availableShowAdmins.map(u => (
                   <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
                 ))}
               </select>
               <button disabled={busy}
-                onClick={() => { const s = document.getElementById('add-admin-select') as HTMLSelectElement; if (s.value) { addAdmin(s.value); setShowAddAdminForm(false); } }}
+                onClick={() => { if (selectedAdminId) { addAdmin(selectedAdminId); setSelectedAdminId(''); setShowAddAdminForm(false); } }}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
                 style={{ backgroundColor: '#8b4513' }}>
                 {busy ? 'Adding…' : 'Add'}
               </button>
-              <button type="button" onClick={() => setShowAddAdminForm(false)}
+              <button type="button" onClick={() => { setShowAddAdminForm(false); setSelectedAdminId(''); }}
                 className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
                 Cancel
               </button>
@@ -213,23 +222,28 @@ export default function ShowStaffPanel({
           {scorekeepers.map(s => (
             <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
               <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
-              {confirmRemoveKeeperId === s.id ? (
-                <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {s.full_name}?</span>
-                  <button disabled={busy} onClick={() => { removeScorekeeper(s.id); setConfirmRemoveKeeperId(null); }}
-                    className="text-xs text-red-600 hover:underline disabled:opacity-50">{busy ? 'Removing…' : 'Yes'}</button>
-                  <button onClick={() => setConfirmRemoveKeeperId(null)}
-                    className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
-                </span>
-              ) : (
-                <button disabled={busy} onClick={() => setConfirmRemoveKeeperId(s.id)}
-                  className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
-                  Remove
-                </button>
-              )}
+              <button disabled={busy} onClick={() => setConfirmRemoveKeeperId(s.id)}
+                className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
+                Remove
+              </button>
             </li>
           ))}
         </ul>
+
+        {confirmRemoveKeeperId && (
+          <ConfirmDialog
+            title="Remove Scorekeeper"
+            message={`Remove ${scorekeepers.find(s => s.id === confirmRemoveKeeperId)?.full_name} as a scorekeeper? This cannot be undone.`}
+            confirmLabel="Yes, remove"
+            destructive
+            confirming={busy}
+            onConfirm={async () => {
+              await removeScorekeeper(confirmRemoveKeeperId);
+              setConfirmRemoveKeeperId(null);
+            }}
+            onCancel={() => setConfirmRemoveKeeperId(null)}
+          />
+        )}
 
         {createSuccess && <p className="text-sm text-green-700 mb-3">{createSuccess}</p>}
 
@@ -252,19 +266,19 @@ export default function ShowStaffPanel({
         {/* Assign existing scorekeeper — ADMIN only */}
         {isAdmin && showAssignForm && (
           <div className="flex items-center gap-2 mb-3">
-            <select id="add-keeper-select" className={`${inputClass} flex-1`} style={inputStyle} defaultValue="">
+            <select value={selectedKeeperId} onChange={(e) => setSelectedKeeperId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
               <option value="" disabled>Select a scorekeeper…</option>
               {availableScorekeepers.map(u => (
                 <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
               ))}
             </select>
             <button disabled={busy}
-              onClick={() => { const s = document.getElementById('add-keeper-select') as HTMLSelectElement; if (s.value) { addScorekeeper(s.value); setShowAssignForm(false); } }}
+              onClick={() => { if (selectedKeeperId) { addScorekeeper(selectedKeeperId); setSelectedKeeperId(''); setShowAssignForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
               style={{ backgroundColor: '#8b4513' }}>
               {busy ? 'Assigning…' : 'Assign'}
             </button>
-            <button type="button" onClick={() => setShowAssignForm(false)}
+            <button type="button" onClick={() => { setShowAssignForm(false); setSelectedKeeperId(''); }}
               className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
               Cancel
             </button>

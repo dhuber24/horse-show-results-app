@@ -32,7 +32,7 @@ async def get_exhibitor_dashboard(
         select(Entry)
         .where(Entry.exhibitor_id == exhibitor.id)
         .options(
-            selectinload(Entry.class_).selectinload(Class.show),
+            selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.venue_rel),
             selectinload(Entry.horse),
             selectinload(Entry.result),
         )
@@ -57,7 +57,7 @@ async def get_exhibitor_dashboard(
             "show_status": show.status if show else None,
             "show_start_date": str(show.start_date) if show else None,
             "show_end_date": str(show.end_date) if show else None,
-            "show_venue": show.venue if show else None,
+            "show_venue": show.venue_rel.name if show and show.venue_rel else None,
             "class_number": class_.class_number if class_ else None,
             "class_name": class_.class_name if class_ else None,
             "class_id": str(class_.id) if class_ else None,

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
@@ -6,9 +8,13 @@ from typing import Optional
 from datetime import datetime, timezone
 from uuid import UUID
 import bcrypt
+import logging
 
 from database import get_db
 from models import User, Exhibitor, ShowSecretaryCertification, ShowType
+
+logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -45,14 +51,17 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 @router.post("/verify")
-async def verify_user(body: UserVerify, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def verify_user(request: Request, body: UserVerify, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
 
     if not user or not user.hashed_password:
+        logger.warning(f"Failed login attempt for email: {body.email} (user not found or no password)")
         raise HTTPException(401, "Invalid credentials")
 
     if not verify_password(body.password, user.hashed_password):
+        logger.warning(f"Failed login attempt for email: {body.email} (invalid password)")
         raise HTTPException(401, "Invalid credentials")
 
     if not user.is_approved:

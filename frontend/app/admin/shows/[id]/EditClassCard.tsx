@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ClassItem {
   id: string;
@@ -167,34 +168,25 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
             Cancel
           </button>
         </div>
-        {confirmDelete ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete class and all entries?</span>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-xs text-red-600 hover:underline disabled:opacity-50"
-            >
-              {deleting ? 'Deleting…' : 'Yes, delete'}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              disabled={deleting}
-              className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="text-sm text-red-600 hover:text-red-800"
-          >
-            Delete
-          </button>
-        )}
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="text-sm text-red-600 hover:text-red-800"
+        >
+          Delete
+        </button>
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete Class"
+          message="Delete this class and all its entries? This cannot be undone."
+          confirmLabel="Yes, delete"
+          destructive
+          confirming={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </li>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import ConfirmDialog from './ConfirmDialog';
 
 interface Document {
   id: string;
@@ -165,31 +166,22 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
                       >
                         Download
                       </a>
-                      {confirmDeleteId === doc.id ? (
-                        <span className="flex items-center gap-2">
-                          <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
-                          <button
-                            onClick={() => { setConfirmDeleteId(null); handleDelete(doc.id); }}
-                            disabled={deletingId === doc.id}
-                            className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-                          >
-                            {deletingId === doc.id ? 'Removing…' : 'Yes'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            className="text-xs hover:underline"
-                            style={{ color: '#8b7355' }}
-                          >
-                            Cancel
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmDeleteId(doc.id)}
-                          className="text-xs text-red-600 hover:text-red-800"
-                        >
-                          Remove
-                        </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(doc.id)}
+                        className="text-xs text-red-600 hover:text-red-800"
+                      >
+                        Remove
+                      </button>
+                      {confirmDeleteId === doc.id && (
+                        <ConfirmDialog
+                          title="Remove Document"
+                          message={`Remove ${doc.original_filename}? This cannot be undone.`}
+                          confirmLabel="Yes, remove"
+                          destructive
+                          confirming={deletingId === doc.id}
+                          onConfirm={() => { handleDelete(doc.id); setConfirmDeleteId(null); }}
+                          onCancel={() => setConfirmDeleteId(null)}
+                        />
                       )}
                     </div>
                   </li>

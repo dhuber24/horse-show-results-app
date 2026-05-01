@@ -3,13 +3,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 from typing import Optional
+from pydantic import BaseModel
 
 from database import get_db
-from dependencies import require_admin, INTERNAL_API_KEY
+from dependencies import require_admin, INTERNAL_API_KEY, safe_uuid
 from models import Venue, VenueAdmin, User
-from schemas import VenueCreate, VenueUpdate, VenueOut
+from schemas import VenueCreate, VenueUpdate, VenueOut, UserOut
 
 router = APIRouter(prefix="/venues", tags=["Venues"])
+
+
+class VenueAdminAssign(BaseModel):
+    user_id: UUID
 
 
 @router.get("/", response_model=list[VenueOut])
@@ -23,7 +28,7 @@ async def list_venues(
         result = await db.execute(
             select(Venue)
             .join(VenueAdmin, VenueAdmin.venue_id == Venue.id)
-            .where(VenueAdmin.user_id == UUID(x_user_id))
+            .where(VenueAdmin.user_id == safe_uuid(x_user_id))
             .order_by(Venue.name)
         )
     else:
@@ -71,8 +76,6 @@ async def delete_venue(venue_id: UUID, db: AsyncSession = Depends(get_db)):
 
 # ── Venue Admins (ADMIN only) ──────────────────────────────────────────────────
 
-from schemas import UserOut
-
 @router.get("/{venue_id}/admins", response_model=list[UserOut], dependencies=[Depends(require_admin)])
 async def list_venue_admins(venue_id: UUID, db: AsyncSession = Depends(get_db)):
     if not await db.get(Venue, venue_id):
@@ -87,13 +90,10 @@ async def list_venue_admins(venue_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{venue_id}/admins", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
-async def add_venue_admin(venue_id: UUID, body: dict, db: AsyncSession = Depends(get_db)):
-    user_id = body.get("user_id")
-    if not user_id:
-        raise HTTPException(400, "user_id required")
+async def add_venue_admin(venue_id: UUID, body: VenueAdminAssign, db: AsyncSession = Depends(get_db)):
     if not await db.get(Venue, venue_id):
         raise HTTPException(404, "Venue not found")
-    user = await db.get(User, UUID(user_id))
+    user = await db.get(User, body.user_id)
     if not user:
         raise HTTPException(404, "User not found")
     if user.role != "SHOW_SECRETARY":

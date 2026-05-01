@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-from typing import Optional, Any
+from typing import Optional, Any, Literal
 from datetime import date, datetime
 from uuid import UUID
 
@@ -62,8 +62,14 @@ class ShowCreate(BaseModel):
     show_type_id: UUID
     start_date: date
     end_date: date
-    status: str = Field(default="DRAFT", max_length=20)
+    status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 class ShowUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
@@ -72,15 +78,14 @@ class ShowUpdate(BaseModel):
     show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: Optional[str] = Field(default=None, max_length=20)
+    status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
 
-    @field_validator("status")
-    @classmethod
-    def status_not_completed(cls, v):
-        if v == "COMPLETED":
-            raise ValueError("COMPLETED status can only be set automatically by date transition.")
-        return v
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 class ShowOut(BaseModel):
     id: UUID
@@ -136,7 +141,7 @@ class ClassCreate(BaseModel):
     class_number: str = Field(min_length=1, max_length=50)
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
-    status: str = Field(default="OPEN", max_length=20)
+    status: Literal["OPEN", "CLOSED"] = "OPEN"
     apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassUpdate(BaseModel):
@@ -145,7 +150,7 @@ class ClassUpdate(BaseModel):
     class_number: Optional[str] = Field(default=None, max_length=50)
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
-    status: Optional[str] = Field(default=None, max_length=20)
+    status: Optional[Literal["OPEN", "CLOSED"]] = None
     apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassOut(BaseModel):
@@ -310,7 +315,7 @@ class HorseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     foaling_date: Optional[date] = None
-    sex: Optional[str] = Field(default=None, max_length=20)
+    sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
@@ -319,7 +324,7 @@ class HorseUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     foaling_date: Optional[date] = None
-    sex: Optional[str] = Field(default=None, max_length=20)
+    sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: Optional[bool] = None
@@ -412,15 +417,15 @@ class EntryCreate(BaseModel):
     exhibitor_id: UUID
     horse_id: UUID
     back_number: Optional[int] = None
-    status: str = Field(default="ENTERED", max_length=20)
-    apha_division: Optional[str] = Field(default=None, max_length=50)
+    status: Literal["ENTERED", "WITHDRAWN"] = "ENTERED"
+    apha_division: Optional[Literal["OPEN", "SOLID_PAINT_BRED", "AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"]] = None
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     is_disqualified: bool = False
 
 class EntryUpdate(BaseModel):
     back_number: Optional[int] = None
-    status: Optional[str] = Field(default=None, max_length=20)
-    apha_division: Optional[str] = Field(default=None, max_length=50)
+    status: Optional[Literal["ENTERED", "WITHDRAWN"]] = None
+    apha_division: Optional[Literal["OPEN", "SOLID_PAINT_BRED", "AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"]] = None
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     is_disqualified: Optional[bool] = None
 

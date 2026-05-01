@@ -2,18 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-const APHA_DIVISIONS = [
-  { value: 'OPEN', label: 'Open' },
-  { value: 'SOLID_PAINT_BRED', label: 'Solid Paint-Bred' },
-  { value: 'AMATEUR', label: 'Amateur' },
-  { value: 'NOVICE_AMATEUR', label: 'Novice Amateur' },
-  { value: 'YOUTH', label: 'Youth' },
-  { value: 'NOVICE_YOUTH', label: 'Novice Youth' },
-];
-
-const RELATIONSHIP_OPTIONS = ['Self', 'Spouse', 'Parent', 'Child', 'Sibling', 'Grandparent', 'Grandchild'];
-const RELATIONSHIP_REQUIRED_DIVISIONS = new Set(['AMATEUR', 'NOVICE_AMATEUR', 'YOUTH', 'NOVICE_YOUTH']);
+import ConfirmDialog from '@/components/ConfirmDialog';
+import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
 
 interface Entry {
   id: string;
@@ -213,42 +203,32 @@ function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
       </span>
       <span className="flex items-center gap-2 shrink-0">
         {error && <span className="text-xs text-red-600">{error}</span>}
-        {confirmDelete ? (
-          <>
-            <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove this entry?</span>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-xs text-red-600 hover:underline disabled:opacity-50"
-            >
-              {deleting ? 'Removing…' : 'Yes, remove'}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => setEditing(true)}
-              className="text-xs hover:underline"
-              style={{ color: '#8b4513' }}
-            >
-              Edit
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs hover:underline text-red-600"
-            >
-              Remove
-            </button>
-          </>
-        )}
+        <button
+          onClick={() => setEditing(true)}
+          className="text-xs hover:underline"
+          style={{ color: '#8b4513' }}
+        >
+          Edit
+        </button>
+        <button
+          onClick={() => setConfirmDelete(true)}
+          className="text-xs hover:underline text-red-600"
+        >
+          Remove
+        </button>
       </span>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Remove Entry"
+          message={`Remove ${exhibitorName}'s entry for ${horseName}? This cannot be undone.`}
+          confirmLabel="Yes, remove"
+          destructive
+          confirming={deleting}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </li>
   );
 }

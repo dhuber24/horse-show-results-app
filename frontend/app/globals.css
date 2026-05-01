@@ -5,16 +5,34 @@
   --foreground: #2c1810;
   --card: #ffffff;
   --border: #d4b896;
+  --border-subtle: #e8d5b7;
+  --bg-subtle: #faf6f0;
   --primary: #8b4513;
   --primary-hover: #6b3410;
   --primary-foreground: #ffffff;
   --muted: #8b7355;
   --muted-bg: #f5ede0;
+  --text-deep: #5c3d1e;
+  --text-dimmed: #a89070;
   --accent: #c4860a;
   --success: #2d6a2d;
   --success-bg: #f0f7f0;
   --error: #8b1a1a;
   --error-bg: #fdf0f0;
+}
+
+@theme {
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-bg: var(--muted-bg);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-text-deep: var(--text-deep);
+  --color-text-dimmed: var(--text-dimmed);
+  --color-accent: var(--accent);
 }
 
 body {

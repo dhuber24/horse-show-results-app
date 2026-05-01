@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from database import get_db
-from dependencies import require_admin
+from dependencies import require_admin, safe_uuid
 from models import Show, User, ShowSecretary, ShowScorekeeper
 from schemas import UserOut
 
@@ -38,7 +38,7 @@ async def _assert_show_admin_access(show_id: UUID, x_user_id: str, x_user_role: 
         row = await db.execute(
             select(ShowSecretary).where(
                 ShowSecretary.show_id == show_id,
-                ShowSecretary.user_id == UUID(x_user_id),
+                ShowSecretary.user_id == safe_uuid(x_user_id),
             )
         )
         if row.scalar_one_or_none():

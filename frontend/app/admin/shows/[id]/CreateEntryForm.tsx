@@ -2,19 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-const APHA_DIVISIONS = [
-  { value: 'OPEN', label: 'Open' },
-  { value: 'SOLID_PAINT_BRED', label: 'Solid Paint-Bred' },
-  { value: 'AMATEUR', label: 'Amateur' },
-  { value: 'NOVICE_AMATEUR', label: 'Novice Amateur' },
-  { value: 'YOUTH', label: 'Youth' },
-  { value: 'NOVICE_YOUTH', label: 'Novice Youth' },
-];
-
-const RELATIONSHIP_OPTIONS = ['Self', 'Spouse', 'Parent', 'Child', 'Sibling', 'Grandparent', 'Grandchild'];
-
-const RELATIONSHIP_REQUIRED_DIVISIONS = new Set(['AMATEUR', 'NOVICE_AMATEUR', 'YOUTH', 'NOVICE_YOUTH']);
+import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
 
 interface Props {
   showId: string;

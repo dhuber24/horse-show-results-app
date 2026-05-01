@@ -23,7 +23,7 @@ def _serialize(show: Show) -> dict:
     return {
         "id": show.id,
         "name": show.name,
-        "venue": show.venue,
+        "venue": show.venue_rel.name if show.venue_rel else None,
         "venue_id": show.venue_id,
         "show_type_id": show.show_type_id,
         "show_type_code": show.show_type.code if show.show_type else None,
@@ -60,7 +60,7 @@ async def _auto_transition_statuses(db: AsyncSession):
 
 async def _get_show_with_type(db: AsyncSession, show_id: UUID) -> Show | None:
     result = await db.execute(
-        select(Show).options(selectinload(Show.show_type)).where(Show.id == show_id)
+        select(Show).options(selectinload(Show.show_type), selectinload(Show.venue_rel)).where(Show.id == show_id)
     )
     return result.scalar_one_or_none()
 
@@ -76,12 +76,12 @@ async def list_shows(
 
     if is_authenticated and x_user_role == "ADMIN":
         # Admins see all shows including DRAFTs
-        query = select(Show).options(selectinload(Show.show_type)).order_by(Show.start_date)
+        query = select(Show).options(selectinload(Show.show_type), selectinload(Show.venue_rel)).order_by(Show.start_date)
     elif is_authenticated and x_user_role == "SHOW_SECRETARY" and x_user_id:
         # Secretaries see their own assigned shows (including DRAFTs)
         query = (
             select(Show)
-            .options(selectinload(Show.show_type))
+            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
             .join(ShowSecretary, ShowSecretary.show_id == Show.id)
             .where(ShowSecretary.user_id == safe_uuid(x_user_id))
             .order_by(Show.start_date)
@@ -90,7 +90,7 @@ async def list_shows(
         # Scorekeepers see their assigned shows, but not DRAFTs
         query = (
             select(Show)
-            .options(selectinload(Show.show_type))
+            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
             .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
             .where(ShowScorekeeper.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
             .order_by(Show.start_date)
@@ -99,7 +99,7 @@ async def list_shows(
         # Public / exhibitors — no DRAFTs
         query = (
             select(Show)
-            .options(selectinload(Show.show_type))
+            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
             .where(Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
@@ -135,7 +135,6 @@ async def create_show(
 
 @router.get("/{show_id}", response_model=ShowOut)
 async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
-    await _auto_transition_statuses(db)
     show = await _get_show_with_type(db, show_id)
     if not show:
         raise HTTPException(404, "Show not found")

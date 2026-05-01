@@ -244,7 +244,7 @@ async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
     return result.scalar_one()
 
-@horses_router.get("/{horse_id}", response_model=HorseOut)
+@horses_router.get("/{horse_id}", response_model=HorseOut, dependencies=[Depends(require_api_key)])
 async def get_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
     horse = result.scalar_one_or_none()
@@ -367,7 +367,7 @@ async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Dep
     await db.refresh(exhibitor)
     return exhibitor
 
-@exhibitors_router.get("/by-user/{user_id}", response_model=ExhibitorOut)
+@exhibitors_router.get("/by-user/{user_id}", response_model=ExhibitorOut, dependencies=[Depends(require_api_key)])
 async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user_id))
     exhibitor = result.scalar_one_or_none()
@@ -375,7 +375,7 @@ async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db
         raise HTTPException(404, "No exhibitor record found for this user")
     return exhibitor
 
-@exhibitors_router.get("/{exhibitor_id}", response_model=ExhibitorOut)
+@exhibitors_router.get("/{exhibitor_id}", response_model=ExhibitorOut, dependencies=[Depends(require_api_key)])
 async def get_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
     exhibitor = await db.get(Exhibitor, exhibitor_id)
     if not exhibitor:
