@@ -18,7 +18,7 @@ Applied migrations (in order):
 |------|-------------|
 | `001_show_types.sql` | show_types table; seeds AQHA, APHA, OPEN |
 | `002_show_admin_role.sql` | show_secretaries join table |
-| `003_venue_admins.sql` | venue_admins join table |
+| `003_venue_admins.sql` | venue_admins join table (applied manually, not tracked in _migrations) |
 | `004_user_last_login.sql` | last_login_at column on users |
 | `005_rename_show_admins_table.sql` | renamed show_admins → show_secretaries |
 | `006_secretary_certifications.sql` | show_secretary_certifications table |
@@ -28,6 +28,13 @@ Applied migrations (in order):
 | `010_apha_fields.sql` | APHA fields on shows, horses, classes, entries, exhibitors |
 | `011_entries_horse_fk_set_null.sql` | entries.horse_id FK → ON DELETE SET NULL |
 | `012_user_approval.sql` | is_approved BOOLEAN on users (defaults true); self-registered Show Secretaries set to false |
+| `013_user_approval.sql` | Renumbered duplicate of 012; registered in _migrations for tracking consistency |
+| `014_user_role_check_constraint.sql` | CHECK constraint on users.role restricting to valid role values |
+| `015_add_fk_indexes.sql` | 32 indexes on FK columns across all major tables |
+| `016_add_enum_check_constraints.sql` | CHECK constraints on status/enum columns; shows.created_at NOT NULL |
+| `017_drop_legacy_venue_column.sql` | Drops shows.venue TEXT (superseded by venue_id FK) |
+| `018_drop_legacy_owner_name_column.sql` | Drops horses.owner_name TEXT (superseded by owner_exhibitor_id FK) |
+| `019_result_audit_changed_at_index.sql` | idx_result_audit_changed_at ON result_audit(changed_at DESC) |
 
 Data seeded directly (not via migration file): show_types NSBA, WSCA, ARHA, ApHC, FQHR.
 
@@ -52,15 +59,14 @@ Association types supported by the app.
 |--------|------|-------|
 | id | UUID PK | |
 | name | TEXT | |
-| venue | TEXT | Legacy field |
 | venue_id | UUID FK → venues | |
 | show_type_id | UUID FK → show_types | |
 | start_date | DATE | |
 | end_date | DATE | |
-| status | TEXT | DRAFT, PUBLISHED, ACTIVE, COMPLETED |
+| status | TEXT | DRAFT, PUBLISHED, ACTIVE, COMPLETED — CHECK constraint enforced |
 | apha_show_number | TEXT | Required for APHA export |
 | created_by_user_id | UUID FK → users | |
-| created_at | TIMESTAMPTZ | |
+| created_at | TIMESTAMPTZ NOT NULL | |
 
 **Status flow:** DRAFT → PUBLISHED → ACTIVE (auto on start_date) → COMPLETED (auto after end_date)
 
@@ -77,7 +83,7 @@ Association types supported by the app.
 | class_number | TEXT | Unique within show |
 | class_name | TEXT | |
 | class_date | DATE | |
-| status | TEXT | OPEN, IN_PROGRESS, CLOSED |
+| status | TEXT | OPEN, CLOSED — CHECK constraint enforced |
 | apha_class_code | TEXT | APHA standard code e.g. WP01 |
 | created_at | TIMESTAMPTZ | |
 
@@ -119,16 +125,17 @@ Association types supported by the app.
 ---
 
 ### result_audit
-Immutable audit trail for result changes.
+Immutable audit trail for result changes. At least one of `result_id` or `entry_id` must be non-null (CHECK constraint).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | id | UUID PK | |
-| result_id | UUID FK → results | |
+| result_id | UUID FK → results | nullable; null when recording a deletion |
+| entry_id | UUID FK → entries | nullable; present when a result row was deleted |
 | changed_by | UUID FK → users | |
 | old_place | INTEGER | |
 | new_place | INTEGER | |
-| changed_at | TIMESTAMPTZ | |
+| changed_at | TIMESTAMPTZ | Indexed DESC (idx_result_audit_changed_at) |
 
 ---
 

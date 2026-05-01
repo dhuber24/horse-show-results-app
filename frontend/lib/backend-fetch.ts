@@ -29,13 +29,16 @@ export async function safeFetchBackend(
 ): Promise<{ json: any; status: number; error?: string }> {
   try {
     const res = await fetch(url, options);
+    if (res.status === 204) {
+      return { json: null, status: 204 };
+    }
     try {
       const json = await res.json();
       return { json, status: res.status };
     } catch (parseError) {
       return {
         json: { error: 'Invalid JSON response from backend' },
-        status: 502,
+        status: res.status,
         error: `JSON parse error: ${parseError instanceof Error ? parseError.message : 'unknown'}`,
       };
     }

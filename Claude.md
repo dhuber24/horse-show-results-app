@@ -129,7 +129,7 @@ docker-compose up
 
 ### When Working on This Project
 
-1. **API Design**: Follow RESTful conventions. Backend provides JSON API; frontend consumes it.
+1. **API Design**: Follow RESTful conventions. Backend provides JSON API; frontend consumes it. List endpoints that are admin-only (`GET /users/`, `GET /horses/`, `GET /exhibitors/`) accept optional `?limit=N&offset=N` query params (limit capped at 1000, default is no limit). `GET /shows/` is not paginated — it applies role-based filtering instead.
 
 2. **Database Queries**: Write migrations in `/database` folder. Keep schema organized and well-documented.
 
@@ -206,7 +206,7 @@ erDiagram
     ShowEntry { uuid id; uuid show_id FK; uuid exhibitor_id FK; int back_number }
     ShowSecretary { uuid show_id FK; uuid user_id FK }
     ShowScorekeeper { uuid show_id FK; uuid user_id FK }
-    User { uuid id; text role }
+    User { uuid id; text role; bool is_approved }
     Exhibitor { uuid id; uuid user_id FK; text full_name }
 
     ShowType ||--o{ Show : "typed by"
@@ -517,7 +517,7 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -c \
 Applied migrations:
 - `001_show_types.sql` — show_types table; seeds AQHA, APHA, OPEN
 - `002_show_admin_role.sql` — show_secretaries join table (originally show_admins)
-- `003_venue_admins.sql` — venue_admins join table
+- `003_venue_admins.sql` — venue_admins join table (applied manually, not tracked in _migrations)
 - `004_user_last_login.sql` — last_login_at column on users
 - `005_rename_show_admins_table.sql` — renamed show_admins → show_secretaries
 - `006_secretary_certifications.sql` — show_secretary_certifications table (user ↔ show_type + secretary_id_number)
@@ -527,8 +527,13 @@ Applied migrations:
 - `010_apha_fields.sql` — APHA sanctioned show fields: `shows.apha_show_number`, `horses.is_solid_paint_bred`, `classes.apha_class_code`, `entries.apha_division/relationship_to_owner/is_disqualified`, exhibitor APHA membership fields (apha_member_number/expiry, amateur_card_number/expiry, amateur_novice_codes, date_of_birth)
 - `011_entries_horse_fk_set_null.sql` — Alters `entries.horse_id` FK to `ON DELETE SET NULL` so horses can be deleted even when they have class entries; historical entry records are preserved with `horse_id = NULL`
 - `012_user_approval.sql` — Adds `is_approved BOOLEAN NOT NULL DEFAULT TRUE` column to users table for Show Secretary approval workflow; new accounts default to approved, self-registered Show Secretaries set to false
+- `013_user_approval.sql` — Duplicate/renumbered version of 012; registered in _migrations to keep tracking consistent
+- `014_user_role_check_constraint.sql` — CHECK constraint on `users.role` restricting to valid role values
+- `015_add_fk_indexes.sql` — 32 indexes on FK columns across all major tables (shows, classes, entries, results, horses, exhibitors, join tables)
+- `016_add_enum_check_constraints.sql` — CHECK constraints on status/enum columns: `shows.status`, `classes.status`, `entries.status`, `entries.apha_division`, `horses.sex`, `result_audit` null check; sets `shows.created_at NOT NULL`
 - `017_drop_legacy_venue_column.sql` — Drops `shows.venue TEXT` column (replaced by `venue_id` FK + `venue_rel` relationship)
 - `018_drop_legacy_owner_name_column.sql` — Drops `horses.owner_name TEXT` column (replaced by `owner_exhibitor_id` FK; `HorseOut.owner_name` derived from `owner_exhibitor.full_name`)
+- `019_result_audit_changed_at_index.sql` — Index on `result_audit(changed_at DESC)` for audit query performance
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -550,6 +555,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Phase 2 improvements: controlled form selects, error boundaries + loading states for 8 route segments, ESLint v9 flat config, next-auth v5 stable, @testing-library/react v16, FastAPI 0.115/cryptography 44/python-multipart 0.0.20 dependency updates, CSS design tokens + Tailwind v4 @theme config, legacy shows.venue and horses.owner_name column removal via migrations 017-018; TypeScript and lint fixes for Link imports)
+**Last Updated:** May 2026 (Applied migrations 013–019: user role CHECK constraint, 32 FK indexes, enum CHECK constraints, legacy column drops, result_audit index. Backend pagination on list endpoints. Docker Compose healthcheck on backend with `service_healthy` dependency for frontend. Fixed `safeFetchBackend` to correctly handle 204 No Content responses and preserve actual HTTP status on JSON parse errors.)
 **Project Status:** 🔨 Active Development
 

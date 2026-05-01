@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, union
 from sqlalchemy.exc import IntegrityError
@@ -25,8 +25,15 @@ VALID_ROLES = {"ADMIN", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
 users_router = APIRouter(prefix="/users", tags=["Users"])
 
 @users_router.get("/", response_model=list[UserOut], dependencies=[Depends(require_admin)])
-async def list_users(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).order_by(User.full_name))
+async def list_users(
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(User).order_by(User.full_name).offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    result = await db.execute(q)
     return result.scalars().all()
 
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -232,8 +239,15 @@ async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSe
         raise HTTPException(403, "You can only modify your own horses")
 
 @horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin)])
-async def list_horses(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Horse).options(*_horse_options).order_by(Horse.name))
+async def list_horses(
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(Horse).options(*_horse_options).order_by(Horse.name).offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    result = await db.execute(q)
     return result.scalars().all()
 
 @horses_router.post("/", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -355,8 +369,15 @@ class ExhibitorLink(BaseModel):
 exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 
 @exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin)])
-async def list_exhibitors(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Exhibitor).order_by(Exhibitor.full_name))
+async def list_exhibitors(
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(Exhibitor).order_by(Exhibitor.full_name).offset(offset)
+    if limit is not None:
+        q = q.limit(limit)
+    result = await db.execute(q)
     return result.scalars().all()
 
 @exhibitors_router.post("/", response_model=ExhibitorOut, status_code=201, dependencies=[Depends(require_admin)])

@@ -1,3 +1,42 @@
+# Codebase Improvements
+
+## May 2026
+
+### 1. Database Migrations 013–019 Applied
+Applied six migrations pulled from the remote repo plus one new migration created locally:
+
+| Migration | Description |
+|-----------|-------------|
+| `013_user_approval.sql` | Renumbered duplicate; registered in `_migrations` for tracking consistency |
+| `014_user_role_check_constraint.sql` | `CHECK (role IN (...))` on `users.role` — enforces valid roles at DB level |
+| `015_add_fk_indexes.sql` | 32 indexes on FK columns across all major tables — eliminates sequential scans on joins and cascading deletes |
+| `016_add_enum_check_constraints.sql` | CHECK constraints on `shows.status`, `classes.status`, `entries.status`, `entries.apha_division`, `horses.sex`; `result_audit` null guard; `shows.created_at NOT NULL` |
+| `017_drop_legacy_venue_column.sql` | Drops `shows.venue TEXT` (superseded by `venue_id` FK) |
+| `018_drop_legacy_owner_name_column.sql` | Drops `horses.owner_name TEXT` (superseded by `owner_exhibitor_id` FK) |
+| `019_result_audit_changed_at_index.sql` | `idx_result_audit_changed_at ON result_audit(changed_at DESC)` — speeds up audit log queries sorted by time |
+
+### 2. Pagination on Admin List Endpoints
+- **File**: `backend/routers/people.py`
+- **Endpoints updated**: `GET /users/`, `GET /horses/`, `GET /exhibitors/`
+- **Change**: Added optional `limit` (1–1000) and `offset` (≥0) query params. Default is no limit — fully backwards-compatible.
+- **Reason**: Prevents unbounded full-table scans as data grows; API is pagination-ready for future frontend use.
+
+### 3. `safeFetchBackend` 204 / Status Code Fix
+- **File**: `frontend/lib/backend-fetch.ts`
+- **Changes**:
+  - 204 No Content responses now short-circuit and return `{ json: null, status: 204 }` before attempting `res.json()`
+  - JSON parse errors now preserve `res.status` (previously incorrectly returned 502 regardless of actual backend status)
+- **Reason**: DELETE endpoints that go through `safeFetchBackend` (e.g. class delete) were returning 502 to the client even when the delete succeeded, because the empty 204 body triggered the JSON parse error path and status was overwritten.
+
+### 4. Docker Compose Healthchecks
+- **File**: `docker-compose.yml`
+- **Changes**:
+  - Added `healthcheck` to the backend service using `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"` (no curl dependency needed on `python:3.12-slim`)
+  - Changed frontend `depends_on` from `service_started` to `condition: service_healthy`
+- **Reason**: Prevents the frontend container from starting before FastAPI is ready to accept connections, eliminating race-condition startup errors.
+
+---
+
 # Codebase Improvements — April 2026
 
 Complete list of improvements implemented in the horse-show-results-app codebase review and refactoring session.
@@ -275,5 +314,5 @@ Complete list of improvements implemented in the horse-show-results-app codebase
 
 ---
 
-**Last Updated**: April 2026
+**Last Updated**: May 2026
 **Status**: ✅ All improvements implemented and documented
