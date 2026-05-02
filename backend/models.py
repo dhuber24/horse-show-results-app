@@ -101,6 +101,27 @@ class Class(Base):
     division = relationship("Division", back_populates="classes")
     entries = relationship("Entry", back_populates="class_", cascade="all, delete")
     results = relationship("Result", back_populates="class_", cascade="all, delete")
+    associations = relationship(
+        "ClassAssociation",
+        back_populates="class_",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ClassAssociation(Base):
+    __tablename__ = "class_associations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    association_class_code = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("class_id", "show_type_id"),)
+
+    class_ = relationship("Class", back_populates="associations")
+    show_type = relationship("ShowType", lazy="selectin")
 
 
 class User(Base):

@@ -153,6 +153,38 @@ class ClassUpdate(BaseModel):
     status: Optional[Literal["OPEN", "CLOSED"]] = None
     apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
+class ClassAssociationCreate(BaseModel):
+    show_type_id: UUID
+    association_class_code: str = Field(min_length=1, max_length=50)
+
+class ClassAssociationOut(BaseModel):
+    id: UUID
+    class_id: UUID
+    show_type_id: UUID
+    show_type_code: Optional[str] = None
+    show_type_name: Optional[str] = None
+    association_class_code: str
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def extract_show_type(cls, v):
+        if isinstance(v, dict):
+            return v
+        show_type = getattr(v, 'show_type', None)
+        return {
+            'id': v.id,
+            'class_id': v.class_id,
+            'show_type_id': v.show_type_id,
+            'show_type_code': show_type.code if show_type else None,
+            'show_type_name': show_type.name if show_type else None,
+            'association_class_code': v.association_class_code,
+            'created_at': v.created_at,
+        }
+
+    class Config:
+        from_attributes = True
+
 class ClassOut(BaseModel):
     id: UUID
     show_id: UUID
@@ -163,6 +195,7 @@ class ClassOut(BaseModel):
     class_date: date
     status: str
     apha_class_code: Optional[str] = None
+    associations: list[ClassAssociationOut] = []
     created_at: datetime
 
     class Config:

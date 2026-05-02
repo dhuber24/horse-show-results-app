@@ -267,6 +267,23 @@ async def apha_export(
     )
     entries = entries_result.scalars().all()
 
+    # Look up the APHA class code per class via the class_associations table,
+    # falling back to the legacy classes.apha_class_code column if absent.
+    apha_code_by_class: dict = {}
+    if apha_show_type:
+        for entry in entries:
+            cls = entry.class_
+            if cls.id in apha_code_by_class:
+                continue
+            code = ""
+            for assoc in cls.associations:
+                if assoc.show_type_id == apha_show_type.id:
+                    code = assoc.association_class_code or ""
+                    break
+            if not code:
+                code = cls.apha_class_code or ""
+            apha_code_by_class[cls.id] = code
+
     # Build exhibitor → back number map from show_entries
     show_entries_result = await db.execute(
         select(ShowEntry).where(ShowEntry.show_id == show_id)
@@ -293,7 +310,7 @@ async def apha_export(
                 back_number_map.get(entry.exhibitor_id, ""),
                 "",
                 "",
-                entry.class_.apha_class_code or "",
+                apha_code_by_class.get(entry.class_.id, ""),
                 entry.class_.class_name,
                 entry.exhibitor.apha_member_number or "",
                 entry.exhibitor.full_name,
