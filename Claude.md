@@ -170,6 +170,35 @@ flowchart LR
 
 7. **Environment Variables**: Keep sensitive config in environment, not hardcoded.
 
+### Backend API Overview
+
+All routers are registered in `backend/main.py`. Quick reference:
+
+| Prefix | Router file | Auth |
+|--------|-------------|------|
+| `/auth/...` | `auth.py` | Public (register/login) |
+| `/show-types/` | `show_types.py` | Public GET; Admin POST/PATCH/DELETE |
+| `/shows/` | `shows.py` | Role-filtered GET; Admin/Secretary write |
+| `/shows/{id}/classes/` | `classes.py` | Public GET; Admin/Secretary write |
+| `/shows/{id}/classes/{classId}/associations` | `classes.py` | Public GET; Admin/Secretary write |
+| `/shows/{id}/classes/{classId}/results/` | `results.py` | Public GET; Admin/Scorekeeper write |
+| `/shows/{id}/back-numbers/` | `backnumbers.py` | Admin/Secretary |
+| `/shows/{id}/rings/` | `rings.py` | Admin/Secretary |
+| `/shows/{id}/divisions/` | `divisions.py` | Admin/Secretary |
+| `/shows/{id}/admins` | `show_staff.py` | Admin only |
+| `/shows/{id}/scorekeepers` | `show_staff.py` | Admin/Secretary |
+| `/shows/{id}/apha-export` | `shows.py` | Admin/Secretary |
+| `/shows/{id}/entries/` | `entries.py` | Admin/Secretary write; Public GET |
+| `/users/` | `people.py` | Admin |
+| `/horses/` | `people.py` | Admin (full); Exhibitor (own horses) |
+| `/exhibitors/` | `people.py` | Admin |
+| `/venues/` | `venues.py` | Admin write; Public GET |
+| `/breeds/` | `breeds.py` | Admin write; Public GET |
+| `/horse-colors/` | `horse_colors.py` | Admin write; Public GET |
+| `/dashboard/exhibitor/{user_id}` | `dashboard.py` | Authenticated (own data) |
+
+The frontend proxies all calls through `frontend/app/api/` route handlers which inject `X-API-Key`, `X-User-Id`, and `X-User-Role` headers from the NextAuth session before forwarding to the backend.
+
 ### Code Style & Best Practices
 - **Python (Backend):** Follow PEP 8. Use type hints.
 - **JavaScript/TypeScript (Frontend):** Use modern ES6+ syntax. Configure linting if not present.
@@ -202,10 +231,13 @@ stateDiagram-v2
 erDiagram
     ShowType { uuid id; text code }
     Show { uuid id; text status; uuid show_type_id FK; text apha_show_number }
+    Ring { uuid id; uuid show_id FK; text name }
+    Division { uuid id; uuid show_id FK; text name }
     Class { uuid id; uuid show_id FK; uuid ring_id FK; uuid division_id FK }
     ClassAssociation { uuid id; uuid class_id FK; uuid show_type_id FK; text association_class_code }
     Entry { uuid id; uuid class_id FK; uuid exhibitor_id FK; uuid horse_id FK; text apha_division; bool is_disqualified }
     Result { uuid id; uuid class_id FK; uuid entry_id FK; int place; bool is_tie }
+    ResultAudit { uuid id; uuid result_id FK; uuid changed_by FK; int old_place; int new_place }
     ShowEntry { uuid id; uuid show_id FK; uuid exhibitor_id FK; int back_number }
     ShowSecretary { uuid show_id FK; uuid user_id FK }
     ShowScorekeeper { uuid show_id FK; uuid user_id FK }
@@ -213,12 +245,17 @@ erDiagram
     Exhibitor { uuid id; uuid user_id FK; text full_name }
 
     ShowType ||--o{ Show : "typed by"
+    Show ||--o{ Ring : "arenas"
+    Show ||--o{ Division : "groupings"
     Show ||--o{ Class : contains
+    Class }o--o| Ring : "in ring"
+    Class }o--o| Division : "in division"
     Class ||--o{ ClassAssociation : "codes per assoc"
     ClassAssociation }o--|| ShowType : ""
     Class ||--o{ Entry : "entered in"
     Class ||--o{ Result : "results for"
     Entry ||--o| Result : placing
+    Result ||--o{ ResultAudit : "change log"
     Entry }o--|| Exhibitor : by
     Show ||--o{ ShowEntry : "back numbers"
     ShowEntry }o--|| Exhibitor : "assigned to"
@@ -231,6 +268,16 @@ erDiagram
 
 ### Association Classes
 Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) have different class structures and naming conventions. A class at a dual-sanctioned show (e.g. Lucky Seven Classic — AQHA + NSBA) carries one code per association in the `class_associations` table: `(class_id, show_type_id, association_class_code)` with a UNIQUE constraint on the pair. The admin Classes page (`/admin/shows/{id}/classes`) lets secretaries add/remove codes per class via an inline panel. `OPEN` show type is excluded. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
+
+### Rings and Divisions
+Shows optionally have **rings** (physical arenas — e.g. "Main Arena", "North Arena") and **divisions** (logical groupings — e.g. "Western Pleasure", "Ranch Horse"). Both are per-show and managed via their own endpoints:
+- `GET/POST /shows/{show_id}/rings` and `DELETE /shows/{show_id}/rings/{ring_id}`
+- `GET/POST /shows/{show_id}/divisions` and `DELETE /shows/{show_id}/divisions/{division_id}`
+
+A `Class` optionally references a `ring_id` and a `division_id`. Both FKs are nullable — classes don't require either. Rings and divisions are currently used to organize the class list on the admin show page; they don't affect scoring or result export.
+
+### Result Audit Trail
+Every place change on a `Result` is recorded in `result_audit` (`result_id`, `changed_by`, `old_place`, `new_place`, `changed_at`). The audit endpoint `GET /shows/{show_id}/classes/{class_id}/results/{result_id}/audit` returns the full change history. An index on `changed_at DESC` (migration 019) keeps audit queries fast.
 
 ### Horse Data Model
 Horses have the following attributes:
@@ -414,6 +461,7 @@ Use on **every admin page** — including top-level list pages that are just one
 | `/admin/shows/new` | Admin › Shows › New Show |
 | `/admin/shows/[id]` | Admin › Shows › [show name] |
 | `/admin/shows/[id]/classes` | Admin › Shows › [show name] › Classes |
+| `/admin/shows/[id]/classes/[classId]/back-numbers` | Admin › Shows › [show name] › Classes › [class name] › Back Numbers |
 | `/admin/shows/[id]/entries` | Admin › Shows › [show name] › Entries |
 | `/admin/shows/[id]/back-numbers` | Admin › Shows › [show name] › Back Numbers |
 | `/admin/shows/[id]/edit` | Admin › Shows › [show name] › Edit Details |
@@ -433,6 +481,22 @@ Use on **every admin page** — including top-level list pages that are just one
 | `/admin/horses/breeds/[id]` | Admin › Horses › Breeds › [breed name] |
 | `/admin/horses/colors` | Admin › Horses › Colors |
 | `/admin/horses/colors/[id]` | Admin › Horses › Colors › [color name] |
+
+Public / exhibitor routes (no breadcrumb component — use navbar):
+
+| Route | Description |
+|-------|-------------|
+| `/` | Public show list |
+| `/shows/[id]` | Show detail — class list with results links; scoring links for scorekeepers |
+| `/shows/[id]/classes/[classId]` | Class results view (public) |
+| `/shows/[id]/classes/[classId]/scorekeeper` | Scoring form (SCOREKEEPER / ADMIN only) |
+| `/scorekeeper` | Scorekeeper landing — lists assigned shows |
+| `/dashboard` | Exhibitor My Show Entries dashboard |
+| `/profile` | Account info + horse list (all roles) |
+| `/profile/horses/[id]` | Exhibitor horse detail + documents |
+| `/register` | Exhibitor self-registration |
+| `/register/show-secretary` | Show Secretary self-registration |
+| `/login` | Login page |
 
 ### Inline Delete Pattern
 All destructive delete actions use an inline confirm toggle — **not** a modal. The standard pattern:
@@ -567,6 +631,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Migration 020: `class_associations` table for multi-association class codes (AQHA+NSBA dual-sanctioning); replaces single `classes.apha_class_code` column. New `GET/POST/DELETE /shows/{id}/classes/{classId}/associations` endpoints. APHA CSV export reads from `class_associations` with legacy fallback. `EditClassCard` UI updated with inline association code management. Migration 021 drafted (not yet applied) to drop legacy column.)
+**Last Updated:** May 2026 (Migration 020: `class_associations` for multi-association/dual-sanction class codes; migration 021 drafted (pending). Documentation: added Backend API Overview table, Rings & Divisions section, Result Audit Trail section, full route table including public/exhibitor routes, Ring/Division/ResultAudit in core ERD, corrected migration command to use MSYS_NO_PATHCONV volume-mount pattern.)
 **Project Status:** 🔨 Active Development
 
