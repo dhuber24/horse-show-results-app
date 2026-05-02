@@ -98,6 +98,8 @@ horse-show-results-app/
   - Placings (results with order)
   - Users (with roles)
   - Associations via `show_types` table (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR, OPEN)
+  - Classes — competition categories within a show
+  - Class Associations — `class_associations` join table: per-association class codes for dual-sanctioned classes (e.g. both an AQHA and NSBA code on the same class)
   - Horses — with foaling date, sex, breed, color, association registrations, and owner (exhibitor FK)
   - Breeds — managed lookup table, seeded with 17 common western breeds, sorted alphabetically
   - Horse Colors — managed lookup table, seeded with 27 coat colors/patterns, sorted alphabetically
@@ -200,7 +202,8 @@ stateDiagram-v2
 erDiagram
     ShowType { uuid id; text code }
     Show { uuid id; text status; uuid show_type_id FK; text apha_show_number }
-    Class { uuid id; uuid show_id FK; uuid ring_id FK; uuid division_id FK; text apha_class_code }
+    Class { uuid id; uuid show_id FK; uuid ring_id FK; uuid division_id FK }
+    ClassAssociation { uuid id; uuid class_id FK; uuid show_type_id FK; text association_class_code }
     Entry { uuid id; uuid class_id FK; uuid exhibitor_id FK; uuid horse_id FK; text apha_division; bool is_disqualified }
     Result { uuid id; uuid class_id FK; uuid entry_id FK; int place; bool is_tie }
     ShowEntry { uuid id; uuid show_id FK; uuid exhibitor_id FK; int back_number }
@@ -211,6 +214,8 @@ erDiagram
 
     ShowType ||--o{ Show : "typed by"
     Show ||--o{ Class : contains
+    Class ||--o{ ClassAssociation : "codes per assoc"
+    ClassAssociation }o--|| ShowType : ""
     Class ||--o{ Entry : "entered in"
     Class ||--o{ Result : "results for"
     Entry ||--o| Result : placing
@@ -225,7 +230,7 @@ erDiagram
 ```
 
 ### Association Classes
-Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) may have different class structures and naming conventions. The app should support flexible class definitions per association. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
+Different horse show associations (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR) have different class structures and naming conventions. A class at a dual-sanctioned show (e.g. Lucky Seven Classic — AQHA + NSBA) carries one code per association in the `class_associations` table: `(class_id, show_type_id, association_class_code)` with a UNIQUE constraint on the pair. The admin Classes page (`/admin/shows/{id}/classes`) lets secretaries add/remove codes per class via an inline panel. `OPEN` show type is excluded. Show types live in the `show_types` table and are seeded via migrations — add new associations there, not in code.
 
 ### Horse Data Model
 Horses have the following attributes:
@@ -289,7 +294,7 @@ APHA shows require specific data capture and results submission to APHA within 1
 
 **Entries:** `apha_division` — one of `OPEN`, `SOLID_PAINT_BRED`, `AMATEUR`, `NOVICE_AMATEUR`, `YOUTH`, `NOVICE_YOUTH` (CHECK constraint). `relationship_to_owner` — required for Amateur/Youth divisions. `is_disqualified` — DQ'd entries still appear in APHA export but receive no placing.
 
-**Classes:** `apha_class_code` — APHA standard code (e.g. `WP01`, `AMH4`); free-text, secretary responsible for accuracy.
+**Classes:** `class_associations` child table — one row per `(class, show_type)` pair storing an `association_class_code` (e.g. `WP01`, `684`). A dual-sanctioned class (e.g. AQHA + NSBA) has two rows. `OPEN` show type is excluded. Managed via `GET/POST /shows/{id}/classes/{classId}/associations` and `DELETE …/{assocId}`. The APHA CSV export reads codes from this table first, falling back to the legacy `classes.apha_class_code` column until migration 021 drops it. The `EditClassCard` UI on the admin classes page displays and edits association codes inline.
 
 ### APHA Results Export
 
@@ -504,14 +509,19 @@ docker-compose logs -f [service-name]
 
 ### Database Migrations
 
-Migrations live in `database/migrations/` and are tracked in the `_migrations` table. The migrate script uses Docker + psql and has a Windows path bug with volume mounts, so apply migrations directly via `psql -c`:
+Migrations live in `database/migrations/` and are tracked in the `_migrations` table. Apply via a Docker volume mount (use `MSYS_NO_PATHCONV=1` on Windows/Git Bash to prevent path mangling):
 
 ```bash
-# Apply a migration directly (replace SQL as needed)
+# Apply a migration file
 PSQL_URL="${DATABASE_URL/postgresql+asyncpg/postgresql}"
-docker run --rm postgres:16-alpine psql "$PSQL_URL" -c "<SQL statement>"
-docker run --rm postgres:16-alpine psql "$PSQL_URL" -c \
-  "INSERT INTO _migrations (name) VALUES ('<filename>.sql') ON CONFLICT DO NOTHING;"
+MSYS_NO_PATHCONV=1 docker run --rm \
+  -v "/c/Users/Home/projects/horse-show-results-app/database/migrations:/migrations" \
+  postgres:16-alpine \
+  psql "$PSQL_URL" -v ON_ERROR_STOP=1 -f /migrations/<filename>.sql
+
+# Apply a one-off SQL statement (no file needed)
+MSYS_NO_PATHCONV=1 docker run --rm postgres:16-alpine \
+  psql "$PSQL_URL" -c "<SQL statement>"
 ```
 
 Applied migrations:
@@ -534,6 +544,8 @@ Applied migrations:
 - `017_drop_legacy_venue_column.sql` — Drops `shows.venue TEXT` column (replaced by `venue_id` FK + `venue_rel` relationship)
 - `018_drop_legacy_owner_name_column.sql` — Drops `horses.owner_name TEXT` column (replaced by `owner_exhibitor_id` FK; `HorseOut.owner_name` derived from `owner_exhibitor.full_name`)
 - `019_result_audit_changed_at_index.sql` — Index on `result_audit(changed_at DESC)` for audit query performance
+- `020_class_associations.sql` — New `class_associations` join table (`class_id`, `show_type_id`, `association_class_code`, UNIQUE on pair); backfills APHA rows from `classes.apha_class_code`; legacy column preserved until 021
+- `021_drop_apha_class_code.sql` — (**not yet applied**) Drops `classes.apha_class_code`; must be applied with matching backend/schema code changes (see migration header comments)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -555,6 +567,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Applied migrations 013–019: user role CHECK constraint, 32 FK indexes, enum CHECK constraints, legacy column drops, result_audit index. Backend pagination on list endpoints. Docker Compose healthcheck on backend with `service_healthy` dependency for frontend. Fixed `safeFetchBackend` to correctly handle 204 No Content responses and preserve actual HTTP status on JSON parse errors.)
+**Last Updated:** May 2026 (Migration 020: `class_associations` table for multi-association class codes (AQHA+NSBA dual-sanctioning); replaces single `classes.apha_class_code` column. New `GET/POST/DELETE /shows/{id}/classes/{classId}/associations` endpoints. APHA CSV export reads from `class_associations` with legacy fallback. `EditClassCard` UI updated with inline association code management. Migration 021 drafted (not yet applied) to drop legacy column.)
 **Project Status:** 🔨 Active Development
 
