@@ -692,6 +692,11 @@ Applied migrations:
 - `022_show_manager_role.sql` — Adds `SHOW_MANAGER` to `users.role` CHECK constraint; creates `show_managers(show_id, user_id)` join table with indexes
 - `023_show_requests.sql` — Creates `show_requests` table (`requested_by_user_id`, `show_name`, `show_type_id`, `venue_id`, `start_date`, `end_date`, `manager_association_id`, `association_approval_confirmed`, `notes`, `status` CHECK PENDING/APPROVED/REJECTED, `admin_notes`, `created_show_id`, timestamps)
 - `024_apha_standard_classes.sql` — Creates `apha_standard_classes` reference table (`code TEXT PK`, `name`, `division`, `sort_order`); seeds all 634 class codes from the 2026 APHA Approved Class Codes document across 14 divisions (Open, Amateur, Novice Amateur, Amateur Walk-Trot, Youth, Novice Youth, Youth Walk-Trot, Ranch Horse Open/Youth/Youth Walk-Trot/Novice Youth/Amateur/Novice Amateur, Mounted Shooting, Calas & Colas)
+- `024_unique_class_number` — UNIQUE constraint on `(show_id, class_number)`; superseded by migration 028 which drops it
+- `025_class_sort_order` — Adds `sort_order INTEGER` column to `classes`; initialized via ROW_NUMBER ordered by `class_number` within each show; index on `(show_id, sort_order)`; list endpoint now orders by `sort_order NULLS LAST, class_number`
+- `026_show_affiliations` — Creates `show_affiliations(show_id, show_type_id)` composite-PK join table for secondary affiliations offered in select classes of a show (e.g. NSBA points at an AQHA show)
+- `027_new_show_types` — Seeds NRHA (National Reining Horse Association), NCHA (National Cutting Horse Association), NRCHA (National Reined Cow Horse Association) into `show_types`
+- `028_drop_class_number_unique` — Drops `uq_show_class_number` constraint; class numbers are now auto-assigned from sort position so the constraint is redundant and blocks reorder operations
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -714,6 +719,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Migration 024: `apha_standard_classes` reference table seeded with 634 class codes from the 2026 APHA Approved Class Codes document. New features: `POST /shows/{id}/classes/bulk` bulk class creation endpoint; `APHAClassPicker` admin UI component for searching, filtering, and bulk-adding APHA standard classes to a show with auto-numbered sequential class numbers and pre-wired `class_associations` entries. Previous: Migrations 022–023: SHOW_MANAGER role, show_managers join table, show_requests table; Show Manager self-registration, show request submission/approval workflow, APHA certification lookup.)
+**Last Updated:** May 2026 (Migrations 025–028: class sort_order, show affiliations, new show types (NRHA/NCHA/NRCHA), dropped class_number unique constraint. New features: drag-and-drop class schedule reordering (`@hello-pangea/dnd`); class numbers auto-assigned from sort position (no manual input); show-level affiliation eligibility badges (NSBA, WSCA, etc.) on public show page; APHA bulk import duplicate prevention (backend check + frontend disabled codes); "Show Schedule" label on admin classes page. Bug fixes: dashboard 422 (missing auth headers in server component); admin show page `/users/ 403` for non-admin roles; nested `<li>` hydration error in EditClassCard; MissingGreenlet in bulk class create (replaced db.refresh with selectinload re-query). Previous: Migration 024: `apha_standard_classes` seeded with 634 codes; bulk class creation endpoint; APHAClassPicker UI.)
 **Project Status:** 🔨 Active Development
 
