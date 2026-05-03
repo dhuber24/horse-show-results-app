@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { fetchShow, fetchClasses, fetchShowTypes } from '@/lib/api';
 import CreateClassForm from '../CreateClassForm';
 import EditClassCard from '../EditClassCard';
+import APHAClassPicker from '../APHAClassPicker';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowClassesPage({ params }: { params: Promise<{ id: string }> }) {
@@ -11,6 +12,8 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
     fetchClasses(id),
     fetchShowTypes(),
   ]);
+
+  const isApha = show.show_type_code === 'APHA';
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
@@ -27,7 +30,12 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
 
       <section>
         <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Class</h2>
-        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} />
+        <div className="space-y-3">
+          <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} />
+          {isApha && (
+            <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} />
+          )}
+        </div>
       </section>
 
       <section>

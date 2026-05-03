@@ -30,6 +30,7 @@ from routers.show_types import router as show_types_router
 from routers.show_staff import router as show_staff_router
 from routers.show_requests import router as show_requests_router
 from routers.certifications import router as certifications_router
+from routers.apha_standard_classes import router as apha_standard_classes_router
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ app.include_router(show_types_router)
 app.include_router(show_staff_router)
 app.include_router(show_requests_router)
 app.include_router(certifications_router)
+app.include_router(apha_standard_classes_router)
 
 
 @app.get("/", tags=["Health"])

@@ -65,17 +65,11 @@ export default function EditShowForm({
     setSaving(true);
     setError(null);
 
-    const selectedVenue = venues.find((v) => v.id === form.venue_id);
-    const venueLabel = selectedVenue
-      ? [selectedVenue.name, selectedVenue.city, selectedVenue.state].filter(Boolean).join(', ')
-      : '';
-
     const res = await fetch(`/api/shows/${show.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name,
-        venue: venueLabel,
         venue_id: form.venue_id || null,
         show_type_id: form.show_type_id,
         start_date: form.start_date,

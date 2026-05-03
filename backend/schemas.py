@@ -57,7 +57,6 @@ class VenueOut(BaseModel):
 
 class ShowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    venue: Optional[str] = Field(default=None, max_length=200)
     venue_id: Optional[UUID] = None
     show_type_id: UUID
     start_date: date
@@ -73,7 +72,6 @@ class ShowCreate(BaseModel):
 
 class ShowUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
-    venue: Optional[str] = Field(default=None, max_length=200)
     venue_id: Optional[UUID] = None
     show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
@@ -546,6 +544,28 @@ class AuditOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── APHA Standard Classes ───────────────────────────────────────────────────────
+
+class AphaStandardClassOut(BaseModel):
+    code: str
+    name: str
+    division: str
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class BulkClassItem(BaseModel):
+    apha_code: str = Field(min_length=1, max_length=20)
+    class_number: str = Field(min_length=1, max_length=50)
+
+
+class BulkClassCreate(BaseModel):
+    class_date: date
+    classes: list[BulkClassItem] = Field(min_length=1)
 
 
 class ExhibitorCreateWithUser(BaseModel):

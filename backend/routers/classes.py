@@ -7,10 +7,11 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
-from models import Class, Show, Result, ClassAssociation
+from models import Class, Show, Result, ClassAssociation, AphaStandardClass, ShowType
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut,
     ClassAssociationCreate, ClassAssociationOut,
+    BulkClassCreate,
 )
 from routers.shows import _assert_show_access
 
@@ -122,6 +123,73 @@ async def delete_class(
         raise HTTPException(404, "Class not found")
     await db.delete(class_)
     await db.commit()
+
+
+# ── Bulk Class Import from APHA Standard Classes ────────────────────────────────
+
+@router.post(
+    "/bulk",
+    response_model=list[ClassOut],
+    status_code=201,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def bulk_create_classes(
+    show_id: UUID,
+    body: BulkClassCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
+
+    if body.class_date < show.start_date or body.class_date > show.end_date:
+        raise HTTPException(
+            400,
+            f"Class date must be between {show.start_date} and {show.end_date}",
+        )
+
+    # Resolve APHA show type id from the show's own show_type
+    show_type = await db.get(ShowType, show.show_type_id)
+    if not show_type or show_type.code != "APHA":
+        raise HTTPException(400, "Bulk import from APHA class list is only available for APHA shows")
+
+    # Look up all requested APHA codes
+    codes = [item.apha_code for item in body.classes]
+    result = await db.execute(
+        select(AphaStandardClass).where(AphaStandardClass.code.in_(codes))
+    )
+    standard_map = {sc.code: sc for sc in result.scalars().all()}
+
+    missing = [c for c in codes if c not in standard_map]
+    if missing:
+        raise HTTPException(400, f"Unknown APHA class codes: {', '.join(missing)}")
+
+    created = []
+    for item in body.classes:
+        sc = standard_map[item.apha_code]
+        cls = Class(
+            show_id=show_id,
+            class_number=item.class_number,
+            class_name=sc.name,
+            class_date=body.class_date,
+            status="OPEN",
+        )
+        db.add(cls)
+        await db.flush()  # populate cls.id before creating association
+        assoc = ClassAssociation(
+            class_id=cls.id,
+            show_type_id=show.show_type_id,
+            association_class_code=sc.code,
+        )
+        db.add(assoc)
+        created.append(cls)
+
+    await db.commit()
+    for cls in created:
+        await db.refresh(cls)
+    return created
 
 
 # ── Class Associations (per-association class codes for dual-sanction shows) ──

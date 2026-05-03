@@ -428,6 +428,15 @@ class ShowManager(Base):
     user = relationship("User", back_populates="manager_shows")
 
 
+class AphaStandardClass(Base):
+    __tablename__ = "apha_standard_classes"
+
+    code = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    division = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+
 class ShowRequest(Base):
     __tablename__ = "show_requests"
 
