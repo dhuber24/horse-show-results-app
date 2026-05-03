@@ -191,6 +191,7 @@ All routers are registered in `backend/main.py`. Quick reference:
 | `/show-types/` | `show_types.py` | Public GET; Admin POST/PATCH/DELETE |
 | `/shows/` | `shows.py` | Role-filtered GET; Admin/Secretary write |
 | `/shows/{id}/classes/` | `classes.py` | Public GET; Admin/Secretary write |
+| `/shows/{id}/classes/bulk` | `classes.py` | POST: Admin/Secretary — bulk-create APHA classes (APHA shows only) |
 | `/shows/{id}/classes/{classId}/associations` | `classes.py` | Public GET; Admin/Secretary write |
 | `/shows/{id}/classes/{classId}/results/` | `results.py` | Public GET; Admin/Scorekeeper write |
 | `/shows/{id}/back-numbers/` | `backnumbers.py` | Admin/Secretary |
@@ -203,6 +204,8 @@ All routers are registered in `backend/main.py`. Quick reference:
 | `/show-requests/` | `show_requests.py` | POST: Show Manager; GET: Admin + own Manager |
 | `/show-requests/{id}/approve` | `show_requests.py` | Admin only |
 | `/show-requests/{id}/reject` | `show_requests.py` | Admin only |
+| `/apha-standard-classes/` | `apha_standard_classes.py` | Public GET — searchable reference list (`?q=`, `?division=`) |
+| `/apha-standard-classes/divisions` | `apha_standard_classes.py` | Public GET — distinct division names |
 | `/certifications/verify` | `certifications.py` | API key (server-to-server) |
 | `/users/` | `people.py` | Admin |
 | `/horses/` | `people.py` | Admin (full); Exhibitor (own horses) |
@@ -390,6 +393,28 @@ APHA shows require specific data capture and results submission to APHA within 1
 **Entries:** `apha_division` — one of `OPEN`, `SOLID_PAINT_BRED`, `AMATEUR`, `NOVICE_AMATEUR`, `YOUTH`, `NOVICE_YOUTH` (CHECK constraint). `relationship_to_owner` — required for Amateur/Youth divisions. `is_disqualified` — DQ'd entries still appear in APHA export but receive no placing.
 
 **Classes:** `class_associations` child table — one row per `(class, show_type)` pair storing an `association_class_code` (e.g. `WP01`, `684`). A dual-sanctioned class (e.g. AQHA + NSBA) has two rows. `OPEN` show type is excluded. Managed via `GET/POST /shows/{id}/classes/{classId}/associations` and `DELETE …/{assocId}`. The APHA CSV export reads codes from this table first, falling back to the legacy `classes.apha_class_code` column until migration 021 drops it. The `EditClassCard` UI on the admin classes page displays and edits association codes inline.
+
+### APHA Class Import (Bulk Add from Standard Class List)
+
+`POST /shows/{show_id}/classes/bulk` — bulk-creates classes for an APHA show from the `apha_standard_classes` reference table. Only works when `show.show_type_code == 'APHA'`. Requires Admin/Secretary access.
+
+**Request body:**
+```json
+{ "class_date": "2026-06-15", "classes": [{ "apha_code": "WP1", "class_number": "101" }, ...] }
+```
+
+For each item the backend looks up the class name from `apha_standard_classes`, creates a `Class` row, and immediately creates a `ClassAssociation` row linking it to the show's APHA `show_type_id`. Frontend proxy at `frontend/app/api/shows/[showId]/classes/bulk/route.ts`.
+
+**`APHAClassPicker` component** (`frontend/app/admin/shows/[id]/APHAClassPicker.tsx`) — client component rendered on the admin Classes page only for APHA shows. Features:
+- Lazy-loads the full class list from `GET /api/apha-standard-classes` on first open
+- Division dropdown filter + free-text search (code or name)
+- Select-all checkbox for filtered results
+- Class date input (constrained to show date range) and starting class number input (auto-increments for each selected class)
+- Submits via `POST /api/shows/{showId}/classes/bulk`; refreshes the class list on success
+
+**Reference data endpoints:**
+- `GET /apha-standard-classes/` — supports `?q=` (search) and `?division=` filter; no auth required (static reference data)
+- `GET /apha-standard-classes/divisions` — returns sorted list of division names for the filter dropdown
 
 ### APHA Results Export
 
@@ -666,6 +691,7 @@ Applied migrations:
 - `021_drop_apha_class_code.sql` — (**not yet applied**) Drops `classes.apha_class_code`; must be applied with matching backend/schema code changes (see migration header comments)
 - `022_show_manager_role.sql` — Adds `SHOW_MANAGER` to `users.role` CHECK constraint; creates `show_managers(show_id, user_id)` join table with indexes
 - `023_show_requests.sql` — Creates `show_requests` table (`requested_by_user_id`, `show_name`, `show_type_id`, `venue_id`, `start_date`, `end_date`, `manager_association_id`, `association_approval_confirmed`, `notes`, `status` CHECK PENDING/APPROVED/REJECTED, `admin_notes`, `created_show_id`, timestamps)
+- `024_apha_standard_classes.sql` — Creates `apha_standard_classes` reference table (`code TEXT PK`, `name`, `division`, `sort_order`); seeds all 634 class codes from the 2026 APHA Approved Class Codes document across 14 divisions (Open, Amateur, Novice Amateur, Amateur Walk-Trot, Youth, Novice Youth, Youth Walk-Trot, Ranch Horse Open/Youth/Youth Walk-Trot/Novice Youth/Amateur/Novice Amateur, Mounted Shooting, Calas & Colas)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
@@ -688,6 +714,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Migrations 022–023: SHOW_MANAGER role, show_managers join table, show_requests table. New features: Show Manager self-registration, show request submission/approval workflow, APHA certification lookup via cert_org_users table, updated role-based show filtering, Show Secretary/Manager account auto-approval. Documentation: added SHOW_MANAGER role, Show Manager workflow, Association Certification Lookup section, updated ERD, auth diagram, API table, route table, and migrations list.)
+**Last Updated:** May 2026 (Migration 024: `apha_standard_classes` reference table seeded with 634 class codes from the 2026 APHA Approved Class Codes document. New features: `POST /shows/{id}/classes/bulk` bulk class creation endpoint; `APHAClassPicker` admin UI component for searching, filtering, and bulk-adding APHA standard classes to a show with auto-numbered sequential class numbers and pre-wired `class_associations` entries. Previous: Migrations 022–023: SHOW_MANAGER role, show_managers join table, show_requests table; Show Manager self-registration, show request submission/approval workflow, APHA certification lookup.)
 **Project Status:** 🔨 Active Development
 

@@ -17,7 +17,11 @@
       "Bash(pip install *)",
       "Bash(python -c ' *)",
       "PowerShell(Get-Command python)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(docker-compose run *)"
     ]
   }
 }
