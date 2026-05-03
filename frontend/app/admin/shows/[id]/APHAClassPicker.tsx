@@ -14,10 +14,12 @@ export default function APHAClassPicker({
   showId,
   showStartDate,
   showEndDate,
+  existingAphaCodes,
 }: {
   showId: string;
   showStartDate: string;
   showEndDate: string;
+  existingAphaCodes: string[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -29,7 +31,6 @@ export default function APHAClassPicker({
   const [divisionFilter, setDivisionFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [classDate, setClassDate] = useState(showStartDate);
-  const [startNumber, setStartNumber] = useState('101');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
@@ -58,17 +59,19 @@ export default function APHAClassPicker({
     });
   }, [allClasses, search, divisionFilter]);
 
+  const selectableFiltered = filtered.filter((c) => !existingAphaCodes.includes(c.code));
+
   const toggleAll = () => {
-    if (filtered.every((c) => selected.has(c.code))) {
+    if (selectableFiltered.every((c) => selected.has(c.code))) {
       setSelected((prev) => {
         const next = new Set(prev);
-        filtered.forEach((c) => next.delete(c.code));
+        selectableFiltered.forEach((c) => next.delete(c.code));
         return next;
       });
     } else {
       setSelected((prev) => {
         const next = new Set(prev);
-        filtered.forEach((c) => next.add(c.code));
+        selectableFiltered.forEach((c) => next.add(c.code));
         return next;
       });
     }
@@ -84,24 +87,15 @@ export default function APHAClassPicker({
 
   const handleAdd = async () => {
     if (selected.size === 0) return;
-    const start = parseInt(startNumber, 10);
-    if (isNaN(start) || start < 1) {
-      setError('Starting class number must be a positive integer.');
-      return;
-    }
     setSaving(true);
     setError(null);
     setSuccessCount(null);
 
-    // Build ordered list: selected codes in the order they appear in `filtered` (or allClasses if no filter)
     const orderedCodes = allClasses
       .filter((c) => selected.has(c.code))
       .map((c) => c.code);
 
-    const classes = orderedCodes.map((code, i) => ({
-      apha_code: code,
-      class_number: String(start + i),
-    }));
+    const classes = orderedCodes.map((code) => ({ apha_code: code }));
 
     const res = await fetch(`/api/shows/${showId}/classes/bulk`, {
       method: 'POST',
@@ -120,7 +114,7 @@ export default function APHAClassPicker({
     }
   };
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((c) => selected.has(c.code));
+  const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((c) => selected.has(c.code));
 
   if (!open) {
     return (
@@ -190,21 +184,25 @@ export default function APHAClassPicker({
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c, i) => (
-                    <tr
-                      key={c.code}
-                      className="cursor-pointer hover:bg-amber-50"
-                      style={{ background: selected.has(c.code) ? '#fef3c7' : i % 2 === 0 ? '#fff' : '#fafaf8' }}
-                      onClick={() => toggle(c.code)}
-                    >
-                      <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={selected.has(c.code)} onChange={() => toggle(c.code)} />
-                      </td>
-                      <td className="px-2 py-1.5 font-mono font-semibold" style={{ color: '#7c5c2e' }}>{c.code}</td>
-                      <td className="px-2 py-1.5">{c.name}</td>
-                      <td className="px-2 py-1.5 hidden sm:table-cell text-xs" style={{ color: '#8b7355' }}>{c.division}</td>
-                    </tr>
-                  ))}
+                  {filtered.map((c, i) => {
+                    const alreadyAdded = existingAphaCodes.includes(c.code);
+                    return (
+                      <tr
+                        key={c.code}
+                        className={alreadyAdded ? 'opacity-40' : 'cursor-pointer hover:bg-amber-50'}
+                        style={{ background: selected.has(c.code) ? '#fef3c7' : i % 2 === 0 ? '#fff' : '#fafaf8' }}
+                        onClick={() => !alreadyAdded && toggle(c.code)}
+                        title={alreadyAdded ? 'Already added to this show' : undefined}
+                      >
+                        <td className="px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={alreadyAdded || selected.has(c.code)} disabled={alreadyAdded} onChange={() => !alreadyAdded && toggle(c.code)} />
+                        </td>
+                        <td className="px-2 py-1.5 font-mono font-semibold" style={{ color: '#7c5c2e' }}>{c.code}</td>
+                        <td className="px-2 py-1.5">{c.name}</td>
+                        <td className="px-2 py-1.5 hidden sm:table-cell text-xs" style={{ color: '#8b7355' }}>{c.division}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -223,16 +221,6 @@ export default function APHAClassPicker({
                 className="border rounded px-3 py-1.5 text-sm"
               />
             </div>
-            <div>
-              <label className="block text-xs mb-1" style={{ color: '#8b7355' }}>Starting class #</label>
-              <input
-                type="number"
-                min="1"
-                value={startNumber}
-                onChange={(e) => setStartNumber(e.target.value)}
-                className="border rounded px-3 py-1.5 text-sm w-24"
-              />
-            </div>
             <button
               onClick={handleAdd}
               disabled={saving || selected.size === 0}
@@ -245,7 +233,7 @@ export default function APHAClassPicker({
           </div>
 
           <p className="text-xs" style={{ color: '#8b7355' }}>
-            Classes will be numbered sequentially from the starting number. You can edit names and numbers after adding.
+            Classes are numbered automatically based on their position in the schedule.
           </p>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

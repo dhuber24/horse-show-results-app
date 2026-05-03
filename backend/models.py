@@ -52,6 +52,7 @@ class Show(Base):
     venue_rel = relationship("Venue", back_populates="shows")
     show_type = relationship("ShowType", back_populates="shows")
     created_by = relationship("User", foreign_keys=[created_by_user_id])
+    affiliations = relationship("ShowAffiliation", back_populates="show", cascade="all, delete", lazy="selectin")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
@@ -59,6 +60,17 @@ class Show(Base):
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
+
+
+class ShowAffiliation(Base):
+    """Secondary affiliations offered in some classes of a show."""
+    __tablename__ = "show_affiliations"
+
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), primary_key=True)
+
+    show = relationship("Show", back_populates="affiliations")
+    show_type = relationship("ShowType", lazy="selectin")
 
 
 class Ring(Base):
@@ -100,6 +112,8 @@ class Class(Base):
     show = relationship("Show", back_populates="classes")
     ring = relationship("Ring", back_populates="classes")
     division = relationship("Division", back_populates="classes")
+    sort_order = Column(Integer, nullable=True)
+
     entries = relationship("Entry", back_populates="class_", cascade="all, delete")
     results = relationship("Result", back_populates="class_", cascade="all, delete")
     associations = relationship(

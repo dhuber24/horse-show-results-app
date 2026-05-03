@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 
 type EntryRow = {
   entry_id: string;
@@ -60,8 +61,9 @@ function formatDateRange(start: string, end: string) {
 }
 
 async function getDashboard(userId: string) {
-  const API_URL = process.env.API_URL || 'http://backend:8000';
-  const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' });
+  const headers = await getAuthHeaders();
+  if (!headers) return { exhibitor: null, entries: [] };
+  const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers, cache: 'no-store' });
   return res.json();
 }
 

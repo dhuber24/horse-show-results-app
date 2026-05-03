@@ -17,15 +17,30 @@ interface ShowType {
   name: string;
 }
 
+const UNCERTIFIED_CODES = ['OPEN'];
+
 export default function CreateShowForm({ venues, showTypes }: { venues: Venue[]; showTypes: ShowType[] }) {
   const router = useRouter();
   const [form, setForm] = useState({ name: '', venue_id: '', show_type_id: '', start_date: '', end_date: '', apha_show_number: '' });
+  const [affiliationIds, setAffiliationIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
+
+  const toggleAffiliation = (id: string) => {
+    setAffiliationIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const affiliationOptions = showTypes.filter(
+    (t) => !UNCERTIFIED_CODES.includes(t.code) && t.id !== form.show_type_id,
+  );
 
   const handleSubmit = async () => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
@@ -47,13 +62,23 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
         apha_show_number: form.apha_show_number || null,
       }),
     });
-    setSaving(false);
-    if (res.ok) {
-      const show = await res.json();
-      router.push(`/admin/shows/${show.id}`);
-    } else {
+    if (!res.ok) {
+      setSaving(false);
       setError('Failed to create show.');
+      return;
     }
+    const show = await res.json();
+
+    if (affiliationIds.size > 0) {
+      await fetch(`/api/shows/${show.id}/affiliations`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_type_ids: Array.from(affiliationIds) }),
+      });
+    }
+
+    setSaving(false);
+    router.push(`/admin/shows/${show.id}`);
   };
 
   return (
@@ -100,10 +125,34 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
           />
         </div>
       )}
+      {form.show_type_id && affiliationOptions.length > 0 && (
+        <div className="border rounded p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+          <label className="text-sm font-medium" style={{ color: '#2c1810' }}>
+            Secondary affiliations offered in some classes
+          </label>
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            Check any associations whose points will be available in select classes at this show.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {affiliationOptions.map((t) => (
+              <label key={t.id} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={affiliationIds.has(t.id)}
+                  onChange={() => toggleAffiliation(t.id)}
+                  className="rounded"
+                />
+                <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{t.code}</span>
+                <span style={{ color: '#5c3d1e' }}>{t.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button onClick={handleSubmit} disabled={saving}
         className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-        {saving ? 'Creating...' : 'Create Show'}
+        {saving ? 'Creating…' : 'Create Show'}
       </button>
     </div>
   );

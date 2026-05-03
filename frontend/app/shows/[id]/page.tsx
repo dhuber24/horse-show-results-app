@@ -18,6 +18,21 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
           📍 {show.venue} &nbsp;·&nbsp; 📅 {show.start_date} – {show.end_date}
         </p>
+        {show.affiliations?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {show.affiliations.map((a: any) => (
+              <span
+                key={a.show_type_id}
+                className="text-xs font-mono font-semibold px-2 py-0.5 rounded"
+                style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                title={a.show_type_name}
+              >
+                {a.show_type_code}
+              </span>
+            ))}
+            <span className="text-xs self-center" style={{ color: '#8b7355' }}>points eligible in select classes</span>
+          </div>
+        )}
       </div>
 
       {show.status !== 'ACTIVE' && (

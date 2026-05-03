@@ -40,16 +40,20 @@ const scoringTile = (showId: string) => ({
   icon: '🏆',
 });
 
-async function getShowStaff(showId: string, headers: Record<string, string>) {
-  const [adminsRes, keepersRes, allUsersRes] = await Promise.all([
+async function getShowStaff(showId: string, headers: Record<string, string>, isAdmin: boolean) {
+  const [adminsRes, keepersRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
     fetch(`${API_URL}/shows/${showId}/scorekeepers`, { headers, cache: 'no-store' }),
-    fetch(`${API_URL}/users/`, { headers, cache: 'no-store' }),
   ]);
+  let allUsers: any[] = [];
+  if (isAdmin) {
+    const allUsersRes = await fetch(`${API_URL}/users/`, { headers, cache: 'no-store' });
+    allUsers = allUsersRes.ok ? await allUsersRes.json() : [];
+  }
   return {
     admins: adminsRes.ok ? await adminsRes.json() : [],
     scorekeepers: keepersRes.ok ? await keepersRes.json() : [],
-    allUsers: allUsersRes.ok ? await allUsersRes.json() : [],
+    allUsers,
   };
 }
 
@@ -70,7 +74,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'X-User-Id': user.id,
       'X-User-Role': user.role,
     };
-    staffData = await getShowStaff(id, headers);
+    staffData = await getShowStaff(id, headers, isAdmin);
   }
 
   return (

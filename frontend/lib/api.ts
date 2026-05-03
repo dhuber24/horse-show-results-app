@@ -132,3 +132,15 @@ export async function fetchHorseRegistrations(horseId: string) {
   if (!res.ok) throw new Error('Failed to fetch horse registrations');
   return res.json();
 }
+
+export async function fetchRings(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/rings/`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchDivisions(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/divisions/`);
+  if (!res.ok) return [];
+  return res.json();
+}

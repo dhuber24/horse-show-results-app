@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 from datetime import date
@@ -12,8 +12,8 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
-from models import Show, ShowSecretary, ShowScorekeeper, ShowManager, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
-from schemas import ShowCreate, ShowUpdate, ShowOut
+from models import Show, ShowAffiliation, ShowSecretary, ShowScorekeeper, ShowManager, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
+from schemas import ShowCreate, ShowUpdate, ShowOut, ShowAffiliationUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/shows", tags=["Shows"])
@@ -32,6 +32,14 @@ def _serialize(show: Show) -> dict:
         "end_date": show.end_date,
         "status": show.status,
         "apha_show_number": show.apha_show_number,
+        "affiliations": [
+            {
+                "show_type_id": str(a.show_type_id),
+                "show_type_code": a.show_type.code,
+                "show_type_name": a.show_type.name,
+            }
+            for a in (show.affiliations or [])
+        ],
         "created_at": show.created_at,
     }
 
@@ -246,6 +254,26 @@ async def delete_show(
         raise HTTPException(404, "Show not found")
     await db.delete(show)
     await db.commit()
+
+
+@router.put("/{show_id}/affiliations", status_code=200, dependencies=[Depends(require_admin_or_show_admin)])
+async def set_show_affiliations(
+    show_id: UUID,
+    body: ShowAffiliationUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await db.get(Show, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    await db.execute(delete(ShowAffiliation).where(ShowAffiliation.show_id == show_id))
+    for show_type_id in body.show_type_ids:
+        db.add(ShowAffiliation(show_id=show_id, show_type_id=show_type_id))
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/{show_id}/apha-export")

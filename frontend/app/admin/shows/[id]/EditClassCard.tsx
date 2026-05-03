@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ShowType { id: string; code: string; name: string; }
+interface Ring { id: string; name: string; }
+interface Division { id: string; name: string; }
 interface ClassAssociation {
   id: string;
   class_id: string;
@@ -19,25 +20,33 @@ interface ClassItem {
   class_name: string;
   class_date: string;
   status: string;
+  ring_id: string | null;
+  division_id: string | null;
   associations: ClassAssociation[];
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function EditClassCard({ cls, showId, showStartDate, showEndDate, showTypes }: {
+export default function EditClassCard({
+  cls, position, showId, showStartDate, showEndDate, showTypes, rings, divisions,
+}: {
   cls: ClassItem;
+  position: number;
   showId: string;
   showStartDate: string;
   showEndDate: string;
   showTypes: ShowType[];
+  rings: Ring[];
+  divisions: Division[];
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
-    class_number: cls.class_number,
     class_name: cls.class_name,
     class_date: cls.class_date,
     status: cls.status,
+    ring_id: cls.ring_id ?? '',
+    division_id: cls.division_id ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -50,13 +59,20 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
   const [assocError, setAssocError] = useState<string | null>(null);
   const [confirmDeleteAssocId, setConfirmDeleteAssocId] = useState<string | null>(null);
 
+  const isDirty =
+    form.class_name !== cls.class_name ||
+    form.class_date !== cls.class_date ||
+    form.status !== cls.status ||
+    (form.ring_id || null) !== cls.ring_id ||
+    (form.division_id || null) !== cls.division_id;
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const handleSave = async () => {
-    if (!form.class_number || !form.class_name || !form.class_date) {
-      setError('All fields are required.');
+    if (!form.class_name || !form.class_date) {
+      setError('Class name and date are required.');
       return;
     }
     setSaving(true);
@@ -64,7 +80,15 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
     const res = await fetch('/api/classes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId, classId: cls.id, ...form }),
+      body: JSON.stringify({
+        showId,
+        classId: cls.id,
+        class_name: form.class_name,
+        class_date: form.class_date,
+        status: form.status,
+        ring_id: form.ring_id || null,
+        division_id: form.division_id || null,
+      }),
     });
     setSaving(false);
     if (res.ok) {
@@ -95,10 +119,11 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
 
   const handleCancel = () => {
     setForm({
-      class_number: cls.class_number,
       class_name: cls.class_name,
       class_date: cls.class_date,
       status: cls.status,
+      ring_id: cls.ring_id ?? '',
+      division_id: cls.division_id ?? '',
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -145,18 +170,29 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
     (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id),
   );
 
+  const ringName = cls.ring_id ? rings.find((r) => r.id === cls.ring_id)?.name : null;
+  const divisionName = cls.division_id ? divisions.find((d) => d.id === cls.division_id)?.name : null;
+
   if (!editing) {
     return (
-      <li
+      <div
         className="p-3 rounded-lg border flex justify-between items-center cursor-pointer hover:bg-gray-50 transition"
         style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
         onClick={() => setEditing(true)}
       >
-        <div>
-          <span className="font-medium" style={{ color: '#2c1810' }}>
-            {cls.class_number} — {cls.class_name}
+        <div className="flex-1 min-w-0">
+          <span className="text-xs font-mono font-semibold mr-2 px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+            #{position}
           </span>
+          <span className="font-medium" style={{ color: '#2c1810' }}>{cls.class_name}</span>
           <span className="text-sm ml-2" style={{ color: '#8b7355' }}>{cls.class_date}</span>
+          {ringName && (
+            <span className="text-xs ml-2" style={{ color: '#8b7355' }}>· {ringName}</span>
+          )}
+          {divisionName && (
+            <span className="text-xs ml-2" style={{ color: '#8b7355' }}>· {divisionName}</span>
+          )}
           {associations.map((a) => (
             <span
               key={a.id}
@@ -172,15 +208,17 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
           style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
           {cls.status}
         </span>
-      </li>
+      </div>
     );
   }
 
   return (
-    <li className="p-4 rounded-lg border space-y-3" style={{ borderColor: '#d4b896' }}>
-      <div className="flex gap-3">
-        <input name="class_number" value={form.class_number} onChange={handleChange}
-          placeholder="Class #" className="w-24 border rounded px-3 py-2" />
+    <div className="p-4 rounded-lg border space-y-3" style={{ borderColor: '#d4b896' }}>
+      <div className="flex gap-3 items-center">
+        <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded shrink-0"
+          style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+          #{position}
+        </span>
         <input name="class_name" value={form.class_name} onChange={handleChange}
           placeholder="Class name" className="flex-1 border rounded px-3 py-2" />
       </div>
@@ -196,11 +234,34 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
           <select name="status" value={form.status} onChange={handleChange}
             className="w-full border rounded px-3 py-2">
             <option value="OPEN">Open</option>
-            <option value="IN_PROGRESS">In Progress</option>
             <option value="CLOSED">Closed</option>
           </select>
         </div>
       </div>
+      {(rings.length > 0 || divisions.length > 0) && (
+        <div className="flex gap-3">
+          {rings.length > 0 && (
+            <div className="flex-1">
+              <label className="text-sm text-gray-500">Ring</label>
+              <select name="ring_id" value={form.ring_id} onChange={handleChange}
+                className="w-full border rounded px-3 py-2">
+                <option value="">None</option>
+                {rings.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+          )}
+          {divisions.length > 0 && (
+            <div className="flex-1">
+              <label className="text-sm text-gray-500">Division</label>
+              <select name="division_id" value={form.division_id} onChange={handleChange}
+                className="w-full border rounded px-3 py-2">
+                <option value="">None</option>
+                {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="border-t pt-3 space-y-2" style={{ borderColor: '#e8d5b7' }}>
         <label className="text-sm font-medium" style={{ color: '#2c1810' }}>Association class codes</label>
@@ -213,21 +274,29 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
                   <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{a.show_type_code}</span>
                   <span className="ml-2" style={{ color: '#2c1810' }}>{a.association_class_code}</span>
                 </div>
-                <button
-                  onClick={() => setConfirmDeleteAssocId(a.id)}
-                  className="text-xs text-red-600 hover:text-red-800 ml-3 shrink-0"
-                >
-                  Remove
-                </button>
-                {confirmDeleteAssocId === a.id && (
-                  <ConfirmDialog
-                    title="Remove Association"
-                    message={`Remove ${a.show_type_code} class code? This cannot be undone.`}
-                    confirmLabel="Yes, remove"
-                    destructive
-                    onConfirm={() => { handleDeleteAssoc(a.id); setConfirmDeleteAssocId(null); }}
-                    onCancel={() => setConfirmDeleteAssocId(null)}
-                  />
+                {confirmDeleteAssocId === a.id ? (
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                    <button
+                      onClick={() => { handleDeleteAssoc(a.id); setConfirmDeleteAssocId(null); }}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Yes, remove
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteAssocId(null)}
+                      className="text-xs hover:underline" style={{ color: '#8b7355' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDeleteAssocId(a.id)}
+                    className="text-xs text-red-600 hover:text-red-800 ml-3 shrink-0"
+                  >
+                    Remove
+                  </button>
                 )}
               </li>
             ))}
@@ -273,39 +342,47 @@ export default function EditClassCard({ cls, showId, showStartDate, showEndDate,
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-y-2">
         <div className="flex gap-2">
           <button
             onClick={handleSave}
-            disabled={saving}
-            title={saving ? 'Saving, please wait…' : undefined}
+            disabled={saving || !isDirty}
+            title={!isDirty ? 'No changes to save' : saving ? 'Saving, please wait…' : undefined}
             className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
           <button onClick={handleCancel} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">
             Cancel
           </button>
         </div>
-        <button
-          onClick={() => setConfirmDelete(true)}
-          className="text-sm text-red-600 hover:text-red-800"
-        >
-          Delete
-        </button>
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete class and all entries?</span>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-xs text-red-600 hover:underline disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Yes, delete'}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleting}
+              className="text-xs hover:underline" style={{ color: '#8b7355' }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="text-sm text-red-600 hover:text-red-800"
+          >
+            Delete
+          </button>
+        )}
       </div>
-
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Delete Class"
-          message="Delete this class and all its entries? This cannot be undone."
-          confirmLabel="Yes, delete"
-          destructive
-          confirming={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setConfirmDelete(false)}
-        />
-      )}
-    </li>
+    </div>
   );
 }

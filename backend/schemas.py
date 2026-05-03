@@ -85,6 +85,17 @@ class ShowUpdate(BaseModel):
             raise ValueError("end_date must be on or after start_date")
         return self
 
+class ShowAffiliationOut(BaseModel):
+    show_type_id: UUID
+    show_type_code: str
+    show_type_name: str
+
+    class Config:
+        from_attributes = True
+
+class ShowAffiliationUpdate(BaseModel):
+    show_type_ids: list[UUID]
+
 class ShowOut(BaseModel):
     id: UUID
     name: str
@@ -97,6 +108,7 @@ class ShowOut(BaseModel):
     end_date: date
     status: str
     apha_show_number: Optional[str] = None
+    affiliations: list[ShowAffiliationOut] = []
     created_at: datetime
 
     class Config:
@@ -136,7 +148,6 @@ class DivisionOut(BaseModel):
 class ClassCreate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
-    class_number: str = Field(min_length=1, max_length=50)
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
@@ -145,11 +156,13 @@ class ClassCreate(BaseModel):
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
-    class_number: Optional[str] = Field(default=None, max_length=50)
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
     apha_class_code: Optional[str] = Field(default=None, max_length=20)
+
+class ClassReorder(BaseModel):
+    class_ids: list[UUID]
 
 class ClassAssociationCreate(BaseModel):
     show_type_id: UUID
@@ -192,6 +205,7 @@ class ClassOut(BaseModel):
     class_name: str
     class_date: date
     status: str
+    sort_order: Optional[int] = None
     apha_class_code: Optional[str] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -560,7 +574,6 @@ class AphaStandardClassOut(BaseModel):
 
 class BulkClassItem(BaseModel):
     apha_code: str = Field(min_length=1, max_length=20)
-    class_number: str = Field(min_length=1, max_length=50)
 
 
 class BulkClassCreate(BaseModel):

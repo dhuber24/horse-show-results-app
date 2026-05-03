@@ -10,6 +10,12 @@ interface Venue {
   state: string | null;
 }
 
+interface ShowAffiliation {
+  show_type_id: string;
+  show_type_code: string;
+  show_type_name: string;
+}
+
 interface Show {
   id: string;
   name: string;
@@ -20,6 +26,7 @@ interface Show {
   start_date: string;
   end_date: string;
   apha_show_number: string | null;
+  affiliations: ShowAffiliation[];
 }
 
 interface ShowType {
@@ -27,6 +34,8 @@ interface ShowType {
   code: string;
   name: string;
 }
+
+const UNCERTIFIED_CODES = ['OPEN'];
 
 export default function EditShowForm({
   show,
@@ -48,6 +57,9 @@ export default function EditShowForm({
     end_date: show.end_date,
     apha_show_number: show.apha_show_number ?? '',
   });
+  const [affiliationIds, setAffiliationIds] = useState<Set<string>>(
+    new Set(show.affiliations.map((a) => a.show_type_id)),
+  );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -57,6 +69,18 @@ export default function EditShowForm({
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const toggleAffiliation = (id: string) => {
+    setAffiliationIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const affiliationOptions = showTypes.filter(
+    (t) => !UNCERTIFIED_CODES.includes(t.code) && t.id !== form.show_type_id,
+  );
+
   const handleSave = async () => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
       setError('Name, show type, start date, and end date are required.');
@@ -65,20 +89,28 @@ export default function EditShowForm({
     setSaving(true);
     setError(null);
 
-    const res = await fetch(`/api/shows/${show.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name,
-        venue_id: form.venue_id || null,
-        show_type_id: form.show_type_id,
-        start_date: form.start_date,
-        end_date: form.end_date,
-        apha_show_number: form.apha_show_number || null,
+    const [showRes] = await Promise.all([
+      fetch(`/api/shows/${show.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          venue_id: form.venue_id || null,
+          show_type_id: form.show_type_id,
+          start_date: form.start_date,
+          end_date: form.end_date,
+          apha_show_number: form.apha_show_number || null,
+        }),
       }),
-    });
+      fetch(`/api/shows/${show.id}/affiliations`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_type_ids: Array.from(affiliationIds) }),
+      }),
+    ]);
+
     setSaving(false);
-    if (res.ok) {
+    if (showRes.ok) {
       router.refresh();
     } else {
       setError('Failed to update show.');
@@ -141,6 +173,30 @@ export default function EditShowForm({
           />
         </div>
       )}
+      {affiliationOptions.length > 0 && (
+        <div className="border rounded p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+          <label className="text-sm font-medium" style={{ color: '#2c1810' }}>
+            Secondary affiliations offered in some classes
+          </label>
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            Check any associations whose points will be available in select classes at this show.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {affiliationOptions.map((t) => (
+              <label key={t.id} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={affiliationIds.has(t.id)}
+                  onChange={() => toggleAffiliation(t.id)}
+                  className="rounded"
+                />
+                <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{t.code}</span>
+                <span style={{ color: '#5c3d1e' }}>{t.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between pt-2">
         <button
@@ -149,7 +205,7 @@ export default function EditShowForm({
           title={saving ? 'Saving, please wait…' : undefined}
           className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
         >
-          {saving ? 'Saving...' : 'Save Changes'}
+          {saving ? 'Saving…' : 'Save Changes'}
         </button>
         {confirmDelete ? (
           <div className="flex items-center gap-2">

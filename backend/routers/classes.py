@@ -9,7 +9,7 @@ from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
 from models import Class, Show, Result, ClassAssociation, AphaStandardClass, ShowType
 from schemas import (
-    ClassCreate, ClassUpdate, ClassOut,
+    ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
     BulkClassCreate,
 )
@@ -37,7 +37,7 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Class, placed_subq.label("placed_count"))
         .where(Class.show_id == show_id)
-        .order_by(Class.class_number)
+        .order_by(Class.sort_order.nullslast(), Class.class_number)
     )
     return [
         {**ClassOut.model_validate(cls).model_dump(), "placed_count": placed_count}
@@ -61,9 +61,22 @@ async def create_class(
             400,
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
-    class_ = Class(show_id=show_id, **body.model_dump())
+    max_order_result = await db.execute(
+        select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
+    )
+    next_sort_order = max_order_result.scalar_one() + 1
+    class_ = Class(
+        show_id=show_id,
+        sort_order=next_sort_order,
+        class_number=str(next_sort_order),
+        **body.model_dump(),
+    )
     db.add(class_)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "A class with this number already exists in this show")
     await db.refresh(class_)
     return class_
 
@@ -98,7 +111,11 @@ async def update_class(
         )
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(class_, k, v)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Failed to update class")
     await db.refresh(class_)
     return class_
 
@@ -166,15 +183,34 @@ async def bulk_create_classes(
     if missing:
         raise HTTPException(400, f"Unknown APHA class codes: {', '.join(missing)}")
 
+    # Reject codes already present in this show's class_associations
+    existing_result = await db.execute(
+        select(ClassAssociation.association_class_code)
+        .join(Class, Class.id == ClassAssociation.class_id)
+        .where(Class.show_id == show_id)
+        .where(ClassAssociation.show_type_id == show.show_type_id)
+        .where(ClassAssociation.association_class_code.in_(codes))
+    )
+    already_used = existing_result.scalars().all()
+    if already_used:
+        raise HTTPException(409, f"Already in this show: {', '.join(sorted(already_used))}")
+
+    max_order_result = await db.execute(
+        select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
+    )
+    next_sort_order = max_order_result.scalar_one()
+
     created = []
     for item in body.classes:
+        next_sort_order += 1
         sc = standard_map[item.apha_code]
         cls = Class(
             show_id=show_id,
-            class_number=item.class_number,
+            class_number=str(next_sort_order),
             class_name=sc.name,
             class_date=body.class_date,
             status="OPEN",
+            sort_order=next_sort_order,
         )
         db.add(cls)
         await db.flush()  # populate cls.id before creating association
@@ -186,10 +222,48 @@ async def bulk_create_classes(
         db.add(assoc)
         created.append(cls)
 
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "One or more class numbers already exist in this show")
+
+    created_ids = [cls.id for cls in created]
+    result = await db.execute(
+        select(Class)
+        .options(selectinload(Class.associations).selectinload(ClassAssociation.show_type))
+        .where(Class.id.in_(created_ids))
+        .order_by(Class.sort_order)
+    )
+    return result.scalars().all()
+
+
+# ── Manual Schedule Ordering ────────────────────────────────────────────────────
+
+@router.post(
+    "/reorder",
+    status_code=204,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def reorder_classes(
+    show_id: UUID,
+    body: ClassReorder,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    result = await db.execute(
+        select(Class).where(Class.show_id == show_id, Class.id.in_(body.class_ids))
+    )
+    classes = {cls.id: cls for cls in result.scalars().all()}
+    if len(classes) != len(body.class_ids):
+        raise HTTPException(400, "One or more class IDs not found in this show")
+    for i, class_id in enumerate(body.class_ids, start=1):
+        classes[class_id].sort_order = i
+        classes[class_id].class_number = str(i)
     await db.commit()
-    for cls in created:
-        await db.refresh(cls)
-    return created
 
 
 # ── Class Associations (per-association class codes for dual-sanction shows) ──
