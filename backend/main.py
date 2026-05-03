@@ -28,6 +28,8 @@ from routers.backnumbers import router as backnumbers_router
 from routers.venues import router as venues_router
 from routers.show_types import router as show_types_router
 from routers.show_staff import router as show_staff_router
+from routers.show_requests import router as show_requests_router
+from routers.certifications import router as certifications_router
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,8 @@ app.include_router(backnumbers_router)
 app.include_router(venues_router)
 app.include_router(show_types_router)
 app.include_router(show_staff_router)
+app.include_router(show_requests_router)
+app.include_router(certifications_router)
 
 
 @app.get("/", tags=["Health"])

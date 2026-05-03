@@ -57,6 +57,7 @@ class Show(Base):
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
+    show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
 
 
@@ -140,8 +141,10 @@ class User(Base):
     exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
+    manager_shows = relationship("ShowManager", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
+    show_requests = relationship("ShowRequest", back_populates="requested_by", cascade="all, delete")
 
 
 class VenueAdmin(Base):
@@ -395,3 +398,55 @@ class ShowSecretaryCertification(Base):
 
     user = relationship("User", back_populates="secretary_certifications")
     show_type = relationship("ShowType")
+
+
+class CertOrgUser(Base):
+    __tablename__ = "cert_org_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    first_name = Column(Text, nullable=True)
+    last_name = Column(Text, nullable=True)
+    email = Column(Text, nullable=True)
+    state_province = Column(Text, nullable=True)
+    country = Column(Text, nullable=True)
+    completion_date = Column(Date, nullable=True)
+    expiration = Column(Date, nullable=True)
+    org = Column('Org', Text, nullable=True)
+
+
+class ShowManager(Base):
+    __tablename__ = "show_managers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "user_id"),)
+
+    show = relationship("Show", back_populates="show_managers")
+    user = relationship("User", back_populates="manager_shows")
+
+
+class ShowRequest(Base):
+    __tablename__ = "show_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    show_name = Column(Text, nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
+    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"), nullable=True)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    manager_association_id = Column(Text, nullable=True)
+    association_approval_confirmed = Column(Boolean, nullable=False, server_default="false")
+    notes = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, server_default="PENDING")
+    admin_notes = Column(Text, nullable=True)
+    created_show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    requested_by = relationship("User", back_populates="show_requests")
+    show_type = relationship("ShowType")
+    venue = relationship("Venue")

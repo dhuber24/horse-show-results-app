@@ -12,11 +12,12 @@ export default async function ScorekeeperPage({ params }: { params: Promise<{ id
 
   const cls = classes.find((c: any) => c.id === classId);
 
+  const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
       const [exhibitor, horse] = await Promise.all([
-        fetchExhibitor(entry.exhibitor_id),
-        entry.horse_id ? fetchHorse(entry.horse_id) : Promise.resolve(null),
+        fetchExhibitor(entry.exhibitor_id, apiHeaders),
+        entry.horse_id ? fetchHorse(entry.horse_id, apiHeaders) : Promise.resolve(null),
       ]);
       return {
         ...entry,

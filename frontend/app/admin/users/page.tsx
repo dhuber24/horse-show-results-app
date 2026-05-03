@@ -51,11 +51,11 @@ export default async function UsersPage() {
           <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>All Users</h2>
           {users.length > 0 && (
             <span className="text-xs" style={{ color: '#8b7355' }}>
-              {(['ADMIN', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'] as const)
+              {(['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'] as const)
                 .map(role => {
                   const count = users.filter((u: any) => u.role === role).length;
                   if (count === 0) return null;
-                  const labels: Record<string, string> = { ADMIN: 'Admin', SHOW_SECRETARY: 'Secretary', SCOREKEEPER: 'Scorekeeper', EXHIBITOR: 'Exhibitor' };
+                  const labels: Record<string, string> = { ADMIN: 'Admin', SHOW_MANAGER: 'Manager', SHOW_SECRETARY: 'Secretary', SCOREKEEPER: 'Scorekeeper', EXHIBITOR: 'Exhibitor' };
                   return `${count} ${labels[role]}${count !== 1 ? 's' : ''}`;
                 })
                 .filter(Boolean)

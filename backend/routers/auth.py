@@ -42,6 +42,12 @@ class ShowSecretaryRegister(BaseModel):
     certifications: list[SecretaryCertificationIn] = []
 
 
+class ShowManagerRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -129,7 +135,6 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
         full_name=body.full_name,
         role="SHOW_SECRETARY",
         hashed_password=hash_password(body.password),
-        is_approved=False,
     )
     db.add(user)
     await db.flush()
@@ -141,6 +146,33 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
             secretary_id_number=cert.secretary_id_number,
         ))
 
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+    }
+
+
+@router.post("/register/show-manager")
+async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = Depends(get_db)):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
+    existing = await db.execute(select(User).where(User.email == body.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, "Email already registered")
+
+    user = User(
+        email=body.email,
+        full_name=body.full_name,
+        role="SHOW_MANAGER",
+        hashed_password=hash_password(body.password),
+    )
+    db.add(user)
     await db.commit()
     await db.refresh(user)
 

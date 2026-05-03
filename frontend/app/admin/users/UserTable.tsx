@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useState, useMemo } from 'react';
 
-const ROLES = ['ADMIN', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
 
 const ROLE_COLORS: Record<string, string> = {
   ADMIN: '#7c3aed',
+  SHOW_MANAGER: '#b45309',
   SHOW_SECRETARY: '#1d4ed8',
   SCOREKEEPER: '#0369a1',
   EXHIBITOR: '#166534',
@@ -14,6 +15,7 @@ const ROLE_COLORS: Record<string, string> = {
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
+  SHOW_MANAGER: 'Show Manager',
   SHOW_SECRETARY: 'Show Secretary',
   SCOREKEEPER: 'Scorekeeper',
   EXHIBITOR: 'Exhibitor',
@@ -171,7 +173,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                       >
                         {ROLE_LABELS[user.role] ?? user.role}
                       </span>
-                      {user.role === 'SHOW_SECRETARY' && !user.is_approved && (
+                      {(user.role === 'SHOW_SECRETARY' || user.role === 'SHOW_MANAGER') && !user.is_approved && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100" style={{ color: '#9a3412' }}>
                           Pending
                         </span>
@@ -210,7 +212,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                         </>
                       ) : (
                         <>
-                          {user.role === 'SHOW_SECRETARY' && !user.is_approved && (
+                          {(user.role === 'SHOW_SECRETARY' || user.role === 'SHOW_MANAGER') && !user.is_approved && (
                             <button
                               onClick={() => handleApprove(user)}
                               disabled={approving}

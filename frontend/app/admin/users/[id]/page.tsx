@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { notFound, redirect } from 'next/navigation';
 import { API_URL } from '@/lib/backend-fetch';
-import { fetchExhibitorByUser } from '@/lib/api';
 import EditUserForm from './EditUserForm';
 import ChangeRoleForm from './ChangeRoleForm';
 import ResetPasswordForm from './ResetPasswordForm';
@@ -15,8 +14,15 @@ async function getUser(id: string, headers: Record<string, string>) {
   return res.json();
 }
 
-async function getExhibitorHorses(exhibitorId: string): Promise<any[]> {
-  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}/owned-horses`);
+async function getExhibitorByUser(userId: string, headers: Record<string, string>) {
+  const res = await fetch(`${API_URL}/exhibitors/by-user/${userId}`, { headers, cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function getExhibitorHorses(exhibitorId: string, headers: Record<string, string>): Promise<any[]> {
+  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}/owned-horses`, { headers, cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
 }
@@ -46,9 +52,9 @@ export default async function UserDetailPage({
   let exhibitorHorses: any[] = [];
 
   if (user.role === 'EXHIBITOR') {
-    exhibitor = await fetchExhibitorByUser(user.id);
+    exhibitor = await getExhibitorByUser(user.id, headers);
     if (exhibitor) {
-      exhibitorHorses = await getExhibitorHorses(exhibitor.id);
+      exhibitorHorses = await getExhibitorHorses(exhibitor.id, headers);
     }
   }
 

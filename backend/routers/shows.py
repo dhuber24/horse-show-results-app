@@ -12,7 +12,7 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
-from models import Show, ShowSecretary, ShowScorekeeper, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
+from models import Show, ShowSecretary, ShowScorekeeper, ShowManager, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,15 @@ async def list_shows(
             .where(ShowSecretary.user_id == safe_uuid(x_user_id))
             .order_by(Show.start_date)
         )
+    elif is_authenticated and x_user_role == "SHOW_MANAGER" and x_user_id:
+        # Show Managers see shows they are assigned to manage (including DRAFTs)
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
+            .join(ShowManager, ShowManager.show_id == Show.id)
+            .where(ShowManager.user_id == safe_uuid(x_user_id))
+            .order_by(Show.start_date)
+        )
     elif is_authenticated and x_user_role == "SCOREKEEPER" and x_user_id:
         # Scorekeepers see their assigned shows, but not DRAFTs
         query = (
@@ -118,7 +127,7 @@ async def create_show(
 ):
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
-    if x_user_role not in ("ADMIN", "SHOW_SECRETARY"):
+    if x_user_role not in ("ADMIN", "SHOW_SECRETARY", "SHOW_MANAGER"):
         raise HTTPException(403, "Admin or Show Secretary access required")
 
     show = Show(**body.model_dump(), created_by_user_id=safe_uuid(x_user_id))
@@ -127,6 +136,9 @@ async def create_show(
 
     if x_user_role == "SHOW_SECRETARY":
         db.add(ShowSecretary(show_id=show.id, user_id=safe_uuid(x_user_id)))
+        await db.commit()
+    elif x_user_role == "SHOW_MANAGER":
+        db.add(ShowManager(show_id=show.id, user_id=safe_uuid(x_user_id)))
         await db.commit()
 
     show = await _get_show_with_type(db, show.id)
@@ -149,6 +161,12 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
     if x_user_role == "SHOW_SECRETARY":
         row = await db.execute(
             select(ShowSecretary).where(ShowSecretary.show_id == show_id, ShowSecretary.user_id == safe_uuid(x_user_id))
+        )
+        if row.scalar_one_or_none():
+            return
+    if x_user_role == "SHOW_MANAGER":
+        row = await db.execute(
+            select(ShowManager).where(ShowManager.show_id == show_id, ShowManager.user_id == safe_uuid(x_user_id))
         )
         if row.scalar_one_or_none():
             return

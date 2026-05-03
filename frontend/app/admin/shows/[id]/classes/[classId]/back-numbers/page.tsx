@@ -4,6 +4,7 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function BackNumbersPage({ params }: { params: Promise<{ id: string; classId: string }> }) {
   const { id, classId } = await params;
+  const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const [show, classes, entries] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
@@ -15,8 +16,8 @@ export default async function BackNumbersPage({ params }: { params: Promise<{ id
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
       const [exhibitor, horse] = await Promise.all([
-        fetchExhibitor(entry.exhibitor_id),
-        fetchHorse(entry.horse_id),
+        fetchExhibitor(entry.exhibitor_id, apiHeaders),
+        fetchHorse(entry.horse_id, apiHeaders),
       ]);
       return { ...entry, exhibitorName: exhibitor.full_name, horseName: horse.name };
     })

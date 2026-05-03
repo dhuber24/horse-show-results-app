@@ -5,8 +5,8 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from database import get_db
-from dependencies import require_admin, safe_uuid
-from models import Show, User, ShowSecretary, ShowScorekeeper
+from dependencies import require_admin, safe_uuid, INTERNAL_API_KEY
+from models import Show, User, ShowSecretary, ShowScorekeeper, ShowManager
 from schemas import UserOut
 
 router = APIRouter(tags=["Show Staff"])
@@ -31,7 +31,7 @@ async def _get_user_or_404(user_id: UUID, db: AsyncSession) -> User:
 
 
 async def _assert_show_admin_access(show_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession):
-    """Raises 403 unless caller is ADMIN or an assigned Show Secretary of this show."""
+    """Raises 403 unless caller is ADMIN, an assigned Show Secretary, or an assigned Show Manager."""
     if x_user_role == "ADMIN":
         return
     if x_user_role == "SHOW_SECRETARY":
@@ -43,14 +43,32 @@ async def _assert_show_admin_access(show_id: UUID, x_user_id: str, x_user_role: 
         )
         if row.scalar_one_or_none():
             return
+    if x_user_role == "SHOW_MANAGER":
+        row = await db.execute(
+            select(ShowManager).where(
+                ShowManager.show_id == show_id,
+                ShowManager.user_id == safe_uuid(x_user_id),
+            )
+        )
+        if row.scalar_one_or_none():
+            return
     raise HTTPException(status_code=403, detail="Not authorized for this show")
 
 
 # ── Show Secretaries ───────────────────────────────────────────────────────────
 
-@router.get("/shows/{show_id}/admins", response_model=list[UserOut], dependencies=[Depends(require_admin)])
-async def list_show_secretaries(show_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/shows/{show_id}/admins", response_model=list[UserOut])
+async def list_show_secretaries(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
     await _get_show_or_404(show_id, db)
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
     result = await db.execute(
         select(User)
         .join(ShowSecretary, ShowSecretary.user_id == User.id)
@@ -60,9 +78,19 @@ async def list_show_secretaries(show_id: UUID, db: AsyncSession = Depends(get_db
     return result.scalars().all()
 
 
-@router.post("/shows/{show_id}/admins", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
-async def add_show_admin(show_id: UUID, body: UserAssignBody, db: AsyncSession = Depends(get_db)):
+@router.post("/shows/{show_id}/admins", response_model=UserOut, status_code=201)
+async def add_show_admin(
+    show_id: UUID,
+    body: UserAssignBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
     await _get_show_or_404(show_id, db)
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
     user = await _get_user_or_404(body.user_id, db)
     if user.role != "SHOW_SECRETARY":
         raise HTTPException(400, "User must have SHOW_SECRETARY role")
@@ -76,8 +104,18 @@ async def add_show_admin(show_id: UUID, body: UserAssignBody, db: AsyncSession =
     return user
 
 
-@router.delete("/shows/{show_id}/admins/{user_id}", status_code=204, dependencies=[Depends(require_admin)])
-async def remove_show_admin(show_id: UUID, user_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.delete("/shows/{show_id}/admins/{user_id}", status_code=204)
+async def remove_show_admin(
+    show_id: UUID,
+    user_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
     row = await db.execute(
         select(ShowSecretary).where(ShowSecretary.show_id == show_id, ShowSecretary.user_id == user_id)
     )
@@ -142,6 +180,7 @@ async def add_show_scorekeeper(
         )
         if existing_assignments.scalar_one_or_none():
             raise HTTPException(403, "Show Secretaries can only assign scorekeepers they created")
+    # SHOW_MANAGER (like ADMIN) can assign any existing scorekeeper — no restriction
 
     already = await db.execute(
         select(ShowScorekeeper).where(ShowScorekeeper.show_id == show_id, ShowScorekeeper.user_id == user.id)

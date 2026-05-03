@@ -82,11 +82,12 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const cls = classes.find((c: any) => c.id === classId);
   const backNumberMap = Object.fromEntries(backNumbers.map((b: any) => [b.exhibitor_id, b.back_number]));
 
+  const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
       const [exhibitor, horse] = await Promise.all([
-        fetchExhibitor(entry.exhibitor_id),
-        entry.horse_id ? fetchHorse(entry.horse_id) : Promise.resolve(null),
+        fetchExhibitor(entry.exhibitor_id, apiHeaders),
+        entry.horse_id ? fetchHorse(entry.horse_id, apiHeaders) : Promise.resolve(null),
       ]);
       return {
         ...entry,

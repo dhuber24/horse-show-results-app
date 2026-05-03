@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES = ['ADMIN', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
+  SHOW_MANAGER: 'Show Manager',
   SHOW_SECRETARY: 'Show Secretary',
   SCOREKEEPER: 'Scorekeeper',
   EXHIBITOR: 'Exhibitor',

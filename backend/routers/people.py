@@ -18,7 +18,7 @@ from schemas import (
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
 )
 
-VALID_ROLES = {"ADMIN", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
+VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 

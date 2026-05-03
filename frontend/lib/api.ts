@@ -24,14 +24,14 @@ export async function fetchResults(showId: string, classId: string) {
   return res.json();
 }
 
-export async function fetchHorse(horseId: string) {
-  const res = await fetch(`${API_URL}/horses/${horseId}`);
+export async function fetchHorse(horseId: string, headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/horses/${horseId}`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch horse');
   return res.json();
 }
 
-export async function fetchExhibitor(exhibitorId: string) {
-  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}`);
+export async function fetchExhibitor(exhibitorId: string, headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch exhibitor');
   return res.json();
 }

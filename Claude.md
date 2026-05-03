@@ -32,13 +32,22 @@
 
 ## User Roles
 - **Admin (`ADMIN`):** Full system access — show setup, user management, venue management, all configuration
-- **Show Secretary (`SHOW_SECRETARY`):** Scoped access — manages their assigned shows and scorekeepers; formerly called "Show Admin"
+- **Show Manager (`SHOW_MANAGER`):** Manages show logistics, staff, and physical event operations. Submits show hosting requests to admin for approval; once approved, a DRAFT show is auto-created and they are assigned as its manager. Can assign both Show Secretaries and Scorekeepers to their shows. Full access to their managed shows (entries, results, classes, back numbers). Self-registers at `/register/show-manager` and can log in immediately.
+- **Show Secretary (`SHOW_SECRETARY`):** Scoped access — manages administrative, entry, and results documentation for their assigned shows. Formerly called "Show Admin".
 - **Scorekeeper (`SCOREKEEPER`):** Entry of placings and results for assigned shows
 - **Exhibitor (`EXHIBITOR`):** Viewing personal entries and results; created via self-registration at `/register`. Exhibitors have a personalized **My Show Entries** dashboard at `/dashboard` and a profile/horse management page at `/profile`.
 
-Show Secretaries self-register at `/register/show-secretary` (linked from the login page). During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded from the certification list since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`.
+**Show Secretary registration** (`/register/show-secretary`): During registration they select which show type(s) they are certified for and optionally enter their Secretary ID per association. Certifications are stored in `show_secretary_certifications`. The `OPEN` show type is excluded since it requires no association affiliation; this is controlled by `UNCERTIFIED_SHOW_TYPE_CODES` in `ShowSecretaryRegisterForm.tsx`. **APHA certification is required:** if APHA is selected, the form verifies the submitted email against the `cert_org_users` table and blocks submission if the certification is not found or is expired. Accounts are auto-approved and can log in immediately.
 
-**Approval Workflow:** Self-registered Show Secretaries start with `is_approved = false` and cannot log in until an admin approves them via the admin Users page. Upon registration, they see: _"Registration submitted! An admin will review and approve your account before you can log in."_ Login attempts by pending accounts show: _"Your account is pending admin approval. Please check back soon."_ Admins approve accounts via the green **Approve** button next to each pending Show Secretary's **Pending** badge in the Users table.
+**Show Manager registration** (`/register/show-manager`): Simple name/email/password form. APHA Show Management Certification is recommended (not required) — the form runs the same certification lookup and shows the result as informational. Accounts are auto-approved and can log in immediately.
+
+**No manual account approval required** for Show Secretary or Show Manager. The `is_approved` column still exists on users (defaults `TRUE`) — an admin can still manually lock an account if needed, but new self-registrations are always auto-approved. The approval gate for Show Managers is on the *show request*, not the account.
+
+**Show Manager show request workflow:**
+1. Show Manager logs in → navigates to `/show-requests` → submits a new request at `/show-requests/new`
+2. Request captures: show name, sanctioning association, venue, dates, manager's association membership ID, association approval confirmation checkbox, and optional notes
+3. Admin reviews all pending requests at `/admin/show-requests` and approves or rejects (with optional notes)
+4. On approval: a DRAFT show is automatically created from the request data and the Show Manager is assigned to it via `show_managers`
 
 All authenticated users can access `/profile` to view and edit their name/email and change their password. Exhibitors additionally see a list of horses linked to their exhibitor profile. The admin Exhibitors page has been removed — exhibitor management is handled through the Users admin page.
 
@@ -137,7 +146,7 @@ docker-compose up
 
 3. **Frontend Components**: Use Next.js best practices. Consider PWA capabilities for offline access.
 
-4. **Authentication**: Role-based access control is implemented. Roles: `ADMIN`, `SHOW_SECRETARY`, `SCOREKEEPER`, `EXHIBITOR`. The internal API key (`INTERNAL_API_KEY`) is passed via `X-API-Key` header for server-to-server calls; user identity is passed via `X-User-Id` and `X-User-Role` headers.
+4. **Authentication**: Role-based access control is implemented. Roles: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`, `SCOREKEEPER`, `EXHIBITOR`. The internal API key (`INTERNAL_API_KEY`) is passed via `X-API-Key` header for server-to-server calls; user identity is passed via `X-User-Id` and `X-User-Role` headers.
 
 ```mermaid
 flowchart LR
@@ -151,17 +160,19 @@ flowchart LR
         AK[require_api_key]
         AU[require_authenticated]
         ADM[require_admin]
-        SA[require_admin_or_show_admin]
+        SA["require_admin_or_show_admin\n(ADMIN | SHOW_SECRETARY | SHOW_MANAGER)"]
+        SM[require_admin_or_show_manager]
         SK[require_admin_or_scorekeeper]
-        SS["_assert_show_access()\n(show_secretaries join)"]
+        SS["_assert_show_access()\n(show_secretaries | show_managers join)"]
     end
 
     H -->|X-API-Key| AK
     H -->|"X-API-Key + X-User-Id"| AU
     H -->|"X-API-Key + ADMIN role"| ADM
     H -->|"X-API-Key + role"| SA
+    H -->|"X-API-Key + role"| SM
     H -->|"X-API-Key + role"| SK
-    SA -->|SHOW_SECRETARY| SS
+    SA -->|"SHOW_SECRETARY or SHOW_MANAGER"| SS
 ```
 
 5. **Data Validation**: Implement validation at both API and database layers.
@@ -185,10 +196,14 @@ All routers are registered in `backend/main.py`. Quick reference:
 | `/shows/{id}/back-numbers/` | `backnumbers.py` | Admin/Secretary |
 | `/shows/{id}/rings/` | `rings.py` | Admin/Secretary |
 | `/shows/{id}/divisions/` | `divisions.py` | Admin/Secretary |
-| `/shows/{id}/admins` | `show_staff.py` | Admin only |
-| `/shows/{id}/scorekeepers` | `show_staff.py` | Admin/Secretary |
-| `/shows/{id}/apha-export` | `shows.py` | Admin/Secretary |
-| `/shows/{id}/entries/` | `entries.py` | Admin/Secretary write; Public GET |
+| `/shows/{id}/admins` | `show_staff.py` | Admin/Secretary/Manager |
+| `/shows/{id}/scorekeepers` | `show_staff.py` | Admin/Secretary/Manager |
+| `/shows/{id}/apha-export` | `shows.py` | Admin/Secretary/Manager |
+| `/shows/{id}/entries/` | `entries.py` | Admin/Secretary/Manager write; Public GET |
+| `/show-requests/` | `show_requests.py` | POST: Show Manager; GET: Admin + own Manager |
+| `/show-requests/{id}/approve` | `show_requests.py` | Admin only |
+| `/show-requests/{id}/reject` | `show_requests.py` | Admin only |
+| `/certifications/verify` | `certifications.py` | API key (server-to-server) |
 | `/users/` | `people.py` | Admin |
 | `/horses/` | `people.py` | Admin (full); Exhibitor (own horses) |
 | `/exhibitors/` | `people.py` | Admin |
@@ -211,7 +226,16 @@ The frontend proxies all calls through `frontend/app/api/` route handlers which 
 - **Results:** The published, finalized placings shown to exhibitors
 
 ### Show Workflow
-1. Admin creates a new show event
+
+**Show Manager path (new):**
+1. Show Manager submits a show request (`/show-requests/new`) with association, venue, dates, and association approval confirmation
+2. Admin approves at `/admin/show-requests` → DRAFT show is auto-created and manager is assigned
+3. Manager adds secretaries and scorekeepers to the show
+4. Show Secretary adds classes and manages entries
+5. Scorekeepers enter placings; results publish live
+
+**Admin/Secretary path (existing):**
+1. Admin or Show Secretary creates a show directly
 2. Exhibitors register and enter classes
 3. Admin/office staff assigns back numbers
 4. Scorekeepers enter placings after each class
@@ -219,8 +243,10 @@ The frontend proxies all calls through `frontend/app/api/` route handlers which 
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT : Admin creates show
-    DRAFT --> PUBLISHED : Secretary publishes
+    [*] --> REQUEST : Show Manager submits request
+    REQUEST --> DRAFT : Admin approves (show auto-created)
+    [*] --> DRAFT : Admin/Secretary creates show directly
+    DRAFT --> PUBLISHED : Secretary/Manager publishes
     PUBLISHED --> ACTIVE : auto on start_date
     ACTIVE --> COMPLETED : auto after end_date
 ```
@@ -241,6 +267,8 @@ erDiagram
     ShowEntry { uuid id; uuid show_id FK; uuid exhibitor_id FK; int back_number }
     ShowSecretary { uuid show_id FK; uuid user_id FK }
     ShowScorekeeper { uuid show_id FK; uuid user_id FK }
+    ShowManager { uuid show_id FK; uuid user_id FK }
+    ShowRequest { uuid id; uuid requested_by FK; uuid show_type_id FK; uuid venue_id FK; text status; uuid created_show_id FK }
     User { uuid id; text role; bool is_approved }
     Exhibitor { uuid id; uuid user_id FK; text full_name }
 
@@ -261,8 +289,13 @@ erDiagram
     ShowEntry }o--|| Exhibitor : "assigned to"
     Show ||--o{ ShowSecretary : "managed by"
     Show ||--o{ ShowScorekeeper : "scored by"
+    Show ||--o{ ShowManager : "overseen by"
     ShowSecretary }o--|| User : ""
     ShowScorekeeper }o--|| User : ""
+    ShowManager }o--|| User : ""
+    ShowRequest }o--|| User : "submitted by"
+    ShowRequest }o--|| ShowType : ""
+    ShowRequest }o--o| Show : "creates"
     User ||--o| Exhibitor : "1:1 optional"
 ```
 
@@ -327,6 +360,21 @@ Four document types per horse: `COGGINS` (EIA test), `VACCINATION`, `HEALTH_CERT
 
 **Frontend:** Shared `HorseDocuments` client component at `frontend/components/HorseDocuments.tsx` — used by both admin edit horse page and exhibitor horse detail page. Displays docs grouped by type with expiry badges (green/yellow/red). Exhibitors access documents via `/profile/horses/[id]`, linked from the "Documents" button on each horse in MyHorsesPanel.
 
+## Association Certification Lookup
+
+### `cert_org_users` Table
+Stores certified show management personnel from supported associations. Created directly in Neon (not via a migration file). Columns: `id` (PK), `first_name`, `last_name`, `email`, `state_province`, `country`, `completion_date`, `expiration`, `Org` (note: capital O — map in SQLAlchemy as `Column('Org', Text)`).
+
+The `Org` column holds the association code (e.g. `APHA`). Adding certifications for other associations is additive — insert rows with the appropriate `Org` value.
+
+**Backend:** `GET /certifications/verify?email=&org=` in `backend/routers/certifications.py` — requires API key only (server-to-server). Queries by `lower(email)` and `lower(Org)`, returns `{ found, first_name, last_name, state_province, country, completion_date, expiration_date, expired }`.
+
+**Frontend proxy:** `frontend/app/api/apha/verify-secretary/route.ts` — calls the backend with `org=APHA`. No session required (used during registration before login).
+
+**Show Secretary registration enforcement:** If APHA is selected as a certified show type, the form verifies the email against `cert_org_users` and **blocks submission** if not found or expired. The check triggers via `useEffect` when `aphaSelected` becomes true, and on email field blur when APHA is already selected. The `aphaBlocksSubmit` computed variable drives both the disabled button state and a server-side guard in `handleSubmit`.
+
+**Show Manager registration:** Same lookup runs on email blur but is informational only (recommended, not required).
+
 ## APHA Sanctioned Shows
 
 APHA shows require specific data capture and results submission to APHA within 10 days via ShowEntry.xls format.
@@ -361,9 +409,11 @@ All APHA-specific form fields are conditionally rendered based on `show_type_cod
 
 ### Scorekeeper-Filtered Show List
 `GET /shows/` in `backend/routers/shows.py` has role-based filtering:
-- **SHOW_SECRETARY**: joins `ShowSecretary` → returns only their assigned shows
-- **SCOREKEEPER**: joins `ShowScorekeeper` → returns only their assigned shows
-- **Everyone else**: returns all non-draft shows
+- **ADMIN**: all shows including DRAFTs
+- **SHOW_SECRETARY**: joins `ShowSecretary` → only their assigned shows (including DRAFTs)
+- **SHOW_MANAGER**: joins `ShowManager` → only their managed shows (including DRAFTs)
+- **SCOREKEEPER**: joins `ShowScorekeeper` → only their assigned shows (no DRAFTs)
+- **Everyone else**: all non-draft shows
 
 Both filters use the same pattern (conditional `elif` on the query before execution). The `ShowScorekeeper` model is the `show_scorekeepers` join table; scorekeepers are assigned to shows via the admin show staff management UI.
 
@@ -495,7 +545,11 @@ Public / exhibitor routes (no breadcrumb component — use navbar):
 | `/profile` | Account info + horse list (all roles) |
 | `/profile/horses/[id]` | Exhibitor horse detail + documents |
 | `/register` | Exhibitor self-registration |
-| `/register/show-secretary` | Show Secretary self-registration |
+| `/register/show-secretary` | Show Secretary self-registration (APHA cert required if APHA selected) |
+| `/register/show-manager` | Show Manager self-registration (APHA cert recommended) |
+| `/show-requests` | Show Manager — view their submitted show requests |
+| `/show-requests/new` | Show Manager — submit a new show hosting request |
+| `/admin/show-requests` | Admin — review and approve/reject show requests |
 | `/login` | Login page |
 
 ### Inline Delete Pattern
@@ -610,9 +664,12 @@ Applied migrations:
 - `019_result_audit_changed_at_index.sql` — Index on `result_audit(changed_at DESC)` for audit query performance
 - `020_class_associations.sql` — New `class_associations` join table (`class_id`, `show_type_id`, `association_class_code`, UNIQUE on pair); backfills APHA rows from `classes.apha_class_code`; legacy column preserved until 021
 - `021_drop_apha_class_code.sql` — (**not yet applied**) Drops `classes.apha_class_code`; must be applied with matching backend/schema code changes (see migration header comments)
+- `022_show_manager_role.sql` — Adds `SHOW_MANAGER` to `users.role` CHECK constraint; creates `show_managers(show_id, user_id)` join table with indexes
+- `023_show_requests.sql` — Creates `show_requests` table (`requested_by_user_id`, `show_name`, `show_type_id`, `venue_id`, `start_date`, `end_date`, `manager_association_id`, `association_approval_confirmed`, `notes`, `status` CHECK PENDING/APPROVED/REJECTED, `admin_notes`, `created_show_id`, timestamps)
 
 Data seeded directly (not via migration file):
 - show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
+- cert_org_users: APHA-certified show management personnel imported directly into Neon (no migration file); column `Org` uses capital O
 
 ### Testing
 ```bash
@@ -631,6 +688,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Migration 020: `class_associations` for multi-association/dual-sanction class codes; migration 021 drafted (pending). Documentation: added Backend API Overview table, Rings & Divisions section, Result Audit Trail section, full route table including public/exhibitor routes, Ring/Division/ResultAudit in core ERD, corrected migration command to use MSYS_NO_PATHCONV volume-mount pattern.)
+**Last Updated:** May 2026 (Migrations 022–023: SHOW_MANAGER role, show_managers join table, show_requests table. New features: Show Manager self-registration, show request submission/approval workflow, APHA certification lookup via cert_org_users table, updated role-based show filtering, Show Secretary/Manager account auto-approval. Documentation: added SHOW_MANAGER role, Show Manager workflow, Association Certification Lookup section, updated ERD, auth diagram, API table, route table, and migrations list.)
 **Project Status:** 🔨 Active Development
 
