@@ -192,6 +192,7 @@ All routers are registered in `backend/main.py`. Quick reference:
 | `/shows/` | `shows.py` | Role-filtered GET; Admin/Secretary write |
 | `/shows/{id}/classes/` | `classes.py` | Public GET; Admin/Secretary write |
 | `/shows/{id}/classes/bulk` | `classes.py` | POST: Admin/Secretary — bulk-create APHA classes (APHA shows only) |
+| `/shows/{id}/classes/reorder` | `classes.py` | POST: Admin/Secretary — save drag-and-drop sort_order for class list |
 | `/shows/{id}/classes/{classId}/associations` | `classes.py` | Public GET; Admin/Secretary write |
 | `/shows/{id}/classes/{classId}/results/` | `results.py` | Public GET; Admin/Scorekeeper write |
 | `/shows/{id}/back-numbers/` | `backnumbers.py` | Admin/Secretary |
@@ -199,6 +200,7 @@ All routers are registered in `backend/main.py`. Quick reference:
 | `/shows/{id}/divisions/` | `divisions.py` | Admin/Secretary |
 | `/shows/{id}/admins` | `show_staff.py` | Admin/Secretary/Manager |
 | `/shows/{id}/scorekeepers` | `show_staff.py` | Admin/Secretary/Manager |
+| `/shows/{id}/affiliations` | `shows.py` | PUT: Admin/Secretary — set secondary affiliation show_type IDs for a show |
 | `/shows/{id}/apha-export` | `shows.py` | Admin/Secretary/Manager |
 | `/shows/{id}/entries/` | `entries.py` | Admin/Secretary/Manager write; Public GET |
 | `/show-requests/` | `show_requests.py` | POST: Show Manager; GET: Admin + own Manager |
@@ -719,6 +721,6 @@ https://github.com/dhuber24/horse-show-results-app
 
 ---
 
-**Last Updated:** May 2026 (Migrations 025–028: class sort_order, show affiliations, new show types (NRHA/NCHA/NRCHA), dropped class_number unique constraint. New features: drag-and-drop class schedule reordering (`@hello-pangea/dnd`); class numbers auto-assigned from sort position (no manual input); show-level affiliation eligibility badges (NSBA, WSCA, etc.) on public show page; APHA bulk import duplicate prevention (backend check + frontend disabled codes); "Show Schedule" label on admin classes page. Bug fixes: dashboard 422 (missing auth headers in server component); admin show page `/users/ 403` for non-admin roles; nested `<li>` hydration error in EditClassCard; MissingGreenlet in bulk class create (replaced db.refresh with selectinload re-query). Previous: Migration 024: `apha_standard_classes` seeded with 634 codes; bulk class creation endpoint; APHAClassPicker UI.)
+**Last Updated:** May 2026 (UI polish: `CreateClassForm` is now a toggle — collapses to a "+ Create New Class" button, expands inline with a Cancel that resets the form; `ClassListWithReorder` inserts date section headers between classes when the `class_date` changes (formatted weekday + date). Backend API table updated with `/shows/{id}/classes/reorder` (POST) and `/shows/{id}/affiliations` (PUT) endpoints. Previous: Migrations 025–028: class sort_order, show affiliations, new show types (NRHA/NCHA/NRCHA), dropped class_number unique constraint. New features: drag-and-drop class schedule reordering (`@hello-pangea/dnd`); class numbers auto-assigned from sort position; show-level affiliation eligibility badges on public show page; APHA bulk import duplicate prevention. Bug fixes: dashboard 422, admin `/users/ 403`, hydration error in EditClassCard, MissingGreenlet in bulk class create.)
 **Project Status:** 🔨 Active Development
 

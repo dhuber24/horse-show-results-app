@@ -36,15 +36,12 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{show.name}</p>
       </div>
 
-      <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Class</h2>
-        <div className="space-y-3">
-          <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} rings={rings} divisions={divisions} />
-          {isApha && (
-            <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />
-          )}
-        </div>
-      </section>
+      <div className="flex flex-wrap gap-2">
+        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} rings={rings} divisions={divisions} />
+        {isApha && (
+          <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />
+        )}
+      </div>
 
       <section>
         <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>

@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; }
 
+const EMPTY_FORM = { class_name: '', class_date: '', status: 'OPEN', ring_id: '', division_id: '' };
+
 export default function CreateClassForm({
   showId, showStartDate, showEndDate, rings, divisions,
 }: {
@@ -16,18 +18,19 @@ export default function CreateClassForm({
   divisions: Division[];
 }) {
   const router = useRouter();
-  const [form, setForm] = useState({
-    class_name: '',
-    class_date: '',
-    status: 'OPEN',
-    ring_id: '',
-    division_id: '',
-  });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleCancel = () => {
+    setOpen(false);
+    setForm(EMPTY_FORM);
+    setError(null);
   };
 
   const handleSubmit = async () => {
@@ -52,15 +55,29 @@ export default function CreateClassForm({
     setSaving(false);
     if (res.ok) {
       router.refresh();
-      setForm({ class_name: '', class_date: '', status: 'OPEN', ring_id: '', division_id: '' });
+      setOpen(false);
+      setForm(EMPTY_FORM);
     } else {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to create class.');
     }
   };
 
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="px-4 py-2 rounded text-sm font-medium"
+        style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+      >
+        + Create New Class
+      </button>
+    );
+  }
+
   return (
-    <div className="border rounded-lg p-4 space-y-3">
+    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+      <h3 className="font-semibold text-sm" style={{ color: '#2c1810' }}>Create New Class</h3>
       <div className="flex gap-3">
         <input name="class_name" placeholder="Class name *" value={form.class_name} onChange={handleChange}
           className="flex-1 border rounded px-3 py-2" />
@@ -106,10 +123,17 @@ export default function CreateClassForm({
       )}
       <p className="text-xs" style={{ color: '#8b7355' }}>Class number is assigned automatically based on schedule order. Add association codes after creating.</p>
       {error && <p className="text-red-600 text-sm">{error}</p>}
-      <button onClick={handleSubmit} disabled={saving}
-        className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-        {saving ? 'Adding…' : 'Add Class'}
-      </button>
+      <div className="flex gap-2">
+        <button onClick={handleSubmit} disabled={saving}
+          className="px-5 py-2 rounded text-sm font-medium disabled:opacity-50"
+          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
+          {saving ? 'Adding…' : 'Add Class'}
+        </button>
+        <button onClick={handleCancel} disabled={saving}
+          className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

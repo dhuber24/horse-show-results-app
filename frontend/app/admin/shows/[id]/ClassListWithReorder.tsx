@@ -1,8 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
+
 import EditClassCard from './EditClassCard';
+
+function formatClassDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  });
+}
 
 interface ShowType { id: string; code: string; name: string; }
 interface Ring { id: string; name: string; }
@@ -105,42 +113,59 @@ export default function ClassListWithReorder({
               ref={provided.innerRef}
               className="space-y-2"
             >
-              {ordered.map((cls, index) => (
-                <Draggable key={cls.id} draggableId={cls.id} index={index}>
-                  {(provided, snapshot) => (
-                    <li
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      className="flex gap-1 items-start"
-                      style={{
-                        ...provided.draggableProps.style,
-                        opacity: snapshot.isDragging ? 0.85 : 1,
-                      }}
-                    >
-                      <div
-                        {...provided.dragHandleProps}
-                        className="pt-3.5 px-1 shrink-0 cursor-grab active:cursor-grabbing select-none"
-                        title="Drag to reorder"
-                        style={{ color: '#c9a96e' }}
-                      >
-                        ⠿
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <EditClassCard
-                          cls={cls}
-                          position={index + 1}
-                          showId={showId}
-                          showStartDate={showStartDate}
-                          showEndDate={showEndDate}
-                          showTypes={showTypes}
-                          rings={rings}
-                          divisions={divisions}
-                        />
-                      </div>
-                    </li>
-                  )}
-                </Draggable>
-              ))}
+              {ordered.map((cls, index) => {
+                const showDateHeader = index === 0 || ordered[index - 1].class_date !== cls.class_date;
+                return (
+                  <Fragment key={cls.id}>
+                    {showDateHeader && (
+                      <li className={`${index > 0 ? 'pt-4' : ''} pb-1 select-none pointer-events-none`}>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-px" style={{ backgroundColor: '#e8d5b7' }} />
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                            style={{ color: '#8b4513', backgroundColor: '#f0e8d8' }}>
+                            {formatClassDate(cls.class_date)}
+                          </span>
+                          <div className="flex-1 h-px" style={{ backgroundColor: '#e8d5b7' }} />
+                        </div>
+                      </li>
+                    )}
+                    <Draggable draggableId={cls.id} index={index}>
+                      {(provided, snapshot) => (
+                        <li
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          className="flex gap-1 items-start"
+                          style={{
+                            ...provided.draggableProps.style,
+                            opacity: snapshot.isDragging ? 0.85 : 1,
+                          }}
+                        >
+                          <div
+                            {...provided.dragHandleProps}
+                            className="pt-3.5 px-1 shrink-0 cursor-grab active:cursor-grabbing select-none"
+                            title="Drag to reorder"
+                            style={{ color: '#c9a96e' }}
+                          >
+                            ⠿
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <EditClassCard
+                              cls={cls}
+                              position={index + 1}
+                              showId={showId}
+                              showStartDate={showStartDate}
+                              showEndDate={showEndDate}
+                              showTypes={showTypes}
+                              rings={rings}
+                              divisions={divisions}
+                            />
+                          </div>
+                        </li>
+                      )}
+                    </Draggable>
+                  </Fragment>
+                );
+              })}
               {provided.placeholder}
             </ul>
           )}
