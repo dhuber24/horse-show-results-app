@@ -2,61 +2,86 @@
 
 A browser-based application for ranch and western pleasure horse shows.
 
-## What this app does
-- Exhibitors sign up for classes
-- Show office assigns back numbers
-- Official scorekeepers manually enter placings
-- Results are published live
+## What This App Does
 
-## What this app does NOT do
-- No judging
-- No maneuver scoring
-- No penalties
-- No rule enforcement
+- Manages shows, classes, entries, exhibitors, horses, and show staff.
+- Assigns show-level back numbers.
+- Lets authorized scorekeepers manually enter placings.
+- Publishes results live.
+- Supports APHA-specific class import/export and certification checks.
 
-Placings entered by the show office are final.
+## What This App Does Not Do
+
+- No judging.
+- No maneuver scoring.
+- No penalty calculations.
+- No rule enforcement.
+
+Placings entered by authorized show staff are final, with audit history for result changes.
 
 ## Supported Associations
-- AQHA (American Quarter Horse Association)
-- APHA (American Paint Horse Association)
-- WSCA (Western States Cutting Association)
-- NSBA (National Snaffle Bit Association)
-- ARHA (American Ranch Horse Association)
-- ApHC (Appaloosa Horse Club)
-- FQHR (Foundation Quarter Horse Registry)
-- OPEN (Open / Unaffiliated)
+
+- AQHA - American Quarter Horse Association
+- APHA - American Paint Horse Association
+- WSCA - Western States Cutting Association
+- NSBA - National Snaffle Bit Association
+- ApHC - Appaloosa Horse Club
+- FQHR - Foundation Quarter Horse Registry
+- OPEN - Open / Unaffiliated
 
 ## Roles
-- **Admin** — full system access, show setup, user management
-- **Show Secretary** — manages assigned shows and scorekeepers
-- **Scorekeeper** — enters placings for assigned shows
-- **Exhibitor** — views personal entries and results
+
+- `ADMIN`: full system access.
+- `SHOW_MANAGER`: requests and manages hosted shows.
+- `SHOW_SECRETARY`: manages assigned shows, entries, classes, back numbers, and result administration.
+- `SCOREKEEPER`: enters placings for assigned shows.
+- `EXHIBITOR`: views own entries/results and manages profile/horses.
+
+Show Secretary and Show Manager accounts are currently auto-approved. Show Manager show hosting requests require admin approval before a draft show is created.
 
 ## Tech Stack
-- Backend: FastAPI (Python)
-- Frontend: Next.js (PWA)
-- Database: PostgreSQL (Neon cloud)
-- Deployment: Docker + GitHub Codespaces
 
-## Security
-- Show Secretary registration requires admin approval before login
-- Per-show authorization for secretaries managing rings/divisions/classes
-- Input validation on all user-controlled API endpoints
-- File upload validation via magic-byte detection (not client Content-Type)
-- Audit trail for result changes with user attribution
-- PII endpoints require authentication
-
-## Status
-🔨 Active Development
+- Backend: FastAPI
+- Frontend: Next.js PWA
+- Database: PostgreSQL on Neon
+- Local runtime: Docker Compose
 
 ## Getting Started
-```bash
-# Copy and fill in your environment variables (DATABASE_URL, INTERNAL_API_KEY, NEXTAUTH_SECRET)
-cp .env.example .env
 
-docker-compose up
-# Frontend: http://localhost:3000
-# Backend:  http://localhost:8000
+Copy and fill in environment variables:
+
+```bash
+cp .env.example .env
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for full project documentation.
+Required values include:
+
+- `DATABASE_URL`
+- `INTERNAL_API_KEY`
+- `NEXTAUTH_SECRET`
+
+Start the app:
+
+```bash
+docker-compose up
+```
+
+Local services:
+
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8000
+
+## Documentation
+
+- AI/developer orientation: [Claude.md](Claude.md)
+- Architecture: [docs/architecture.md](docs/architecture.md)
+- Auth and roles: [docs/auth.md](docs/auth.md)
+- Database and migrations: [docs/database.md](docs/database.md)
+- Frontend conventions: [docs/frontend.md](docs/frontend.md)
+- Show workflow: [docs/show-workflow.md](docs/show-workflow.md)
+- APHA behavior: [docs/apha.md](docs/apha.md)
+- Historical improvements: [IMPROVEMENTS.md](IMPROVEMENTS.md)
+
+## Status
+
+Active development.

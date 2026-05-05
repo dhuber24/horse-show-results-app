@@ -1,1 +1,2 @@
-- [Neon Database Setup](project_neon_db.md) — Cloud PostgreSQL on Neon, migration runner, how to connect locally vs Codespace
+- [Neon Database Setup](project_neon_db.md) - Cloud PostgreSQL on Neon, migration runner, how to connect locally vs Codespace
+
