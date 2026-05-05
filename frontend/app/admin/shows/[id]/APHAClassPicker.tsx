@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { getShowDates } from './showDateUtils';
 
 interface StandardClass {
   code: string;
@@ -22,6 +23,7 @@ export default function APHAClassPicker({
   existingAphaCodes: string[];
 }) {
   const router = useRouter();
+  const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
   const [open, setOpen] = useState(false);
   const [allClasses, setAllClasses] = useState<StandardClass[]>([]);
   const [divisions, setDivisions] = useState<string[]>([]);
@@ -212,14 +214,15 @@ export default function APHAClassPicker({
           <div className="flex gap-4 flex-wrap items-end">
             <div>
               <label className="block text-xs mb-1" style={{ color: '#8b7355' }}>Class date *</label>
-              <input
-                type="date"
+              <select
                 value={classDate}
-                min={showStartDate}
-                max={showEndDate}
                 onChange={(e) => setClassDate(e.target.value)}
                 className="border rounded px-3 py-1.5 text-sm"
-              />
+              >
+                {showDates.map((d) => (
+                  <option key={d.value} value={d.value}>{d.label}</option>
+                ))}
+              </select>
             </div>
             <button
               onClick={handleAdd}

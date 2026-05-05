@@ -25,6 +25,18 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession):
     return show
 
 
+async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
+    result = await db.execute(
+        select(Class)
+        .where(Class.show_id == show_id)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+    for i, cls in enumerate(result.scalars().all(), start=1):
+        cls.sort_order = i
+        cls.class_number = str(i)
+    await db.commit()
+
+
 @router.get("/")
 async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
@@ -37,7 +49,7 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(Class, placed_subq.label("placed_count"))
         .where(Class.show_id == show_id)
-        .order_by(Class.sort_order.nullslast(), Class.class_number)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
     )
     return [
         {**ClassOut.model_validate(cls).model_dump(), "placed_count": placed_count}
@@ -77,6 +89,7 @@ async def create_class(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "A class with this number already exists in this show")
+    await _renumber_classes(show_id, db)
     await db.refresh(class_)
     return class_
 
@@ -140,6 +153,7 @@ async def delete_class(
         raise HTTPException(404, "Class not found")
     await db.delete(class_)
     await db.commit()
+    await _renumber_classes(show_id, db)
 
 
 # ── Bulk Class Import from APHA Standard Classes ────────────────────────────────
@@ -228,6 +242,7 @@ async def bulk_create_classes(
         await db.rollback()
         raise HTTPException(409, "One or more class numbers already exist in this show")
 
+    await _renumber_classes(show_id, db)
     created_ids = [cls.id for cls in created]
     result = await db.execute(
         select(Class)

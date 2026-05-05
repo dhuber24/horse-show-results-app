@@ -40,6 +40,19 @@ const scoringTile = (showId: string) => ({
   icon: '🏆',
 });
 
+type StaffUser = {
+  id: string;
+  full_name: string;
+  email: string;
+  role: string;
+};
+
+type ShowStaffData = {
+  admins: StaffUser[];
+  scorekeepers: StaffUser[];
+  allUsers: StaffUser[];
+};
+
 async function getShowStaff(showId: string, headers: Record<string, string>, isAdmin: boolean) {
   const [adminsRes, keepersRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
@@ -65,7 +78,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const isAdmin = user?.role === 'ADMIN';
   const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
-  let staffData = { admins: [], scorekeepers: [], allUsers: [] };
+  let staffData: ShowStaffData = { admins: [], scorekeepers: [], allUsers: [] };
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
     const headers = {

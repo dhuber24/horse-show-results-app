@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { getShowDates } from './showDateUtils';
 
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; }
 
-const EMPTY_FORM = { class_name: '', class_date: '', status: 'OPEN', ring_id: '', division_id: '' };
+const EMPTY_FORM = { class_name: '', class_date: '', ring_id: '', division_id: '' };
 
 export default function CreateClassForm({
   showId, showStartDate, showEndDate, rings, divisions,
@@ -18,6 +19,7 @@ export default function CreateClassForm({
   divisions: Division[];
 }) {
   const router = useRouter();
+  const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -47,7 +49,7 @@ export default function CreateClassForm({
         showId,
         class_name: form.class_name,
         class_date: form.class_date,
-        status: form.status,
+        status: 'OPEN',
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
       }),
@@ -85,15 +87,12 @@ export default function CreateClassForm({
       <div className="flex gap-3">
         <div className="flex-1">
           <label className="text-sm text-gray-500">Class date *</label>
-          <input name="class_date" type="date" min={showStartDate} max={showEndDate} value={form.class_date} onChange={handleChange}
-            className="w-full border rounded px-3 py-2" />
-        </div>
-        <div className="flex-1">
-          <label className="text-sm text-gray-500">Status</label>
-          <select name="status" value={form.status} onChange={handleChange}
+          <select name="class_date" value={form.class_date} onChange={handleChange}
             className="w-full border rounded px-3 py-2">
-            <option value="OPEN">Open</option>
-            <option value="CLOSED">Closed</option>
+            <option value="">Select a date…</option>
+            {showDates.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
           </select>
         </div>
       </div>

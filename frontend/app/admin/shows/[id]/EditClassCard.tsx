@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { getShowDates } from './showDateUtils';
 
 interface ShowType { id: string; code: string; name: string; }
 interface Ring { id: string; name: string; }
@@ -40,11 +41,11 @@ export default function EditClassCard({
   divisions: Division[];
 }) {
   const router = useRouter();
+  const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     class_name: cls.class_name,
     class_date: cls.class_date,
-    status: cls.status,
     ring_id: cls.ring_id ?? '',
     division_id: cls.division_id ?? '',
   });
@@ -62,7 +63,6 @@ export default function EditClassCard({
   const isDirty =
     form.class_name !== cls.class_name ||
     form.class_date !== cls.class_date ||
-    form.status !== cls.status ||
     (form.ring_id || null) !== cls.ring_id ||
     (form.division_id || null) !== cls.division_id;
 
@@ -85,7 +85,6 @@ export default function EditClassCard({
         classId: cls.id,
         class_name: form.class_name,
         class_date: form.class_date,
-        status: form.status,
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
       }),
@@ -121,7 +120,6 @@ export default function EditClassCard({
     setForm({
       class_name: cls.class_name,
       class_date: cls.class_date,
-      status: cls.status,
       ring_id: cls.ring_id ?? '',
       division_id: cls.division_id ?? '',
     });
@@ -225,16 +223,11 @@ export default function EditClassCard({
       <div className="flex gap-3">
         <div className="flex-1">
           <label className="text-sm text-gray-500">Class date</label>
-          <input name="class_date" type="date" min={showStartDate} max={showEndDate}
-            value={form.class_date} onChange={handleChange}
-            className="w-full border rounded px-3 py-2" />
-        </div>
-        <div className="flex-1">
-          <label className="text-sm text-gray-500">Status</label>
-          <select name="status" value={form.status} onChange={handleChange}
+          <select name="class_date" value={form.class_date} onChange={handleChange}
             className="w-full border rounded px-3 py-2">
-            <option value="OPEN">Open</option>
-            <option value="CLOSED">Closed</option>
+            {showDates.map((d) => (
+              <option key={d.value} value={d.value}>{d.label}</option>
+            ))}
           </select>
         </div>
       </div>

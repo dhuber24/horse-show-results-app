@@ -1,15 +1,17 @@
 import Link from 'next/link';
 import { fetchHorse, fetchBreeds, fetchHorseColors, fetchShowTypes, fetchHorseRegistrations, fetchExhibitors } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import EditHorseForm from './EditHorseForm';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function AdminHorsePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const headers = await getAuthHeaders();
   const [horse, breeds, colors, exhibitors, showTypes, registrations] = await Promise.all([
-    fetchHorse(id),
+    fetchHorse(id, headers || undefined),
     fetchBreeds(),
     fetchHorseColors(),
-    fetchExhibitors(),
+    fetchExhibitors(headers || undefined),
     fetchShowTypes(),
     fetchHorseRegistrations(id),
   ]);

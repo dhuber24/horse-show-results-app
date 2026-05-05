@@ -15,6 +15,14 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
   ]);
 
   const isApha = show.show_type_code === 'APHA';
+
+  // Only expose show types that are relevant to this show (primary + affiliations)
+  const validShowTypeIds = new Set([
+    show.show_type_id,
+    ...(show.affiliations ?? []).map((a: any) => a.show_type_id),
+  ]);
+  const relevantShowTypes = showTypes.filter((st: any) => validShowTypeIds.has(st.id));
+
   const existingAphaCodes = isApha
     ? classes.flatMap((c: any) =>
         (c.associations ?? [])
@@ -59,7 +67,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
             showId={id}
             showStartDate={show.start_date}
             showEndDate={show.end_date}
-            showTypes={showTypes}
+            showTypes={relevantShowTypes}
             rings={rings}
             divisions={divisions}
           />

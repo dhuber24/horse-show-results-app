@@ -231,6 +231,8 @@ class Horse(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
+    owner_name = Column(Text, nullable=True)
+    trainer_name = Column(Text, nullable=True)
     foaling_date = Column(Date, nullable=True)
     sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
     breed_id = Column(UUID(as_uuid=True), ForeignKey("breeds.id"), nullable=True)
@@ -264,6 +266,7 @@ class Exhibitor(Base):
     user = relationship("User", back_populates="exhibitor")
     entries = relationship("Entry", back_populates="exhibitor")
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="exhibitor", cascade="all, delete")
+    registrations = relationship("ExhibitorRegistration", back_populates="exhibitor", cascade="all, delete")
 
 
 class ExhibitorHorse(Base):
@@ -278,6 +281,21 @@ class ExhibitorHorse(Base):
 
     exhibitor = relationship("Exhibitor", back_populates="exhibitor_horses")
     horse = relationship("Horse", back_populates="exhibitor_horses")
+
+
+class ExhibitorRegistration(Base):
+    __tablename__ = "exhibitor_registrations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    member_number = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("exhibitor_id", "show_type_id"),)
+
+    exhibitor = relationship("Exhibitor", back_populates="registrations")
+    show_type = relationship("ShowType")
 
 
 class HorseRegistration(Base):

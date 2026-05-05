@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import HorseDocuments from '@/components/HorseDocuments';
@@ -10,11 +10,14 @@ interface HorseColor { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
 interface ShowType { id: string; code: string; name: string; }
 interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
+interface Rider { exhibitor_id: string; full_name: string; }
 
 interface Horse {
   id: string;
   name: string;
   owner_exhibitor_id: string | null;
+  owner_name: string | null;
+  trainer_name: string | null;
   foaling_date: string | null;
   sex: string | null;
   breed_id: string | null;
@@ -39,6 +42,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [form, setForm] = useState({
     name: horse.name,
     owner_exhibitor_id: horse.owner_exhibitor_id ?? '',
+    owner_name: horse.owner_name ?? '',
+    trainer_name: horse.trainer_name ?? '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
     breed_id: horse.breed_id ?? '',
@@ -56,6 +61,19 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [regError, setRegError] = useState<string | null>(null);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
 
+  const [riders, setRiders] = useState<Rider[]>([]);
+  const [newRiderId, setNewRiderId] = useState('');
+  const [addingRider, setAddingRider] = useState(false);
+  const [riderError, setRiderError] = useState<string | null>(null);
+  const [confirmRemoveRiderId, setConfirmRemoveRiderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/horses/${horse.id}/riders`)
+      .then((r) => r.json())
+      .then(setRiders)
+      .catch(() => {});
+  }, [horse.id]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -67,6 +85,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     const body: Record<string, unknown> = {
       name: form.name.trim(),
       owner_exhibitor_id: form.owner_exhibitor_id || null,
+      owner_name: form.owner_name.trim() || null,
+      trainer_name: form.trainer_name.trim() || null,
       sex: form.sex || null,
       foaling_date: form.foaling_date || null,
       breed_id: form.breed_id || null,
@@ -131,10 +151,43 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     }
   };
 
+  const handleAddRider = async () => {
+    if (!newRiderId) { setRiderError('Select an exhibitor to add as a rider.'); return; }
+    setAddingRider(true);
+    setRiderError(null);
+    const res = await fetch(`/api/horses/${horse.id}/riders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exhibitor_id: newRiderId }),
+    });
+    setAddingRider(false);
+    if (res.ok) {
+      const created = await res.json();
+      setRiders((prev) => [...prev, created]);
+      setNewRiderId('');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setRiderError(err.detail ?? 'Failed to add rider.');
+    }
+  };
+
+  const handleRemoveRider = async (exhibitorId: string) => {
+    const res = await fetch(`/api/horses/${horse.id}/riders/${exhibitorId}`, { method: 'DELETE' });
+    if (res.ok) {
+      setRiders((prev) => prev.filter((r) => r.exhibitor_id !== exhibitorId));
+      setConfirmRemoveRiderId(null);
+    } else {
+      setRiderError('Failed to remove rider.');
+    }
+  };
+
   const usedShowTypeIds = new Set(registrations.map((r) => r.show_type_id));
   const availableShowTypes = showTypes.filter(
     (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
   );
+
+  const riderExhibitorIds = new Set(riders.map((r) => r.exhibitor_id));
+  const availableRiderExhibitors = exhibitors.filter((e) => !riderExhibitorIds.has(e.id));
 
   const displayAge = form.foaling_date
     ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear())
@@ -146,7 +199,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
+          <div className="sm:col-span-2">
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
             <input
               name="name"
@@ -156,14 +209,37 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
             />
           </div>
           <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner (Exhibitor)</label>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
+            <input
+              name="owner_name"
+              value={form.owner_name}
+              onChange={handleChange}
+              placeholder="Owner name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <input
+              name="trainer_name"
+              value={form.trainer_name}
+              onChange={handleChange}
+              placeholder="Trainer name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
+              Exhibitor Account
+              <span className="ml-1 font-normal text-xs" style={{ color: '#a89070' }}>(links horse to an exhibitor's My Horses)</span>
+            </label>
             <select
               name="owner_exhibitor_id"
               value={form.owner_exhibitor_id}
               onChange={handleChange}
               className="w-full border rounded px-3 py-2"
             >
-              <option value="">— Not specified —</option>
+              <option value="">— Not linked —</option>
               {exhibitors.map((e) => (
                 <option key={e.id} value={e.id}>{e.full_name}</option>
               ))}
@@ -250,6 +326,77 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
             onCancel={() => setConfirmDelete(false)}
           />
         )}
+      </div>
+
+      {/* Riders */}
+      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
+
+        {riders.length > 0 ? (
+          <ul className="space-y-2">
+            {riders.map((r) => (
+              <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+                <span className="text-sm" style={{ color: '#2c1810' }}>{r.full_name}</span>
+                <div className="flex items-center gap-2 ml-4 shrink-0">
+                  {confirmRemoveRiderId === r.exhibitor_id ? (
+                    <>
+                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {r.full_name}?</span>
+                      <button
+                        onClick={() => handleRemoveRider(r.exhibitor_id)}
+                        className="text-xs text-red-600 hover:underline"
+                      >
+                        Yes, remove
+                      </button>
+                      <button
+                        onClick={() => setConfirmRemoveRiderId(null)}
+                        className="text-xs hover:underline"
+                        style={{ color: '#8b7355' }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm" style={{ color: '#8b7355' }}>No riders assigned.</p>
+        )}
+
+        {availableRiderExhibitors.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-end pt-1">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
+              <select
+                value={newRiderId}
+                onChange={(e) => setNewRiderId(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">Select exhibitor…</option>
+                {availableRiderExhibitors.map((e) => (
+                  <option key={e.id} value={e.id}>{e.full_name}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleAddRider}
+              disabled={addingRider}
+              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              {addingRider ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        )}
+        {riderError && <p className="text-red-600 text-sm">{riderError}</p>}
       </div>
 
       {/* Association Registrations */}

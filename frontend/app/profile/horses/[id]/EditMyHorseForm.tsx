@@ -8,9 +8,12 @@ interface HorseColor { id: string; name: string; }
 interface ShowType { id: string; code: string; name: string; }
 interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
 
+interface Rider { exhibitor_id: string; full_name: string; }
+
 interface Horse {
   id: string;
   name: string;
+  trainer_name: string | null;
   sex: string | null;
   foaling_date: string | null;
   breed_id: string | null;
@@ -30,6 +33,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
+    trainer_name: horse.trainer_name ?? '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
     breed_id: horse.breed_id ?? '',
@@ -39,6 +43,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [riders, setRiders] = useState<Rider[]>([]);
 
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [colors, setColors] = useState<HorseColor[]>([]);
@@ -52,7 +57,8 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
     fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
     fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
-  }, []);
+    fetch(`/api/horses/${horse.id}/riders`).then((r) => r.json()).then(setRiders).catch(() => {});
+  }, [horse.id]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -68,6 +74,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
+        trainer_name: form.trainer_name.trim() || null,
         sex: form.sex || null,
         foaling_date: form.foaling_date || null,
         breed_id: form.breed_id || null,
@@ -138,6 +145,16 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
               className="w-full border rounded px-3 py-2"
             />
           </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <input
+              name="trainer_name"
+              value={form.trainer_name}
+              onChange={handleChange}
+              placeholder="Trainer name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
             <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
@@ -202,6 +219,20 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
+
+      {/* Riders (read-only — managed by show office) */}
+      {riders.length > 0 && (
+        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896' }}>
+          <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
+          <ul className="space-y-2">
+            {riders.map((r) => (
+              <li key={r.exhibitor_id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>
+                {r.full_name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Association Registrations */}
       <div className="rounded-lg border p-5 space-y-4" style={{ borderColor: '#d4b896' }}>

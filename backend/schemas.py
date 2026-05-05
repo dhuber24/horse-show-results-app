@@ -359,6 +359,8 @@ class HorseRegistrationOut(BaseModel):
 class HorseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
+    owner_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
@@ -368,6 +370,8 @@ class HorseCreate(BaseModel):
 class HorseUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
+    owner_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
@@ -379,6 +383,7 @@ class HorseOut(BaseModel):
     name: str
     owner_exhibitor_id: Optional[UUID] = None
     owner_name: Optional[str] = None
+    trainer_name: Optional[str] = None
     foaling_date: Optional[date] = None
     sex: Optional[str] = None
     breed_id: Optional[UUID] = None
@@ -397,12 +402,12 @@ class HorseOut(BaseModel):
         foaling_date = getattr(v, 'foaling_date', None)
         breed = getattr(v, 'breed', None)
         color = getattr(v, 'color', None)
-        owner_exhibitor = getattr(v, 'owner_exhibitor', None)
         data = {
             'id': v.id,
             'name': v.name,
             'owner_exhibitor_id': v.owner_exhibitor_id,
-            'owner_name': owner_exhibitor.full_name if owner_exhibitor else None,
+            'owner_name': getattr(v, 'owner_name', None),
+            'trainer_name': getattr(v, 'trainer_name', None),
             'foaling_date': foaling_date,
             'sex': v.sex,
             'breed_id': v.breed_id,
@@ -419,6 +424,28 @@ class HorseOut(BaseModel):
     class Config:
         from_attributes = True
 
+class HorseRiderOut(BaseModel):
+    exhibitor_id: UUID
+    full_name: str
+
+class HorseRiderCreate(BaseModel):
+    exhibitor_id: UUID
+
+
+# ── Exhibitor Registrations ───────────────────────────────────────────────────
+
+class ExhibitorRegistrationCreate(BaseModel):
+    show_type_id: UUID
+    member_number: str = Field(min_length=1, max_length=50)
+
+class ExhibitorRegistrationOut(BaseModel):
+    id: UUID
+    show_type_id: UUID
+    show_type_code: str
+    show_type_name: str
+    member_number: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 # ── Exhibitors ────────────────────────────────────────────────────────────────
 

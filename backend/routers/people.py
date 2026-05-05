@@ -10,12 +10,14 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
-from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration
+from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration
 from schemas import (
     UserCreate, UserOut,
     HorseCreate, HorseUpdate, HorseOut,
     HorseRegistrationCreate, HorseRegistrationOut,
+    HorseRiderOut, HorseRiderCreate,
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
+    ExhibitorRegistrationCreate, ExhibitorRegistrationOut,
 )
 
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
@@ -226,7 +228,7 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
 
 horses_router = APIRouter(prefix="/horses", tags=["Horses"])
 
-_horse_options = [selectinload(Horse.breed), selectinload(Horse.color), selectinload(Horse.owner_exhibitor)]
+_horse_options = [selectinload(Horse.breed), selectinload(Horse.color)]
 
 
 async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
@@ -238,7 +240,7 @@ async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSe
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
         raise HTTPException(403, "You can only modify your own horses")
 
-@horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin)])
+@horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_horses(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -361,6 +363,69 @@ async def delete_horse_registration(
     await db.commit()
 
 
+
+# ── Horse Riders ────────────────────────────────────────────────────────────────
+
+@horses_router.get("/{horse_id}/riders", response_model=list[HorseRiderOut], dependencies=[Depends(require_api_key)])
+async def list_horse_riders(horse_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ExhibitorHorse)
+        .options(selectinload(ExhibitorHorse.exhibitor))
+        .where(ExhibitorHorse.horse_id == horse_id)
+        .order_by(ExhibitorHorse.created_at)
+    )
+    rows = result.scalars().all()
+    return [HorseRiderOut(exhibitor_id=r.exhibitor_id, full_name=r.exhibitor.full_name) for r in rows]
+
+@horses_router.post("/{horse_id}/riders", response_model=HorseRiderOut, status_code=201)
+async def add_horse_rider(
+    horse_id: UUID,
+    body: HorseRiderCreate,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    await _check_horse_access(horse, user_id, x_user_role, db)
+    exhibitor = await db.get(Exhibitor, body.exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    link = ExhibitorHorse(horse_id=horse_id, exhibitor_id=body.exhibitor_id)
+    db.add(link)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "This exhibitor is already a rider for this horse")
+    return HorseRiderOut(exhibitor_id=exhibitor.id, full_name=exhibitor.full_name)
+
+@horses_router.delete("/{horse_id}/riders/{exhibitor_id}", status_code=204)
+async def remove_horse_rider(
+    horse_id: UUID,
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    await _check_horse_access(horse, user_id, x_user_role, db)
+    result = await db.execute(
+        select(ExhibitorHorse).where(
+            ExhibitorHorse.horse_id == horse_id,
+            ExhibitorHorse.exhibitor_id == exhibitor_id,
+        )
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(404, "Rider not found")
+    await db.delete(link)
+    await db.commit()
+
+
 # ── Exhibitors ─────────────────────────────────────────────────────────────────
 
 class ExhibitorLink(BaseModel):
@@ -368,7 +433,7 @@ class ExhibitorLink(BaseModel):
 
 exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 
-@exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin)])
+@exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_exhibitors(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -521,4 +586,78 @@ async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db
     if not exhibitor:
         raise HTTPException(404, "Exhibitor not found")
     await db.delete(exhibitor)
+    await db.commit()
+
+
+# ── Exhibitor Registrations ───────────────────────────────────────────────────
+
+def _exhibitor_reg_out(reg: ExhibitorRegistration) -> ExhibitorRegistrationOut:
+    return ExhibitorRegistrationOut(
+        id=reg.id,
+        show_type_id=reg.show_type_id,
+        show_type_code=reg.show_type.code,
+        show_type_name=reg.show_type.name,
+        member_number=reg.member_number,
+    )
+
+async def _check_exhibitor_access(exhibitor_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession):
+    if x_user_role == "ADMIN":
+        return
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor or str(exhibitor.user_id) != x_user_id:
+        raise HTTPException(403, "Access denied")
+
+@exhibitors_router.get("/{exhibitor_id}/registrations", response_model=list[ExhibitorRegistrationOut], dependencies=[Depends(require_api_key)])
+async def list_exhibitor_registrations(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(ExhibitorRegistration)
+        .where(ExhibitorRegistration.exhibitor_id == exhibitor_id)
+        .options(selectinload(ExhibitorRegistration.show_type))
+        .order_by(ExhibitorRegistration.created_at)
+    )
+    return [_exhibitor_reg_out(r) for r in result.scalars().all()]
+
+@exhibitors_router.post("/{exhibitor_id}/registrations", response_model=ExhibitorRegistrationOut, status_code=201)
+async def add_exhibitor_registration(
+    exhibitor_id: UUID,
+    body: ExhibitorRegistrationCreate,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    reg = ExhibitorRegistration(
+        exhibitor_id=exhibitor_id,
+        show_type_id=body.show_type_id,
+        member_number=body.member_number.strip(),
+    )
+    db.add(reg)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Registration for this association already exists")
+    await db.refresh(reg)
+    result = await db.execute(
+        select(ExhibitorRegistration)
+        .where(ExhibitorRegistration.id == reg.id)
+        .options(selectinload(ExhibitorRegistration.show_type))
+    )
+    return _exhibitor_reg_out(result.scalar_one())
+
+@exhibitors_router.delete("/{exhibitor_id}/registrations/{reg_id}", status_code=204)
+async def delete_exhibitor_registration(
+    exhibitor_id: UUID,
+    reg_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    reg = await db.get(ExhibitorRegistration, reg_id)
+    if not reg or reg.exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Registration not found")
+    await db.delete(reg)
     await db.commit()

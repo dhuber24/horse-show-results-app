@@ -8,6 +8,7 @@ interface HorseColor { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
 interface ShowType { id: string; code: string; name: string; }
 interface PendingReg { show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
+interface PendingRider { exhibitor_id: string; full_name: string; }
 
 interface Props {
   breeds: Breed[];
@@ -23,6 +24,8 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
   const [form, setForm] = useState({
     name: '',
     owner_exhibitor_id: '',
+    owner_name: '',
+    trainer_name: '',
     sex: '',
     foaling_date: '',
     breed_id: '',
@@ -31,6 +34,8 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
   });
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
+  const [pendingRiders, setPendingRiders] = useState<PendingRider[]>([]);
+  const [newRiderId, setNewRiderId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [regError, setRegError] = useState<string | null>(null);
@@ -59,6 +64,17 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     setPendingRegs((prev) => prev.filter((r) => r.show_type_id !== show_type_id));
   };
 
+  const handleAddRider = () => {
+    if (!newRiderId) return;
+    const exhibitor = exhibitors.find((e) => e.id === newRiderId)!;
+    setPendingRiders((prev) => [...prev, { exhibitor_id: exhibitor.id, full_name: exhibitor.full_name }]);
+    setNewRiderId('');
+  };
+
+  const handleRemoveRider = (exhibitor_id: string) => {
+    setPendingRiders((prev) => prev.filter((r) => r.exhibitor_id !== exhibitor_id));
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) { setError('Horse name is required.'); return; }
     setSaving(true);
@@ -69,6 +85,8 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
     if (form.owner_exhibitor_id) body.owner_exhibitor_id = form.owner_exhibitor_id;
+    if (form.owner_name.trim()) body.owner_name = form.owner_name.trim();
+    if (form.trainer_name.trim()) body.trainer_name = form.trainer_name.trim();
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.breed_id) body.breed_id = form.breed_id;
@@ -96,6 +114,14 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
       });
     }
 
+    for (const rider of pendingRiders) {
+      await fetch(`/api/horses/${horse.id}/riders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exhibitor_id: rider.exhibitor_id }),
+      });
+    }
+
     router.push(`/admin/horses/${horse.id}`);
   };
 
@@ -103,6 +129,9 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
   const availableShowTypes = showTypes.filter(
     (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
   );
+
+  const pendingRiderIds = new Set(pendingRiders.map((r) => r.exhibitor_id));
+  const availableRiderExhibitors = exhibitors.filter((e) => !pendingRiderIds.has(e.id));
 
   const displayAge = form.foaling_date
     ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear())
@@ -124,10 +153,33 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
               placeholder="Horse name"
             />
           </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
+            <input
+              name="owner_name"
+              value={form.owner_name}
+              onChange={handleChange}
+              placeholder="Owner name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <input
+              name="trainer_name"
+              value={form.trainer_name}
+              onChange={handleChange}
+              placeholder="Trainer name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
           <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner (Exhibitor)</label>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
+              Exhibitor Account
+              <span className="ml-1 font-normal text-xs" style={{ color: '#a89070' }}>(links horse to an exhibitor's My Horses)</span>
+            </label>
             <select name="owner_exhibitor_id" value={form.owner_exhibitor_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">— Not linked —</option>
               {exhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </select>
           </div>
@@ -182,6 +234,54 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
             </label>
           </div>
         </div>
+      </div>
+
+      {/* Riders */}
+      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
+
+        {pendingRiders.length > 0 ? (
+          <ul className="space-y-2">
+            {pendingRiders.map((r) => (
+              <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+                <span className="text-sm" style={{ color: '#2c1810' }}>{r.full_name}</span>
+                <button
+                  onClick={() => handleRemoveRider(r.exhibitor_id)}
+                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm" style={{ color: '#8b7355' }}>No riders added yet.</p>
+        )}
+
+        {availableRiderExhibitors.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-end pt-1">
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
+              <select
+                value={newRiderId}
+                onChange={(e) => setNewRiderId(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">Select exhibitor…</option>
+                {availableRiderExhibitors.map((e) => (
+                  <option key={e.id} value={e.id}>{e.full_name}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleAddRider}
+              className="px-4 py-2 rounded text-sm font-medium"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              Add
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Association Registrations */}
