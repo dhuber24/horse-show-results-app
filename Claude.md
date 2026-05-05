@@ -25,7 +25,6 @@
 - APHA (American Paint Horse Association)
 - WSCA (Western States Cutting Association)
 - NSBA (National Snaffle Bit Association)
-- ARHA (American Ranch Horse Association)
 - ApHC (Appaloosa Horse Club)
 - FQHR (Foundation Quarter Horse Registry)
 - OPEN (Open / Unaffiliated) — no Secretary certification required
@@ -106,7 +105,7 @@ horse-show-results-app/
   - Entries (exhibitor + class registrations)
   - Placings (results with order)
   - Users (with roles)
-  - Associations via `show_types` table (AQHA, APHA, WSCA, NSBA, ARHA, ApHC, FQHR, OPEN)
+  - Associations via `show_types` table (AQHA, APHA, WSCA, NSBA, ApHC, FQHR, OPEN)
   - Classes — competition categories within a show
   - Class Associations — `class_associations` join table: per-association class codes for dual-sanctioned classes (e.g. both an AQHA and NSBA code on the same class)
   - Horses — with foaling date, sex, breed, color, association registrations, and owner (exhibitor FK)
@@ -699,9 +698,12 @@ Applied migrations:
 - `026_show_affiliations` — Creates `show_affiliations(show_id, show_type_id)` composite-PK join table for secondary affiliations offered in select classes of a show (e.g. NSBA points at an AQHA show)
 - `027_new_show_types` — Seeds NRHA (National Reining Horse Association), NCHA (National Cutting Horse Association), NRCHA (National Reined Cow Horse Association) into `show_types`
 - `028_drop_class_number_unique` — Drops `uq_show_class_number` constraint; class numbers are now auto-assigned from sort position so the constraint is redundant and blocks reorder operations
+- `029_remove_show_types` — Deletes ARHA, NRHA, NCHA, NRCHA from `show_types`; cascades to `show_affiliations`, `class_associations`, `show_secretary_certifications`, `horse_registrations`, `show_requests`; fails if any show uses one of these as its primary `show_type_id`
+- `030_horse_owner_trainer` — Adds free-text `owner_name` and `trainer_name` columns to `horses`; backfills `owner_name` from the linked owner exhibitor
+- `031_exhibitor_registrations` — Creates `exhibitor_registrations` table for per-association exhibitor membership numbers with a unique `(exhibitor_id, show_type_id)` constraint
 
 Data seeded directly (not via migration file):
-- show_types: NSBA, WSCA, ARHA, ApHC, FQHR added via INSERT
+- show_types: NSBA, WSCA, ApHC, FQHR added via INSERT; ARHA added via INSERT but removed by migration 029
 - cert_org_users: APHA-certified show management personnel imported directly into Neon (no migration file); column `Org` uses capital O
 
 ### Testing
