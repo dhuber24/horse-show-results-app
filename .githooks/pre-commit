@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(git rev-parse --show-toplevel)"
+script_path="$repo_root/scripts/check-docs-updated.ps1"
+
+run_with_pwsh() {
+  pwsh -NoProfile -ExecutionPolicy Bypass -File "$script_path"
+}
+
+run_with_windows_powershell() {
+  windows_script_path="$script_path"
+  if command -v cygpath >/dev/null 2>&1; then
+    windows_script_path="$(cygpath -w "$script_path")"
+  fi
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$windows_script_path"
+}
+
+if command -v pwsh >/dev/null 2>&1; then
+  run_with_pwsh
+elif command -v powershell.exe >/dev/null 2>&1; then
+  run_with_windows_powershell
+else
+  echo "Documentation guard could not find pwsh or powershell.exe." >&2
+  echo "Install PowerShell, or bypass once with DOCS_CHECK_BYPASS=1 git commit ..." >&2
+  exit 1
+fi

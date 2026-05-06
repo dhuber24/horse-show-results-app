@@ -136,6 +136,12 @@ Apply migrations on Windows:
 powershell -ExecutionPolicy Bypass -File database/migrate.ps1
 ```
 
+Run the documentation guard manually:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
+```
+
 ## Project Conventions
 
 - Prefer existing router, schema, and component patterns over new abstractions.
@@ -147,6 +153,7 @@ powershell -ExecutionPolicy Bypass -File database/migrate.ps1
 - Admin pages use `Breadcrumbs`.
 - Destructive UI actions use inline confirmation, not modal overlays.
 - Disabled buttons should include a `title` explaining why they are disabled.
+- The pre-commit documentation guard blocks staged implementation changes unless related docs are staged too. Bypass once with `DOCS_CHECK_BYPASS=1` only for changes with no documentation impact.
 
 ## Sharp Edges
 
@@ -161,4 +168,3 @@ powershell -ExecutionPolicy Bypass -File database/migrate.ps1
 ## Current Status
 
 Active development. Core user management, show setup, class/entry management, back numbers, scorekeeper placing entry, exhibitor dashboard/profile, show requests, APHA class import/export, and horse document workflows are present.
-

@@ -33,6 +33,24 @@ Thank you for contributing! This document provides guidelines for working on thi
 
 ## Development Workflow
 
+### Documentation Guard
+
+This repo uses a versioned pre-commit hook in `.githooks/pre-commit`. The hook runs `scripts/check-docs-updated.ps1` and blocks commits that stage implementation, database, runtime, or frontend files without also staging a documentation update.
+
+Install the hook path once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+When behavior, setup, schema, workflow, or architecture changes, update the relevant docs in `Claude.md`, `README.md`, `docs/`, `database/README.md`, or `frontend/README.md`.
+
+For changes with no documentation impact, bypass one commit:
+
+```bash
+DOCS_CHECK_BYPASS=1 git commit -m "..."
+```
+
 ### Creating a Feature Branch
 
 ```bash
