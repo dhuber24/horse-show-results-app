@@ -1,0 +1,123 @@
+name: Docs Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-doc-updates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce documentation updates
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          fi
+
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            BASE_SHA="$(git rev-list --max-parents=0 "$HEAD_SHA")"
+          fi
+
+          mapfile -t CHANGED < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$HEAD_SHA")
+
+          if [[ "${#CHANGED[@]}" -eq 0 ]]; then
+            echo "No changed files in range."
+            exit 0
+          fi
+
+          is_doc_file() {
+            local f="$1"
+            [[ "$f" =~ ^Claude\.md$ ]] && return 0
+            [[ "$f" =~ ^README\.md$ ]] && return 0
+            [[ "$f" =~ ^CONTRIBUTING\.md$ ]] && return 0
+            [[ "$f" =~ ^IMPROVEMENTS\.md$ ]] && return 0
+            [[ "$f" =~ ^docs/ ]] && return 0
+            [[ "$f" =~ ^database/README\.md$ ]] && return 0
+            [[ "$f" =~ ^database/seeds/README\.md$ ]] && return 0
+            [[ "$f" =~ ^frontend/README\.md$ ]] && return 0
+            [[ "$f" =~ ^frontend/CLAUDE\.md$ ]] && return 0
+            [[ "$f" =~ ^frontend/AGENTS\.md$ ]] && return 0
+            [[ "$f" =~ ^\.claude/memory/.*\.md$ ]] && return 0
+            [[ "$f" =~ ^\.github/agents/.*\.md$ ]] && return 0
+            return 1
+          }
+
+          is_watched_file() {
+            local f="$1"
+            [[ "$f" =~ ^backend/ ]] && return 0
+            [[ "$f" =~ ^database/migrations/ ]] && return 0
+            [[ "$f" =~ ^database/schema\.sql$ ]] && return 0
+            [[ "$f" =~ ^database/seed\.sql$ ]] && return 0
+            [[ "$f" =~ ^database/seeds/.*\.sql$ ]] && return 0
+            [[ "$f" =~ ^docker-compose\.yml$ ]] && return 0
+            [[ "$f" =~ ^\.env\.example$ ]] && return 0
+            [[ "$f" =~ ^RUN_TESTS\.sh$ ]] && return 0
+            [[ "$f" =~ ^frontend/app/ ]] && return 0
+            [[ "$f" =~ ^frontend/components/ ]] && return 0
+            [[ "$f" =~ ^frontend/lib/ ]] && return 0
+            [[ "$f" =~ ^frontend/types/ ]] && return 0
+            [[ "$f" =~ ^frontend/auth\.ts$ ]] && return 0
+            [[ "$f" =~ ^frontend/proxy\.ts$ ]] && return 0
+            [[ "$f" =~ ^frontend/package\.json$ ]] && return 0
+            [[ "$f" =~ ^frontend/package-lock\.json$ ]] && return 0
+            [[ "$f" =~ ^frontend/next\.config\.mjs$ ]] && return 0
+            [[ "$f" =~ ^frontend/tsconfig\.json$ ]] && return 0
+            [[ "$f" =~ ^frontend/eslint\.config\.mjs$ ]] && return 0
+            [[ "$f" =~ ^frontend/postcss\.config\.mjs$ ]] && return 0
+            [[ "$f" =~ ^frontend/public/manifest\.json$ ]] && return 0
+            return 1
+          }
+
+          DOC_COUNT=0
+          WATCHED_COUNT=0
+          WATCHED_LIST=()
+
+          for file in "${CHANGED[@]}"; do
+            if is_doc_file "$file"; then
+              DOC_COUNT=$((DOC_COUNT + 1))
+            fi
+            if is_watched_file "$file"; then
+              WATCHED_COUNT=$((WATCHED_COUNT + 1))
+              WATCHED_LIST+=("$file")
+            fi
+          done
+
+          if [[ "$WATCHED_COUNT" -eq 0 || "$DOC_COUNT" -gt 0 ]]; then
+            echo "Docs guard passed."
+            exit 0
+          fi
+
+          echo "Documentation guard failed: implementation files changed without documentation updates."
+          echo
+          echo "Watched changed files:"
+          for file in "${WATCHED_LIST[@]}"; do
+            echo "  - $file"
+          done
+          echo
+          echo "Update one of:"
+          echo "  - Claude.md"
+          echo "  - README.md"
+          echo "  - docs/*.md"
+          echo "  - database/README.md or database/seeds/README.md"
+          echo "  - frontend/README.md or frontend/CLAUDE.md"
+          exit 1
+
