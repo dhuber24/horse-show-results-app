@@ -42,6 +42,12 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/dashboard` | Exhibitor entries dashboard |
 | `/profile` | User profile and exhibitor horse list |
 | `/profile/horses/[id]` | Exhibitor horse editing and documents |
+| `/api/exhibitors/me` | Resolve exhibitor profile from signed-in user |
+| `/api/exhibitors/[id]/registrations` | Exhibitor association registration CRUD proxy |
+| `/api/exhibitors/[id]/documents` | Exhibitor document CRUD proxy |
+| `/api/exhibitors/[id]/created-horses` | Horses created by exhibitor |
+| `/api/exhibitors/[id]/linked-horses` | Non-owner horse links for exhibitor |
+| `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list |
 | `/admin` | Admin landing |
 | `/admin/shows` | Admin/manager/secretary show list |
 | `/admin/shows/[id]` | Show management dashboard |
@@ -65,3 +71,8 @@ npm run build
 
 `npm run lint` may need adjustment if the Next.js lint command changes; verify against the installed Next.js version before assuming older APIs.
 
+## Exhibitor Profile Enhancements
+
+- `MyHorsesPanel` now supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
+- `ExhibitorDocuments` component is shared for exhibitor-level document management.
+- `ExhibitorRegistrations` component is shared for exhibitor membership numbers by association.

@@ -232,13 +232,14 @@ _horse_options = [selectinload(Horse.breed), selectinload(Horse.color)]
 
 
 async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
-    """Raises 403 if caller is not ADMIN and doesn't own this horse."""
+    """Raises 403 if caller is not ADMIN and is not the owner of this horse.
+    Only the registered owner (an exhibitor) can modify a horse."""
     if role == 'ADMIN':
         return
     result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id)))
     exhibitor = result.scalar_one_or_none()
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
-        raise HTTPException(403, "You can only modify your own horses")
+        raise HTTPException(403, "Only the owner of this horse can modify it")
 
 @horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_horses(
@@ -251,6 +252,38 @@ async def list_horses(
         q = q.limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
+
+@horses_router.get("/registrations/lookup", dependencies=[Depends(require_authenticated)])
+async def lookup_horse_registration(
+    show_type_id: UUID,
+    registration_number: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Find an existing horse by association + registration number.
+    Used by create/edit forms to warn before creating a duplicate.
+    Returns minimal horse info or 404."""
+    number = (registration_number or "").strip()
+    if not number:
+        raise HTTPException(400, "registration_number is required")
+    result = await db.execute(
+        select(HorseRegistration, Horse)
+        .join(Horse, Horse.id == HorseRegistration.horse_id)
+        .where(
+            HorseRegistration.show_type_id == show_type_id,
+            HorseRegistration.registration_number == number,
+        )
+        .limit(1)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(404, "No matching horse")
+    _, horse = row
+    return {
+        "horse_id": str(horse.id),
+        "horse_name": horse.name,
+        "owner_name": horse.owner_name,
+    }
+
 
 @horses_router.post("/", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
@@ -312,6 +345,35 @@ async def list_horse_registrations(horse_id: UUID, db: AsyncSession = Depends(ge
     )
     return result.scalars().all()
 
+
+async def _registration_conflict_message(
+    show_type_id: UUID,
+    registration_number: str,
+    horse_id: UUID,
+    db: AsyncSession,
+) -> str:
+    """After an IntegrityError on horse_registrations, figure out which constraint hit
+    and produce a useful message."""
+    # Same registration number already exists for some horse?
+    result = await db.execute(
+        select(Horse)
+        .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
+        .where(
+            HorseRegistration.show_type_id == show_type_id,
+            HorseRegistration.registration_number == registration_number.strip(),
+        )
+        .limit(1)
+    )
+    other = result.scalar_one_or_none()
+    if other and other.id != horse_id:
+        suffix = f" (owner: {other.owner_name})" if other.owner_name else ""
+        return (
+            f"Registration number {registration_number} is already on file for horse "
+            f"'{other.name}'{suffix}. If this is the same horse, contact your show secretary."
+        )
+    return "This horse already has a registration for that association"
+
+
 @horses_router.post("/{horse_id}/registrations", response_model=HorseRegistrationOut, status_code=201)
 async def create_horse_registration(
     horse_id: UUID,
@@ -324,13 +386,58 @@ async def create_horse_registration(
     if not horse:
         raise HTTPException(404, "Horse not found")
     await _check_horse_access(horse, user_id, x_user_role, db)
-    reg = HorseRegistration(horse_id=horse_id, **body.model_dump())
+    number = body.registration_number.strip()
+
+    # Application-level uniqueness check — runs even if the DB-level UNIQUE
+    # constraint hasn't been applied. Same association+number cannot belong to
+    # two different horses.
+    existing_q = await db.execute(
+        select(HorseRegistration, Horse)
+        .join(Horse, Horse.id == HorseRegistration.horse_id)
+        .where(
+            HorseRegistration.show_type_id == body.show_type_id,
+            HorseRegistration.registration_number == number,
+        )
+        .limit(1)
+    )
+    existing_row = existing_q.first()
+    if existing_row:
+        _, other_horse = existing_row
+        if other_horse.id != horse_id:
+            suffix = f" (owner: {other_horse.owner_name})" if other_horse.owner_name else ""
+            raise HTTPException(
+                409,
+                f"Registration number {number} is already on file for horse "
+                f"'{other_horse.name}'{suffix}. If this is the same horse, contact your show secretary.",
+            )
+        # Same horse already has this exact registration
+        raise HTTPException(409, "This horse already has that registration")
+
+    # Per-horse uniqueness on (horse_id, show_type_id) — one number per horse per association
+    same_assoc_q = await db.execute(
+        select(HorseRegistration).where(
+            HorseRegistration.horse_id == horse_id,
+            HorseRegistration.show_type_id == body.show_type_id,
+        )
+    )
+    if same_assoc_q.scalar_one_or_none():
+        raise HTTPException(409, "This horse already has a registration for that association")
+
+    reg = HorseRegistration(
+        horse_id=horse_id,
+        show_type_id=body.show_type_id,
+        registration_number=number,
+    )
     db.add(reg)
     try:
         await db.commit()
     except IntegrityError:
+        # Race-condition safety net (concurrent insert won the application check)
         await db.rollback()
-        raise HTTPException(409, "This horse already has a registration for that association")
+        msg = await _registration_conflict_message(
+            body.show_type_id, body.registration_number, horse_id, db
+        )
+        raise HTTPException(409, msg)
     result = await db.execute(
         select(HorseRegistration)
         .options(selectinload(HorseRegistration.show_type))
@@ -453,6 +560,29 @@ async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Dep
     await db.refresh(exhibitor)
     return exhibitor
 
+@exhibitors_router.post("/me", response_model=ExhibitorOut, status_code=201)
+async def create_my_exhibitor_profile(
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create the exhibitor record for the calling EXHIBITOR user if one doesn't exist yet."""
+    if x_user_role != "EXHIBITOR":
+        raise HTTPException(403, "Only EXHIBITOR accounts can use this endpoint")
+    uid = safe_uuid(user_id)
+    existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == uid))
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, "Exhibitor profile already exists")
+    user = await db.get(User, uid)
+    if not user:
+        raise HTTPException(404, "User not found")
+    exhibitor = Exhibitor(user_id=uid, full_name=user.full_name)
+    db.add(exhibitor)
+    await db.commit()
+    await db.refresh(exhibitor)
+    return exhibitor
+
+
 @exhibitors_router.get("/by-user/{user_id}", response_model=ExhibitorOut, dependencies=[Depends(require_api_key)])
 async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user_id))
@@ -541,6 +671,148 @@ async def remove_owned_horse(
         raise HTTPException(404, "Horse not found in your profile")
     horse.owner_exhibitor_id = None
     await db.commit()
+
+@exhibitors_router.get("/{exhibitor_id}/created-horses", response_model=list[HorseOut])
+async def get_exhibitor_created_horses(
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Horses created by this exhibitor (they manage the profile regardless of ownership)."""
+    result = await db.execute(
+        select(Horse).options(*_horse_options)
+        .where(Horse.created_by_exhibitor_id == exhibitor_id)
+        .order_by(Horse.name)
+    )
+    return result.scalars().all()
+
+
+@exhibitors_router.delete("/{exhibitor_id}/created-horses/{horse_id}", status_code=204)
+async def remove_created_horse_from_profile(
+    exhibitor_id: UUID,
+    horse_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a created horse from the calling exhibitor's profile without deleting the horse.
+    Clears created_by_exhibitor_id (and owner_exhibitor_id if it matches this exhibitor)."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only remove horses from your own profile")
+    horse = await db.get(Horse, horse_id)
+    if not horse or horse.created_by_exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Horse not found on your profile")
+    horse.created_by_exhibitor_id = None
+    if horse.owner_exhibitor_id == exhibitor_id:
+        horse.owner_exhibitor_id = None
+    await db.commit()
+
+
+@exhibitors_router.get("/{exhibitor_id}/my-horses", response_model=list[HorseOut])
+async def get_exhibitor_my_horses(
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """All horses on this exhibitor's profile: created by them OR linked via exhibitor_horses."""
+    from_creator = select(Horse.id).where(Horse.created_by_exhibitor_id == exhibitor_id)
+    from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)
+    combined = union(from_creator, from_link).subquery()
+    result = await db.execute(
+        select(Horse).options(*_horse_options).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
+    )
+    return result.scalars().all()
+
+
+class LinkedHorseAttach(BaseModel):
+    horse_id: UUID
+
+
+@exhibitors_router.post("/{exhibitor_id}/linked-horses", response_model=HorseOut, status_code=201)
+async def link_existing_horse_to_self(
+    exhibitor_id: UUID,
+    body: LinkedHorseAttach,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service: link an existing horse to the calling exhibitor's profile."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only link horses to your own profile")
+    horse = await db.get(Horse, body.horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    link = ExhibitorHorse(exhibitor_id=exhibitor_id, horse_id=body.horse_id)
+    db.add(link)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "This horse is already on your profile")
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == body.horse_id))
+    return result.scalar_one()
+
+
+@exhibitors_router.delete("/{exhibitor_id}/linked-horses/{horse_id}", status_code=204)
+async def unlink_horse_from_self(
+    exhibitor_id: UUID,
+    horse_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Self-service: remove a linked horse from the calling exhibitor's profile.
+    Does not delete the horse — only removes the rider link."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only unlink horses from your own profile")
+    result = await db.execute(
+        select(ExhibitorHorse).where(
+            ExhibitorHorse.exhibitor_id == exhibitor_id,
+            ExhibitorHorse.horse_id == horse_id,
+        )
+    )
+    link = result.scalar_one_or_none()
+    if not link:
+        raise HTTPException(404, "Horse is not linked to your profile")
+    await db.delete(link)
+    await db.commit()
+
+
+@exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=HorseOut, status_code=201)
+async def create_horse_for_exhibitor(
+    exhibitor_id: UUID,
+    body: HorseCreate,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a horse profile via self-service. The caller must be the owner of the horse —
+    they cannot create a profile for a horse owned by someone else."""
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(403, "You can only create horses for your own profile")
+
+    # Reject any attempt to set a different owner — exhibitors may only register horses they own.
+    if body.owner_exhibitor_id is not None and body.owner_exhibitor_id != exhibitor_id:
+        raise HTTPException(403, "You cannot create a horse you do not own. Only the owner of the horse can register it.")
+
+    horse = Horse(
+        **body.model_dump(exclude={'owner_exhibitor_id'}),
+        created_by_exhibitor_id=exhibitor_id,
+        owner_exhibitor_id=exhibitor_id,
+    )
+    db.add(horse)
+    await db.commit()
+    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
+    return result.scalar_one()
+
 
 @exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
 async def attach_horse_to_exhibitor(exhibitor_id: UUID, body: ExhibitorHorseAttach, db: AsyncSession = Depends(get_db)):

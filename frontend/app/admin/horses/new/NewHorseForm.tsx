@@ -44,17 +44,31 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleAddReg = () => {
+  const handleAddReg = async () => {
     if (!newReg.show_type_id || !newReg.registration_number.trim()) {
       setRegError('Select an association and enter a registration number.');
       return;
     }
+    const trimmed = newReg.registration_number.trim();
     const st = showTypes.find((s) => s.id === newReg.show_type_id)!;
+
+    // Pre-flight: warn if registration number already belongs to another horse
+    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    if (lookupRes.ok) {
+      const existing = await lookupRes.json();
+      const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
+      setRegError(
+        `${st.code} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`
+      );
+      return;
+    }
+
     setPendingRegs((prev) => [...prev, {
       show_type_id: newReg.show_type_id,
       show_type_code: st.code,
       show_type_name: st.name,
-      registration_number: newReg.registration_number.trim(),
+      registration_number: trimmed,
     }]);
     setNewReg({ show_type_id: '', registration_number: '' });
     setRegError(null);
@@ -106,12 +120,25 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
 
     const horse = await res.json();
 
+    const regFailures: string[] = [];
     for (const reg of pendingRegs) {
-      await fetch(`/api/horses/${horse.id}/registrations`, {
+      const regRes = await fetch(`/api/horses/${horse.id}/registrations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ show_type_id: reg.show_type_id, registration_number: reg.registration_number }),
       });
+      if (!regRes.ok) {
+        const err = await regRes.json().catch(() => ({}));
+        regFailures.push(`${reg.show_type_code} #${reg.registration_number}: ${err.detail ?? 'failed to add'}`);
+      }
+    }
+
+    if (regFailures.length > 0) {
+      // Roll back the orphaned horse so the admin can correct and retry
+      await fetch(`/api/horses/${horse.id}`, { method: 'DELETE' });
+      setSaving(false);
+      setError(`Horse not saved: ${regFailures.join('; ')}`);
+      return;
     }
 
     for (const rider of pendingRiders) {

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from typing import Optional, Any, Literal
 from datetime import date, datetime
 from uuid import UUID
@@ -243,6 +243,52 @@ DOC_TYPE_LABELS = {
     'REGISTRATION': 'Registration & Membership',
 }
 
+# ── Exhibitor Documents ──────────────────────────────────────────────────────────
+
+EXHIBITOR_DOC_TYPE_LABELS = {
+    'MEMBERSHIP_CARD': 'Membership Card',
+    'AMATEUR_CARD': 'Amateur Card',
+    'YOUTH_CARD': 'Youth Card',
+    'MEDICAL': 'Medical Documentation',
+    'IDENTIFICATION': 'Identification',
+    'OTHER': 'Other',
+}
+
+class ExhibitorDocumentOut(BaseModel):
+    id: UUID
+    exhibitor_id: UUID
+    document_type: str
+    document_type_label: Optional[str] = None
+    original_filename: str
+    mime_type: str
+    file_size: int
+    issue_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    uploaded_by_user_id: Optional[UUID] = None
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def add_label(cls, v):
+        if isinstance(v, dict):
+            return v
+        return {
+            'id': v.id,
+            'exhibitor_id': v.exhibitor_id,
+            'document_type': v.document_type,
+            'document_type_label': EXHIBITOR_DOC_TYPE_LABELS.get(v.document_type, v.document_type),
+            'original_filename': v.original_filename,
+            'mime_type': v.mime_type,
+            'file_size': v.file_size,
+            'issue_date': v.issue_date,
+            'expiry_date': v.expiry_date,
+            'uploaded_by_user_id': v.uploaded_by_user_id,
+            'created_at': v.created_at,
+        }
+
+    class Config:
+        from_attributes = True
+
 class HorseDocumentOut(BaseModel):
     id: UUID
     horse_id: UUID
@@ -382,6 +428,7 @@ class HorseOut(BaseModel):
     id: UUID
     name: str
     owner_exhibitor_id: Optional[UUID] = None
+    created_by_exhibitor_id: Optional[UUID] = None
     owner_name: Optional[str] = None
     trainer_name: Optional[str] = None
     foaling_date: Optional[date] = None
@@ -406,6 +453,7 @@ class HorseOut(BaseModel):
             'id': v.id,
             'name': v.name,
             'owner_exhibitor_id': v.owner_exhibitor_id,
+            'created_by_exhibitor_id': getattr(v, 'created_by_exhibitor_id', None),
             'owner_name': getattr(v, 'owner_name', None),
             'trainer_name': getattr(v, 'trainer_name', None),
             'foaling_date': foaling_date,

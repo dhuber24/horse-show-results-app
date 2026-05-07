@@ -15,6 +15,14 @@ interface Horse {
   breed_name: string | null;
   color_name: string | null;
   is_solid_paint_bred: boolean;
+  owner_exhibitor_id: string | null;
+  created_by_exhibitor_id: string | null;
+}
+
+interface LookupMatch {
+  horse_id: string;
+  horse_name: string;
+  owner_name: string | null;
 }
 
 interface Props {
@@ -23,15 +31,13 @@ interface Props {
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
-const emptyForm = { name: '', sex: '', foaling_date: '', breed_id: '', color_id: '', is_solid_paint_bred: false };
+const emptyForm = { name: '', owner_name: '', trainer_name: '', sex: '', foaling_date: '', breed_id: '', color_id: '', is_solid_paint_bred: false };
 
 export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [horses, setHorses] = useState<Horse[]>(initialHorses);
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [breeds, setBreeds] = useState<Breed[]>([]);
@@ -41,6 +47,16 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
   const [regError, setRegError] = useState<string | null>(null);
+
+  // "Find existing horse" search panel state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchInput, setSearchInput] = useState({ show_type_id: '', registration_number: '' });
+  const [searching, setSearching] = useState(false);
+  const [searchResult, setSearchResult] = useState<LookupMatch | null>(null);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+  const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
@@ -52,17 +68,32 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleAddReg = () => {
+  const handleAddReg = async () => {
     if (!newReg.show_type_id || !newReg.registration_number.trim()) {
       setRegError('Select an association and enter a registration number.');
       return;
     }
+    const trimmed = newReg.registration_number.trim();
     const st = showTypes.find((s) => s.id === newReg.show_type_id)!;
+
+    // Check if this registration number is already on file for another horse
+    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    if (lookupRes.ok) {
+      const existing = await lookupRes.json();
+      const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
+      setRegError(
+        `${st.code} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}. ` +
+        `If this is the same horse, contact your show secretary.`
+      );
+      return;
+    }
+
     setPendingRegs((prev) => [...prev, {
       show_type_id: newReg.show_type_id,
       show_type_code: st.code,
       show_type_name: st.name,
-      registration_number: newReg.registration_number.trim(),
+      registration_number: trimmed,
     }]);
     setNewReg({ show_type_id: '', registration_number: '' });
     setRegError(null);
@@ -80,13 +111,16 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     const body: Record<string, unknown> = {
       name: form.name.trim(),
       is_solid_paint_bred: form.is_solid_paint_bred,
+      owner_exhibitor_id: exhibitorId,
     };
+    if (form.owner_name.trim()) body.owner_name = form.owner_name.trim();
+    if (form.trainer_name.trim()) body.trainer_name = form.trainer_name.trim();
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.breed_id) body.breed_id = form.breed_id;
     if (form.color_id) body.color_id = form.color_id;
 
-    const res = await fetch(`/api/exhibitors/${exhibitorId}/owned-horses`, {
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/created-horses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -101,28 +135,98 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
     const created = await res.json();
 
+    const regFailures: string[] = [];
     for (const reg of pendingRegs) {
-      await fetch(`/api/horses/${created.id}/registrations`, {
+      const regRes = await fetch(`/api/horses/${created.id}/registrations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ show_type_id: reg.show_type_id, registration_number: reg.registration_number }),
       });
+      if (!regRes.ok) {
+        const err = await regRes.json().catch(() => ({}));
+        regFailures.push(`${reg.show_type_code} #${reg.registration_number}: ${err.detail ?? 'failed to add'}`);
+      }
     }
 
     setSaving(false);
+
+    if (regFailures.length > 0) {
+      // Roll back the orphaned horse so the user can correct and retry
+      await fetch(`/api/exhibitors/${exhibitorId}/created-horses/${created.id}`, { method: 'DELETE' });
+      setError(`Horse not saved: ${regFailures.join('; ')}`);
+      return;
+    }
+
     setHorses((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
     setForm(emptyForm);
     setPendingRegs([]);
     setShowForm(false);
   };
 
-  const handleRemove = async (horseId: string) => {
-    setRemovingId(horseId);
-    const res = await fetch(`/api/exhibitors/${exhibitorId}/owned-horses/${horseId}`, { method: 'DELETE' });
-    setRemovingId(null);
-    if (res.ok) {
-      setHorses((prev) => prev.filter((h) => h.id !== horseId));
+  const handleSearch = async () => {
+    if (!searchInput.show_type_id || !searchInput.registration_number.trim()) {
+      setSearchMessage('Select an association and enter a registration number.');
+      setSearchResult(null);
+      return;
     }
+    setSearching(true);
+    setSearchMessage(null);
+    setSearchResult(null);
+    const qs = new URLSearchParams({
+      show_type_id: searchInput.show_type_id,
+      registration_number: searchInput.registration_number.trim(),
+    });
+    const res = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    setSearching(false);
+
+    if (res.ok) {
+      const match: LookupMatch = await res.json();
+      if (horses.some((h) => h.id === match.horse_id)) {
+        setSearchMessage(`"${match.horse_name}" is already on your profile.`);
+        return;
+      }
+      setSearchResult(match);
+    } else if (res.status === 404) {
+      setSearchMessage('No horse found with that registration. You can create a new profile below.');
+    } else {
+      setSearchMessage('Search failed. Try again.');
+    }
+  };
+
+  const handleLink = async () => {
+    if (!searchResult) return;
+    setLinking(true);
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/linked-horses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ horse_id: searchResult.horse_id }),
+    });
+    setLinking(false);
+    if (res.ok) {
+      const linked: Horse = await res.json();
+      setHorses((prev) => [...prev, linked].sort((a, b) => a.name.localeCompare(b.name)));
+      setSearchResult(null);
+      setSearchInput({ show_type_id: '', registration_number: '' });
+      setSearchMessage(null);
+      setShowSearch(false);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setSearchMessage(err.detail ?? 'Failed to add horse to your profile.');
+    }
+  };
+
+  const handleRemoveFromProfile = async (horse: Horse) => {
+    const isCreator = horse.created_by_exhibitor_id === exhibitorId;
+    const url = isCreator
+      ? `/api/exhibitors/${exhibitorId}/created-horses/${horse.id}`
+      : `/api/exhibitors/${exhibitorId}/linked-horses/${horse.id}`;
+    setUnlinkingId(horse.id);
+    const res = await fetch(url, { method: 'DELETE' });
+    setUnlinkingId(null);
+    if (res.ok || res.status === 204) {
+      setHorses((prev) => prev.filter((h) => h.id !== horse.id));
+    }
+    setConfirmUnlinkId(null);
   };
 
   const usedShowTypeIds = new Set(pendingRegs.map((r) => r.show_type_id));
@@ -130,87 +234,214 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
   );
 
+  const searchableShowTypes = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code));
+
   return (
     <div className="space-y-4">
-      {horses.length === 0 && !showForm ? (
+      {horses.length === 0 && !showForm && !showSearch ? (
         <p className="text-sm" style={{ color: '#8b7355' }}>No horses on your profile yet.</p>
       ) : (
         <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
-          {horses.map((horse) => (
-            <li key={horse.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
-              <div className="flex items-center gap-3">
-                <span className="text-xl">🐴</span>
-                <div>
-                  <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
-                    {horse.name}
-                    {horse.sex && (
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
-                        {horse.sex}
+          {horses.map((horse) => {
+            const isOwner = horse.owner_exhibitor_id === exhibitorId;
+            const isCreator = horse.created_by_exhibitor_id === exhibitorId;
+            const badgeLabel = isOwner ? 'Owner' : isCreator ? 'Created' : 'Linked';
+            const badgeStyle = isOwner
+              ? { backgroundColor: '#fef3c7', color: '#92400e' }
+              : isCreator
+                ? { backgroundColor: '#dcfce7', color: '#166534' }
+                : { backgroundColor: '#e0e7ff', color: '#3730a3' };
+            return (
+              <li key={horse.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">🐴</span>
+                  <div>
+                    <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+                      {horse.name}
+                      {horse.sex && (
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                          {horse.sex}
+                        </span>
+                      )}
+                      {horse.is_solid_paint_bred && (
+                        <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                          SPB
+                        </span>
+                      )}
+                      <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={badgeStyle}>
+                        {badgeLabel}
                       </span>
-                    )}
-                    {horse.is_solid_paint_bred && (
-                      <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
-                        SPB
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs mt-0.5 flex gap-x-2" style={{ color: '#8b7355' }}>
-                    {horse.breed_name && <span>{horse.breed_name}</span>}
-                    {horse.color_name && <span>{horse.color_name}</span>}
-                    {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
+                    </div>
+                    <div className="text-xs mt-0.5 flex gap-x-2" style={{ color: '#8b7355' }}>
+                      {horse.breed_name && <span>{horse.breed_name}</span>}
+                      {horse.color_name && <span>{horse.color_name}</span>}
+                      {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3 ml-4 shrink-0">
-                <Link
-                  href={`/profile/horses/${horse.id}`}
-                  className="text-xs font-medium hover:underline"
-                  style={{ color: '#8b4513' }}
-                >
-                  Edit
-                </Link>
-                <Link
-                  href={`/profile/horses/${horse.id}#documents`}
-                  className="text-xs font-medium hover:underline"
-                  style={{ color: '#8b4513' }}
-                >
-                  Documents
-                </Link>
-                {confirmRemoveId === horse.id ? (
-                  <span className="flex items-center gap-2">
-                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {horse.name}?</span>
-                    <button
-                      onClick={() => { setConfirmRemoveId(null); handleRemove(horse.id); }}
-                      disabled={removingId === horse.id}
-                      className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                <div className="flex items-center gap-3 ml-4 shrink-0">
+                  {isOwner && (
+                    <>
+                      <Link
+                        href={`/profile/horses/${horse.id}`}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: '#8b4513' }}
+                      >
+                        Edit
+                      </Link>
+                      <Link
+                        href={`/profile/horses/${horse.id}#documents`}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: '#8b4513' }}
+                      >
+                        Documents
+                      </Link>
+                    </>
+                  )}
+                  {!isOwner && (
+                    <Link
+                      href={`/profile/horses/${horse.id}`}
+                      className="text-xs font-medium hover:underline"
+                      style={{ color: '#8b4513' }}
                     >
-                      {removingId === horse.id ? 'Removing…' : 'Yes'}
-                    </button>
+                      View
+                    </Link>
+                  )}
+                  {confirmUnlinkId === horse.id ? (
+                    <span className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove from profile?</span>
+                      <button
+                        onClick={() => handleRemoveFromProfile(horse)}
+                        disabled={unlinkingId === horse.id}
+                        className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        {unlinkingId === horse.id ? 'Removing…' : 'Yes'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmUnlinkId(null)}
+                        className="text-xs hover:underline"
+                        style={{ color: '#8b7355' }}
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
                     <button
-                      onClick={() => setConfirmRemoveId(null)}
-                      className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      onClick={() => setConfirmUnlinkId(horse.id)}
+                      className="text-xs text-red-600 hover:text-red-800"
+                      title={isCreator ? 'Remove from profile (horse is kept in the system)' : undefined}
                     >
-                      Cancel
+                      Remove from profile
                     </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => setConfirmRemoveId(horse.id)}
-                    className="text-xs text-red-600 hover:text-red-800"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
+      )}
+
+      {/* Find existing horse */}
+      {showSearch ? (
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
+          <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Find an Existing Horse</h3>
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            If a horse is already in the system, you can add it to your profile by association registration number.
+          </p>
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="flex-1 min-w-[140px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
+              <select
+                value={searchInput.show_type_id}
+                onChange={(e) => setSearchInput((p) => ({ ...p, show_type_id: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">Select…</option>
+                {searchableShowTypes.map((st) => (
+                  <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[140px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
+              <input
+                value={searchInput.registration_number}
+                onChange={(e) => setSearchInput((p) => ({ ...p, registration_number: e.target.value }))}
+                placeholder="e.g. 1234567"
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+            </div>
+            <button
+              onClick={handleSearch}
+              disabled={searching}
+              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            >
+              {searching ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+
+          {searchResult && (
+            <div className="rounded p-3 border" style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}>
+              <p className="text-sm" style={{ color: '#166534' }}>
+                <span className="font-semibold">{searchResult.horse_name}</span>
+                {searchResult.owner_name && <span> — owner: {searchResult.owner_name}</span>}
+              </p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={handleLink}
+                  disabled={linking}
+                  className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
+                  style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
+                >
+                  {linking ? 'Adding…' : 'Add to my profile'}
+                </button>
+                <button
+                  onClick={() => { setSearchResult(null); setSearchMessage(null); }}
+                  className="px-3 py-1.5 rounded text-xs border"
+                  style={{ borderColor: '#d4b896', color: '#8b7355' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {searchMessage && !searchResult && (
+            <p className="text-xs" style={{ color: '#8b4513' }}>{searchMessage}</p>
+          )}
+
+          <div>
+            <button
+              onClick={() => {
+                setShowSearch(false);
+                setSearchInput({ show_type_id: '', registration_number: '' });
+                setSearchResult(null);
+                setSearchMessage(null);
+              }}
+              className="text-xs hover:underline"
+              style={{ color: '#8b7355' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      ) : !showForm && (
+        <button
+          onClick={() => setShowSearch(true)}
+          className="text-sm font-medium hover:underline"
+          style={{ color: '#8b4513' }}
+        >
+          + Find an existing horse
+        </button>
       )}
 
       {showForm ? (
         <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
           <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Add a Horse</h3>
+          <p className="text-xs px-3 py-2 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+            You can only register horses you own. If you don&apos;t own this horse, the registered owner needs to create the profile — you can then link it to your account using the &quot;Find an existing horse&quot; option above.
+          </p>
 
           {/* Core fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -221,6 +452,26 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               onChange={handleChange}
               className="border rounded px-3 py-2 text-sm col-span-full"
             />
+            <div>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Owner Name</label>
+              <input
+                name="owner_name"
+                value={form.owner_name}
+                onChange={handleChange}
+                placeholder="Owner name"
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Trainer Name</label>
+              <input
+                name="trainer_name"
+                value={form.trainer_name}
+                onChange={handleChange}
+                placeholder="Trainer name"
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+            </div>
             <select name="sex" value={form.sex} onChange={handleChange} className="border rounded px-3 py-2 text-sm">
               <option value="">Sex</option>
               <option value="Mare">Mare</option>
@@ -324,7 +575,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               {saving ? 'Saving…' : 'Save Horse'}
             </button>
             <button
-              onClick={() => { setShowForm(false); setForm(emptyForm); setPendingRegs([]); setError(null); setRegError(null); }}
+              onClick={() => { setShowForm(false); setForm(emptyForm); setPendingRegs([]); setError(null); setRegError(null); setNewReg({ show_type_id: '', registration_number: '' }); }}
               className="px-4 py-2 rounded text-sm border"
               style={{ borderColor: '#d4b896', color: '#8b7355' }}
             >
@@ -332,13 +583,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             </button>
           </div>
         </div>
-      ) : (
+      ) : !showSearch && (
         <button
           onClick={() => setShowForm(true)}
           className="text-sm font-medium hover:underline"
           style={{ color: '#8b4513' }}
         >
-          + Add a Horse
+          + Add a new horse
         </button>
       )}
     </div>

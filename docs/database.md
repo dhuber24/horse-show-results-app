@@ -43,6 +43,9 @@ Current migration files:
 | `029_remove_show_types.sql` | Remove ARHA, NRHA, NCHA, NRCHA |
 | `030_horse_owner_trainer.sql` | Horse owner and trainer free-text fields |
 | `031_exhibitor_registrations.sql` | Exhibitor association registrations |
+| `032_exhibitor_documents.sql` | Exhibitor document storage (BYTEA) |
+| `033_horse_created_by.sql` | Track horse creator exhibitor linkage |
+| `034_horse_registration_unique.sql` | Unique registration number per association |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -83,6 +86,7 @@ If a manual migration file is applied outside the runner, also insert its filena
 | `exhibitors` | Exhibitor profile/person records |
 | `exhibitor_horses` | Horses an exhibitor may ride beyond ownership |
 | `exhibitor_registrations` | Exhibitor membership numbers per association |
+| `exhibitor_documents` | Exhibitor-uploaded documents (membership cards, amateur cards, youth cards, medical, ID, other) |
 | `horses` | Horse profile, owner/trainer text, breed/color/registration/document links |
 | `horse_registrations` | Horse registration numbers per association |
 | `horse_documents` | Uploaded documents stored as BYTEA for now |
@@ -95,4 +99,4 @@ If a manual migration file is applied outside the runner, also insert its filena
 - Horse deletion sets `entries.horse_id` to `NULL` to preserve history.
 - Results changes should write audit rows.
 - Horse age is derived from foaling year and current year; it is not stored.
-
+- Horse registration numbers are unique per association across all horses.

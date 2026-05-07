@@ -4,6 +4,8 @@ import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import EditProfileForm from './EditProfileForm';
 import ChangePasswordForm from './ChangePasswordForm';
 import MyHorsesPanel from './MyHorsesPanel';
+import ExhibitorDocuments from '@/components/ExhibitorDocuments';
+import ExhibitorRegistrations from '@/components/ExhibitorRegistrations';
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -19,15 +21,34 @@ export default async function ProfilePage() {
 
   let exhibitor: any = null;
   let horses: any[] = [];
+  let exhibitorDocs: any[] = [];
+  let exhibitorRegs: any[] = [];
 
   if (role === 'EXHIBITOR') {
-    const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { cache: 'no-store' });
+    const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
     const dash = await dashRes.json();
     exhibitor = dash.exhibitor ?? null;
 
+    // Auto-create the exhibitor record on first visit if it doesn't exist yet
+    if (!exhibitor) {
+      const createRes = await fetch(`${API_URL}/exhibitors/me`, {
+        method: 'POST',
+        headers: headers!,
+      });
+      if (createRes.ok) {
+        exhibitor = await createRes.json();
+      }
+    }
+
     if (exhibitor) {
-      const horsesRes = await fetch(`${API_URL}/exhibitors/${exhibitor.id}/owned-horses`, { headers: headers!, cache: 'no-store' });
+      const [horsesRes, docsRes, regsRes] = await Promise.all([
+        fetch(`${API_URL}/exhibitors/${exhibitor.id}/my-horses`, { headers: headers!, cache: 'no-store' }),
+        fetch(`${API_URL}/exhibitors/${exhibitor.id}/documents`, { headers: headers!, cache: 'no-store' }),
+        fetch(`${API_URL}/exhibitors/${exhibitor.id}/registrations`, { headers: headers!, cache: 'no-store' }),
+      ]);
       if (horsesRes.ok) horses = await horsesRes.json();
+      if (docsRes.ok) exhibitorDocs = await docsRes.json();
+      if (regsRes.ok) exhibitorRegs = await regsRes.json();
     }
   }
 
@@ -44,13 +65,37 @@ export default async function ProfilePage() {
         </div>
 
         {role === 'EXHIBITOR' && exhibitor && (
-          <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-            <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>
-            <MyHorsesPanel
-              exhibitorId={exhibitor.id}
-              initialHorses={horses}
-            />
-          </div>
+          <>
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Association Memberships</h2>
+              <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
+                Your membership IDs for each association you compete under.
+              </p>
+              <ExhibitorRegistrations
+                exhibitorId={exhibitor.id}
+                initialRegistrations={exhibitorRegs}
+              />
+            </div>
+
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>My Documents</h2>
+              <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
+                Certifications and documents attached to your exhibitor profile.
+              </p>
+              <ExhibitorDocuments
+                exhibitorId={exhibitor.id}
+                initialDocuments={exhibitorDocs}
+              />
+            </div>
+
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>
+              <MyHorsesPanel
+                exhibitorId={exhibitor.id}
+                initialHorses={horses}
+              />
+            </div>
+          </>
         )}
 
         <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>

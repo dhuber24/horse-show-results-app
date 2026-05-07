@@ -42,6 +42,13 @@ Manual status changes are guarded in `backend/routers/shows.py` and surfaced thr
 - `show_entries` assign one show-level back number per exhibitor per show.
 - Entry-level `back_number` exists for class context and compatibility with existing UI flows.
 
+## Exhibitor Self-Service Flow
+
+- Exhibitors can manage profile identity data through user `me` endpoints.
+- Exhibitors can maintain association membership numbers through exhibitor registration endpoints.
+- Exhibitors can manage exhibitor-level documents (membership card, amateur card, youth card, medical, identification, other).
+- Exhibitors can manage horse relationships across owner-linked horses, created horses, and linked horses.
+
 ## Scorekeeper Flow
 
 1. Scorekeeper opens `/scorekeeper`.
@@ -49,4 +56,3 @@ Manual status changes are guarded in `backend/routers/shows.py` and surfaced thr
 3. On an active show, class cards link to the scorekeeper form.
 4. The scorekeeper form saves manual placings; DQ entries do not receive a place.
 5. Result changes write audit history.
-

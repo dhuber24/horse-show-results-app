@@ -8,16 +8,15 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
-from models import Horse, HorseDocument, Exhibitor
-from schemas import HorseDocumentOut
+from models import Exhibitor, ExhibitorDocument
+from schemas import ExhibitorDocumentOut
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-VALID_DOC_TYPES = {'COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE', 'REGISTRATION'}
+VALID_DOC_TYPES = {'MEMBERSHIP_CARD', 'AMATEUR_CARD', 'YOUTH_CARD', 'MEDICAL', 'IDENTIFICATION', 'OTHER'}
 
 
 def _detect_mime(data: bytes) -> str | None:
-    """Return the MIME type based on magic bytes, ignoring the client-supplied Content-Type."""
     if data[:4] == b'%PDF':
         return 'application/pdf'
     if data[:3] == b'\xff\xd8\xff':
@@ -30,43 +29,39 @@ def _detect_mime(data: bytes) -> str | None:
         return 'image/tiff'
     return None
 
-router = APIRouter(prefix="/horses", tags=["HorseDocuments"])
+
+router = APIRouter(prefix="/exhibitors", tags=["ExhibitorDocuments"])
 
 
-async def _check_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
-    """Raises 403 if the user is not ADMIN and is not the owner of this horse.
-    Only the registered owner can view or manage horse documents."""
+async def _check_access(exhibitor_id: UUID, user_id: str, role: str, db: AsyncSession):
+    """Raises 403 if the user is not ADMIN and the exhibitor is not their own profile."""
     if role == 'ADMIN':
         return
-    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id)))
+    result = await db.execute(select(Exhibitor).where(Exhibitor.id == exhibitor_id))
     exhibitor = result.scalar_one_or_none()
-    if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
-        raise HTTPException(403, "Only the owner of this horse can manage its documents")
+    if not exhibitor or str(exhibitor.user_id) != user_id:
+        raise HTTPException(403, "You can only manage documents for your own profile")
 
 
-@router.get("/{horse_id}/documents", response_model=list[HorseDocumentOut])
-async def list_horse_documents(
-    horse_id: UUID,
+@router.get("/{exhibitor_id}/documents", response_model=list[ExhibitorDocumentOut])
+async def list_exhibitor_documents(
+    exhibitor_id: UUID,
     user_id: str = Depends(require_authenticated),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    horse = await db.get(Horse, horse_id)
-    if not horse:
-        raise HTTPException(404, "Horse not found")
-    await _check_access(horse, user_id, x_user_role, db)
-
+    await _check_access(exhibitor_id, user_id, x_user_role, db)
     result = await db.execute(
-        select(HorseDocument)
-        .where(HorseDocument.horse_id == horse_id)
-        .order_by(HorseDocument.document_type, HorseDocument.created_at)
+        select(ExhibitorDocument)
+        .where(ExhibitorDocument.exhibitor_id == exhibitor_id)
+        .order_by(ExhibitorDocument.document_type, ExhibitorDocument.created_at)
     )
     return result.scalars().all()
 
 
-@router.post("/{horse_id}/documents", response_model=HorseDocumentOut, status_code=201)
-async def upload_horse_document(
-    horse_id: UUID,
+@router.post("/{exhibitor_id}/documents", response_model=ExhibitorDocumentOut, status_code=201)
+async def upload_exhibitor_document(
+    exhibitor_id: UUID,
     file: UploadFile = File(...),
     document_type: str = Form(...),
     issue_date: Optional[str] = Form(None),
@@ -76,12 +71,9 @@ async def upload_horse_document(
     db: AsyncSession = Depends(get_db),
 ):
     if document_type not in VALID_DOC_TYPES:
-        raise HTTPException(400, f"Invalid document type. Must be one of: {', '.join(VALID_DOC_TYPES)}")
+        raise HTTPException(400, f"Invalid document type. Must be one of: {', '.join(sorted(VALID_DOC_TYPES))}")
 
-    horse = await db.get(Horse, horse_id)
-    if not horse:
-        raise HTTPException(404, "Horse not found")
-    await _check_access(horse, user_id, x_user_role, db)
+    await _check_access(exhibitor_id, user_id, x_user_role, db)
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -91,8 +83,8 @@ async def upload_horse_document(
     if mime is None:
         raise HTTPException(400, "Unsupported file type. Upload a PDF or image (JPEG, PNG, WebP, TIFF).")
 
-    doc = HorseDocument(
-        horse_id=horse_id,
+    doc = ExhibitorDocument(
+        exhibitor_id=exhibitor_id,
         document_type=document_type,
         original_filename=file.filename or 'document',
         file_data=content,
@@ -108,21 +100,21 @@ async def upload_horse_document(
     return doc
 
 
-@router.get("/{horse_id}/documents/{doc_id}/download")
-async def download_horse_document(
-    horse_id: UUID,
+@router.get("/{exhibitor_id}/documents/{doc_id}/download")
+async def download_exhibitor_document(
+    exhibitor_id: UUID,
     doc_id: UUID,
     user_id: str = Depends(require_authenticated),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    horse = await db.get(Horse, horse_id)
-    if not horse:
-        raise HTTPException(404, "Horse not found")
-    await _check_access(horse, user_id, x_user_role, db)
+    await _check_access(exhibitor_id, user_id, x_user_role, db)
 
     result = await db.execute(
-        select(HorseDocument).where(HorseDocument.id == doc_id, HorseDocument.horse_id == horse_id)
+        select(ExhibitorDocument).where(
+            ExhibitorDocument.id == doc_id,
+            ExhibitorDocument.exhibitor_id == exhibitor_id,
+        )
     )
     doc = result.scalar_one_or_none()
     if not doc:
@@ -136,21 +128,21 @@ async def download_horse_document(
     )
 
 
-@router.delete("/{horse_id}/documents/{doc_id}", status_code=204)
-async def delete_horse_document(
-    horse_id: UUID,
+@router.delete("/{exhibitor_id}/documents/{doc_id}", status_code=204)
+async def delete_exhibitor_document(
+    exhibitor_id: UUID,
     doc_id: UUID,
     user_id: str = Depends(require_authenticated),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    horse = await db.get(Horse, horse_id)
-    if not horse:
-        raise HTTPException(404, "Horse not found")
-    await _check_access(horse, user_id, x_user_role, db)
+    await _check_access(exhibitor_id, user_id, x_user_role, db)
 
     result = await db.execute(
-        select(HorseDocument).where(HorseDocument.id == doc_id, HorseDocument.horse_id == horse_id)
+        select(ExhibitorDocument).where(
+            ExhibitorDocument.id == doc_id,
+            ExhibitorDocument.exhibitor_id == exhibitor_id,
+        )
     )
     doc = result.scalar_one_or_none()
     if not doc:

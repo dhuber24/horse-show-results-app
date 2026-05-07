@@ -123,12 +123,30 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       setRegError('Select an association and enter a registration number.');
       return;
     }
+    const trimmed = newReg.registration_number.trim();
     setAddingReg(true);
     setRegError(null);
+
+    // Pre-flight: warn if registration number already belongs to a different horse
+    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    if (lookupRes.ok) {
+      const existing = await lookupRes.json();
+      if (existing.horse_id && existing.horse_id !== horse.id) {
+        const st = showTypes.find((s) => s.id === newReg.show_type_id);
+        const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
+        setRegError(
+          `${st?.code ?? 'Registration'} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`
+        );
+        setAddingReg(false);
+        return;
+      }
+    }
+
     const res = await fetch(`/api/horses/${horse.id}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newReg),
+      body: JSON.stringify({ show_type_id: newReg.show_type_id, registration_number: trimmed }),
     });
     setAddingReg(false);
     if (res.ok) {

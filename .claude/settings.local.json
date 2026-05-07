@@ -43,7 +43,11 @@
       "Bash(docker-compose -f \"c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\docker-compose.yml\" logs backend)",
       "Bash(docker-compose -f \"c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\docker-compose.yml\" logs frontend)",
       "Bash(docker-compose -f \"c:\\\\Users\\\\Home-projects\\\\horse-show-results-app\\\\docker-compose.yml\" logs --tail=80)",
-      "Bash(docker-compose -f \"c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\docker-compose.yml\" logs --tail=80)"
+      "Bash(docker-compose -f \"c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\docker-compose.yml\" logs --tail=80)",
+      "Bash(Get-ChildItem -Recurse -Filter \"*.tsx\" -Path \"c:\\\\Projects\\\\horse-show-results-app\\\\frontend\\\\src\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -First 30 FullName)",
+      "Bash(grep -E \"\\\\.tsx?$\")",
+      "Bash(py -m compileall backend)"
     ]
   }
 }

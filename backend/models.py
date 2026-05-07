@@ -231,6 +231,7 @@ class Horse(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
     owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
+    created_by_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     owner_name = Column(Text, nullable=True)
     trainer_name = Column(Text, nullable=True)
     foaling_date = Column(Date, nullable=True)
@@ -247,6 +248,7 @@ class Horse(Base):
     registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")
     documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
     owner_exhibitor = relationship("Exhibitor", foreign_keys=[owner_exhibitor_id])
+    created_by_exhibitor = relationship("Exhibitor", foreign_keys=[created_by_exhibitor_id])
 
 
 class Exhibitor(Base):
@@ -267,6 +269,7 @@ class Exhibitor(Base):
     entries = relationship("Entry", back_populates="exhibitor")
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="exhibitor", cascade="all, delete")
     registrations = relationship("ExhibitorRegistration", back_populates="exhibitor", cascade="all, delete")
+    documents = relationship("ExhibitorDocument", back_populates="exhibitor", cascade="all, delete")
 
 
 class ExhibitorHorse(Base):
@@ -307,7 +310,10 @@ class HorseRegistration(Base):
     registration_number = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("horse_id", "show_type_id"),)
+    __table_args__ = (
+        UniqueConstraint("horse_id", "show_type_id"),
+        UniqueConstraint("show_type_id", "registration_number", name="uq_horse_registrations_show_type_number"),
+    )
 
     horse = relationship("Horse", back_populates="registrations")
     show_type = relationship("ShowType")
@@ -333,6 +339,29 @@ class HorseDocument(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     horse = relationship("Horse", back_populates="documents")
+    uploaded_by = relationship("User")
+
+
+class ExhibitorDocument(Base):
+    __tablename__ = "exhibitor_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
+    document_type = Column(
+        Text,
+        CheckConstraint("document_type IN ('MEMBERSHIP_CARD','AMATEUR_CARD','YOUTH_CARD','MEDICAL','IDENTIFICATION','OTHER')"),
+        nullable=False,
+    )
+    original_filename = Column(Text, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    issue_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    exhibitor = relationship("Exhibitor", back_populates="documents")
     uploaded_by = relationship("User")
 
 

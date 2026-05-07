@@ -13,6 +13,7 @@ interface Rider { exhibitor_id: string; full_name: string; }
 interface Horse {
   id: string;
   name: string;
+  owner_name: string | null;
   trainer_name: string | null;
   sex: string | null;
   foaling_date: string | null;
@@ -25,14 +26,16 @@ interface Horse {
 interface Props {
   horse: Horse;
   registrations: Registration[];
+  isOwner: boolean;
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function EditMyHorseForm({ horse, registrations: initialRegs }: Props) {
+export default function EditMyHorseForm({ horse, registrations: initialRegs, isOwner }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
+    owner_name: horse.owner_name ?? '',
     trainer_name: horse.trainer_name ?? '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
@@ -74,6 +77,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
+        owner_name: form.owner_name.trim() || null,
         trainer_name: form.trainer_name.trim() || null,
         sex: form.sex || null,
         foaling_date: form.foaling_date || null,
@@ -96,12 +100,31 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
       setRegError('Select an association and enter a registration number.');
       return;
     }
+    const trimmed = newReg.registration_number.trim();
     setAddingReg(true);
     setRegError(null);
+
+    // Pre-flight: warn if registration number already belongs to a different horse
+    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    if (lookupRes.ok) {
+      const existing = await lookupRes.json();
+      if (existing.horse_id && existing.horse_id !== horse.id) {
+        const st = showTypes.find((s) => s.id === newReg.show_type_id);
+        const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
+        setRegError(
+          `${st?.code ?? 'Registration'} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}. ` +
+          `If this is the same horse, contact your show secretary.`
+        );
+        setAddingReg(false);
+        return;
+      }
+    }
+
     const res = await fetch(`/api/horses/${horse.id}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newReg),
+      body: JSON.stringify({ show_type_id: newReg.show_type_id, registration_number: trimmed }),
     });
     setAddingReg(false);
     if (res.ok) {
@@ -130,6 +153,57 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
     ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear())
     : horse.age;
 
+  if (!isOwner) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+          <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Owner</dt><dd style={{ color: '#2c1810' }}>{form.owner_name || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Trainer</dt><dd style={{ color: '#2c1810' }}>{form.trainer_name || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sex</dt><dd style={{ color: '#2c1810' }}>{form.sex || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Foaling Date</dt><dd style={{ color: '#2c1810' }}>{form.foaling_date || '—'}{displayAge !== null && displayAge !== undefined ? ` (age ${displayAge})` : ''}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breed</dt><dd style={{ color: '#2c1810' }}>{breeds.find((b) => b.id === form.breed_id)?.name || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Color</dt><dd style={{ color: '#2c1810' }}>{colors.find((c) => c.id === form.color_id)?.name || '—'}</dd></div>
+            {form.is_solid_paint_bred && (
+              <div className="sm:col-span-2"><dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Solid Paint-Bred (SPB)</dd></div>
+            )}
+          </dl>
+        </div>
+
+        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+          <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Association Registrations</h2>
+          {registrations.length > 0 ? (
+            <ul className="space-y-2">
+              {registrations.map((r) => (
+                <li key={r.id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+                  <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span>
+                  <span className="ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
+                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
+          )}
+        </div>
+
+        {riders.length > 0 && (
+          <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896' }}>
+            <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
+            <ul className="space-y-2">
+              {riders.map((r) => (
+                <li key={r.exhibitor_id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>
+                  {r.full_name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Core details */}
@@ -145,8 +219,18 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs }: P
               className="w-full border rounded px-3 py-2"
             />
           </div>
-          <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner Name</label>
+            <input
+              name="owner_name"
+              value={form.owner_name}
+              onChange={handleChange}
+              placeholder="Owner name"
+              className="w-full border rounded px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer Name</label>
             <input
               name="trainer_name"
               value={form.trainer_name}
