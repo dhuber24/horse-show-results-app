@@ -4,6 +4,19 @@ Shows move from setup to publication to scoring and results.
 
 ## Status Lifecycle
 
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: show created
+    DRAFT --> PUBLISHED: manual publish
+    PUBLISHED --> ACTIVE: start_date reached
+    ACTIVE --> COMPLETED: end_date passed
+
+    DRAFT: setup only
+    PUBLISHED: visible and planned
+    ACTIVE: scorekeeping enabled
+    COMPLETED: historical results
+```
+
 | Status | Meaning |
 | --- | --- |
 | `DRAFT` | Setup in progress; hidden from public/exhibitors |
@@ -17,6 +30,8 @@ Backend status automation:
 - `ACTIVE` to `COMPLETED` when today is after `end_date`.
 
 Manual status changes are guarded in `backend/routers/shows.py` and surfaced through `ShowStatusControl.tsx`.
+
+Codex note: when changing show visibility, scorekeeper access, or result entry behavior, check both the status guards in `backend/routers/shows.py` / `backend/routers/results.py` and the frontend controls that hide or disable actions by status.
 
 ## Show Manager Path
 
@@ -41,6 +56,7 @@ Manual status changes are guarded in `backend/routers/shows.py` and surfaced thr
 - `entries` represent a class-level exhibitor/horse registration.
 - `show_entries` assign one show-level back number per exhibitor per show.
 - Entry-level `back_number` exists for class context and compatibility with existing UI flows.
+- A class with `status = "CLOSED"` rejects new entries at the backend (`backend/routers/entries.py::create_entry`); the EditClassCard status toggle is how secretaries close a class.
 
 ## Exhibitor Self-Service Flow
 

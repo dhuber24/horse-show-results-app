@@ -47,7 +47,14 @@
       "Bash(Get-ChildItem -Recurse -Filter \"*.tsx\" -Path \"c:\\\\Projects\\\\horse-show-results-app\\\\frontend\\\\src\" -ErrorAction SilentlyContinue)",
       "Bash(Select-Object -First 30 FullName)",
       "Bash(grep -E \"\\\\.tsx?$\")",
-      "Bash(py -m compileall backend)"
+      "Bash(py -m compileall backend)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\" -Directory)",
+      "Bash(Select-Object Name)",
+      "PowerShell(py -m compileall backend 2>&1)",
+      "PowerShell(python -m compileall backend 2>&1)",
+      "Bash(python3 -m compileall backend)",
+      "Bash(python3.exe -m compileall backend)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

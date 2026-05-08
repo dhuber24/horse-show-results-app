@@ -48,6 +48,7 @@ export default function EditClassCard({
     class_date: cls.class_date,
     ring_id: cls.ring_id ?? '',
     division_id: cls.division_id ?? '',
+    status: cls.status,
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -64,7 +65,8 @@ export default function EditClassCard({
     form.class_name !== cls.class_name ||
     form.class_date !== cls.class_date ||
     (form.ring_id || null) !== cls.ring_id ||
-    (form.division_id || null) !== cls.division_id;
+    (form.division_id || null) !== cls.division_id ||
+    form.status !== cls.status;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -87,6 +89,7 @@ export default function EditClassCard({
         class_date: form.class_date,
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
+        status: form.status,
       }),
     });
     setSaving(false);
@@ -116,12 +119,19 @@ export default function EditClassCard({
     }
   };
 
-  const handleCancel = () => {
+  const handleMinimize = () => {
+    setEditing(false);
+    setConfirmDelete(false);
+    setError(null);
+  };
+
+  const handleDiscard = () => {
     setForm({
       class_name: cls.class_name,
       class_date: cls.class_date,
       ring_id: cls.ring_id ?? '',
       division_id: cls.division_id ?? '',
+      status: cls.status,
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -201,6 +211,9 @@ export default function EditClassCard({
               {a.show_type_code}:{a.association_class_code}
             </span>
           ))}
+          {isDirty && (
+            <span className="text-xs ml-2 italic" style={{ color: '#b45309' }}>· unsaved changes</span>
+          )}
         </div>
         <span className="text-xs px-2 py-1 rounded-full"
           style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
@@ -228,6 +241,14 @@ export default function EditClassCard({
             {showDates.map((d) => (
               <option key={d.value} value={d.value}>{d.label}</option>
             ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Status</label>
+          <select name="status" value={form.status} onChange={handleChange}
+            className="w-full border rounded px-3 py-2">
+            <option value="OPEN">Open</option>
+            <option value="CLOSED">Closed</option>
           </select>
         </div>
       </div>
@@ -297,7 +318,11 @@ export default function EditClassCard({
         ) : (
           <p className="text-xs" style={{ color: '#8b7355' }}>No association codes set.</p>
         )}
-        {availableShowTypes.length > 0 && (
+        {isDirty ? (
+          <p className="text-xs italic" style={{ color: '#b45309' }}>
+            Save class changes before adding association codes.
+          </p>
+        ) : availableShowTypes.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[140px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
@@ -336,7 +361,7 @@ export default function EditClassCard({
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between flex-wrap gap-y-2">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button
             onClick={handleSave}
             disabled={saving || !isDirty}
@@ -345,9 +370,21 @@ export default function EditClassCard({
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={handleCancel} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">
-            Cancel
+          <button
+            onClick={handleMinimize}
+            className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5"
+          >
+            Minimize
           </button>
+          {isDirty && (
+            <button
+              onClick={handleDiscard}
+              className="text-sm hover:underline"
+              style={{ color: '#b45309' }}
+            >
+              Discard changes
+            </button>
+          )}
         </div>
         {confirmDelete ? (
           <div className="flex items-center gap-2">

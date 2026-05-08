@@ -10,6 +10,41 @@ Authentication uses NextAuth credentials on the frontend and bcrypt password ver
 4. NextAuth stores `id` and `role` in the JWT/session.
 5. Authenticated Next route handlers forward `X-User-Id` and `X-User-Role` to FastAPI.
 
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant NextAuth as NextAuth / frontend/auth.ts
+    participant Backend as FastAPI /auth/verify
+    participant DB as Neon PostgreSQL
+
+    Browser->>NextAuth: Submit email/password
+    NextAuth->>Backend: POST /auth/verify
+    Backend->>DB: Load user and password hash
+    DB-->>Backend: User row
+    Backend-->>NextAuth: id, role, approval state
+    NextAuth-->>Browser: Session cookie/JWT
+```
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Route as Next route handler
+    participant Auth as getAuthHeaders()
+    participant Backend as FastAPI guarded endpoint
+    participant Guard as backend/dependencies.py
+
+    Browser->>Route: Authenticated action
+    Route->>Auth: Read server-side session
+    Auth-->>Route: X-API-Key, X-User-Id, X-User-Role
+    Route->>Backend: Forward request with trusted headers
+    Backend->>Guard: Validate API key and role/user headers
+    Guard-->>Backend: Authorized caller
+    Backend-->>Route: Response
+    Route-->>Browser: Preserved status/body
+```
+
+Codex note: browser code should call local `/api/*` routes for authenticated writes. Do not copy `X-User-Id`, `X-User-Role`, or `X-API-Key` handling into client components.
+
 ## Roles
 
 | Role | Purpose |

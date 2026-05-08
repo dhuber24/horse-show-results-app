@@ -44,7 +44,9 @@ async def create_entry(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    await _get_class_or_404(show_id, class_id, db)
+    class_ = await _get_class_or_404(show_id, class_id, db)
+    if class_.status == "CLOSED":
+        raise HTTPException(400, "This class is closed and is not accepting entries")
     if body.apha_division == "OPEN":
         horse = await db.get(Horse, body.horse_id)
         if horse and horse.is_solid_paint_bred:

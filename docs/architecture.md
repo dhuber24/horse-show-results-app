@@ -11,6 +11,30 @@ Horse Show Results is a browser-based system for managing horse show entries, ba
 | Database | PostgreSQL on Neon | Schema, migrations, and seeds in `database/` |
 | Local runtime | Docker Compose | Runs frontend and backend; no local database service |
 
+## System Context
+
+```mermaid
+flowchart LR
+    browser["Browser / PWA"]
+    next["Next.js app\nfrontend/"]
+    nextApi["Next route handlers\nfrontend/app/api/"]
+    auth["NextAuth\nfrontend/auth.ts"]
+    fastapi["FastAPI\nbackend/"]
+    neon["Neon PostgreSQL"]
+
+    browser --> next
+    browser --> nextApi
+    next --> auth
+    nextApi --> auth
+    next --> fastapi
+    nextApi --> fastapi
+    fastapi --> neon
+
+    nextApi -. "X-API-Key\nX-User-Id\nX-User-Role" .-> fastapi
+```
+
+The trust boundary is between browser code and server-side code. Browser components should not create backend auth headers. Next server code and route handlers are the places that attach the internal API key and session-derived user context before calling FastAPI.
+
 ## Request Flow
 
 The frontend uses two styles of backend access:
@@ -25,6 +49,27 @@ Authenticated route handlers call `getAuthHeaders()` from `frontend/lib/backend-
 - `X-User-Role`: current user role from NextAuth
 
 The backend validates those headers in `backend/dependencies.py`.
+
+```mermaid
+flowchart TD
+    publicPage["Public server-rendered page"]
+    authPage["Authenticated server-rendered page"]
+    clientAction["Browser action\nform/client component"]
+    routeHandler["Next route handler\nfrontend/app/api/*"]
+    getAuth["getAuthHeaders()\nfrontend/lib/backend-fetch.ts"]
+    publicBackend["Public FastAPI endpoint"]
+    guardedBackend["Guarded FastAPI endpoint\nbackend/dependencies.py"]
+
+    publicPage --> publicBackend
+    authPage --> getAuth --> guardedBackend
+    clientAction --> routeHandler --> getAuth --> guardedBackend
+```
+
+Use this as the default routing heuristic when adding features:
+
+- Public data can be fetched directly from server-rendered pages when the backend endpoint is public.
+- Authenticated server-rendered pages can call FastAPI directly with `getAuthHeaders()`.
+- Browser-triggered authenticated writes should go through a Next route handler, which attaches trusted headers server-side.
 
 ## Key Entry Points
 

@@ -68,6 +68,40 @@ If a manual migration file is applied outside the runner, also insert its filena
 
 ## Core Entities
 
+```mermaid
+erDiagram
+    users ||--o| exhibitors : "may link to"
+    users ||--o{ show_managers : manages
+    users ||--o{ show_secretaries : secretaries
+    users ||--o{ show_scorekeepers : scores
+
+    venues ||--o{ shows : hosts
+    show_types ||--o{ shows : primary_type
+    shows ||--o{ show_affiliations : has
+    shows ||--o{ classes : schedules
+    shows ||--o{ show_entries : assigns_back_numbers
+    shows ||--o{ show_requests : created_from
+
+    classes ||--o{ class_associations : has_codes
+    classes ||--o{ entries : contains
+    entries ||--o{ results : placed_as
+    results ||--o{ result_audit : records_changes
+
+    exhibitors ||--o{ entries : enters
+    exhibitors ||--o{ show_entries : receives_back_number
+    exhibitors ||--o{ exhibitor_horses : linked_to
+    exhibitors ||--o{ exhibitor_registrations : has
+    exhibitors ||--o{ exhibitor_documents : uploads
+    exhibitors ||--o{ horses : owner_or_creator
+
+    horses ||--o{ entries : competes_in
+    horses ||--o{ horse_registrations : has
+    horses ||--o{ horse_documents : uploads
+    horses ||--o{ exhibitor_horses : extra_riders
+```
+
+This diagram is intentionally a domain map, not a full schema dump. Use it to choose the right feature path, then verify exact columns and constraints in `backend/models.py` and `database/migrations/`.
+
 | Entity | Notes |
 | --- | --- |
 | `show_types` | Association catalog, currently AQHA, APHA, WSCA, NSBA, ApHC, FQHR, OPEN |
