@@ -53,6 +53,21 @@ export default function ClassListWithReorder({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [savedIds, setSavedIds] = useState(() => initialClasses.map((c) => c.id).join(','));
+
+  // Re-sync from server when initialClasses changes (e.g. after a class edit
+  // calls router.refresh()). Preserve a pending drag-reorder when the set of
+  // class IDs is unchanged so the user doesn't lose unsaved order tweaks.
+  useEffect(() => {
+    setOrdered((prev) => {
+      const prevIdSet = new Set(prev.map((c) => c.id));
+      const sameSet =
+        prev.length === initialClasses.length &&
+        initialClasses.every((c) => prevIdSet.has(c.id));
+      if (!sameSet) return initialClasses;
+      const byId = new Map(initialClasses.map((c) => [c.id, c]));
+      return prev.map((c) => byId.get(c.id) ?? c);
+    });
+  }, [initialClasses]);
   const [dragError, setDragError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);

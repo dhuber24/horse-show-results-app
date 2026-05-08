@@ -119,25 +119,65 @@ class ShowOut(BaseModel):
 
 class RingCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+
+class RingUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sort_order: Optional[int] = None
 
 class RingOut(BaseModel):
     id: UUID
     show_id: UUID
     name: str
+    sort_order: Optional[int] = None
+    class_count: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+class RingBulkCreate(BaseModel):
+    names: list[str] = Field(min_length=1)
 
 
 # ── Divisions ──────────────────────────────────────────────────────────────────
 
 class DivisionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+
+class DivisionUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sort_order: Optional[int] = None
 
 class DivisionOut(BaseModel):
     id: UUID
     show_id: UUID
     name: str
+    sort_order: Optional[int] = None
+    class_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class DivisionBulkCreate(BaseModel):
+    names: list[str] = Field(min_length=1)
+
+
+# ── Standard rings & divisions (lookup) ────────────────────────────────────────
+
+class StandardRingOut(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+class StandardDivisionOut(BaseModel):
+    id: UUID
+    show_type_id: Optional[UUID] = None
+    name: str
+    sort_order: int
 
     class Config:
         from_attributes = True
@@ -151,7 +191,6 @@ class ClassCreate(BaseModel):
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
-    apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -159,7 +198,6 @@ class ClassUpdate(BaseModel):
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
-    apha_class_code: Optional[str] = Field(default=None, max_length=20)
 
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
@@ -206,7 +244,6 @@ class ClassOut(BaseModel):
     class_date: date
     status: str
     sort_order: Optional[int] = None
-    apha_class_code: Optional[str] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
 

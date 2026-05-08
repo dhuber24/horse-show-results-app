@@ -54,7 +54,16 @@
       "PowerShell(python -m compileall backend 2>&1)",
       "Bash(python3 -m compileall backend)",
       "Bash(python3.exe -m compileall backend)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "PowerShell(Get-Command python3 -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command -All py,python,python3 -ErrorAction SilentlyContinue)",
+      "Bash(database/.venv/bin/python -m compileall backend)",
+      "Bash(docker compose *)",
+      "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -c \"DELETE FROM _migrations WHERE name LIKE '035%';\")",
+      "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm -v \"${PWD}\\\\database\\\\migrations:/migrations\" postgres:16-alpine psql $psqlUrl -f \"/migrations/035_rings_divisions_setup.sql\")",
+      "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -c \"DROP TABLE IF EXISTS standard_rings; DROP TABLE IF EXISTS standard_divisions;\")",
+      "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -c \"\\\\d rings\" 2>&1 | Select-String -Pattern \"sort_order|column\")",
+      "Bash(curl -s \"http://localhost:8000/shows/65498146-cdc5-49e4-9f9f-a1c6d129d2c0/classes/\" -H \"X-API-Key: test\")"
     ]
   }
 }

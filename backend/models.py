@@ -79,6 +79,7 @@ class Ring(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=True)
 
     show = relationship("Show", back_populates="rings")
     classes = relationship("Class", back_populates="ring")
@@ -90,9 +91,27 @@ class Division(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=True)
 
     show = relationship("Show", back_populates="divisions")
     classes = relationship("Class", back_populates="division")
+
+
+class StandardRing(Base):
+    __tablename__ = "standard_rings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+
+class StandardDivision(Base):
+    __tablename__ = "standard_divisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True)
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
 
 
 class Class(Base):
@@ -106,7 +125,6 @@ class Class(Base):
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="OPEN")
-    apha_class_code = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")

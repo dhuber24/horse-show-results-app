@@ -46,6 +46,7 @@ Current migration files:
 | `032_exhibitor_documents.sql` | Exhibitor document storage (BYTEA) |
 | `033_horse_created_by.sql` | Track horse creator exhibitor linkage |
 | `034_horse_registration_unique.sql` | Unique registration number per association |
+| `035_rings_divisions_setup.sql` | Ring/division `sort_order` columns; `standard_rings` + `standard_divisions` lookup tables |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -109,7 +110,8 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `shows` | Event shell with primary show type, venue, dates, status |
 | `show_affiliations` | Secondary associations available for selected classes |
 | `show_requests` | Show Manager request/approval workflow |
-| `rings` and `divisions` | Optional per-show organization |
+| `rings` and `divisions` | Per-show arenas and class groupings, each with `sort_order` |
+| `standard_rings` and `standard_divisions` | Curated lookup lists used by the show setup picker; `standard_divisions.show_type_id NULL` is the generic fallback set |
 | `classes` | Competition classes; ordered by `sort_order` |
 | `class_associations` | Per-class association codes |
 | `entries` | Exhibitor + horse in a class |

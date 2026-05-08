@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from uuid import UUID
 
 from database import get_db
-from models import Division, Show
-from schemas import DivisionCreate, DivisionOut
+from models import Division, Show, Class
+from schemas import DivisionCreate, DivisionUpdate, DivisionOut, DivisionBulkCreate
 from routers.shows import _assert_show_access
 
 router = APIRouter(prefix="/shows/{show_id}/divisions", tags=["Divisions"])
@@ -18,11 +18,49 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession):
     return show
 
 
+async def _division_with_count(division: Division, db: AsyncSession) -> DivisionOut:
+    count = await db.execute(
+        select(func.count()).select_from(Class).where(Class.division_id == division.id)
+    )
+    return DivisionOut(
+        id=division.id,
+        show_id=division.show_id,
+        name=division.name,
+        sort_order=division.sort_order,
+        class_count=count.scalar_one(),
+    )
+
+
+async def _next_sort_order(show_id: UUID, db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.coalesce(func.max(Division.sort_order), 0)).where(Division.show_id == show_id)
+    )
+    return (result.scalar_one() or 0) + 10
+
+
 @router.get("/", response_model=list[DivisionOut])
 async def list_divisions(show_id: UUID, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
-    result = await db.execute(select(Division).where(Division.show_id == show_id))
-    return result.scalars().all()
+    divs_res = await db.execute(
+        select(Division).where(Division.show_id == show_id).order_by(Division.sort_order.nulls_last(), Division.name)
+    )
+    divs = divs_res.scalars().all()
+    counts_res = await db.execute(
+        select(Class.division_id, func.count())
+        .where(Class.show_id == show_id, Class.division_id.is_not(None))
+        .group_by(Class.division_id)
+    )
+    counts = {row[0]: row[1] for row in counts_res.all()}
+    return [
+        DivisionOut(
+            id=d.id,
+            show_id=d.show_id,
+            name=d.name,
+            sort_order=d.sort_order,
+            class_count=counts.get(d.id, 0),
+        )
+        for d in divs
+    ]
 
 
 @router.post("/", response_model=DivisionOut, status_code=201)
@@ -36,11 +74,67 @@ async def create_division(
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
-    division = Division(show_id=show_id, **body.model_dump())
+    sort_order = body.sort_order if body.sort_order is not None else await _next_sort_order(show_id, db)
+    division = Division(show_id=show_id, name=body.name, sort_order=sort_order)
     db.add(division)
     await db.commit()
     await db.refresh(division)
-    return division
+    return await _division_with_count(division, db)
+
+
+@router.post("/bulk", response_model=list[DivisionOut], status_code=201)
+async def bulk_create_divisions(
+    show_id: UUID,
+    body: DivisionBulkCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    existing_res = await db.execute(select(Division.name).where(Division.show_id == show_id))
+    existing = {row[0] for row in existing_res.all()}
+    sort_order = await _next_sort_order(show_id, db)
+    created: list[Division] = []
+    for raw in body.names:
+        name = raw.strip()
+        if not name or name in existing:
+            continue
+        existing.add(name)
+        division = Division(show_id=show_id, name=name, sort_order=sort_order)
+        sort_order += 10
+        db.add(division)
+        created.append(division)
+    await db.commit()
+    out: list[DivisionOut] = []
+    for d in created:
+        await db.refresh(d)
+        out.append(await _division_with_count(d, db))
+    return out
+
+
+@router.patch("/{division_id}", response_model=DivisionOut)
+async def update_division(
+    show_id: UUID,
+    division_id: UUID,
+    body: DivisionUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    division = await db.get(Division, division_id)
+    if not division or division.show_id != show_id:
+        raise HTTPException(404, "Division not found")
+    if body.name is not None:
+        division.name = body.name
+    if body.sort_order is not None:
+        division.sort_order = body.sort_order
+    await db.commit()
+    await db.refresh(division)
+    return await _division_with_count(division, db)
 
 
 @router.delete("/{division_id}", status_code=204)
@@ -56,5 +150,10 @@ async def delete_division(
     division = await db.get(Division, division_id)
     if not division or division.show_id != show_id:
         raise HTTPException(404, "Division not found")
+    in_use = await db.execute(
+        select(func.count()).select_from(Class).where(Class.division_id == division_id)
+    )
+    if in_use.scalar_one() > 0:
+        raise HTTPException(409, "Division is assigned to one or more classes — reassign or remove those classes first.")
     await db.delete(division)
     await db.commit()

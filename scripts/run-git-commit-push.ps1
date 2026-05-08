@@ -6,10 +6,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 function Run-Git {
-    param([string[]]$Args)
-    & git @Args
+    param([string[]]$GitArgs)
+    & git @GitArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "git $($Args -join ' ') failed with exit code $LASTEXITCODE."
+        throw "git $($GitArgs -join ' ') failed with exit code $LASTEXITCODE."
     }
 }
 
@@ -25,8 +25,8 @@ if ($branch -ne "main") {
     throw "Refusing to push from branch '$branch'. Switch to 'main' or update this script intentionally."
 }
 
-Run-Git @("status", "--short")
-Run-Git @("add", "-A")
+Run-Git -GitArgs @("status", "--short")
+Run-Git -GitArgs @("add", "-A")
 
 $guardScript = Join-Path $repoRoot "scripts/check-docs-updated.ps1"
 if (-not (Test-Path $guardScript)) {
@@ -46,8 +46,8 @@ if (-not $Message -or $Message.Trim() -eq "") {
     throw "Commit message cannot be empty."
 }
 
-Run-Git @("commit", "-m", $Message)
-Run-Git @("push", "origin", "main")
+Run-Git -GitArgs @("commit", "-m", $Message)
+Run-Git -GitArgs @("push", "origin", "main")
 
 Write-Host "Done. Changes committed and pushed to origin/main."
 

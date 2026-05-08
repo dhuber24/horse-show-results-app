@@ -14,6 +14,12 @@ const tiles = (showId: string) => [
     icon: '📝',
   },
   {
+    href: `/admin/shows/${showId}/setup`,
+    title: 'Rings & Divisions',
+    description: 'Configure arenas and class groupings for this show.',
+    icon: '🎪',
+  },
+  {
     href: `/admin/shows/${showId}/classes`,
     title: 'Add / Modify Classes',
     description: 'Create new classes and edit existing ones.',

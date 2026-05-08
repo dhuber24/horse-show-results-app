@@ -47,9 +47,18 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 1. Admin or Show Secretary creates a show directly.
 2. Show is edited while in `DRAFT`.
-3. Classes, entries, staff, and back numbers are configured.
-4. Show is published once it has a venue and at least one class.
-5. Results are entered manually and published immediately.
+3. Rings and divisions are configured at `/admin/shows/[id]/setup` (optional but recommended for multi-arena shows or when you want classes grouped for the schedule).
+4. Classes, entries, staff, and back numbers are configured.
+5. Show is published once it has a venue and at least one class.
+6. Results are entered manually and published immediately.
+
+## Rings And Divisions Setup
+
+- Each show can declare its own list of rings (physical arenas) and divisions (class groupings such as Halter, Western Pleasure, Trail).
+- The setup page at `/admin/shows/[id]/setup` exposes a picker seeded from `standard_rings` and `standard_divisions`. Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set.
+- Class records reference rings and divisions through nullable foreign keys; setup is optional for small shows that only need a flat class list.
+- Rings and divisions cannot be deleted while any class still references them; reassign or delete those classes first (the API returns 409 with a human-readable detail and the UI disables the delete button accordingly).
+- Demographic divisions (Open / Amateur / Youth / SPB) are still tracked per entry via `entries.apha_division`, not at the show-division level. Keep the picker discipline-only.
 
 ## Entries And Back Numbers
 
