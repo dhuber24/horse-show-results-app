@@ -27,6 +27,9 @@ if ($branch -ne "main") {
 
 Run-Git -GitArgs @("status", "--short")
 Run-Git -GitArgs @("add", "-A")
+if (Test-Path ".claude/scheduled_tasks.lock") {
+    Run-Git -GitArgs @("restore", "--staged", "--", ".claude/scheduled_tasks.lock")
+}
 
 $guardScript = Join-Path $repoRoot "scripts/check-docs-updated.ps1"
 if (-not (Test-Path $guardScript)) {
