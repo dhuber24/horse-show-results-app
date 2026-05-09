@@ -1,6 +1,5 @@
 import csv
 import io
-import logging
 from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,6 @@ from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_AP
 from models import Show, ShowAffiliation, ShowSecretary, ShowScorekeeper, ShowManager, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
 from schemas import ShowCreate, ShowUpdate, ShowOut, ShowAffiliationUpdate
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
 
@@ -42,28 +40,6 @@ def _serialize(show: Show) -> dict:
         ],
         "created_at": show.created_at,
     }
-
-
-async def _auto_transition_statuses(db: AsyncSession):
-    """Transition PUBLISHED→ACTIVE on start_date, ACTIVE→COMPLETED after end_date."""
-    try:
-        today = date.today()
-        result = await db.execute(
-            select(Show).where(Show.status.in_(["PUBLISHED", "ACTIVE"]))
-        )
-        changed = False
-        for show in result.scalars().all():
-            if show.status == "PUBLISHED" and today >= show.start_date:
-                show.status = "ACTIVE"
-                changed = True
-            elif show.status == "ACTIVE" and today > show.end_date:
-                show.status = "COMPLETED"
-                changed = True
-        if changed:
-            await db.commit()
-    except Exception:
-        logger.exception("auto_transition_statuses failed")
-        await db.rollback()
 
 
 async def _get_show_with_type(db: AsyncSession, show_id: UUID) -> Show | None:
@@ -205,14 +181,7 @@ async def update_show(
     updates = body.model_dump(exclude_unset=True)
     new_status = updates.get("status")
 
-    # Block status changes if end_date is in the past
-    if new_status is not None and date.today() > show.end_date:
-        raise HTTPException(
-            400,
-            "Cannot change show status: the show's end date is in the past. Update the show dates first.",
-        )
-
-    # Publishing gates
+    # Publishing gates (data integrity)
     if new_status == "PUBLISHED":
         effective_venue_id = updates.get("venue_id", show.venue_id)
         if not effective_venue_id:
@@ -220,6 +189,17 @@ async def update_show(
         class_count = await _count_show_classes(db, show_id)
         if class_count == 0:
             raise HTTPException(400, "Cannot publish: the show must have at least one class before publishing.")
+
+    # In Progress gate: current date must fall within the show's date range
+    if new_status == "ACTIVE":
+        today = date.today()
+        effective_start = updates.get("start_date", show.start_date)
+        effective_end = updates.get("end_date", show.end_date)
+        if not (effective_start <= today <= effective_end):
+            raise HTTPException(
+                400,
+                "Cannot set status to In Progress: the current date is outside the show's date range.",
+            )
 
     for k, v in updates.items():
         setattr(show, k, v)
@@ -252,6 +232,11 @@ async def delete_show(
     show = result.scalar_one_or_none()
     if not show:
         raise HTTPException(404, "Show not found")
+    if show.status != "DRAFT":
+        raise HTTPException(
+            400,
+            "Only shows in DRAFT status can be deleted. Transition the show back to DRAFT first.",
+        )
     await db.delete(show)
     await db.commit()
 
