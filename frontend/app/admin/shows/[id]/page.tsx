@@ -37,6 +37,12 @@ const tiles = (showId: string) => [
     description: 'Assign back numbers to exhibitors for this show.',
     icon: '🔢',
   },
+  {
+    href: `/admin/shows/${showId}/side-pots`,
+    title: 'Side Pots',
+    description: 'Create and manage divisional jackpots.',
+    icon: '💰',
+  },
 ];
 
 const scoringTile = (showId: string) => ({
@@ -120,7 +126,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             showId={id}
             currentStatus={show.status}
             classCount={classes.length}
+            startDate={show.start_date}
             endDate={show.end_date}
+            venueId={show.venue_id ?? null}
           />
         </div>
         {(isAdmin || isShowAdmin) && (

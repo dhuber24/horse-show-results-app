@@ -7,7 +7,15 @@ import { getShowDates } from './showDateUtils';
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; }
 
-const EMPTY_FORM = { class_name: '', class_date: '', ring_id: '', division_id: '' };
+type ScoreType = 'placement' | 'pattern' | 'time';
+
+const EMPTY_FORM: {
+  class_name: string;
+  class_date: string;
+  ring_id: string;
+  division_id: string;
+  score_type: ScoreType;
+} = { class_name: '', class_date: '', ring_id: '', division_id: '', score_type: 'placement' };
 
 export default function CreateClassForm({
   showId, showStartDate, showEndDate, rings, divisions,
@@ -52,6 +60,7 @@ export default function CreateClassForm({
         status: 'OPEN',
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
+        score_type: form.score_type,
       }),
     });
     setSaving(false);
@@ -93,6 +102,16 @@ export default function CreateClassForm({
             {showDates.map((d) => (
               <option key={d.value} value={d.value}>{d.label}</option>
             ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Scoring</label>
+          <select name="score_type" value={form.score_type} onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            title="Placement: judges rank entries (rail, halter). Pattern score: judges score numerically (showmanship, horsemanship, trail, reining). Timed: clocked event (barrels, poles, stakes).">
+            <option value="placement">Placement</option>
+            <option value="pattern">Pattern score</option>
+            <option value="time">Timed</option>
           </select>
         </div>
       </div>

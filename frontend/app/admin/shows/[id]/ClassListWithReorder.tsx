@@ -24,6 +24,7 @@ interface ClassItem {
   class_name: string;
   class_date: string;
   status: string;
+  score_type: 'placement' | 'pattern' | 'time';
   sort_order: number | null;
   ring_id: string | null;
   division_id: string | null;

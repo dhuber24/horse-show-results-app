@@ -63,7 +63,22 @@
       "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm -v \"${PWD}\\\\database\\\\migrations:/migrations\" postgres:16-alpine psql $psqlUrl -f \"/migrations/035_rings_divisions_setup.sql\")",
       "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -c \"DROP TABLE IF EXISTS standard_rings; DROP TABLE IF EXISTS standard_divisions;\")",
       "PowerShell($envFile = \".env\"; if \\(Test-Path $envFile\\) { Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -c \"\\\\d rings\" 2>&1 | Select-String -Pattern \"sort_order|column\")",
-      "Bash(curl -s \"http://localhost:8000/shows/65498146-cdc5-49e4-9f9f-a1c6d129d2c0/classes/\" -H \"X-API-Key: test\")"
+      "Bash(curl -s \"http://localhost:8000/shows/65498146-cdc5-49e4-9f9f-a1c6d129d2c0/classes/\" -H \"X-API-Key: test\")",
+      "Bash(py -m compileall backend/routers/shows.py)",
+      "Bash(py -m compileall backend/schemas.py)",
+      "WebFetch(domain:www.mnsphc.com)",
+      "WebFetch(domain:www.pinto.org)",
+      "WebFetch(domain:wcyouthfair.org)",
+      "WebFetch(domain:apha.com)",
+      "WebFetch(domain:texas4-h.tamu.edu)",
+      "WebFetch(domain:www.equinechronicle.com)",
+      "WebFetch(domain:madbarn.com)",
+      "Bash(py -c \"import models; from routers.side_pots import router as sp; from routers.results import router as r; print\\('Imports clean'\\)\")",
+      "Bash(py -m compileall backend/schemas.py backend/routers/side_pots.py)",
+      "Bash(py -m py_compile schemas.py)",
+      "Bash(py -m py_compile routers/side_pots.py)",
+      "Bash(git diff *)",
+      "Bash(DOCS_CHECK_BYPASS=1 git commit -m ' *)"
     ]
   }
 }

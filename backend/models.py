@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from sqlalchemy import (
     Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
-    TIMESTAMP, UniqueConstraint, CheckConstraint, func
+    TIMESTAMP, UniqueConstraint, CheckConstraint, Numeric, func
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -60,6 +60,7 @@ class Show(Base):
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
+    side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
 
 
 class ShowAffiliation(Base):
@@ -125,6 +126,7 @@ class Class(Base):
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="OPEN")
+    score_type = Column(Text, nullable=False, server_default="placement")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -139,6 +141,9 @@ class Class(Base):
         back_populates="class_",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+    side_pot_classes = relationship(
+        "SidePotClass", back_populates="class_", cascade="all, delete-orphan"
     )
 
 
@@ -418,6 +423,7 @@ class Result(Base):
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=False)
     place = Column(Integer, nullable=False)
+    raw_score = Column(Numeric(10, 3), nullable=True)
     is_tie = Column(Boolean, default=False)
     notes = Column(Text)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -462,6 +468,12 @@ class ShowEntry(Base):
 
     show = relationship("Show", back_populates="show_entries")
     exhibitor = relationship("Exhibitor")
+    side_pot_entries = relationship(
+        "SidePotEntry", back_populates="show_entry", cascade="all, delete-orphan"
+    )
+    side_pot_payouts = relationship(
+        "SidePotPayout", back_populates="show_entry", cascade="all, delete-orphan"
+    )
 
 
 class ShowSecretaryCertification(Base):
@@ -538,3 +550,133 @@ class ShowRequest(Base):
     requested_by = relationship("User", back_populates="show_requests")
     show_type = relationship("ShowType")
     venue = relationship("Venue")
+
+
+class SidePot(Base):
+    __tablename__ = "side_pots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    entry_fee_cents = Column(Integer, nullable=False, server_default="1000")
+    payback_percent = Column(Integer, nullable=False, server_default="100")
+    scoring_method = Column(Text, nullable=False, server_default="sum_placings")
+    eligibility_rule = Column(Text, nullable=False, server_default="all_classes")
+    payout_schedule = Column(JSONB, nullable=False)
+    status = Column(Text, nullable=False, server_default="open")
+    settled_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "scoring_method IN ('sum_placings','sum_scores')",
+            name="ck_side_pots_scoring_method",
+        ),
+        CheckConstraint(
+            "eligibility_rule IN ('all_classes','any_class')",
+            name="ck_side_pots_eligibility_rule",
+        ),
+        CheckConstraint(
+            "status IN ('open','closed','settled')",
+            name="ck_side_pots_status",
+        ),
+        CheckConstraint("entry_fee_cents >= 0", name="ck_side_pots_entry_fee_nonneg"),
+        CheckConstraint(
+            "payback_percent BETWEEN 0 AND 100",
+            name="ck_side_pots_payback_range",
+        ),
+    )
+
+    show = relationship("Show", back_populates="side_pots")
+    pot_classes = relationship(
+        "SidePotClass",
+        back_populates="side_pot",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    pot_entries = relationship(
+        "SidePotEntry",
+        back_populates="side_pot",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    payouts = relationship(
+        "SidePotPayout",
+        back_populates="side_pot",
+        cascade="all, delete-orphan",
+    )
+
+
+class SidePotClass(Base):
+    __tablename__ = "side_pot_classes"
+
+    side_pot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("side_pots.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    class_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    side_pot = relationship("SidePot", back_populates="pot_classes")
+    class_ = relationship("Class", back_populates="side_pot_classes")
+
+
+class SidePotEntry(Base):
+    __tablename__ = "side_pot_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    side_pot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("side_pots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    show_entry_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("show_entries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    paid = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("side_pot_id", "show_entry_id"),)
+
+    side_pot = relationship("SidePot", back_populates="pot_entries")
+    show_entry = relationship("ShowEntry", back_populates="side_pot_entries")
+
+
+class SidePotPayout(Base):
+    __tablename__ = "side_pot_payouts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    side_pot_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("side_pots.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    show_entry_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("show_entries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    place = Column(Integer, nullable=False)
+    payout_cents = Column(Integer, nullable=False, server_default="0")
+    aggregate_value = Column(Numeric(12, 3), nullable=False)
+    tiebreaker_notes = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("side_pot_id", "show_entry_id"),
+        CheckConstraint("place > 0", name="ck_side_pot_payouts_place_positive"),
+        CheckConstraint(
+            "payout_cents >= 0",
+            name="ck_side_pot_payouts_payout_nonneg",
+        ),
+    )
+
+    side_pot = relationship("SidePot", back_populates="payouts")
+    show_entry = relationship("ShowEntry", back_populates="side_pot_payouts")

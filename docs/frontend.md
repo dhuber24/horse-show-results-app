@@ -54,6 +54,8 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/admin/shows/[id]/classes` | Class list, reorder, APHA import |
 | `/admin/shows/[id]/entries` | Entries by class |
 | `/admin/shows/[id]/back-numbers` | Show-level back number assignment |
+| `/admin/shows/[id]/side-pots` | Side pot list, create form |
+| `/admin/shows/[id]/side-pots/[potId]` | Side pot detail: settings, opt-ins, live standings, settle, frozen payouts |
 | `/admin/users` | User management |
 | `/admin/venues` | Venue management |
 | `/admin/show-requests` | Admin show request review |
@@ -76,3 +78,18 @@ npm run build
 - `MyHorsesPanel` now supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
 - `ExhibitorDocuments` component is shared for exhibitor-level document management.
 - `ExhibitorRegistrations` component is shared for exhibitor membership numbers by association.
+
+## Scorekeeper Form Branching
+
+The scorekeeper page at `/shows/[id]/classes/[classId]/scorekeeper` renders one of two forms based on the class's `score_type`:
+
+- `placement` → `ScorekeeperForm.tsx` — manual placing entry with tie/gap detection (default for rail and halter classes).
+- `pattern` or `time` → `ScoredScorekeeperForm.tsx` — numeric score/time input with placings derived live (highest score for `pattern`, lowest time for `time`).
+
+Both forms save via the same `PUT /api/results` route handler; the backend recomputes derived placings server-side for pattern/time classes.
+
+## Side Pot UI
+
+- Side pots live under `/admin/shows/[id]/side-pots`.
+- The class picker in the create/edit form hides ineligible classes when `sum_scores` is selected (only `pattern` and `time` classes qualify).
+- The detail page composes purpose-built sections (Settings, Opt-ins, Standings, Settle, Payouts, Delete) from a single client component for shared state.

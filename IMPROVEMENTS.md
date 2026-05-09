@@ -2,6 +2,39 @@
 
 ## May 2026
 
+### Side Pots and Score-Driven Placings
+
+Substantial feature work added to support divisional jackpots ("side pots") common at multi-association paint/quarter horse shows. Designed against the MNSPHC Grand Paint Classic 2026 show bill.
+
+**Database (migrations 036, 037)**
+- `classes.score_type` enum: `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event). Backfilled to `placement` so existing UX is unchanged.
+- `results.raw_score` numeric column. For `pattern`/`time` classes the scorekeeper enters `raw_score` and the backend recomputes `place` + `is_tie` for every result in the class on every change. For `placement` classes the column stays NULL and the manual placing flow is unchanged.
+- New tables: `side_pots`, `side_pot_classes`, `side_pot_entries`, `side_pot_payouts`. Pot config carries `entry_fee_cents`, `payback_percent`, `scoring_method` (`sum_placings` / `sum_scores`), `eligibility_rule`, JSONB `payout_schedule` keyed by paid-entry-count band, and a one-way `status` (`open` / `closed` / `settled`).
+
+**Backend**
+- `backend/routers/side_pots.py` — full CRUD + opt-ins + live standings + settle + frozen payouts. Settle writes `side_pot_payouts` rows and locks the pot.
+- `backend/routers/results.py` — pattern/time classes recompute `place` server-side; `place`-conflict checks and audit writes scoped to `placement` classes only.
+- Validation: `sum_scores` requires every bundled class to be `score_type IN ('pattern','time')`; settling is one-way; back numbers can be opted into a pot by ID or by typed back number.
+
+**Frontend**
+- `score_type` selector in class create/edit forms; collapsed class card shows a green badge for non-default scoring.
+- Side pot admin pages at `/admin/shows/[id]/side-pots` (list + create) and `/admin/shows/[id]/side-pots/[potId]` (settings, opt-ins, live standings, settle, frozen payouts).
+- New scorekeeper form `ScoredScorekeeperForm.tsx` for `pattern`/`time` classes with raw-score input and live-derived placings; placement classes still use the existing `ScorekeeperForm.tsx`.
+- Side Pots tile (💰) added to the show admin dashboard.
+
+**Design references and research**
+- Show bill: MNSPHC Grand Paint Classic 2026 (3 side pots: Showmanship classes 50–54, Horsemanship classes 138–139 and 140–144).
+- Industry conventions confirmed via APHA Chrome Cash, AQHA pattern scoring, and Pinto World tabulation rules: side pot scoring is producer-driven, pattern classes use 70-baseline numerical scores, rail/halter classes are comparative-only.
+
+**Not yet built (deferred)**
+- Custom payout-schedule editor in the UI (defaults work; backend supports overrides).
+- APHA bulk-import auto-tagging of `score_type` based on standard-class division.
+- Public-facing side pot view for exhibitors/spectators.
+- Public class results page does not yet display `raw_score`.
+- Exhibitor self-service opt-in (secretary-only for now by design).
+
+---
+
 ### 1. Database Migrations 013–019 Applied
 Applied six migrations pulled from the remote repo plus one new migration created locally:
 

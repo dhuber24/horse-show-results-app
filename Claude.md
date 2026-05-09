@@ -79,12 +79,13 @@ New Show Secretary and Show Manager registrations are currently auto-approved. T
 
 - `shows`: event shell with venue, dates, primary association, status, and optional APHA show number.
 - `show_requests`: Show Manager request workflow; approval creates a draft show.
-- `classes`: competition classes, sorted by `sort_order`.
+- `classes`: competition classes, sorted by `sort_order`. `score_type` is `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event).
 - `class_associations`: association-specific codes for a class, useful for dual-sanctioned shows.
 - `entries`: class-level exhibitor/horse registrations.
 - `show_entries`: show-level exhibitor back numbers.
-- `results`: manual placings.
-- `result_audit`: placing change history.
+- `results`: placings. For `pattern`/`time` classes, `raw_score` is the source of truth and `place` is recomputed server-side on every change.
+- `result_audit`: placing change history (placement classes only — derived placings are not audited).
+- `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
 - `users`: login accounts and roles.
 - `exhibitors`: person/profile records, optionally linked to users.
 - `horses`: horse records with owner/trainer text, breed/color, registrations, documents, and APHA SPB flag.
@@ -164,7 +165,10 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 - Deleting a horse preserves entry history by setting `entries.horse_id` to `NULL`.
 - The repo has historical duplicate migration numbering around `024_*`; preserve filenames and ordering behavior.
 - `ConfirmDialog` exists but is no longer the preferred delete pattern.
+- `classes.score_type` defaults to `placement`. APHA bulk-imported classes also default to `placement` and need to be flipped to `pattern` per class today (no auto-tagging yet). Side pots with `sum_scores` only see `pattern`/`time` classes.
+- For `pattern`/`time` classes the scorekeeper enters `raw_score` and the backend recomputes `place` and `is_tie` for every result in the class on insert/update/delete. Audit rows are only written for `placement` classes.
+- Settling a side pot is irreversible — `status` flips to `settled`, payouts are written, and edits/deletes are blocked.
 
 ## Current Status
 
-Active development. Core user management, show setup, class/entry management, back numbers, scorekeeper placing entry, exhibitor dashboard/profile, show requests, APHA class import/export, and horse document workflows are present.
+Active development. Core user management, show setup, class/entry management, back numbers, scorekeeper placing entry, exhibitor dashboard/profile, show requests, APHA class import/export, horse document workflows, score-driven placings (pattern/time classes), and side pot management (divisional jackpots) are present.

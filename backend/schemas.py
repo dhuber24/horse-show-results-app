@@ -76,7 +76,7 @@ class ShowUpdate(BaseModel):
     show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE"]] = None
+    status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
@@ -191,6 +191,7 @@ class ClassCreate(BaseModel):
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
+    score_type: Literal["placement", "pattern", "time"] = "placement"
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -198,6 +199,7 @@ class ClassUpdate(BaseModel):
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
+    score_type: Optional[Literal["placement", "pattern", "time"]] = None
 
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
@@ -243,6 +245,7 @@ class ClassOut(BaseModel):
     class_name: str
     class_date: date
     status: str
+    score_type: str = "placement"
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -607,6 +610,7 @@ class EntryOut(BaseModel):
 class ResultCreate(BaseModel):
     entry_id: UUID
     place: int
+    raw_score: Optional[float] = None
     is_tie: bool = False
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -619,6 +623,7 @@ class ResultCreate(BaseModel):
 
 class ResultUpdate(BaseModel):
     place: Optional[int] = None
+    raw_score: Optional[float] = None
     is_tie: Optional[bool] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -632,6 +637,7 @@ class ResultUpdate(BaseModel):
 class ResultBulkItem(BaseModel):
     entry_id: UUID
     place: int
+    raw_score: Optional[float] = None
     is_tie: bool = False
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -650,6 +656,7 @@ class ResultOut(BaseModel):
     class_id: UUID
     entry_id: UUID
     place: int
+    raw_score: Optional[float] = None
     is_tie: bool
     notes: Optional[str]
     created_at: datetime
@@ -702,3 +709,171 @@ class ExhibitorCreateWithUser(BaseModel):
     amateur_card_expiry: Optional[date] = None
     amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
+
+
+# ── Side Pots ──────────────────────────────────────────────────────────────────
+# A side pot is an optional money pool that spans multiple classes within a
+# show. Exhibitors opt in at the back-number (show_entry) level and pay a flat
+# fee. The pot ranks all opt-ins by combined score across the bundled classes
+# and pays out per a producer-configurable schedule.
+
+DEFAULT_SIDE_POT_PAYOUT_SCHEDULE: dict[str, list[int]] = {
+    "1-3":  [100],
+    "4-7":  [70, 30],
+    "8-15": [60, 30, 10],
+    "16+":  [40, 25, 15, 12, 8],
+}
+
+SidePotScoringMethod = Literal["sum_placings", "sum_scores"]
+SidePotEligibilityRule = Literal["all_classes", "any_class"]
+SidePotStatus = Literal["open", "closed", "settled"]
+
+
+def _validate_payout_schedule(v: dict[str, list[int]]) -> dict[str, list[int]]:
+    if not v:
+        raise ValueError("payout_schedule must have at least one band")
+    for band, splits in v.items():
+        if not splits:
+            raise ValueError(f"payout band {band!r} must have at least one split")
+        if any(p < 0 for p in splits):
+            raise ValueError(f"payout band {band!r} has a negative split")
+        if sum(splits) > 100:
+            raise ValueError(f"payout band {band!r} sums to more than 100%")
+    return v
+
+
+class SidePotCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    entry_fee_cents: int = Field(default=1000, ge=0)
+    payback_percent: int = Field(default=100, ge=0, le=100)
+    scoring_method: SidePotScoringMethod = "sum_placings"
+    eligibility_rule: SidePotEligibilityRule = "all_classes"
+    payout_schedule: dict[str, list[int]] = Field(
+        default_factory=lambda: dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE)
+    )
+    class_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("payout_schedule")
+    @classmethod
+    def _check_schedule(cls, v: dict[str, list[int]]) -> dict[str, list[int]]:
+        return _validate_payout_schedule(v)
+
+
+class SidePotUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    entry_fee_cents: Optional[int] = Field(default=None, ge=0)
+    payback_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    scoring_method: Optional[SidePotScoringMethod] = None
+    eligibility_rule: Optional[SidePotEligibilityRule] = None
+    payout_schedule: Optional[dict[str, list[int]]] = None
+    status: Optional[SidePotStatus] = None
+    class_ids: Optional[list[UUID]] = None
+
+    @field_validator("payout_schedule")
+    @classmethod
+    def _check_schedule(
+        cls, v: Optional[dict[str, list[int]]]
+    ) -> Optional[dict[str, list[int]]]:
+        if v is None:
+            return v
+        return _validate_payout_schedule(v)
+
+
+class SidePotClassSummary(BaseModel):
+    class_id: UUID
+    class_number: str
+    class_name: str
+    score_type: str
+
+    class Config:
+        from_attributes = True
+
+
+class SidePotOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    name: str
+    description: Optional[str]
+    entry_fee_cents: int
+    payback_percent: int
+    scoring_method: SidePotScoringMethod
+    eligibility_rule: SidePotEligibilityRule
+    payout_schedule: dict[str, list[int]]
+    status: SidePotStatus
+    settled_at: Optional[datetime]
+    created_at: datetime
+    classes: list[SidePotClassSummary] = []
+    entry_count: int = 0
+    paid_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class SidePotEntryCreate(BaseModel):
+    show_entry_id: Optional[UUID] = None
+    back_number: Optional[int] = None
+    paid: bool = False
+
+    @model_validator(mode="after")
+    def _require_id_or_back_number(self):
+        if self.show_entry_id is None and self.back_number is None:
+            raise ValueError("Provide show_entry_id or back_number")
+        return self
+
+
+class SidePotEntryUpdate(BaseModel):
+    paid: Optional[bool] = None
+
+
+class SidePotEntryOut(BaseModel):
+    id: UUID
+    side_pot_id: UUID
+    show_entry_id: UUID
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    paid: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SidePotStanding(BaseModel):
+    show_entry_id: UUID
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    aggregate_value: float
+    place: Optional[int] = None
+    is_eligible: bool
+    missing_class_ids: list[UUID] = []
+    paid: bool = False
+
+
+class SidePotStandingsOut(BaseModel):
+    side_pot_id: UUID
+    status: SidePotStatus
+    scoring_method: SidePotScoringMethod
+    eligibility_rule: SidePotEligibilityRule
+    total_pool_cents: int
+    payout_pool_cents: int
+    standings: list[SidePotStanding] = []
+    projected_payouts: dict[str, int] = {}
+
+
+class SidePotPayoutOut(BaseModel):
+    id: UUID
+    side_pot_id: UUID
+    show_entry_id: UUID
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    place: int
+    payout_cents: int
+    aggregate_value: float
+    tiebreaker_notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

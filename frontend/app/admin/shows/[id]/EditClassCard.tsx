@@ -21,12 +21,19 @@ interface ClassItem {
   class_name: string;
   class_date: string;
   status: string;
+  score_type: 'placement' | 'pattern' | 'time';
   ring_id: string | null;
   division_id: string | null;
   associations: ClassAssociation[];
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
+
+const SCORE_TYPE_LABELS: Record<ClassItem['score_type'], string> = {
+  placement: 'Placement',
+  pattern: 'Pattern score',
+  time: 'Timed',
+};
 
 export default function EditClassCard({
   cls, position, showId, showStartDate, showEndDate, showTypes, rings, divisions,
@@ -49,6 +56,7 @@ export default function EditClassCard({
     ring_id: cls.ring_id ?? '',
     division_id: cls.division_id ?? '',
     status: cls.status,
+    score_type: cls.score_type,
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -66,7 +74,8 @@ export default function EditClassCard({
     form.class_date !== cls.class_date ||
     (form.ring_id || null) !== cls.ring_id ||
     (form.division_id || null) !== cls.division_id ||
-    form.status !== cls.status;
+    form.status !== cls.status ||
+    form.score_type !== cls.score_type;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -90,6 +99,7 @@ export default function EditClassCard({
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
         status: form.status,
+        score_type: form.score_type,
       }),
     });
     setSaving(false);
@@ -132,6 +142,7 @@ export default function EditClassCard({
       ring_id: cls.ring_id ?? '',
       division_id: cls.division_id ?? '',
       status: cls.status,
+      score_type: cls.score_type,
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -211,6 +222,15 @@ export default function EditClassCard({
               {a.show_type_code}:{a.association_class_code}
             </span>
           ))}
+          {cls.score_type !== 'placement' && (
+            <span
+              className="text-xs ml-2 px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: '#dcebd5', color: '#3f6b2f' }}
+              title="Placings are derived from raw scores entered by the scorekeeper."
+            >
+              {SCORE_TYPE_LABELS[cls.score_type]}
+            </span>
+          )}
           {isDirty && (
             <span className="text-xs ml-2 italic" style={{ color: '#b45309' }}>· unsaved changes</span>
           )}
@@ -249,6 +269,16 @@ export default function EditClassCard({
             className="w-full border rounded px-3 py-2">
             <option value="OPEN">Open</option>
             <option value="CLOSED">Closed</option>
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Scoring</label>
+          <select name="score_type" value={form.score_type} onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            title="Placement: judges rank entries (rail, halter). Pattern score: judges score numerically (showmanship, horsemanship, trail, reining). Timed: clocked event (barrels, poles, stakes).">
+            <option value="placement">Placement</option>
+            <option value="pattern">Pattern score</option>
+            <option value="time">Timed</option>
           </select>
         </div>
       </div>

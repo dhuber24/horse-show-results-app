@@ -1,5 +1,6 @@
 import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor } from '@/lib/api';
 import ScorekeeperForm from './ScorekeeperForm';
+import ScoredScorekeeperForm from './ScoredScorekeeperForm';
 
 export default async function ScorekeeperPage({ params }: { params: Promise<{ id: string; classId: string }> }) {
   const { id, classId } = await params;
@@ -42,6 +43,15 @@ export default async function ScorekeeperPage({ params }: { params: Promise<{ id
           style={{ backgroundColor: '#fef3c7', border: '1px solid #d4b896', color: '#92400e' }}>
           This show is not active ({show.status}). Placings cannot be entered until the show is set to Active.
         </div>
+      ) : cls?.score_type === 'pattern' || cls?.score_type === 'time' ? (
+        <ScoredScorekeeperForm
+          showId={id}
+          classId={classId}
+          scoreType={cls.score_type}
+          classes={classes}
+          entries={enriched}
+          results={results}
+        />
       ) : (
         <ScorekeeperForm
           showId={id}

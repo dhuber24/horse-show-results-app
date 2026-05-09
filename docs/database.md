@@ -47,6 +47,8 @@ Current migration files:
 | `033_horse_created_by.sql` | Track horse creator exhibitor linkage |
 | `034_horse_registration_unique.sql` | Unique registration number per association |
 | `035_rings_divisions_setup.sql` | Ring/division `sort_order` columns; `standard_rings` + `standard_divisions` lookup tables |
+| `036_class_score_type.sql` | `classes.score_type` enum (`placement` / `pattern` / `time`) and `results.raw_score` numeric column |
+| `037_side_pots.sql` | Side pot tables: `side_pots`, `side_pot_classes`, `side_pot_entries`, `side_pot_payouts` |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -85,8 +87,16 @@ erDiagram
 
     classes ||--o{ class_associations : has_codes
     classes ||--o{ entries : contains
+    classes ||--o{ side_pot_classes : bundled_in
     entries ||--o{ results : placed_as
     results ||--o{ result_audit : records_changes
+
+    shows ||--o{ side_pots : runs
+    side_pots ||--o{ side_pot_classes : bundles
+    side_pots ||--o{ side_pot_entries : opt_ins
+    side_pots ||--o{ side_pot_payouts : settles_to
+    show_entries ||--o{ side_pot_entries : opts_into
+    show_entries ||--o{ side_pot_payouts : receives
 
     exhibitors ||--o{ entries : enters
     exhibitors ||--o{ show_entries : receives_back_number
@@ -112,12 +122,16 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `show_requests` | Show Manager request/approval workflow |
 | `rings` and `divisions` | Per-show arenas and class groupings, each with `sort_order` |
 | `standard_rings` and `standard_divisions` | Curated lookup lists used by the show setup picker; `standard_divisions.show_type_id NULL` is the generic fallback set |
-| `classes` | Competition classes; ordered by `sort_order` |
+| `classes` | Competition classes; ordered by `sort_order`; `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event) |
 | `class_associations` | Per-class association codes |
 | `entries` | Exhibitor + horse in a class |
 | `show_entries` | Show-level back number assignment |
-| `results` | Manual placings |
+| `results` | Manual placings; `raw_score` carries the numeric input for `pattern` (judge score) and `time` (seconds) classes — `place` is derived from `raw_score` for those types |
 | `result_audit` | Immutable placing change history |
+| `side_pots` | Optional money pool spanning multiple classes; carries `entry_fee_cents`, `payback_percent`, `scoring_method` (`sum_placings` / `sum_scores`), `eligibility_rule`, `payout_schedule` (JSONB keyed by entry-count band), and `status` (`open` / `closed` / `settled`) |
+| `side_pot_classes` | Many-to-many: which classes feed each pot |
+| `side_pot_entries` | Back-number opt-ins (`paid` flag); pool size = `entry_fee_cents × paid count` |
+| `side_pot_payouts` | Frozen ranking + cents-per-place written on settle; tied entries split their combined share |
 | `users` | Login accounts and roles |
 | `exhibitors` | Exhibitor profile/person records |
 | `exhibitor_horses` | Horses an exhibitor may ride beyond ownership |
@@ -130,9 +144,12 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 
 ## Integrity Rules
 
-- Shows cascade to rings, divisions, classes, show staff links, and show entries.
-- Classes cascade to entries and results.
+- Shows cascade to rings, divisions, classes, show staff links, show entries, and side pots.
+- Classes cascade to entries, results, and side pot bundle rows.
 - Horse deletion sets `entries.horse_id` to `NULL` to preserve history.
-- Results changes should write audit rows.
+- Results changes should write audit rows for `placement` classes; pattern/time classes recompute `place` from `raw_score` on every save and skip the audit (the score is the editorial decision, not the derived placing).
+- For `pattern` and `time` classes, `raw_score` is required on insert and update; the backend recomputes every result's `place` and `is_tie` flags after each change so equal scores share a place.
+- A side pot with `scoring_method = 'sum_scores'` requires every bundled class to have `score_type IN ('pattern','time')`; the backend rejects the create/update otherwise.
+- Settling a side pot is one-way: status moves to `settled`, payouts are written, and further edits are blocked.
 - Horse age is derived from foaling year and current year; it is not stored.
 - Horse registration numbers are unique per association across all horses.
