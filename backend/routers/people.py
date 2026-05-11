@@ -42,6 +42,9 @@ async def list_users(
 async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     user = User(**body.model_dump())
     db.add(user)
+    await db.flush()
+    if user.role == "EXHIBITOR":
+        db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
     await db.commit()
     await db.refresh(user)
     return user
@@ -83,6 +86,9 @@ async def create_user_with_password(
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     user = User(email=body.email, full_name=body.full_name, role=body.role, hashed_password=hashed)
     db.add(user)
+    await db.flush()
+    if user.role == "EXHIBITOR":
+        db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
     await db.commit()
     await db.refresh(user)
     return user
@@ -188,7 +194,12 @@ async def update_user_role(user_id: UUID, body: RoleUpdate, db: AsyncSession = D
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    promoted_to_exhibitor = body.role == "EXHIBITOR" and user.role != "EXHIBITOR"
     user.role = body.role
+    if promoted_to_exhibitor:
+        existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
+        if not existing.scalar_one_or_none():
+            db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
     await db.commit()
     await db.refresh(user)
     return user
@@ -221,7 +232,15 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(404, "User not found")
     await db.delete(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            "Cannot delete user: still referenced by other records. "
+            "Remove the dependent records first.",
+        )
 
 
 # ── Horses ─────────────────────────────────────────────────────────────────────
@@ -559,29 +578,6 @@ async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Dep
     await db.commit()
     await db.refresh(exhibitor)
     return exhibitor
-
-@exhibitors_router.post("/me", response_model=ExhibitorOut, status_code=201)
-async def create_my_exhibitor_profile(
-    user_id: str = Depends(require_authenticated),
-    x_user_role: str = Header(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create the exhibitor record for the calling EXHIBITOR user if one doesn't exist yet."""
-    if x_user_role != "EXHIBITOR":
-        raise HTTPException(403, "Only EXHIBITOR accounts can use this endpoint")
-    uid = safe_uuid(user_id)
-    existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == uid))
-    if existing.scalar_one_or_none():
-        raise HTTPException(409, "Exhibitor profile already exists")
-    user = await db.get(User, uid)
-    if not user:
-        raise HTTPException(404, "User not found")
-    exhibitor = Exhibitor(user_id=uid, full_name=user.full_name)
-    db.add(exhibitor)
-    await db.commit()
-    await db.refresh(exhibitor)
-    return exhibitor
-
 
 @exhibitors_router.get("/by-user/{user_id}", response_model=ExhibitorOut, dependencies=[Depends(require_api_key)])
 async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db)):

@@ -304,6 +304,9 @@ class ExhibitorDocumentOut(BaseModel):
     file_size: int
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
+    show_type_id: Optional[UUID] = None
+    show_type_code: Optional[str] = None
+    show_type_name: Optional[str] = None
     uploaded_by_user_id: Optional[UUID] = None
     created_at: datetime
 
@@ -312,6 +315,7 @@ class ExhibitorDocumentOut(BaseModel):
     def add_label(cls, v):
         if isinstance(v, dict):
             return v
+        st = getattr(v, 'show_type', None)
         return {
             'id': v.id,
             'exhibitor_id': v.exhibitor_id,
@@ -322,12 +326,25 @@ class ExhibitorDocumentOut(BaseModel):
             'file_size': v.file_size,
             'issue_date': v.issue_date,
             'expiry_date': v.expiry_date,
+            'show_type_id': v.show_type_id,
+            'show_type_code': st.code if st else None,
+            'show_type_name': st.name if st else None,
             'uploaded_by_user_id': v.uploaded_by_user_id,
             'created_at': v.created_at,
         }
 
     class Config:
         from_attributes = True
+
+
+class ExhibitorDocumentUpdate(BaseModel):
+    show_type_id: Optional[UUID] = None
+    issue_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    clear_show_type: bool = False
+    clear_issue_date: bool = False
+    clear_expiry_date: bool = False
+
 
 class HorseDocumentOut(BaseModel):
     id: UUID

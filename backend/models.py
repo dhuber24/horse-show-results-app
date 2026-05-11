@@ -278,7 +278,7 @@ class Exhibitor(Base):
     __tablename__ = "exhibitors"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     full_name = Column(Text, nullable=False)
     apha_member_number = Column(Text, nullable=True)
     apha_member_expiry = Column(Date, nullable=True)
@@ -381,10 +381,12 @@ class ExhibitorDocument(Base):
     file_size = Column(Integer, nullable=False)
     issue_date = Column(Date, nullable=True)
     expiry_date = Column(Date, nullable=True)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="SET NULL"), nullable=True)
     uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     exhibitor = relationship("Exhibitor", back_populates="documents")
+    show_type = relationship("ShowType")
     uploaded_by = relationship("User")
 
 
@@ -443,7 +445,7 @@ class ResultAudit(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     result_id = Column(UUID(as_uuid=True), ForeignKey("results.id", ondelete="CASCADE"), nullable=True)
-    changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     old_place = Column(Integer)
     new_place = Column(Integer)
     changed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

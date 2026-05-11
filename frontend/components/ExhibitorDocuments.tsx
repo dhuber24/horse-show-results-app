@@ -11,12 +11,18 @@ interface Document {
   file_size: number;
   issue_date: string | null;
   expiry_date: string | null;
+  show_type_id: string | null;
+  show_type_code: string | null;
+  show_type_name: string | null;
   created_at: string;
 }
+
+interface ShowType { id: string; code: string; name: string; }
 
 interface Props {
   exhibitorId: string;
   initialDocuments?: Document[];
+  onDocumentsChange?: (docs: Document[]) => void;
 }
 
 const DOC_TYPES = [
@@ -27,6 +33,9 @@ const DOC_TYPES = [
   { value: 'IDENTIFICATION',  label: 'Identification' },
   { value: 'OTHER',           label: 'Other' },
 ];
+
+const ASSOCIATION_LINKED_TYPES = new Set(['MEMBERSHIP_CARD', 'AMATEUR_CARD', 'YOUTH_CARD']);
+const UNCERTIFIED_CODES = ['OPEN'];
 
 function expiryStatus(expiry: string | null): 'expired' | 'soon' | 'valid' | 'none' {
   if (!expiry) return 'none';
@@ -69,9 +78,9 @@ function formatSize(bytes: number) {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-const emptyUpload = { document_type: '', issue_date: '', expiry_date: '' };
+const emptyUpload = { document_type: '', issue_date: '', expiry_date: '', show_type_id: '' };
 
-export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Props) {
+export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDocumentsChange }: Props) {
   const [docs, setDocs] = useState<Document[]>(initialDocuments ?? []);
   const [loading, setLoading] = useState(!initialDocuments);
   const [showForm, setShowForm] = useState(false);
@@ -80,20 +89,39 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
   const [uploading, setUploading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [taggingId, setTaggingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+
+  const updateDocs = (next: Document[]) => {
+    setDocs(next);
+    onDocumentsChange?.(next);
+  };
+
+  useEffect(() => {
+    fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (initialDocuments) return;
     fetch(`/api/exhibitors/${exhibitorId}/documents`)
       .then((r) => r.json())
-      .then(setDocs)
+      .then((d: Document[]) => updateDocs(d))
       .catch(() => {})
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exhibitorId, initialDocuments]);
+
+  const associationOptions = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code));
+  const showTypeNeeded = ASSOCIATION_LINKED_TYPES.has(form.document_type);
 
   const handleUpload = async () => {
     if (!form.document_type) { setError('Select a document type.'); return; }
     if (!file) { setError('Choose a file to upload.'); return; }
+    if (showTypeNeeded && !form.show_type_id) {
+      setError('Select the association this card is for.');
+      return;
+    }
 
     setUploading(true);
     setError(null);
@@ -103,13 +131,14 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
     fd.append('document_type', form.document_type);
     if (form.issue_date) fd.append('issue_date', form.issue_date);
     if (form.expiry_date) fd.append('expiry_date', form.expiry_date);
+    if (form.show_type_id) fd.append('show_type_id', form.show_type_id);
 
     const res = await fetch(`/api/exhibitors/${exhibitorId}/documents`, { method: 'POST', body: fd });
     setUploading(false);
 
     if (res.ok) {
       const created = await res.json();
-      setDocs((prev) => [...prev, created]);
+      updateDocs([...docs, created]);
       setForm(emptyUpload);
       setFile(null);
       setShowForm(false);
@@ -119,12 +148,28 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
     }
   };
 
+  const handleTagAssociation = async (docId: string, showTypeId: string) => {
+    setTaggingId(docId);
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/documents/${docId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: showTypeId
+        ? JSON.stringify({ show_type_id: showTypeId })
+        : JSON.stringify({ clear_show_type: true }),
+    });
+    setTaggingId(null);
+    if (res.ok) {
+      const updated: Document = await res.json();
+      updateDocs(docs.map((d) => (d.id === updated.id ? updated : d)));
+    }
+  };
+
   const handleDelete = async (docId: string) => {
     setDeletingId(docId);
     const res = await fetch(`/api/exhibitors/${exhibitorId}/documents/${docId}`, { method: 'DELETE' });
     setDeletingId(null);
     if (res.ok || res.status === 204) {
-      setDocs((prev) => prev.filter((d) => d.id !== docId));
+      updateDocs(docs.filter((d) => d.id !== docId));
     }
     setConfirmDeleteId(null);
   };
@@ -135,6 +180,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
     <div className="space-y-4">
       {DOC_TYPES.map(({ value, label }) => {
         const typeDocs = docs.filter((d) => d.document_type === value);
+        const wantsAssociation = ASSOCIATION_LINKED_TYPES.has(value);
         return (
           <div key={value}>
             <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#8b4513' }}>
@@ -148,6 +194,11 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
                   <li key={doc.id} className="flex items-start justify-between rounded p-3 border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
+                        {doc.show_type_code && (
+                          <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0e4d0', color: '#8b4513' }}>
+                            {doc.show_type_code}
+                          </span>
+                        )}
                         <span className="text-sm font-medium truncate" style={{ color: '#2c1810' }}>
                           {doc.original_filename}
                         </span>
@@ -158,6 +209,22 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
                         {doc.expiry_date && <span>Expires: {formatDate(doc.expiry_date)}</span>}
                         <span>{formatSize(doc.file_size)}</span>
                       </div>
+                      {wantsAssociation && !doc.show_type_id && associationOptions.length > 0 && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <label className="text-xs" style={{ color: '#8b4513' }}>Tag association:</label>
+                          <select
+                            disabled={taggingId === doc.id}
+                            defaultValue=""
+                            onChange={(e) => e.target.value && handleTagAssociation(doc.id, e.target.value)}
+                            className="border rounded px-2 py-1 text-xs"
+                          >
+                            <option value="">Select…</option>
+                            {associationOptions.map((st) => (
+                              <option key={st.id} value={st.id}>{st.code}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
                     <div className="flex gap-3 ml-3 shrink-0 items-center">
                       <a
@@ -211,13 +278,28 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments }: Pr
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type *</label>
               <select
                 value={form.document_type}
-                onChange={(e) => setForm((p) => ({ ...p, document_type: e.target.value }))}
+                onChange={(e) => setForm((p) => ({ ...p, document_type: e.target.value, show_type_id: ASSOCIATION_LINKED_TYPES.has(e.target.value) ? p.show_type_id : '' }))}
                 className="w-full border rounded px-3 py-2 text-sm"
               >
                 <option value="">Select…</option>
                 {DOC_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
+            {showTypeNeeded && (
+              <div className="sm:col-span-2">
+                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association *</label>
+                <select
+                  value={form.show_type_id}
+                  onChange={(e) => setForm((p) => ({ ...p, show_type_id: e.target.value }))}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  <option value="">Select…</option>
+                  {associationOptions.map((st) => (
+                    <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue Date</label>
               <input

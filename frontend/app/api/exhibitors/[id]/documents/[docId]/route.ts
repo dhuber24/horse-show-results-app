@@ -17,3 +17,21 @@ export async function DELETE(
   const json = await res.json().catch(() => ({}));
   return NextResponse.json(json, { status: res.status });
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string; docId: string }> },
+) {
+  const { id, docId } = await params;
+  const headers = await getAuthHeaders();
+  if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json();
+  const res = await fetch(`${API_URL}/exhibitors/${id}/documents/${docId}`, {
+    method: 'PATCH',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  return NextResponse.json(json, { status: res.status });
+}

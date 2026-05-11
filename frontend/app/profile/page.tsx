@@ -4,8 +4,7 @@ import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import EditProfileForm from './EditProfileForm';
 import ChangePasswordForm from './ChangePasswordForm';
 import MyHorsesPanel from './MyHorsesPanel';
-import ExhibitorDocuments from '@/components/ExhibitorDocuments';
-import ExhibitorRegistrations from '@/components/ExhibitorRegistrations';
+import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
 
 export default async function ProfilePage() {
   const session = await auth();
@@ -28,17 +27,6 @@ export default async function ProfilePage() {
     const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
     const dash = await dashRes.json();
     exhibitor = dash.exhibitor ?? null;
-
-    // Auto-create the exhibitor record on first visit if it doesn't exist yet
-    if (!exhibitor) {
-      const createRes = await fetch(`${API_URL}/exhibitors/me`, {
-        method: 'POST',
-        headers: headers!,
-      });
-      if (createRes.ok) {
-        exhibitor = await createRes.json();
-      }
-    }
 
     if (exhibitor) {
       const [horsesRes, docsRes, regsRes] = await Promise.all([
@@ -66,27 +54,11 @@ export default async function ProfilePage() {
 
         {role === 'EXHIBITOR' && exhibitor && (
           <>
-            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-              <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Association Memberships</h2>
-              <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
-                Your membership IDs for each association you compete under.
-              </p>
-              <ExhibitorRegistrations
-                exhibitorId={exhibitor.id}
-                initialRegistrations={exhibitorRegs}
-              />
-            </div>
-
-            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-              <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>My Documents</h2>
-              <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
-                Certifications and documents attached to your exhibitor profile.
-              </p>
-              <ExhibitorDocuments
-                exhibitorId={exhibitor.id}
-                initialDocuments={exhibitorDocs}
-              />
-            </div>
+            <ExhibitorMembershipPanel
+              exhibitorId={exhibitor.id}
+              initialRegistrations={exhibitorRegs}
+              initialDocuments={exhibitorDocs}
+            />
 
             <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
               <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>

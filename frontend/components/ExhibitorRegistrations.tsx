@@ -11,14 +11,45 @@ interface Registration {
   member_number: string;
 }
 
+interface Document {
+  id: string;
+  document_type: string;
+  expiry_date: string | null;
+  show_type_id: string | null;
+}
+
 interface Props {
   exhibitorId: string;
   initialRegistrations?: Registration[];
+  documents?: Document[];
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function ExhibitorRegistrations({ exhibitorId, initialRegistrations }: Props) {
+const CARD_LABELS: Record<string, string> = {
+  MEMBERSHIP_CARD: 'Membership card',
+  AMATEUR_CARD: 'Amateur card',
+  YOUTH_CARD: 'Youth card',
+};
+
+type CardStatus = 'expired' | 'soon' | 'valid' | 'undated';
+
+function cardStatus(expiry: string | null): CardStatus {
+  if (!expiry) return 'undated';
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const exp = new Date(expiry + 'T00:00:00');
+  const days = Math.floor((exp.getTime() - today.getTime()) / 86400000);
+  if (days < 0) return 'expired';
+  if (days <= 30) return 'soon';
+  return 'valid';
+}
+
+function formatDate(d: string | null) {
+  if (!d) return null;
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+export default function ExhibitorRegistrations({ exhibitorId, initialRegistrations, documents = [] }: Props) {
   const [regs, setRegs] = useState<Registration[]>(initialRegistrations ?? []);
   const [showTypes, setShowTypes] = useState<ShowType[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', member_number: '' });
@@ -77,14 +108,39 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
         <p className="text-sm" style={{ color: '#8b7355' }}>No membership IDs on file.</p>
       ) : (
         <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
-          {regs.map((reg) => (
-            <li key={reg.id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
-              <div>
-                <span className="font-mono text-sm font-semibold mr-2" style={{ color: '#8b4513' }}>
-                  {reg.show_type_code}
-                </span>
-                <span className="text-sm" style={{ color: '#2c1810' }}>{reg.member_number}</span>
-                <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.show_type_name})</span>
+          {regs.map((reg) => {
+            const linkedCards = documents.filter((d) => d.show_type_id === reg.show_type_id && d.document_type in CARD_LABELS);
+            return (
+            <li key={reg.id} className="flex items-start justify-between py-2 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <div>
+                  <span className="font-mono text-sm font-semibold mr-2" style={{ color: '#8b4513' }}>
+                    {reg.show_type_code}
+                  </span>
+                  <span className="text-sm" style={{ color: '#2c1810' }}>{reg.member_number}</span>
+                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.show_type_name})</span>
+                </div>
+                <div className="text-xs mt-1 space-y-0.5">
+                  {linkedCards.length === 0 ? (
+                    <p style={{ color: '#a16207' }}>No membership card on file.</p>
+                  ) : (
+                    linkedCards.map((doc) => {
+                      const status = cardStatus(doc.expiry_date);
+                      const palette: Record<CardStatus, { color: string; label: string }> = {
+                        expired:  { color: '#b91c1c', label: 'Expired' },
+                        soon:     { color: '#a16207', label: 'Expiring soon' },
+                        valid:    { color: '#166534', label: 'On file' },
+                        undated:  { color: '#8b7355', label: 'On file (no expiry)' },
+                      };
+                      const expiryText = doc.expiry_date ? ` — expires ${formatDate(doc.expiry_date)}` : '';
+                      return (
+                        <p key={doc.id} style={{ color: palette[status].color }}>
+                          {CARD_LABELS[doc.document_type]}: {palette[status].label}{expiryText}
+                        </p>
+                      );
+                    })
+                  )}
+                </div>
               </div>
               {confirmDeleteId === reg.id ? (
                 <span className="flex items-center gap-2 ml-4 shrink-0">
@@ -113,7 +169,8 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
                 </button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

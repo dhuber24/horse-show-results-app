@@ -58,6 +58,7 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 ## Registration
 
 - Exhibitor registration at `/register` creates both a `users` row and a linked `exhibitors` row. Keep those atomic.
+- Admin user creation (`POST /users/` and `POST /users/with-password`) and role promotion (`PATCH /users/{id}/role` to `EXHIBITOR`) also create the linked `exhibitors` row in the same transaction. The DB enforces this 1:1 link via a partial unique index on `exhibitors.user_id`, so duplicates can't be inserted even under a race.
 - Show Secretary registration at `/register/show-secretary` captures association certifications. APHA certification is required when APHA is selected.
 - Show Manager registration at `/register/show-manager` is available immediately. APHA certification lookup is informational.
 - New self-registered Show Secretaries and Show Managers are currently auto-approved. The `is_approved` column remains as an account lock gate.

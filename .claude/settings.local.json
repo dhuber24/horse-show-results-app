@@ -78,7 +78,12 @@
       "Bash(py -m py_compile schemas.py)",
       "Bash(py -m py_compile routers/side_pots.py)",
       "Bash(git diff *)",
-      "Bash(DOCS_CHECK_BYPASS=1 git commit -m ' *)"
+      "Bash(DOCS_CHECK_BYPASS=1 git commit -m ' *)",
+      "Bash(powershell -ExecutionPolicy Bypass -File database/migrate.ps1)",
+      "Bash(python -m compileall backend)",
+      "PowerShell(Get-Command python, python3, py -ErrorAction SilentlyContinue)",
+      "PowerShell(docker-compose exec -T backend python -m compileall /app 2>&1)",
+      "PowerShell(docker-compose exec -T backend python -c \"from routers import people, dashboard, auth; print\\('imports ok'\\)\")"
     ]
   }
 }
