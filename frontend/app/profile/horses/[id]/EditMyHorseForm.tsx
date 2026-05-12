@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -14,6 +15,7 @@ interface Horse {
   id: string;
   name: string;
   owner_name: string | null;
+  trainer_id: string | null;
   trainer_name: string | null;
   sex: string | null;
   foaling_date: string | null;
@@ -35,7 +37,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
-    owner_name: horse.owner_name ?? '',
+    trainer_id: horse.trainer_id ?? '',
     trainer_name: horse.trainer_name ?? '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
@@ -77,7 +79,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
-        owner_name: form.owner_name.trim() || null,
+        trainer_id: form.trainer_id || null,
         trainer_name: form.trainer_name.trim() || null,
         sex: form.sex || null,
         foaling_date: form.foaling_date || null,
@@ -90,6 +92,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     if (res.ok) {
       setSaved(true);
       router.refresh();
+      setTimeout(() => setSaved(false), 3000);
     } else {
       setError('Failed to save changes.');
     }
@@ -159,12 +162,12 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
         <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
           <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Owner</dt><dd style={{ color: '#2c1810' }}>{form.owner_name || '—'}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Trainer</dt><dd style={{ color: '#2c1810' }}>{form.trainer_name || '—'}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sex</dt><dd style={{ color: '#2c1810' }}>{form.sex || '—'}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Foaling Date</dt><dd style={{ color: '#2c1810' }}>{form.foaling_date || '—'}{displayAge !== null && displayAge !== undefined ? ` (age ${displayAge})` : ''}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breed</dt><dd style={{ color: '#2c1810' }}>{breeds.find((b) => b.id === form.breed_id)?.name || '—'}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Color</dt><dd style={{ color: '#2c1810' }}>{colors.find((c) => c.id === form.color_id)?.name || '—'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Owner</dt><dd style={{ color: '#2c1810' }}>{horse.owner_name || '-'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Trainer</dt><dd style={{ color: '#2c1810' }}>{form.trainer_name || '-'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sex</dt><dd style={{ color: '#2c1810' }}>{form.sex || '-'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Foaling Date</dt><dd style={{ color: '#2c1810' }}>{form.foaling_date || '-'}{displayAge !== null && displayAge !== undefined ? ` (age ${displayAge})` : ''}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breed</dt><dd style={{ color: '#2c1810' }}>{breeds.find((b) => b.id === form.breed_id)?.name || '-'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Color</dt><dd style={{ color: '#2c1810' }}>{colors.find((c) => c.id === form.color_id)?.name || '-'}</dd></div>
             {form.is_solid_paint_bred && (
               <div className="sm:col-span-2"><dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Solid Paint-Bred (SPB)</dd></div>
             )}
@@ -220,29 +223,21 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
             />
           </div>
           <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner Name</label>
-            <input
-              name="owner_name"
-              value={form.owner_name}
-              onChange={handleChange}
-              placeholder="Owner name"
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer Name</label>
-            <input
-              name="trainer_name"
-              value={form.trainer_name}
-              onChange={handleChange}
-              placeholder="Trainer name"
-              className="w-full border rounded px-3 py-2"
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <TrainerSelect
+              trainerId={form.trainer_id || null}
+              trainerName={form.trainer_name || null}
+              onChange={(trainerId, trainerName) => setForm((prev) => ({
+                ...prev,
+                trainer_id: trainerId ?? '',
+                trainer_name: trainerName ?? '',
+              }))}
             />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
             <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               <option value="Mare">Mare</option>
               <option value="Gelding">Gelding</option>
               <option value="Stallion">Stallion</option>
@@ -266,14 +261,14 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
             <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
             <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -300,11 +295,11 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
           className="px-5 py-2 rounded font-medium disabled:opacity-50"
           style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
         >
-          {saving ? 'Saving…' : 'Save Changes'}
+          {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </div>
 
-      {/* Riders (read-only — managed by show office) */}
+      {/* Riders (read-only - managed by show office) */}
       {riders.length > 0 && (
         <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896' }}>
           <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
@@ -353,9 +348,9 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
                 onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"
               >
-                <option value="">Select…</option>
+                <option value="">Select...</option>
                 {availableShowTypes.map((st) => (
-                  <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
+                  <option key={st.id} value={st.id}>{st.code} - {st.name}</option>
                 ))}
               </select>
             </div>
@@ -374,7 +369,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
               className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
             >
-              {addingReg ? 'Adding…' : 'Add'}
+              {addingReg ? 'Adding...' : 'Add'}
             </button>
           </div>
         )}
@@ -383,3 +378,4 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     </div>
   );
 }
+

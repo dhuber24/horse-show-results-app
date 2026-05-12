@@ -102,6 +102,12 @@ export async function fetchBreeds() {
   return res.json();
 }
 
+export async function fetchTrainers(headers?: HeadersInit) {
+  const res = await fetch(`${API_URL}/trainers/`, headers ? { headers } : {});
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchBreed(id: string) {
   const res = await fetch(`${API_URL}/breeds/${id}`);
   if (!res.ok) throw new Error('Failed to fetch breed');

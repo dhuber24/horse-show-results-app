@@ -7,8 +7,11 @@ A browser-based application for ranch and western pleasure horse shows.
 - Manages shows, classes, entries, exhibitors, horses, and show staff.
 - Assigns show-level back numbers.
 - Lets authorized scorekeepers manually enter placings.
+- Supports score-driven placings for pattern/time classes.
+- Supports optional side-pot payouts across class bundles.
 - Publishes results live.
 - Supports APHA-specific class import/export and certification checks.
+- Supports trainer registry links with horse-level free-text fallback.
 
 ## What This App Does Not Do
 

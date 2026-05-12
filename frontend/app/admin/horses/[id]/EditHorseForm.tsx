@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import HorseDocuments from '@/components/HorseDocuments';
+import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -11,12 +12,14 @@ interface Exhibitor { id: string; full_name: string; }
 interface ShowType { id: string; code: string; name: string; }
 interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
 interface Rider { exhibitor_id: string; full_name: string; }
+interface Trainer { id: string; name: string; }
 
 interface Horse {
   id: string;
   name: string;
   owner_exhibitor_id: string | null;
   owner_name: string | null;
+  trainer_id: string | null;
   trainer_name: string | null;
   foaling_date: string | null;
   sex: string | null;
@@ -33,16 +36,17 @@ interface Props {
   exhibitors: Exhibitor[];
   showTypes: ShowType[];
   registrations: Registration[];
+  trainers: Trainer[];
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function EditHorseForm({ horse, breeds, colors, exhibitors, showTypes, registrations: initialRegs }: Props) {
+export default function EditHorseForm({ horse, breeds, colors, exhibitors, showTypes, registrations: initialRegs, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
     owner_exhibitor_id: horse.owner_exhibitor_id ?? '',
-    owner_name: horse.owner_name ?? '',
+    trainer_id: horse.trainer_id ?? '',
     trainer_name: horse.trainer_name ?? '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
@@ -54,24 +58,15 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const [registrations, setRegistrations] = useState<Registration[]>(initialRegs);
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
   const [addingReg, setAddingReg] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
-
   const [riders, setRiders] = useState<Rider[]>([]);
-  const [newRiderId, setNewRiderId] = useState('');
-  const [addingRider, setAddingRider] = useState(false);
-  const [riderError, setRiderError] = useState<string | null>(null);
-  const [confirmRemoveRiderId, setConfirmRemoveRiderId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/horses/${horse.id}/riders`)
-      .then((r) => r.json())
-      .then(setRiders)
-      .catch(() => {});
+    fetch(`/api/horses/${horse.id}/riders`).then((r) => r.json()).then(setRiders).catch(() => {});
   }, [horse.id]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -82,10 +77,11 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     if (!form.name.trim()) { setError('Horse name is required.'); return; }
     setSaving(true);
     setError(null);
+
     const body: Record<string, unknown> = {
       name: form.name.trim(),
       owner_exhibitor_id: form.owner_exhibitor_id || null,
-      owner_name: form.owner_name.trim() || null,
+      trainer_id: form.trainer_id || null,
       trainer_name: form.trainer_name.trim() || null,
       sex: form.sex || null,
       foaling_date: form.foaling_date || null,
@@ -93,6 +89,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       color_id: form.color_id || null,
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
+
     const res = await fetch(`/api/horses/${horse.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -102,7 +99,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     if (res.ok) {
       router.refresh();
     } else {
-      setError('Failed to update horse.');
+      const err = await res.json().catch(() => ({}));
+      setError(err.detail ?? 'Failed to update horse.');
     }
   };
 
@@ -110,9 +108,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     setDeleting(true);
     const res = await fetch(`/api/horses/${horse.id}`, { method: 'DELETE' });
     setDeleting(false);
-    if (res.ok) {
-      router.push('/admin/horses');
-    } else {
+    if (res.ok) router.push('/admin/horses');
+    else {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to delete horse. It may be linked to existing entries.');
     }
@@ -126,8 +123,6 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     const trimmed = newReg.registration_number.trim();
     setAddingReg(true);
     setRegError(null);
-
-    // Pre-flight: warn if registration number already belongs to a different horse
     const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
     const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
     if (lookupRes.ok) {
@@ -135,14 +130,11 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       if (existing.horse_id && existing.horse_id !== horse.id) {
         const st = showTypes.find((s) => s.id === newReg.show_type_id);
         const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
-        setRegError(
-          `${st?.code ?? 'Registration'} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`
-        );
+        setRegError(`${st?.code ?? 'Registration'} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`);
         setAddingReg(false);
         return;
       }
     }
-
     const res = await fetch(`/api/horses/${horse.id}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -161,336 +153,124 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
 
   const handleDeleteReg = async (regId: string) => {
     const res = await fetch(`/api/horses/${horse.id}/registrations/${regId}`, { method: 'DELETE' });
-    if (res.ok) {
-      setRegistrations((prev) => prev.filter((r) => r.id !== regId));
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setRegError(err.detail ?? 'Failed to remove registration.');
-    }
-  };
-
-  const handleAddRider = async () => {
-    if (!newRiderId) { setRiderError('Select an exhibitor to add as a rider.'); return; }
-    setAddingRider(true);
-    setRiderError(null);
-    const res = await fetch(`/api/horses/${horse.id}/riders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ exhibitor_id: newRiderId }),
-    });
-    setAddingRider(false);
-    if (res.ok) {
-      const created = await res.json();
-      setRiders((prev) => [...prev, created]);
-      setNewRiderId('');
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setRiderError(err.detail ?? 'Failed to add rider.');
-    }
-  };
-
-  const handleRemoveRider = async (exhibitorId: string) => {
-    const res = await fetch(`/api/horses/${horse.id}/riders/${exhibitorId}`, { method: 'DELETE' });
-    if (res.ok) {
-      setRiders((prev) => prev.filter((r) => r.exhibitor_id !== exhibitorId));
-      setConfirmRemoveRiderId(null);
-    } else {
-      setRiderError('Failed to remove rider.');
-    }
+    if (res.ok) setRegistrations((prev) => prev.filter((r) => r.id !== regId));
   };
 
   const usedShowTypeIds = new Set(registrations.map((r) => r.show_type_id));
-  const availableShowTypes = showTypes.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
-  );
-
-  const riderExhibitorIds = new Set(riders.map((r) => r.exhibitor_id));
-  const availableRiderExhibitors = exhibitors.filter((e) => !riderExhibitorIds.has(e.id));
-
-  const displayAge = form.foaling_date
-    ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear())
-    : horse.age;
+  const availableShowTypes = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id));
+  const displayAge = form.foaling_date ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear()) : horse.age;
 
   return (
     <div className="space-y-6">
-      {/* Core details */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
-            <input
-              name="name"
-              value={form.name}
-              onChange={handleChange}
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
-            <input
-              name="owner_name"
-              value={form.owner_name}
-              onChange={handleChange}
-              placeholder="Owner name"
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
-            <input
-              name="trainer_name"
-              value={form.trainer_name}
-              onChange={handleChange}
-              placeholder="Trainer name"
-              className="w-full border rounded px-3 py-2"
-            />
+            <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
-              Exhibitor Account
-              <span className="ml-1 font-normal text-xs" style={{ color: '#a89070' }}>(links horse to an exhibitor's My Horses)</span>
-            </label>
-            <select
-              name="owner_exhibitor_id"
-              value={form.owner_exhibitor_id}
-              onChange={handleChange}
-              className="w-full border rounded px-3 py-2"
-            >
-              <option value="">— Not linked —</option>
-              {exhibitors.map((e) => (
-                <option key={e.id} value={e.id}>{e.full_name}</option>
-              ))}
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
+            <select name="owner_exhibitor_id" value={form.owner_exhibitor_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+              <option value="">- No owner linked -</option>
+              {exhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </select>
+            {!form.owner_exhibitor_id && horse.owner_name && (
+              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                Legacy owner on file: {horse.owner_name}
+              </p>
+            )}
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <TrainerSelect
+              trainerId={form.trainer_id || null}
+              trainerName={form.trainer_name || null}
+              trainers={trainers}
+              onChange={(trainerId, trainerName) => setForm((prev) => ({
+                ...prev,
+                trainer_id: trainerId ?? '',
+                trainer_name: trainerName ?? '',
+              }))}
+            />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
             <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               <option value="Mare">Mare</option>
               <option value="Gelding">Gelding</option>
               <option value="Stallion">Stallion</option>
             </select>
           </div>
           <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
-              Foaling Date
-              {displayAge !== null && displayAge !== undefined && (
-                <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>
-                  (Age: {displayAge})
-                </span>
-              )}
-            </label>
-            <input
-              name="foaling_date"
-              type="date"
-              value={form.foaling_date}
-              onChange={handleChange}
-              className="w-full border rounded px-3 py-2"
-            />
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Foaling Date {displayAge !== null && displayAge !== undefined && <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>}</label>
+            <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
             <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
             <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div className="flex items-center gap-2 sm:col-span-2">
-            <input
-              type="checkbox"
-              id="is_solid_paint_bred"
-              checked={form.is_solid_paint_bred}
-              onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))}
-              className="h-4 w-4"
-            />
-            <label htmlFor="is_solid_paint_bred" className="text-sm" style={{ color: '#8b7355' }}>
-              Solid Paint-Bred (SPB) — cannot enter Regular Registry Open classes
-            </label>
-          </div>
         </div>
-
         {error && <p className="text-red-600 text-sm">{error}</p>}
-
         <div className="flex items-center justify-between pt-1">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-5 py-2 rounded font-medium disabled:opacity-50"
-            style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-          <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">
-            Delete Horse
-          </button>
+          <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
+          <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">Delete Horse</button>
         </div>
-
-        {confirmDelete && (
-          <ConfirmDialog
-            title="Delete Horse"
-            message={`Delete ${form.name}? This cannot be undone.`}
-            confirmLabel="Yes, delete"
-            destructive
-            confirming={deleting}
-            onConfirm={handleDelete}
-            onCancel={() => setConfirmDelete(false)}
-          />
-        )}
+        {confirmDelete && <ConfirmDialog title="Delete Horse" message={`Delete ${form.name}? This cannot be undone.`} confirmLabel="Yes, delete" destructive confirming={deleting} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)} />}
       </div>
 
-      {/* Riders */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
-
-        {riders.length > 0 ? (
+        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Riders</h2>
+        {riders.length === 0 ? <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p> : (
           <ul className="space-y-2">
-            {riders.map((r) => (
-              <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                <span className="text-sm" style={{ color: '#2c1810' }}>{r.full_name}</span>
-                <div className="flex items-center gap-2 ml-4 shrink-0">
-                  {confirmRemoveRiderId === r.exhibitor_id ? (
-                    <>
-                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {r.full_name}?</span>
-                      <button
-                        onClick={() => handleRemoveRider(r.exhibitor_id)}
-                        className="text-xs text-red-600 hover:underline"
-                      >
-                        Yes, remove
-                      </button>
-                      <button
-                        onClick={() => setConfirmRemoveRiderId(null)}
-                        className="text-xs hover:underline"
-                        style={{ color: '#8b7355' }}
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)}
-                      className="text-xs text-red-600 hover:text-red-800"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </li>
-            ))}
+            {riders.map((r) => <li key={r.exhibitor_id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>{r.full_name}</li>)}
           </ul>
-        ) : (
-          <p className="text-sm" style={{ color: '#8b7355' }}>No riders assigned.</p>
         )}
-
-        {availableRiderExhibitors.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-end pt-1">
-            <div className="flex-1 min-w-[200px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
-              <select
-                value={newRiderId}
-                onChange={(e) => setNewRiderId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select exhibitor…</option>
-                {availableRiderExhibitors.map((e) => (
-                  <option key={e.id} value={e.id}>{e.full_name}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              onClick={handleAddRider}
-              disabled={addingRider}
-              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-            >
-              {addingRider ? 'Adding…' : 'Add'}
-            </button>
-          </div>
-        )}
-        {riderError && <p className="text-red-600 text-sm">{riderError}</p>}
       </div>
 
-      {/* Association Registrations */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Association Registration Numbers</h2>
-
         {registrations.length > 0 ? (
           <ul className="space-y-2">
             {registrations.map((r) => (
               <li key={r.id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                <div>
-                  <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span>
-                  <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
-                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
-                </div>
-                <button
-                  onClick={() => setConfirmDeleteRegId(r.id)}
-                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
-                >
-                  Remove
-                </button>
-                {confirmDeleteRegId === r.id && (
-                  <ConfirmDialog
-                    title="Remove Registration"
-                    message={`Remove ${r.show_type_code} registration? This cannot be undone.`}
-                    confirmLabel="Yes, remove"
-                    destructive
-                    onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }}
-                    onCancel={() => setConfirmDeleteRegId(null)}
-                  />
-                )}
+                <div><span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span><span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span></div>
+                <button onClick={() => setConfirmDeleteRegId(r.id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
+                {confirmDeleteRegId === r.id && <ConfirmDialog title="Remove Registration" message={`Remove ${r.show_type_code} registration? This cannot be undone.`} confirmLabel="Yes, remove" destructive onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }} onCancel={() => setConfirmDeleteRegId(null)} />}
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
-        )}
-
+        ) : <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>}
         {availableShowTypes.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[160px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-              <select
-                value={newReg.show_type_id}
-                onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select…</option>
-                {availableShowTypes.map((st) => (
-                  <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
-                ))}
+              <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
+                <option value="">Select...</option>
+                {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
               </select>
             </div>
             <div className="flex-1 min-w-[160px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
-              <input
-                value={newReg.registration_number}
-                onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))}
-                placeholder="e.g. 1234567"
-                className="w-full border rounded px-3 py-2 text-sm"
-              />
+              <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
             </div>
-            <button
-              onClick={handleAddReg}
-              disabled={addingReg}
-              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-            >
-              {addingReg ? 'Adding…' : 'Add'}
-            </button>
+            <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingReg ? 'Adding...' : 'Add'}</button>
           </div>
         )}
         {regError && <p className="text-red-600 text-sm">{regError}</p>}
       </div>
 
-      {/* Documents */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Health & Registration Documents</h2>
         <HorseDocuments horseId={horse.id} />

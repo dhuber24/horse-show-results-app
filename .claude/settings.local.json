@@ -83,7 +83,15 @@
       "Bash(python -m compileall backend)",
       "PowerShell(Get-Command python, python3, py -ErrorAction SilentlyContinue)",
       "PowerShell(docker-compose exec -T backend python -m compileall /app 2>&1)",
-      "PowerShell(docker-compose exec -T backend python -c \"from routers import people, dashboard, auth; print\\('imports ok'\\)\")"
+      "PowerShell(docker-compose exec -T backend python -c \"from routers import people, dashboard, auth; print\\('imports ok'\\)\")",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1)",
+      "Bash(echo \"exit=$?\")",
+      "WebFetch(domain:www.printfriendly.com)",
+      "WebFetch(domain:www.swanlakestables.com)",
+      "WebFetch(domain:www.eqgroup.com)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1\")"
     ]
   }
 }

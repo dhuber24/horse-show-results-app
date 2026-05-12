@@ -7,6 +7,7 @@ interface Horse {
   id: string;
   name: string;
   sex: string | null;
+  owner_exhibitor_name: string | null;
   owner_name: string | null;
   breed_name: string | null;
   color_name: string | null;
@@ -33,7 +34,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
       if (sexFilter && h.sex !== sexFilter) return false;
       if (breedFilter && h.breed_name !== breedFilter) return false;
       if (q) {
-        const haystack = [h.name, h.owner_name, h.breed_name, h.color_name]
+        const haystack = [h.name, h.owner_exhibitor_name, h.owner_name, h.breed_name, h.color_name]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
@@ -138,7 +139,9 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
                   )}
                 </div>
                 <div className="text-sm mt-0.5 flex flex-wrap gap-x-3" style={{ color: '#8b7355' }}>
-                  {horse.owner_name && <span>Owner: {horse.owner_name}</span>}
+                  {(horse.owner_exhibitor_name || horse.owner_name) && (
+                    <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
+                  )}
                   {horse.breed_name && <span>{horse.breed_name}</span>}
                   {horse.color_name && <span>{horse.color_name}</span>}
                   {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}

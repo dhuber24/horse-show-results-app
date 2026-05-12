@@ -52,6 +52,8 @@ Current migration files:
 | `038_exhibitor_document_show_type.sql` | Optional `exhibitor_documents.show_type_id` so membership/amateur/youth cards can be tagged to a specific association |
 | `039_user_delete_set_null_fks.sql` | Switch `exhibitors.user_id` and `result_audit.changed_by` to `ON DELETE SET NULL` so deleting a user no longer fails on these FKs |
 | `040_exhibitor_user_id_unique.sql` | Dedupe linked exhibitors and add partial unique index `exhibitors_user_id_uniq` on `exhibitors(user_id) WHERE user_id IS NOT NULL`, enforcing 1:1 between users and their exhibitor profile |
+| `041_exhibitor_contact_youth.sql` | Add `phone`, `address`, `city`, `state`, `zip`, `emergency_contact_name`, `emergency_contact_phone`, `parent_guardian_name`, `parent_guardian_phone` to `exhibitors` |
+| `042_trainer_registry.sql` | Add `trainers` table and `horses.trainer_id` foreign key with free-text fallback `horses.trainer_name` |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -71,6 +73,33 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "<SQL 
 ```
 
 If a manual migration file is applied outside the runner, also insert its filename into `_migrations`.
+
+## Recent Schema Updates
+
+### New table: `trainers`
+
+- `id` UUID primary key
+- `name` TEXT NOT NULL
+- `phone` TEXT nullable
+- `email` TEXT nullable
+- `created_at` TIMESTAMP WITH TIME ZONE
+
+### Updated table: `horses`
+
+- `trainer_id` UUID nullable FK -> `trainers.id` (`ON DELETE SET NULL`)
+- `trainer_name` TEXT free-text fallback when no trainer registry entry is linked
+
+### Updated table: `exhibitors` (migration 041)
+
+- `phone` TEXT nullable
+- `address` TEXT nullable
+- `city` TEXT nullable
+- `state` TEXT nullable
+- `zip` TEXT nullable
+- `emergency_contact_name` TEXT nullable
+- `emergency_contact_phone` TEXT nullable
+- `parent_guardian_name` TEXT nullable
+- `parent_guardian_phone` TEXT nullable
 
 ## Core Entities
 
@@ -140,7 +169,8 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `exhibitor_horses` | Horses an exhibitor may ride beyond ownership |
 | `exhibitor_registrations` | Exhibitor membership numbers per association |
 | `exhibitor_documents` | Exhibitor-uploaded documents (membership cards, amateur cards, youth cards, medical, ID, other). Card-type rows may carry a nullable `show_type_id` so the right card can be matched to the right association. |
-| `horses` | Horse profile, owner/trainer text, breed/color/registration/document links |
+| `horses` | Horse profile, owner link, optional trainer registry link with free-text fallback, breed/color/registration/document links |
+| `trainers` | Trainer registry used by horse profiles (`trainer_id`) |
 | `horse_registrations` | Horse registration numbers per association |
 | `horse_documents` | Uploaded documents stored as BYTEA for now |
 | `cert_org_users` | Association certification lookup data |

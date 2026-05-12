@@ -1,12 +1,14 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
-import EditProfileForm from './EditProfileForm';
-import ChangePasswordForm from './ChangePasswordForm';
-import MyHorsesPanel from './MyHorsesPanel';
-import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
+import ProfileTabs from './ProfileTabs';
 
-export default async function ProfilePage() {
+export default async function ProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
   const session = await auth();
   if (!session?.user) redirect('/login');
 
@@ -28,6 +30,17 @@ export default async function ProfilePage() {
     const dash = await dashRes.json();
     exhibitor = dash.exhibitor ?? null;
 
+    // Auto-create the exhibitor record on first visit if it doesn't exist yet
+    if (!exhibitor) {
+      const createRes = await fetch(`${API_URL}/exhibitors/me`, {
+        method: 'POST',
+        headers: headers!,
+      });
+      if (createRes.ok) {
+        exhibitor = await createRes.json();
+      }
+    }
+
     if (exhibitor) {
       const [horsesRes, docsRes, regsRes] = await Promise.all([
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/my-horses`, { headers: headers!, cache: 'no-store' }),
@@ -46,35 +59,15 @@ export default async function ProfilePage() {
         <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Account</h1>
       </div>
 
-      <div className="space-y-6">
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Account Information</h2>
-          <EditProfileForm user={user} />
-        </div>
-
-        {role === 'EXHIBITOR' && exhibitor && (
-          <>
-            <ExhibitorMembershipPanel
-              exhibitorId={exhibitor.id}
-              initialRegistrations={exhibitorRegs}
-              initialDocuments={exhibitorDocs}
-            />
-
-            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-              <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>
-              <MyHorsesPanel
-                exhibitorId={exhibitor.id}
-                initialHorses={horses}
-              />
-            </div>
-          </>
-        )}
-
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Change Password</h2>
-          <ChangePasswordForm />
-        </div>
-      </div>
+      <ProfileTabs
+        user={user}
+        role={role}
+        exhibitor={exhibitor}
+        initialRegistrations={exhibitorRegs}
+        initialDocuments={exhibitorDocs}
+        initialHorses={horses}
+        initialTab={tab === 'memberships' || tab === 'horses' ? tab : 'account'}
+      />
     </main>
   );
 }

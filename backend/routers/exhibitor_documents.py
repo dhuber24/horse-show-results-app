@@ -14,7 +14,7 @@ from schemas import ExhibitorDocumentOut, ExhibitorDocumentUpdate
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-VALID_DOC_TYPES = {'MEMBERSHIP_CARD', 'AMATEUR_CARD', 'YOUTH_CARD', 'MEDICAL', 'IDENTIFICATION', 'OTHER'}
+VALID_DOC_TYPES = {'MEMBERSHIP_CARD'}
 
 
 def _detect_mime(data: bytes) -> str | None:

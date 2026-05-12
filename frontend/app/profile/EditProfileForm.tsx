@@ -11,9 +11,12 @@ export default function EditProfileForm({ user }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ full_name: user.full_name, email: user.email });
+  const [currentPassword, setCurrentPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const emailChanged = form.email.trim().toLowerCase() !== user.email.trim().toLowerCase();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -24,12 +27,21 @@ export default function EditProfileForm({ user }: Props) {
       setError('Name and email are required.');
       return;
     }
+    if (emailChanged && !currentPassword) {
+      setError('Confirm your password to change your email.');
+      return;
+    }
     setLoading(true);
     setError(null);
+    const body: Record<string, string> = {
+      full_name: form.full_name,
+      email: form.email,
+    };
+    if (emailChanged) body.current_password = currentPassword;
     const res = await fetch('/api/profile', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(form),
+      body: JSON.stringify(body),
     });
     setLoading(false);
     if (!res.ok) {
@@ -39,12 +51,14 @@ export default function EditProfileForm({ user }: Props) {
     }
     setSuccess(true);
     setEditing(false);
+    setCurrentPassword('');
     router.refresh();
     setTimeout(() => setSuccess(false), 3000);
   };
 
   const handleCancel = () => {
     setForm({ full_name: user.full_name, email: user.email });
+    setCurrentPassword('');
     setError(null);
     setEditing(false);
   };
@@ -86,6 +100,22 @@ export default function EditProfileForm({ user }: Props) {
               style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
             />
           </div>
+          {emailChanged && (
+            <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: '#fdf6e7', border: '1px solid #e8c97a' }}>
+              <p className="text-sm" style={{ color: '#8b5a00' }}>
+                This is also the email you log in with. Confirm your password to change it.
+              </p>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Current password"
+                autoComplete="current-password"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
+                style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              />
+            </div>
+          )}
           {error && (
             <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
               {error}

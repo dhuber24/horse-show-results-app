@@ -248,6 +248,18 @@ class HorseColor(Base):
     horses = relationship("Horse", back_populates="color")
 
 
+class Trainer(Base):
+    __tablename__ = "trainers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    phone = Column(Text, nullable=True)
+    email = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horses = relationship("Horse", back_populates="trainer")
+
+
 class Horse(Base):
     __tablename__ = "horses"
 
@@ -256,6 +268,7 @@ class Horse(Base):
     owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     created_by_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     owner_name = Column(Text, nullable=True)
+    trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="SET NULL"), nullable=True)
     trainer_name = Column(Text, nullable=True)
     foaling_date = Column(Date, nullable=True)
     sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
@@ -268,6 +281,7 @@ class Horse(Base):
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="horse", cascade="all, delete")
     breed = relationship("Breed", back_populates="horses")
     color = relationship("HorseColor", back_populates="horses")
+    trainer = relationship("Trainer", back_populates="horses")
     registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")
     documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
     owner_exhibitor = relationship("Exhibitor", foreign_keys=[owner_exhibitor_id])
@@ -286,6 +300,15 @@ class Exhibitor(Base):
     amateur_card_expiry = Column(Date, nullable=True)
     amateur_novice_codes = Column(Text, nullable=True)
     date_of_birth = Column(Date, nullable=True)
+    phone = Column(Text, nullable=True)
+    address = Column(Text, nullable=True)
+    city = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    zip = Column(Text, nullable=True)
+    emergency_contact_name = Column(Text, nullable=True)
+    emergency_contact_phone = Column(Text, nullable=True)
+    parent_guardian_name = Column(Text, nullable=True)
+    parent_guardian_phone = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="exhibitor")

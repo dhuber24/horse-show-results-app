@@ -88,4 +88,5 @@ Show-scoped write access is usually checked with join tables:
 - Do not trust client-provided role or user IDs from browser code. Only server-side Next route handlers should attach backend auth headers.
 - Any endpoint returning PII or horse ownership data should require auth.
 - When changing an `EXHIBITOR` user to another role, the linked exhibitor data is preserved but the exhibitor dashboard no longer applies.
-
+- `PATCH /users/me` requires `current_password` when changing `email` because email is the login identifier.
+- Admin user deletion is safer after migration `039_user_delete_set_null_fks.sql`, but deleting users can still affect ownership/audit attribution semantics (`SET NULL` references).

@@ -10,10 +10,11 @@ interface Registration {
   show_type_name: string;
   member_number: string;
 }
-
-interface Document {
+interface Certificate {
   id: string;
   document_type: string;
+  original_filename: string;
+  issue_date: string | null;
   expiry_date: string | null;
   show_type_id: string | null;
 }
@@ -21,20 +22,16 @@ interface Document {
 interface Props {
   exhibitorId: string;
   initialRegistrations?: Registration[];
-  documents?: Document[];
+  certificates?: Certificate[];
+  onCertificateUploaded?: (cert: Certificate) => void;
+  onCertificateDeleted?: (certId: string) => void;
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-const CARD_LABELS: Record<string, string> = {
-  MEMBERSHIP_CARD: 'Membership card',
-  AMATEUR_CARD: 'Amateur card',
-  YOUTH_CARD: 'Youth card',
-};
+type CertStatus = 'expired' | 'soon' | 'valid' | 'undated';
 
-type CardStatus = 'expired' | 'soon' | 'valid' | 'undated';
-
-function cardStatus(expiry: string | null): CardStatus {
+function certStatus(expiry: string | null): CertStatus {
   if (!expiry) return 'undated';
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const exp = new Date(expiry + 'T00:00:00');
@@ -49,14 +46,36 @@ function formatDate(d: string | null) {
   return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export default function ExhibitorRegistrations({ exhibitorId, initialRegistrations, documents = [] }: Props) {
+const STATUS_STYLE: Record<CertStatus, { color: string; label: string }> = {
+  expired:  { color: '#b91c1c', label: 'Expired' },
+  soon:     { color: '#a16207', label: 'Expiring soon' },
+  valid:    { color: '#166534', label: 'On file' },
+  undated:  { color: '#8b7355', label: 'On file' },
+};
+
+export default function ExhibitorRegistrations({
+  exhibitorId,
+  initialRegistrations,
+  certificates = [],
+  onCertificateUploaded,
+  onCertificateDeleted,
+}: Props) {
   const [regs, setRegs] = useState<Registration[]>(initialRegistrations ?? []);
   const [showTypes, setShowTypes] = useState<ShowType[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', member_number: '' });
   const [saving, setSaving] = useState(false);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
+  const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Per-registration certificate upload state
+  const [uploadOpenFor, setUploadOpenFor] = useState<string | null>(null); // show_type_id
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadDates, setUploadDates] = useState({ issue_date: '', expiry_date: '' });
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [confirmDeleteCertId, setConfirmDeleteCertId] = useState<string | null>(null);
+  const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
@@ -67,21 +86,19 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
     (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
   );
 
-  const handleAdd = async () => {
+  const handleAddReg = async () => {
     if (!newReg.show_type_id || !newReg.member_number.trim()) {
       setError('Select an association and enter a membership ID.');
       return;
     }
     setSaving(true);
     setError(null);
-
     const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ show_type_id: newReg.show_type_id, member_number: newReg.member_number.trim() }),
     });
     setSaving(false);
-
     if (res.ok) {
       const created = await res.json();
       setRegs((prev) => [...prev, created]);
@@ -92,14 +109,53 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
     }
   };
 
-  const handleDelete = async (regId: string) => {
-    setDeletingId(regId);
+  const handleDeleteReg = async (regId: string) => {
+    setDeletingRegId(regId);
     const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations/${regId}`, { method: 'DELETE' });
-    setDeletingId(null);
+    setDeletingRegId(null);
     if (res.ok || res.status === 204) {
       setRegs((prev) => prev.filter((r) => r.id !== regId));
     }
-    setConfirmDeleteId(null);
+    setConfirmDeleteRegId(null);
+  };
+
+  const openUpload = (showTypeId: string) => {
+    setUploadOpenFor(showTypeId);
+    setUploadFile(null);
+    setUploadDates({ issue_date: '', expiry_date: '' });
+    setUploadError(null);
+  };
+
+  const handleUploadCert = async (reg: Registration) => {
+    if (!uploadFile) { setUploadError('Choose a file to upload.'); return; }
+    setUploading(true);
+    setUploadError(null);
+    const fd = new FormData();
+    fd.append('file', uploadFile);
+    fd.append('document_type', 'MEMBERSHIP_CARD');
+    fd.append('show_type_id', reg.show_type_id);
+    if (uploadDates.issue_date) fd.append('issue_date', uploadDates.issue_date);
+    if (uploadDates.expiry_date) fd.append('expiry_date', uploadDates.expiry_date);
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/documents`, { method: 'POST', body: fd });
+    setUploading(false);
+    if (res.ok) {
+      const created: Certificate = await res.json();
+      onCertificateUploaded?.(created);
+      setUploadOpenFor(null);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setUploadError(err.detail ?? 'Upload failed.');
+    }
+  };
+
+  const handleDeleteCert = async (certId: string) => {
+    setDeletingCertId(certId);
+    const res = await fetch(`/api/exhibitors/${exhibitorId}/documents/${certId}`, { method: 'DELETE' });
+    setDeletingCertId(null);
+    if (res.ok || res.status === 204) {
+      onCertificateDeleted?.(certId);
+    }
+    setConfirmDeleteCertId(null);
   };
 
   return (
@@ -107,68 +163,129 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
       {regs.length === 0 ? (
         <p className="text-sm" style={{ color: '#8b7355' }}>No membership IDs on file.</p>
       ) : (
-        <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+        <ul className="space-y-3">
           {regs.map((reg) => {
-            const linkedCards = documents.filter((d) => d.show_type_id === reg.show_type_id && d.document_type in CARD_LABELS);
+            const cert = certificates.find(
+              (d) => d.show_type_id === reg.show_type_id && d.document_type === 'MEMBERSHIP_CARD'
+            ) ?? null;
+            const status = cert ? certStatus(cert.expiry_date) : null;
+            const isUploadOpen = uploadOpenFor === reg.show_type_id;
+
             return (
-            <li key={reg.id} className="flex items-start justify-between py-2 first:pt-0 last:pb-0">
-              <div className="min-w-0">
-                <div>
-                  <span className="font-mono text-sm font-semibold mr-2" style={{ color: '#8b4513' }}>
-                    {reg.show_type_code}
-                  </span>
-                  <span className="text-sm" style={{ color: '#2c1810' }}>{reg.member_number}</span>
-                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.show_type_name})</span>
-                </div>
-                <div className="text-xs mt-1 space-y-0.5">
-                  {linkedCards.length === 0 ? (
-                    <p style={{ color: '#a16207' }}>No membership card on file.</p>
+              <li key={reg.id} className="rounded-lg border p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+                {/* Registration row */}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="font-mono text-sm font-semibold mr-2" style={{ color: '#8b4513' }}>
+                      {reg.show_type_code}
+                    </span>
+                    <span className="text-sm" style={{ color: '#2c1810' }}>{reg.member_number}</span>
+                    <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.show_type_name})</span>
+                  </div>
+                  {confirmDeleteRegId === reg.id ? (
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                      <button onClick={() => handleDeleteReg(reg.id)} disabled={deletingRegId === reg.id}
+                        className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50">
+                        {deletingRegId === reg.id ? 'Removing…' : 'Yes'}
+                      </button>
+                      <button onClick={() => setConfirmDeleteRegId(null)}
+                        className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                    </span>
                   ) : (
-                    linkedCards.map((doc) => {
-                      const status = cardStatus(doc.expiry_date);
-                      const palette: Record<CardStatus, { color: string; label: string }> = {
-                        expired:  { color: '#b91c1c', label: 'Expired' },
-                        soon:     { color: '#a16207', label: 'Expiring soon' },
-                        valid:    { color: '#166534', label: 'On file' },
-                        undated:  { color: '#8b7355', label: 'On file (no expiry)' },
-                      };
-                      const expiryText = doc.expiry_date ? ` — expires ${formatDate(doc.expiry_date)}` : '';
-                      return (
-                        <p key={doc.id} style={{ color: palette[status].color }}>
-                          {CARD_LABELS[doc.document_type]}: {palette[status].label}{expiryText}
-                        </p>
-                      );
-                    })
+                    <button onClick={() => setConfirmDeleteRegId(reg.id)}
+                      className="text-xs text-red-600 hover:text-red-800 shrink-0">Remove</button>
                   )}
                 </div>
-              </div>
-              {confirmDeleteId === reg.id ? (
-                <span className="flex items-center gap-2 ml-4 shrink-0">
-                  <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
-                  <button
-                    onClick={() => handleDelete(reg.id)}
-                    disabled={deletingId === reg.id}
-                    className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
-                  >
-                    {deletingId === reg.id ? 'Removing…' : 'Yes'}
-                  </button>
-                  <button
-                    onClick={() => setConfirmDeleteId(null)}
-                    className="text-xs hover:underline"
-                    style={{ color: '#8b7355' }}
-                  >
-                    Cancel
-                  </button>
-                </span>
-              ) : (
-                <button
-                  onClick={() => setConfirmDeleteId(reg.id)}
-                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
-                >
-                  Remove
-                </button>
-              )}
-            </li>
+
+                {/* Certificate status */}
+                <div className="border-t pt-2" style={{ borderColor: '#f0e4d0' }}>
+                  {cert && status ? (
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="text-xs space-y-0.5">
+                        <span style={{ color: STATUS_STYLE[status].color }}>
+                          {STATUS_STYLE[status].label}
+                          {cert.expiry_date ? ` — expires ${formatDate(cert.expiry_date)}` : ''}
+                        </span>
+                        <div style={{ color: '#8b7355' }}>{cert.original_filename}</div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <a href={`/api/exhibitors/${exhibitorId}/documents/${cert.id}/download`}
+                          className="text-xs font-medium hover:underline" style={{ color: '#8b4513' }}>
+                          Download
+                        </a>
+                        {confirmDeleteCertId === cert.id ? (
+                          <span className="flex items-center gap-2">
+                            <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                            <button onClick={() => handleDeleteCert(cert.id)} disabled={deletingCertId === cert.id}
+                              className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50">
+                              {deletingCertId === cert.id ? 'Removing…' : 'Yes'}
+                            </button>
+                            <button onClick={() => setConfirmDeleteCertId(null)}
+                              className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteCertId(cert.id)}
+                            className="text-xs text-red-600 hover:text-red-800">Remove</button>
+                        )}
+                      </div>
+                    </div>
+                  ) : isUploadOpen ? null : (
+                    <button onClick={() => openUpload(reg.show_type_id)}
+                      className="text-xs font-medium hover:underline" style={{ color: '#8b4513' }}>
+                      + Attach certificate
+                    </button>
+                  )}
+
+                  {/* Inline upload form */}
+                  {isUploadOpen && (
+                    <div className="space-y-2 mt-1">
+                      <label className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-4 cursor-pointer transition-colors hover:bg-amber-50/40"
+                        style={{ borderColor: '#d4b896' }}>
+                        <input type="file" accept=".pdf,image/*"
+                          onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                          className="sr-only" />
+                        {uploadFile ? (
+                          <span className="text-sm font-medium" style={{ color: '#2c1810' }}>{uploadFile.name}</span>
+                        ) : (
+                          <>
+                            <span className="text-xl mb-1">📎</span>
+                            <span className="text-sm font-medium" style={{ color: '#8b4513' }}>Click to choose a file</span>
+                            <span className="text-xs mt-0.5" style={{ color: '#a89070' }}>PDF or image — max 10 MB</span>
+                          </>
+                        )}
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue date</label>
+                          <input type="date" value={uploadDates.issue_date}
+                            onChange={(e) => setUploadDates((p) => ({ ...p, issue_date: e.target.value }))}
+                            className="w-full border rounded px-2 py-1 text-xs" style={{ borderColor: '#d4b896' }} />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Expiry date</label>
+                          <input type="date" value={uploadDates.expiry_date}
+                            onChange={(e) => setUploadDates((p) => ({ ...p, expiry_date: e.target.value }))}
+                            className="w-full border rounded px-2 py-1 text-xs" style={{ borderColor: '#d4b896' }} />
+                        </div>
+                      </div>
+                      {uploadError && <p className="text-red-600 text-xs">{uploadError}</p>}
+                      <div className="flex gap-2">
+                        <button onClick={() => handleUploadCert(reg)} disabled={uploading}
+                          className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
+                          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
+                          {uploading ? 'Uploading…' : 'Upload'}
+                        </button>
+                        <button onClick={() => setUploadOpenFor(null)}
+                          className="px-3 py-1.5 rounded text-xs border"
+                          style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </li>
             );
           })}
         </ul>
@@ -177,11 +294,9 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
       {availableShowTypes.length > 0 && (
         <div className="flex flex-wrap gap-2 items-end pt-1">
           <div className="flex-1 min-w-[140px]">
-            <select
-              value={newReg.show_type_id}
+            <select value={newReg.show_type_id}
               onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
+              className="w-full border rounded px-3 py-2 text-sm">
               <option value="">Association…</option>
               {availableShowTypes.map((st) => (
                 <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
@@ -189,19 +304,14 @@ export default function ExhibitorRegistrations({ exhibitorId, initialRegistratio
             </select>
           </div>
           <div className="flex-1 min-w-[120px]">
-            <input
-              value={newReg.member_number}
+            <input value={newReg.member_number}
               onChange={(e) => setNewReg((p) => ({ ...p, member_number: e.target.value }))}
               placeholder="Membership ID"
-              className="w-full border rounded px-3 py-2 text-sm"
-            />
+              className="w-full border rounded px-3 py-2 text-sm" />
           </div>
-          <button
-            onClick={handleAdd}
-            disabled={saving}
+          <button onClick={handleAddReg} disabled={saving}
             className="px-3 py-2 rounded text-sm font-medium disabled:opacity-50"
-            style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-          >
+            style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
             {saving ? 'Saving…' : 'Add'}
           </button>
         </div>

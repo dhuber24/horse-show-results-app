@@ -100,10 +100,11 @@ Most data-backed features touch these layers:
 
 ## Runtime Behavior
 
-`backend/main.py` starts a background task that checks show status every 60 seconds:
+Show status transitions are handled through guarded write paths in `backend/routers/shows.py`:
 
-- `PUBLISHED` becomes `ACTIVE` on or after `start_date`.
-- `ACTIVE` becomes `COMPLETED` after `end_date`.
+- Publishing requires venue + at least one class.
+- Setting `ACTIVE` requires today's date to fall within the show date range.
+- Status transitions are explicit updates, not a background scheduler.
 
 The backend also calls `Base.metadata.create_all()` on startup. Migrations remain the source of truth for intentional schema evolution.
 

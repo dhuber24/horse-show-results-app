@@ -8,8 +8,8 @@ Shows move from setup to publication to scoring and results.
 stateDiagram-v2
     [*] --> DRAFT: show created
     DRAFT --> PUBLISHED: manual publish
-    PUBLISHED --> ACTIVE: start_date reached
-    ACTIVE --> COMPLETED: end_date passed
+    PUBLISHED --> ACTIVE: date in range
+    ACTIVE --> COMPLETED: manual transition
 
     DRAFT: setup only
     PUBLISHED: visible and planned
@@ -24,12 +24,11 @@ stateDiagram-v2
 | `ACTIVE` | Show is underway; scorekeepers can enter placings |
 | `COMPLETED` | Show has ended |
 
-Backend status automation:
+Manual status changes are guarded in `backend/routers/shows.py` and surfaced through `ShowStatusControl.tsx`:
 
-- `PUBLISHED` to `ACTIVE` when today is on or after `start_date`.
-- `ACTIVE` to `COMPLETED` when today is after `end_date`.
-
-Manual status changes are guarded in `backend/routers/shows.py` and surfaced through `ShowStatusControl.tsx`.
+- `PUBLISHED` requires venue + at least one class.
+- `ACTIVE` requires today's date to be inside the show's date range.
+- `COMPLETED` is an explicit transition after results are final.
 
 Codex note: when changing show visibility, scorekeeper access, or result entry behavior, check both the status guards in `backend/routers/shows.py` / `backend/routers/results.py` and the frontend controls that hide or disable actions by status.
 
@@ -69,9 +68,10 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 ## Exhibitor Self-Service Flow
 
-- Exhibitors can manage profile identity data through user `me` endpoints.
+- Exhibitors can manage account identity data through user `me` endpoints.
+- Exhibitors can maintain contact, emergency, and youth guardian fields through exhibitor profile endpoints.
 - Exhibitors can maintain association membership numbers through exhibitor registration endpoints.
-- Exhibitors can manage exhibitor-level documents (membership card, amateur card, youth card, medical, identification, other).
+- Exhibitor membership-card documents can be tagged to a specific association (`show_type_id`) for multi-association shows.
 - Exhibitors can manage horse relationships across owner-linked horses, created horses, and linked horses.
 
 ## Scorekeeper Flow
@@ -80,9 +80,9 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 2. They see only assigned, non-draft shows.
 3. On an active show, class cards link to the scorekeeper form.
 4. The form rendered depends on the class's `score_type`:
-   - `placement` (default, rail and halter classes) — secretary types placings directly; tie support via duplicate place numbers; gap warning prompts before saving non-contiguous placings.
-   - `pattern` (showmanship, horsemanship, equitation, trail, reining, etc.) — secretary types each judge-aggregated score; the backend recomputes placings (highest score wins) on save and the UI shows derived placings live as scores are entered.
-   - `time` (barrels, poles, stake race) — same as pattern but lowest time wins.
+   - `placement` (default, rail and halter classes) - secretary types placings directly; tie support via duplicate place numbers; gap warning prompts before saving non-contiguous placings.
+   - `pattern` (showmanship, horsemanship, equitation, trail, reining, etc.) - secretary types each judge-aggregated score; the backend recomputes placings (highest score wins) on save and the UI shows derived placings live as scores are entered.
+   - `time` (barrels, poles, stake race) - same as pattern but lowest time wins.
 5. DQ entries are listed at the bottom and do not receive a place.
 6. Audit rows are written for `placement` classes when a place changes; pattern/time classes do not audit derived placings (the score is the editorial value, not the placing).
 
@@ -100,7 +100,7 @@ Newly created classes default to `placement`; APHA bulk-imported classes also de
 
 ## Side Pots (Divisional Jackpots)
 
-Side pots are optional money pools that span multiple classes within a show — analogous to division jackpots run alongside pattern-class divisions like Showmanship 13&U / 14-17 / 18-34 / 35-49 / 50+.
+Side pots are optional money pools that span multiple classes within a show - analogous to division jackpots run alongside pattern-class divisions like Showmanship 13&U / 14-17 / 18-34 / 35-49 / 50+.
 
 ```mermaid
 flowchart LR
@@ -132,14 +132,14 @@ Settling is one-way; reopening a pot is not currently supported.
 - **`scoring_method`**: `sum_placings` (lowest sum wins, works for any class type) or `sum_scores` (highest sum wins, requires every bundled class to be `pattern` or `time`).
 - **`eligibility_rule`**: `all_classes` requires a result in every bundled class to be ranked; `any_class` lets missing classes count as last place + 1.
 - **`payout_schedule`**: JSONB map keyed by paid-entry count band, e.g. `{"1-3":[100], "4-7":[70,30], "8-15":[60,30,10], "16+":[40,25,15,12,8]}`. Defaults are seeded by the API; producers can override per pot.
-- **Tie breaking**: `most 1sts → most 2nds → most 3rds …`. If still tied, entries split the combined share evenly. Rounding remainder goes to first place.
+- **Tie breaking**: `most 1sts -> most 2nds -> most 3rds ...`. If still tied, entries split the combined share evenly. Rounding remainder goes to first place.
 
-### Operational flow
+### Operational Flow
 
-1. Secretary creates a pot at `/admin/shows/[id]/side-pots`, picks classes (the picker hides classes that don't match the scoring method).
+1. Secretary creates a pot at `/admin/shows/[id]/side-pots`, picks classes (the picker hides classes that do not match the scoring method).
 2. Secretary opts back numbers in by typing the back number, marks `paid` when cash is collected.
 3. Standings page (`/admin/shows/[id]/side-pots/[potId]`) shows live ranking + projected payouts as the underlying class results land. Refresh button re-runs the computation.
 4. Once results are final, secretary clicks **Settle**. The backend writes one `side_pot_payouts` row per eligible entry (place + cents) and locks the pot.
 5. Frozen payouts table appears in the same screen for handoff to whoever cuts checks.
 
-The total pool is `entry_fee_cents × paid count`; payout pool applies `payback_percent` to the total. Unpaid opt-ins still appear in standings (flagged "Unpaid") but contribute no money to the pool.
+The total pool is `entry_fee_cents * paid count`; payout pool applies `payback_percent` to the total. Unpaid opt-ins still appear in standings (flagged "Unpaid") but contribute no money to the pool.

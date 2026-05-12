@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -31,7 +32,7 @@ interface Props {
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
-const emptyForm = { name: '', owner_name: '', trainer_name: '', sex: '', foaling_date: '', breed_id: '', color_id: '', is_solid_paint_bred: false };
+const emptyForm = { name: '', trainer_id: '', trainer_name: '', sex: '', foaling_date: '', breed_id: '', color_id: '', is_solid_paint_bred: false };
 
 export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [horses, setHorses] = useState<Horse[]>(initialHorses);
@@ -54,6 +55,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [searching, setSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<LookupMatch | null>(null);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const [notFoundSearch, setNotFoundSearch] = useState(false);
   const [linking, setLinking] = useState(false);
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
@@ -112,9 +114,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       name: form.name.trim(),
       is_solid_paint_bred: form.is_solid_paint_bred,
       owner_exhibitor_id: exhibitorId,
+      registrations: pendingRegs.map((r) => ({
+        show_type_id: r.show_type_id,
+        registration_number: r.registration_number,
+      })),
     };
-    if (form.owner_name.trim()) body.owner_name = form.owner_name.trim();
-    if (form.trainer_name.trim()) body.trainer_name = form.trainer_name.trim();
+    body.trainer_id = form.trainer_id || null;
+    body.trainer_name = form.trainer_name.trim() || null;
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.breed_id) body.breed_id = form.breed_id;
@@ -125,38 +131,15 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    setSaving(false);
 
     if (!res.ok) {
-      setSaving(false);
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to add horse.');
       return;
     }
 
     const created = await res.json();
-
-    const regFailures: string[] = [];
-    for (const reg of pendingRegs) {
-      const regRes = await fetch(`/api/horses/${created.id}/registrations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_type_id: reg.show_type_id, registration_number: reg.registration_number }),
-      });
-      if (!regRes.ok) {
-        const err = await regRes.json().catch(() => ({}));
-        regFailures.push(`${reg.show_type_code} #${reg.registration_number}: ${err.detail ?? 'failed to add'}`);
-      }
-    }
-
-    setSaving(false);
-
-    if (regFailures.length > 0) {
-      // Roll back the orphaned horse so the user can correct and retry
-      await fetch(`/api/exhibitors/${exhibitorId}/created-horses/${created.id}`, { method: 'DELETE' });
-      setError(`Horse not saved: ${regFailures.join('; ')}`);
-      return;
-    }
-
     setHorses((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
     setForm(emptyForm);
     setPendingRegs([]);
@@ -183,14 +166,36 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       const match: LookupMatch = await res.json();
       if (horses.some((h) => h.id === match.horse_id)) {
         setSearchMessage(`"${match.horse_name}" is already on your profile.`);
+        setNotFoundSearch(false);
         return;
       }
       setSearchResult(match);
+      setNotFoundSearch(false);
     } else if (res.status === 404) {
-      setSearchMessage('No horse found with that registration. You can create a new profile below.');
+      setSearchMessage('No horse found with that registration.');
+      setNotFoundSearch(true);
     } else {
       setSearchMessage('Search failed. Try again.');
+      setNotFoundSearch(false);
     }
+  };
+
+  const handleCreateFromSearch = () => {
+    const st = showTypes.find((s) => s.id === searchInput.show_type_id);
+    if (st && searchInput.registration_number.trim()) {
+      setPendingRegs([{
+        show_type_id: st.id,
+        show_type_code: st.code,
+        show_type_name: st.name,
+        registration_number: searchInput.registration_number.trim(),
+      }]);
+    }
+    setShowSearch(false);
+    setSearchInput({ show_type_id: '', registration_number: '' });
+    setSearchResult(null);
+    setSearchMessage(null);
+    setNotFoundSearch(false);
+    setShowForm(true);
   };
 
   const handleLink = async () => {
@@ -254,7 +259,6 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             return (
               <li key={horse.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
                 <div className="flex items-center gap-3">
-                  <span className="text-xl">🐴</span>
                   <div>
                     <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
                       {horse.name}
@@ -290,7 +294,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                         Edit
                       </Link>
                       <Link
-                        href={`/profile/horses/${horse.id}#documents`}
+                        href={`/profile/horses/${horse.id}?section=documents`}
                         className="text-xs font-medium hover:underline"
                         style={{ color: '#8b4513' }}
                       >
@@ -315,7 +319,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                         disabled={unlinkingId === horse.id}
                         className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
                       >
-                        {unlinkingId === horse.id ? 'Removing…' : 'Yes'}
+                        {unlinkingId === horse.id ? 'Removing...' : 'Yes'}
                       </button>
                       <button
                         onClick={() => setConfirmUnlinkId(null)}
@@ -342,7 +346,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       )}
 
       {/* Find existing horse */}
-      {showSearch ? (
+      {showSearch && (
         <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
           <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Find an Existing Horse</h3>
           <p className="text-xs" style={{ color: '#8b7355' }}>
@@ -356,9 +360,9 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 onChange={(e) => setSearchInput((p) => ({ ...p, show_type_id: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"
               >
-                <option value="">Select…</option>
+                <option value="">Select...</option>
                 {searchableShowTypes.map((st) => (
-                  <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
+                  <option key={st.id} value={st.id}>{st.code} - {st.name}</option>
                 ))}
               </select>
             </div>
@@ -377,7 +381,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
             >
-              {searching ? 'Searching…' : 'Search'}
+              {searching ? 'Searching...' : 'Search'}
             </button>
           </div>
 
@@ -385,7 +389,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             <div className="rounded p-3 border" style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}>
               <p className="text-sm" style={{ color: '#166534' }}>
                 <span className="font-semibold">{searchResult.horse_name}</span>
-                {searchResult.owner_name && <span> — owner: {searchResult.owner_name}</span>}
+                {searchResult.owner_name && <span> - owner: {searchResult.owner_name}</span>}
               </p>
               <div className="flex gap-2 mt-2">
                 <button
@@ -394,7 +398,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
                   style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
                 >
-                  {linking ? 'Adding…' : 'Add to my profile'}
+                  {linking ? 'Adding...' : 'Add to my profile'}
                 </button>
                 <button
                   onClick={() => { setSearchResult(null); setSearchMessage(null); }}
@@ -408,7 +412,18 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           )}
 
           {searchMessage && !searchResult && (
-            <p className="text-xs" style={{ color: '#8b4513' }}>{searchMessage}</p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-xs" style={{ color: '#8b4513' }}>{searchMessage}</p>
+              {notFoundSearch && (
+                <button
+                  onClick={handleCreateFromSearch}
+                  className="text-xs font-medium hover:underline shrink-0"
+                  style={{ color: '#2c1810' }}
+                >
+                  Create new profile ->
+                </button>
+              )}
+            </div>
           )}
 
           <div>
@@ -418,6 +433,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 setSearchInput({ show_type_id: '', registration_number: '' });
                 setSearchResult(null);
                 setSearchMessage(null);
+                setNotFoundSearch(false);
               }}
               className="text-xs hover:underline"
               style={{ color: '#8b7355' }}
@@ -426,22 +442,32 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             </button>
           </div>
         </div>
-      ) : !showForm && (
-        <button
-          onClick={() => setShowSearch(true)}
-          className="text-sm font-medium hover:underline"
-          style={{ color: '#8b4513' }}
-        >
-          + Find an existing horse
-        </button>
       )}
 
-      {showForm ? (
+      {!showSearch && !showForm && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <button
+            onClick={() => setShowSearch(true)}
+            className="text-left rounded-lg border p-4 transition-colors hover:border-amber-800/40 hover:bg-amber-50/50"
+            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          >
+            <p className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>Find an existing horse</p>
+            <p className="text-xs" style={{ color: '#8b7355' }}>Search by association registration number to add a horse already in the system.</p>
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-left rounded-lg border p-4 transition-colors hover:border-amber-800/40 hover:bg-amber-50/50"
+            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          >
+            <p className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>Add a new horse</p>
+            <p className="text-xs" style={{ color: '#8b7355' }}>Create a profile for a horse you own.</p>
+          </button>
+        </div>
+      )}
+
+      {showForm && (
         <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
           <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Add a Horse</h3>
-          <p className="text-xs px-3 py-2 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
-            You can only register horses you own. If you don&apos;t own this horse, the registered owner needs to create the profile — you can then link it to your account using the &quot;Find an existing horse&quot; option above.
-          </p>
 
           {/* Core fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -453,23 +479,15 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               className="border rounded px-3 py-2 text-sm col-span-full"
             />
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Owner Name</label>
-              <input
-                name="owner_name"
-                value={form.owner_name}
-                onChange={handleChange}
-                placeholder="Owner name"
-                className="w-full border rounded px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Trainer Name</label>
-              <input
-                name="trainer_name"
-                value={form.trainer_name}
-                onChange={handleChange}
-                placeholder="Trainer name"
-                className="w-full border rounded px-3 py-2 text-sm"
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+              <TrainerSelect
+                trainerId={form.trainer_id || null}
+                trainerName={form.trainer_name || null}
+                onChange={(trainerId, trainerName) => setForm((prev) => ({
+                  ...prev,
+                  trainer_id: trainerId ?? '',
+                  trainer_name: trainerName ?? '',
+                }))}
               />
             </div>
             <select name="sex" value={form.sex} onChange={handleChange} className="border rounded px-3 py-2 text-sm">
@@ -538,9 +556,9 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                     onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
                     className="w-full border rounded px-3 py-2 text-sm"
                   >
-                    <option value="">Association…</option>
+                    <option value="">Association...</option>
                     {availableShowTypes.map((st) => (
-                      <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
+                      <option key={st.id} value={st.id}>{st.code} - {st.name}</option>
                     ))}
                   </select>
                 </div>
@@ -572,7 +590,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
             >
-              {saving ? 'Saving…' : 'Save Horse'}
+              {saving ? 'Saving...' : 'Save Horse'}
             </button>
             <button
               onClick={() => { setShowForm(false); setForm(emptyForm); setPendingRegs([]); setError(null); setRegError(null); setNewReg({ show_type_id: '', registration_number: '' }); }}
@@ -582,16 +600,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               Cancel
             </button>
           </div>
+
+          <p className="text-xs" style={{ color: '#a89070' }}>
+            <span className="font-medium">Note:</span> You can only register horses you own. If you don&apos;t own this horse, the registered owner needs to create the profile - you can then link it to your account using the &quot;Find an existing horse&quot; option.
+          </p>
         </div>
-      ) : !showSearch && (
-        <button
-          onClick={() => setShowForm(true)}
-          className="text-sm font-medium hover:underline"
-          style={{ color: '#8b4513' }}
-        >
-          + Add a new horse
-        </button>
       )}
     </div>
   );
 }
+

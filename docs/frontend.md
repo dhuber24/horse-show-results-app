@@ -40,7 +40,7 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/shows/[id]/classes/[classId]/scorekeeper` | Scorekeeper placing form |
 | `/scorekeeper` | Scorekeeper assigned shows |
 | `/dashboard` | Exhibitor entries dashboard |
-| `/profile` | User profile and exhibitor horse list |
+| `/profile` | User account, memberships, and horses tabbed view (`?tab=account|memberships|horses`) |
 | `/profile/horses/[id]` | Exhibitor horse editing and documents |
 | `/api/exhibitors/me` | Resolve exhibitor profile from signed-in user |
 | `/api/exhibitors/[id]/registrations` | Exhibitor association registration CRUD proxy |
@@ -48,14 +48,18 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/api/exhibitors/[id]/created-horses` | Horses created by exhibitor |
 | `/api/exhibitors/[id]/linked-horses` | Non-owner horse links for exhibitor |
 | `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list |
+| `/api/trainers` | Trainer list/create proxy |
+| `/api/trainers/[id]` | Trainer update/delete proxy |
 | `/admin` | Admin landing |
 | `/admin/shows` | Admin/manager/secretary show list |
 | `/admin/shows/[id]` | Show management dashboard |
+| `/admin/shows/[id]/setup` | Ring/division setup from standard lists |
 | `/admin/shows/[id]/classes` | Class list, reorder, APHA import |
 | `/admin/shows/[id]/entries` | Entries by class |
 | `/admin/shows/[id]/back-numbers` | Show-level back number assignment |
 | `/admin/shows/[id]/side-pots` | Side pot list, create form |
 | `/admin/shows/[id]/side-pots/[potId]` | Side pot detail: settings, opt-ins, live standings, settle, frozen payouts |
+| `/admin/trainers` | Admin trainer registry management |
 | `/admin/users` | User management |
 | `/admin/venues` | Venue management |
 | `/admin/show-requests` | Admin show request review |
@@ -75,16 +79,19 @@ npm run build
 
 ## Exhibitor Profile Enhancements
 
-- `MyHorsesPanel` now supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
-- `ExhibitorDocuments` component is shared for exhibitor-level document management.
-- `ExhibitorRegistrations` component is shared for exhibitor membership numbers by association.
+- `/profile` now separates `Account`, `Memberships`, and `My Horses` into tabs via `ProfileTabs`.
+- `EditAccountForm` manages user identity plus exhibitor contact/emergency/youth fields.
+- `MyHorsesPanel` supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
+- `ExhibitorMembershipPanel` composes registrations and document-certificate management in one surface.
+- `ExhibitorDocuments` supports association-tagged membership cards via nullable `show_type_id`.
+- `ExhibitorRegistrations` remains the association membership number editor.
 
 ## Scorekeeper Form Branching
 
 The scorekeeper page at `/shows/[id]/classes/[classId]/scorekeeper` renders one of two forms based on the class's `score_type`:
 
-- `placement` → `ScorekeeperForm.tsx` — manual placing entry with tie/gap detection (default for rail and halter classes).
-- `pattern` or `time` → `ScoredScorekeeperForm.tsx` — numeric score/time input with placings derived live (highest score for `pattern`, lowest time for `time`).
+- `placement` -> `ScorekeeperForm.tsx` - manual placing entry with tie/gap detection (default for rail and halter classes).
+- `pattern` or `time` -> `ScoredScorekeeperForm.tsx` - numeric score/time input with placings derived live (highest score for `pattern`, lowest time for `time`).
 
 Both forms save via the same `PUT /api/results` route handler; the backend recomputes derived placings server-side for pattern/time classes.
 

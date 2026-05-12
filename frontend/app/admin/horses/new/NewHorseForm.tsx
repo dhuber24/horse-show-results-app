@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
 interface ShowType { id: string; code: string; name: string; }
+interface Trainer { id: string; name: string; }
 interface PendingReg { show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
 interface PendingRider { exhibitor_id: string; full_name: string; }
 
@@ -15,16 +17,17 @@ interface Props {
   colors: HorseColor[];
   exhibitors: Exhibitor[];
   showTypes: ShowType[];
+  trainers: Trainer[];
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: Props) {
+export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: '',
     owner_exhibitor_id: '',
-    owner_name: '',
+    trainer_id: '',
     trainer_name: '',
     sex: '',
     foaling_date: '',
@@ -52,15 +55,12 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     const trimmed = newReg.registration_number.trim();
     const st = showTypes.find((s) => s.id === newReg.show_type_id)!;
 
-    // Pre-flight: warn if registration number already belongs to another horse
     const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
     const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
     if (lookupRes.ok) {
       const existing = await lookupRes.json();
       const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
-      setRegError(
-        `${st.code} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`
-      );
+      setRegError(`${st.code} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`);
       return;
     }
 
@@ -96,11 +96,11 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
 
     const body: Record<string, unknown> = {
       name: form.name.trim(),
+      owner_exhibitor_id: form.owner_exhibitor_id || null,
+      trainer_id: form.trainer_id || null,
+      trainer_name: form.trainer_name.trim() || null,
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
-    if (form.owner_exhibitor_id) body.owner_exhibitor_id = form.owner_exhibitor_id;
-    if (form.owner_name.trim()) body.owner_name = form.owner_name.trim();
-    if (form.trainer_name.trim()) body.trainer_name = form.trainer_name.trim();
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.breed_id) body.breed_id = form.breed_id;
@@ -114,7 +114,8 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
 
     if (!res.ok) {
       setSaving(false);
-      setError('Failed to create horse.');
+      const err = await res.json().catch(() => ({}));
+      setError(err.detail ?? 'Failed to create horse.');
       return;
     }
 
@@ -134,7 +135,6 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
     }
 
     if (regFailures.length > 0) {
-      // Roll back the orphaned horse so the admin can correct and retry
       await fetch(`/api/horses/${horse.id}`, { method: 'DELETE' });
       setSaving(false);
       setError(`Horse not saved: ${regFailures.join('; ')}`);
@@ -166,54 +166,37 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
 
   return (
     <div className="space-y-6">
-      {/* Core details */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
-            <input
-              name="name"
-              value={form.name}
-              onChange={handleChange}
-              className="w-full border rounded px-3 py-2"
-              placeholder="Horse name"
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
-            <input
-              name="owner_name"
-              value={form.owner_name}
-              onChange={handleChange}
-              placeholder="Owner name"
-              className="w-full border rounded px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
-            <input
-              name="trainer_name"
-              value={form.trainer_name}
-              onChange={handleChange}
-              placeholder="Trainer name"
-              className="w-full border rounded px-3 py-2"
-            />
+            <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" placeholder="Horse name" />
           </div>
           <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
-              Exhibitor Account
-              <span className="ml-1 font-normal text-xs" style={{ color: '#a89070' }}>(links horse to an exhibitor's My Horses)</span>
-            </label>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
             <select name="owner_exhibitor_id" value={form.owner_exhibitor_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not linked —</option>
+              <option value="">Select exhibitor...</option>
               {exhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
             </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+            <TrainerSelect
+              trainerId={form.trainer_id || null}
+              trainerName={form.trainer_name || null}
+              trainers={trainers}
+              onChange={(trainerId, trainerName) => setForm((prev) => ({
+                ...prev,
+                trainer_id: trainerId ?? '',
+                trainer_name: trainerName ?? '',
+              }))}
+            />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
             <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               <option value="Mare">Mare</option>
               <option value="Gelding">Gelding</option>
               <option value="Stallion">Stallion</option>
@@ -222,29 +205,21 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
               Foaling Date
-              {displayAge !== null && (
-                <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>
-              )}
+              {displayAge !== null && <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>}
             </label>
-            <input
-              name="foaling_date"
-              type="date"
-              value={form.foaling_date}
-              onChange={handleChange}
-              className="w-full border rounded px-3 py-2"
-            />
+            <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
             <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
             <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">— Not specified —</option>
+              <option value="">- Not specified -</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
@@ -257,64 +232,42 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
               className="h-4 w-4"
             />
             <label htmlFor="is_solid_paint_bred" className="text-sm" style={{ color: '#8b7355' }}>
-              Solid Paint-Bred (SPB) — cannot enter Regular Registry Open classes
+              Solid Paint-Bred (SPB) - cannot enter Regular Registry Open classes
             </label>
           </div>
         </div>
       </div>
 
-      {/* Riders */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Rider(s)</h2>
-
         {pendingRiders.length > 0 ? (
           <ul className="space-y-2">
             {pendingRiders.map((r) => (
               <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
                 <span className="text-sm" style={{ color: '#2c1810' }}>{r.full_name}</span>
-                <button
-                  onClick={() => handleRemoveRider(r.exhibitor_id)}
-                  className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0"
-                >
-                  Remove
-                </button>
+                <button onClick={() => handleRemoveRider(r.exhibitor_id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm" style={{ color: '#8b7355' }}>No riders added yet.</p>
         )}
-
         {availableRiderExhibitors.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[200px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
-              <select
-                value={newRiderId}
-                onChange={(e) => setNewRiderId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select exhibitor…</option>
-                {availableRiderExhibitors.map((e) => (
-                  <option key={e.id} value={e.id}>{e.full_name}</option>
-                ))}
+              <select value={newRiderId} onChange={(e) => setNewRiderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                <option value="">Select exhibitor...</option>
+                {availableRiderExhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
               </select>
             </div>
-            <button
-              onClick={handleAddRider}
-              className="px-4 py-2 rounded text-sm font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-            >
-              Add
-            </button>
+            <button onClick={handleAddRider} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>Add</button>
           </div>
         )}
       </div>
 
-      {/* Association Registrations */}
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Association Registration Numbers</h2>
-
         {pendingRegs.length > 0 ? (
           <ul className="space-y-2">
             {pendingRegs.map((r) => (
@@ -324,47 +277,27 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
                   <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
                   <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
                 </div>
-                <button onClick={() => handleRemoveReg(r.show_type_id)} className="text-xs text-red-600 hover:text-red-800 ml-4">
-                  Remove
-                </button>
+                <button onClick={() => handleRemoveReg(r.show_type_id)} className="text-xs text-red-600 hover:text-red-800 ml-4">Remove</button>
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm" style={{ color: '#8b7355' }}>No registrations added yet.</p>
         )}
-
         {availableShowTypes.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[160px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-              <select
-                value={newReg.show_type_id}
-                onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select…</option>
-                {availableShowTypes.map((st) => (
-                  <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
-                ))}
+              <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
+                <option value="">Select...</option>
+                {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
               </select>
             </div>
             <div className="flex-1 min-w-[160px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
-              <input
-                value={newReg.registration_number}
-                onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))}
-                placeholder="e.g. 1234567"
-                className="w-full border rounded px-3 py-2 text-sm"
-              />
+              <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
             </div>
-            <button
-              onClick={handleAddReg}
-              className="px-4 py-2 rounded text-sm font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-            >
-              Add
-            </button>
+            <button onClick={handleAddReg} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>Add</button>
           </div>
         )}
         {regError && <p className="text-red-600 text-sm">{regError}</p>}
@@ -373,19 +306,10 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes }: 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
       <div className="flex gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2 rounded font-medium disabled:opacity-50"
-          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
-        >
-          {saving ? 'Creating…' : 'Create Horse'}
+        <button onClick={handleSave} disabled={saving} className="px-6 py-2 rounded font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
+          {saving ? 'Creating...' : 'Create Horse'}
         </button>
-        <button
-          onClick={() => router.push('/admin/horses')}
-          className="px-6 py-2 rounded font-medium border"
-          style={{ borderColor: '#d4b896', color: '#8b7355' }}
-        >
+        <button onClick={() => router.push('/admin/horses')} className="px-6 py-2 rounded font-medium border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
           Cancel
         </button>
       </div>

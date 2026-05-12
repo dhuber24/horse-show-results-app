@@ -457,12 +457,35 @@ class HorseRegistrationOut(BaseModel):
         from_attributes = True
 
 
+# ── Trainers ───────────────────────────────────────────────────────────────────
+
+class TrainerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    email: Optional[str] = Field(default=None, max_length=200)
+
+class TrainerUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    email: Optional[str] = Field(default=None, max_length=200)
+
+class TrainerOut(BaseModel):
+    id: UUID
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Horses ─────────────────────────────────────────────────────────────────────
 
 class HorseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
-    owner_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
@@ -470,10 +493,13 @@ class HorseCreate(BaseModel):
     color_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
 
+class HorseCreateWithRegistrations(HorseCreate):
+    registrations: list[HorseRegistrationCreate] = Field(default_factory=list)
+
 class HorseUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
-    owner_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
@@ -485,8 +511,10 @@ class HorseOut(BaseModel):
     id: UUID
     name: str
     owner_exhibitor_id: Optional[UUID] = None
+    owner_exhibitor_name: Optional[str] = None
     created_by_exhibitor_id: Optional[UUID] = None
     owner_name: Optional[str] = None
+    trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = None
     foaling_date: Optional[date] = None
     sex: Optional[str] = None
@@ -506,13 +534,18 @@ class HorseOut(BaseModel):
         foaling_date = getattr(v, 'foaling_date', None)
         breed = getattr(v, 'breed', None)
         color = getattr(v, 'color', None)
+        owner_exhibitor = getattr(v, 'owner_exhibitor', None)
+        trainer = getattr(v, 'trainer', None)
         data = {
             'id': v.id,
             'name': v.name,
             'owner_exhibitor_id': v.owner_exhibitor_id,
+            'owner_exhibitor_name': owner_exhibitor.full_name if owner_exhibitor else None,
             'created_by_exhibitor_id': getattr(v, 'created_by_exhibitor_id', None),
             'owner_name': getattr(v, 'owner_name', None),
-            'trainer_name': getattr(v, 'trainer_name', None),
+            'trainer_id': getattr(v, 'trainer_id', None),
+            # trainer_name is always the display name: registry takes precedence over free text
+            'trainer_name': trainer.name if trainer else getattr(v, 'trainer_name', None),
             'foaling_date': foaling_date,
             'sex': v.sex,
             'breed_id': v.breed_id,
@@ -562,6 +595,15 @@ class ExhibitorCreate(BaseModel):
     amateur_card_expiry: Optional[date] = None
     amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    address: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
+    emergency_contact_name: Optional[str] = Field(default=None, max_length=200)
+    emergency_contact_phone: Optional[str] = Field(default=None, max_length=30)
+    parent_guardian_name: Optional[str] = Field(default=None, max_length=200)
+    parent_guardian_phone: Optional[str] = Field(default=None, max_length=30)
 
 class ExhibitorUpdate(BaseModel):
     full_name: Optional[str] = Field(default=None, max_length=200)
@@ -571,6 +613,15 @@ class ExhibitorUpdate(BaseModel):
     amateur_card_expiry: Optional[date] = None
     amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    address: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
+    emergency_contact_name: Optional[str] = Field(default=None, max_length=200)
+    emergency_contact_phone: Optional[str] = Field(default=None, max_length=30)
+    parent_guardian_name: Optional[str] = Field(default=None, max_length=200)
+    parent_guardian_phone: Optional[str] = Field(default=None, max_length=30)
 
 class ExhibitorOut(BaseModel):
     id: UUID
@@ -582,6 +633,15 @@ class ExhibitorOut(BaseModel):
     amateur_card_expiry: Optional[date] = None
     amateur_novice_codes: Optional[str] = None
     date_of_birth: Optional[date] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    parent_guardian_name: Optional[str] = None
+    parent_guardian_phone: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -726,6 +786,15 @@ class ExhibitorCreateWithUser(BaseModel):
     amateur_card_expiry: Optional[date] = None
     amateur_novice_codes: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    address: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
+    emergency_contact_name: Optional[str] = Field(default=None, max_length=200)
+    emergency_contact_phone: Optional[str] = Field(default=None, max_length=30)
+    parent_guardian_name: Optional[str] = Field(default=None, max_length=200)
+    parent_guardian_phone: Optional[str] = Field(default=None, max_length=30)
 
 
 # ── Side Pots ──────────────────────────────────────────────────────────────────

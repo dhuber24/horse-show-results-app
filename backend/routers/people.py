@@ -10,10 +10,10 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
-from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration
+from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration, Trainer
 from schemas import (
     UserCreate, UserOut,
-    HorseCreate, HorseUpdate, HorseOut,
+    HorseCreate, HorseCreateWithRegistrations, HorseUpdate, HorseOut,
     HorseRegistrationCreate, HorseRegistrationOut,
     HorseRiderOut, HorseRiderCreate,
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
@@ -103,6 +103,10 @@ class UserProfileUpdate(BaseModel):
     email: Optional[EmailStr] = None
 
 
+class CurrentUserProfileUpdate(UserProfileUpdate):
+    current_password: Optional[str] = None
+
+
 class PasswordChange(BaseModel):
     current_password: str
     new_password: str
@@ -121,14 +125,23 @@ async def get_current_user(
 
 @users_router.patch("/me", response_model=UserOut)
 async def update_current_user(
-    body: UserProfileUpdate,
+    body: CurrentUserProfileUpdate,
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
     user = await db.get(User, safe_uuid(user_id))
     if not user:
         raise HTTPException(404, "User not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+
+    # Email is the login identifier — require password confirmation to change it.
+    if body.email is not None and body.email != user.email:
+        if not body.current_password:
+            raise HTTPException(400, "Confirm your password to change your email.")
+        if not user.hashed_password or not bcrypt.checkpw(body.current_password.encode(), user.hashed_password.encode()):
+            raise HTTPException(400, "Password is incorrect.")
+
+    updates = body.model_dump(exclude_unset=True, exclude={'current_password'})
+    for k, v in updates.items():
         setattr(user, k, v)
     try:
         await db.commit()
@@ -247,7 +260,12 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
 
 horses_router = APIRouter(prefix="/horses", tags=["Horses"])
 
-_horse_options = [selectinload(Horse.breed), selectinload(Horse.color)]
+_horse_options = [
+    selectinload(Horse.breed),
+    selectinload(Horse.color),
+    selectinload(Horse.owner_exhibitor),
+    selectinload(Horse.trainer),
+]
 
 
 async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
@@ -306,7 +324,15 @@ async def lookup_horse_registration(
 
 @horses_router.post("/", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
-    horse = Horse(**body.model_dump())
+    if body.owner_exhibitor_id is not None and not await db.get(Exhibitor, body.owner_exhibitor_id):
+        raise HTTPException(400, "Selected owner is not a valid exhibitor.")
+    if body.trainer_id is not None and not await db.get(Trainer, body.trainer_id):
+        raise HTTPException(400, "Selected trainer is not in the registry.")
+    data = body.model_dump()
+    # trainer_id and trainer_name are mutually exclusive; clear whichever wasn't intended
+    if data.get('trainer_id'):
+        data['trainer_name'] = None
+    horse = Horse(**data)
     db.add(horse)
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
@@ -337,6 +363,17 @@ async def update_horse(
     # Exhibitors cannot reassign ownership
     if x_user_role != 'ADMIN':
         update_data.pop('owner_exhibitor_id', None)
+    if 'owner_exhibitor_id' in update_data and update_data['owner_exhibitor_id'] is not None:
+        if not await db.get(Exhibitor, update_data['owner_exhibitor_id']):
+            raise HTTPException(400, "Selected owner is not a valid exhibitor.")
+    if 'trainer_id' in update_data and update_data['trainer_id'] is not None:
+        if not await db.get(Trainer, update_data['trainer_id']):
+            raise HTTPException(400, "Selected trainer is not in the registry.")
+    # trainer_id and trainer_name are mutually exclusive
+    if update_data.get('trainer_id'):
+        update_data['trainer_name'] = None
+    elif 'trainer_name' in update_data and update_data.get('trainer_name'):
+        update_data['trainer_id'] = None
     for k, v in update_data.items():
         setattr(horse, k, v)
     await db.commit()
@@ -594,12 +631,29 @@ async def get_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Exhibitor not found")
     return exhibitor
 
-@exhibitors_router.patch("/{exhibitor_id}", response_model=ExhibitorOut, dependencies=[Depends(require_admin)])
-async def update_exhibitor(exhibitor_id: UUID, body: ExhibitorUpdate, db: AsyncSession = Depends(get_db)):
+_EXHIBITOR_SELF_SERVICE_FIELDS = {
+    'date_of_birth', 'phone', 'address', 'city', 'state', 'zip',
+    'emergency_contact_name', 'emergency_contact_phone',
+    'parent_guardian_name', 'parent_guardian_phone',
+}
+
+@exhibitors_router.patch("/{exhibitor_id}", response_model=ExhibitorOut)
+async def update_exhibitor(
+    exhibitor_id: UUID,
+    body: ExhibitorUpdate,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     exhibitor = await db.get(Exhibitor, exhibitor_id)
     if not exhibitor:
         raise HTTPException(404, "Exhibitor not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    if x_user_role != 'ADMIN' and str(exhibitor.user_id) != user_id:
+        raise HTTPException(403, "You can only update your own profile")
+    updates = body.model_dump(exclude_unset=True)
+    if x_user_role != 'ADMIN':
+        updates = {k: v for k, v in updates.items() if k in _EXHIBITOR_SELF_SERVICE_FIELDS}
+    for k, v in updates.items():
         setattr(exhibitor, k, v)
     await db.commit()
     await db.refresh(exhibitor)
@@ -783,12 +837,14 @@ async def unlink_horse_from_self(
 @exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=HorseOut, status_code=201)
 async def create_horse_for_exhibitor(
     exhibitor_id: UUID,
-    body: HorseCreate,
+    body: HorseCreateWithRegistrations,
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a horse profile via self-service. The caller must be the owner of the horse —
-    they cannot create a profile for a horse owned by someone else."""
+    they cannot create a profile for a horse owned by someone else. Optional registrations
+    are validated and inserted in the same transaction so a bad number never leaves an
+    orphaned horse behind."""
     result = await db.execute(
         select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
     )
@@ -799,13 +855,58 @@ async def create_horse_for_exhibitor(
     if body.owner_exhibitor_id is not None and body.owner_exhibitor_id != exhibitor_id:
         raise HTTPException(403, "You cannot create a horse you do not own. Only the owner of the horse can register it.")
 
+    # Pre-validate every registration before inserting anything.
+    seen_show_type_ids: set[UUID] = set()
+    for reg in body.registrations:
+        number = reg.registration_number.strip()
+        if not number:
+            raise HTTPException(400, "Registration number cannot be empty")
+        if reg.show_type_id in seen_show_type_ids:
+            raise HTTPException(409, "Each association can only have one registration number")
+        seen_show_type_ids.add(reg.show_type_id)
+
+        conflict = await db.execute(
+            select(Horse)
+            .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
+            .where(
+                HorseRegistration.show_type_id == reg.show_type_id,
+                HorseRegistration.registration_number == number,
+            )
+            .limit(1)
+        )
+        other = conflict.scalar_one_or_none()
+        if other:
+            suffix = f" (owner: {other.owner_name})" if other.owner_name else ""
+            raise HTTPException(
+                409,
+                f"Registration {number} is already on file for horse '{other.name}'{suffix}. "
+                f"If this is the same horse, contact your show secretary.",
+            )
+
     horse = Horse(
-        **body.model_dump(exclude={'owner_exhibitor_id'}),
+        **body.model_dump(exclude={'owner_exhibitor_id', 'registrations'}),
         created_by_exhibitor_id=exhibitor_id,
         owner_exhibitor_id=exhibitor_id,
     )
     db.add(horse)
-    await db.commit()
+    await db.flush()
+
+    for reg in body.registrations:
+        db.add(HorseRegistration(
+            horse_id=horse.id,
+            show_type_id=reg.show_type_id,
+            registration_number=reg.registration_number.strip(),
+        ))
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            "One of the registrations conflicts with an existing record. Please verify and try again.",
+        )
+
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
     return result.scalar_one()
 

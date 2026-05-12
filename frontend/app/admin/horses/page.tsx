@@ -33,6 +33,13 @@ export default async function AdminHorsesPage() {
               Manage Colors
             </Link>
             <Link
+              href="/admin/trainers"
+              className="text-sm px-3 py-1.5 rounded border font-medium"
+              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+            >
+              Manage Trainers
+            </Link>
+            <Link
               href="/admin/horses/new"
               className="text-sm px-3 py-1.5 rounded font-medium"
               style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
