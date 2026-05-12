@@ -30,12 +30,27 @@ docker run --rm postgres:16-alpine psql $psqlUrl -c "CREATE TABLE IF NOT EXISTS 
 Get-ChildItem "$migrationsDir\*.sql" | Sort-Object Name | ForEach-Object {
     $name = $_.Name
     $applied = docker run --rm postgres:16-alpine psql $psqlUrl -tAc "SELECT COUNT(*) FROM _migrations WHERE name = '$name';"
+    if ($LASTEXITCODE -ne 0 -or $null -eq $applied) {
+        throw "Failed to check migration status for $name."
+    }
     if ($applied.Trim() -eq "1") {
         Write-Host "  skipped: $name (already applied)"
     } else {
         Write-Host "  applying: $name"
         docker run --rm -v "${migrationsDir}:/migrations" postgres:16-alpine psql $psqlUrl -f "/migrations/$name"
-        docker run --rm postgres:16-alpine psql $psqlUrl -c "INSERT INTO _migrations (name) VALUES ('$name');" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to apply migration $name."
+        }
+        $recorded = docker run --rm postgres:16-alpine psql $psqlUrl -tAc "SELECT COUNT(*) FROM _migrations WHERE name = '$name';"
+        if ($LASTEXITCODE -ne 0 -or $null -eq $recorded) {
+            throw "Failed to verify migration record for $name."
+        }
+        if ($recorded.Trim() -ne "1") {
+            docker run --rm postgres:16-alpine psql $psqlUrl -c "INSERT INTO _migrations (name) VALUES ('$name');" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to record migration $name."
+            }
+        }
         Write-Host "  done: $name"
     }
 }

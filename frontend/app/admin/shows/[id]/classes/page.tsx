@@ -2,6 +2,7 @@ import { fetchShow, fetchClasses, fetchShowTypes, fetchRings, fetchDivisions } f
 import CreateClassForm from '../CreateClassForm';
 import ClassListWithReorder from '../ClassListWithReorder';
 import APHAClassPicker from '../APHAClassPicker';
+import AQHAClassPicker from '../AQHAClassPicker';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowClassesPage({ params }: { params: Promise<{ id: string }> }) {
@@ -15,6 +16,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
   ]);
 
   const isApha = show.show_type_code === 'APHA';
+  const isAqha = show.show_type_code === 'AQHA';
 
   // Only expose show types that are relevant to this show (primary + affiliations)
   const validShowTypeIds = new Set([
@@ -27,6 +29,14 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
     ? classes.flatMap((c: any) =>
         (c.associations ?? [])
           .filter((a: any) => a.show_type_code === 'APHA')
+          .map((a: any) => a.association_class_code)
+      )
+    : [];
+
+  const existingAqhaCodes = isAqha
+    ? classes.flatMap((c: any) =>
+        (c.associations ?? [])
+          .filter((a: any) => a.show_type_code === 'AQHA')
           .map((a: any) => a.association_class_code)
       )
     : [];
@@ -48,6 +58,9 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
         <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} rings={rings} divisions={divisions} />
         {isApha && (
           <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />
+        )}
+        {isAqha && (
+          <AQHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAqhaCodes={existingAqhaCodes} />
         )}
       </div>
 

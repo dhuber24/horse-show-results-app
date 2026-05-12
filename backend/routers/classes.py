@@ -7,7 +7,7 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
-from models import Class, Show, Result, ClassAssociation, AphaStandardClass, ShowType
+from models import Class, Show, Result, ClassAssociation, AphaStandardClass, AqhaStandardClass, ShowType
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
@@ -181,21 +181,20 @@ async def bulk_create_classes(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
 
-    # Resolve APHA show type id from the show's own show_type
     show_type = await db.get(ShowType, show.show_type_id)
-    if not show_type or show_type.code != "APHA":
-        raise HTTPException(400, "Bulk import from APHA class list is only available for APHA shows")
+    if not show_type or show_type.code not in ("APHA", "AQHA"):
+        raise HTTPException(400, "Bulk import from an association class list is only available for APHA or AQHA shows")
 
-    # Look up all requested APHA codes
-    codes = [item.apha_code for item in body.classes]
+    codes = [item.code for item in body.classes]
+    standard_model = AphaStandardClass if show_type.code == "APHA" else AqhaStandardClass
     result = await db.execute(
-        select(AphaStandardClass).where(AphaStandardClass.code.in_(codes))
+        select(standard_model).where(standard_model.code.in_(codes))
     )
     standard_map = {sc.code: sc for sc in result.scalars().all()}
 
     missing = [c for c in codes if c not in standard_map]
     if missing:
-        raise HTTPException(400, f"Unknown APHA class codes: {', '.join(missing)}")
+        raise HTTPException(400, f"Unknown {show_type.code} class codes: {', '.join(missing)}")
 
     # Reject codes already present in this show's class_associations
     existing_result = await db.execute(
@@ -217,7 +216,7 @@ async def bulk_create_classes(
     created = []
     for item in body.classes:
         next_sort_order += 1
-        sc = standard_map[item.apha_code]
+        sc = standard_map[item.code]
         cls = Class(
             show_id=show_id,
             class_number=str(next_sort_order),

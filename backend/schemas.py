@@ -63,6 +63,10 @@ class ShowCreate(BaseModel):
     end_date: date
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
+    aqha_show_number: Optional[str] = Field(default=None, max_length=50)
+    aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
+    aqha_approval_submitted_at: Optional[date] = None
+    aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -78,6 +82,10 @@ class ShowUpdate(BaseModel):
     end_date: Optional[date] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
+    aqha_show_number: Optional[str] = Field(default=None, max_length=50)
+    aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
+    aqha_approval_submitted_at: Optional[date] = None
+    aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -108,6 +116,10 @@ class ShowOut(BaseModel):
     end_date: date
     status: str
     apha_show_number: Optional[str] = None
+    aqha_show_number: Optional[str] = None
+    aqha_approval_status: str = "NOT_SUBMITTED"
+    aqha_approval_submitted_at: Optional[date] = None
+    aqha_approval_notes: Optional[str] = None
     affiliations: list[ShowAffiliationOut] = []
     created_at: datetime
 
@@ -268,6 +280,7 @@ class UserOut(BaseModel):
     email: str
     last_login_at: Optional[datetime] = None
     is_approved: bool
+    aqha_management_workshop_completed_at: Optional[date] = None
     created_at: datetime
 
     class Config:
@@ -461,16 +474,27 @@ class HorseRegistrationOut(BaseModel):
 
 class TrainerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+    private_phone: Optional[str] = Field(default=None, max_length=30)
     phone: Optional[str] = Field(default=None, max_length=30)
     email: Optional[str] = Field(default=None, max_length=200)
 
 class TrainerUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
+    private_phone: Optional[str] = Field(default=None, max_length=30)
     phone: Optional[str] = Field(default=None, max_length=30)
     email: Optional[str] = Field(default=None, max_length=200)
 
+class TrainerProfileUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=200)
+    private_email: Optional[EmailStr] = None
+    private_phone: Optional[str] = Field(default=None, max_length=30)
+    public_email: Optional[EmailStr] = None
+    public_phone: Optional[str] = Field(default=None, max_length=30)
+    current_password: Optional[str] = None
+
 class TrainerOut(BaseModel):
     id: UUID
+    user_id: Optional[UUID] = None
     name: str
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -768,13 +792,87 @@ class AphaStandardClassOut(BaseModel):
         from_attributes = True
 
 
+class TrainerProfileOut(BaseModel):
+    id: UUID
+    user_id: Optional[UUID] = None
+    name: str
+    private_email: str
+    private_phone: Optional[str] = None
+    public_email: Optional[str] = None
+    public_phone: Optional[str] = None
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def from_trainer(cls, v):
+        if isinstance(v, dict):
+            return v
+        user = getattr(v, 'user', None)
+        return {
+            'id': v.id,
+            'user_id': getattr(v, 'user_id', None),
+            'name': v.name,
+            'private_email': user.email if user else getattr(v, 'email', None),
+            'private_phone': getattr(v, 'private_phone', None),
+            'public_email': getattr(v, 'email', None),
+            'public_phone': getattr(v, 'phone', None),
+            'created_at': v.created_at,
+        }
+
+    class Config:
+        from_attributes = True
+
+
+class AqhaStandardClassOut(BaseModel):
+    code: str
+    name: str
+    division: str
+    sort_order: int
+    source_year: Optional[int] = None
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class BulkClassItem(BaseModel):
-    apha_code: str = Field(min_length=1, max_length=20)
+    association_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    apha_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    aqha_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_code(self):
+        if not (self.association_code or self.apha_code or self.aqha_code):
+            raise ValueError("association_code is required")
+        return self
+
+    @property
+    def code(self) -> str:
+        return self.association_code or self.apha_code or self.aqha_code or ""
 
 
 class BulkClassCreate(BaseModel):
     class_date: date
     classes: list[BulkClassItem] = Field(min_length=1)
+
+
+class AssociationValidationIssue(BaseModel):
+    severity: Literal["error", "warning"]
+    code: str
+    message: str
+    class_id: Optional[str] = None
+    class_code: Optional[str] = None
+    entry_id: Optional[str] = None
+    horse_id: Optional[str] = None
+    exhibitor_id: Optional[str] = None
+
+
+class AssociationValidationOut(BaseModel):
+    show_id: UUID
+    association: str
+    error_count: int
+    warning_count: int
+    issues: list[AssociationValidationIssue] = []
 
 
 class ExhibitorCreateWithUser(BaseModel):

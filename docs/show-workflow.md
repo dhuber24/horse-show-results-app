@@ -65,6 +65,23 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 - `show_entries` assign one show-level back number per exhibitor per show.
 - Entry-level `back_number` exists for class context and compatibility with existing UI flows.
 - A class with `status = "CLOSED"` rejects new entries at the backend (`backend/routers/entries.py::create_entry`); the EditClassCard status toggle is how secretaries close a class.
+- Association-specific entry validation runs in `backend/rules`. AQHA currently blocks invalid entries when the app can verify the data: missing official AQHA class code, missing AQHA horse registration, missing AQHA exhibitor membership number, youth/select DOB failures, youth stallion entries, junior/senior horse-age mismatches, ranch/VRH minimum-age failures, and 2-year-old performance classes before July 1.
+
+## Association Class Setup
+
+- APHA and AQHA shows can bulk-add classes from official standard-class catalogs at `/admin/shows/[id]/classes`.
+- APHA reference data lives in `apha_standard_classes`.
+- AQHA reference data lives in `aqha_standard_classes` and is seeded from `database/seeds/aqha_standard_classes.csv`, which is extracted from the official 2026 AQHA Class Master Listing PDF.
+- Imported classes create a `class_associations` row so later validation/export logic can read the association class code from one normalized location.
+
+## AQHA Approval And Validation
+
+- AQHA shows have `aqha_show_number`, `aqha_approval_status`, `aqha_approval_submitted_at`, and `aqha_approval_notes` fields on the show record.
+- The AQHA dashboard card at `/admin/shows/[id]` summarizes approval metadata plus validation issue counts.
+- Backend endpoint `GET /shows/{show_id}/aqha-validation` returns schedule and entry issues with `error` or `warning` severity.
+- Errors block entry create/update; warnings are shown in validation summaries but do not block saving today.
+- Current AQHA validation is limited to fields the app stores. Owner/lessee membership, AQHA amateur status, Level 1 eligibility, and per-judge show identities still need additional modeling.
+- AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; at least one assigned show manager or show secretary should be current within 3 years of the show start date.
 
 ## Exhibitor Self-Service Flow
 
@@ -96,7 +113,7 @@ Classes are tagged with a `score_type` in the class editor (`/admin/shows/[id]/c
 | `pattern` | Showmanship, horsemanship, equitation, trail, reining, western/ranch riding, longe line | Numerical judge score (~70 baseline) | Highest score wins; ties share a place |
 | `time` | Barrel racing, pole bending, stake race | Time in seconds | Lowest time wins; ties share a place |
 
-Newly created classes default to `placement`; APHA bulk-imported classes also default to `placement` and need to be flipped per class today.
+Newly created classes default to `placement`; APHA/AQHA bulk-imported classes also default to `placement` and need to be flipped per class today.
 
 ## Side Pots (Divisional Jackpots)
 

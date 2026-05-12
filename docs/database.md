@@ -54,6 +54,10 @@ Current migration files:
 | `040_exhibitor_user_id_unique.sql` | Dedupe linked exhibitors and add partial unique index `exhibitors_user_id_uniq` on `exhibitors(user_id) WHERE user_id IS NOT NULL`, enforcing 1:1 between users and their exhibitor profile |
 | `041_exhibitor_contact_youth.sql` | Add `phone`, `address`, `city`, `state`, `zip`, `emergency_contact_name`, `emergency_contact_phone`, `parent_guardian_name`, `parent_guardian_phone` to `exhibitors` |
 | `042_trainer_registry.sql` | Add `trainers` table and `horses.trainer_id` foreign key with free-text fallback `horses.trainer_name` |
+| `043_aqha_support.sql` | Add AQHA approval metadata to `shows` and create empty `aqha_standard_classes` lookup table for the official AQHA Class Code List |
+| `044_aqha_workshop_tracking.sql` | Add `users.aqha_management_workshop_completed_at` for AQHA show-management workshop validation |
+| `045_trainer_accounts.sql` | Add `TRAINER` role and link trainer registry rows to user accounts |
+| `046_trainer_private_phone.sql` | Add private phone storage for trainer accounts |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -79,15 +83,47 @@ If a manual migration file is applied outside the runner, also insert its filena
 ### New table: `trainers`
 
 - `id` UUID primary key
+- `user_id` UUID nullable FK -> `users.id` (`ON DELETE SET NULL`), unique when present
 - `name` TEXT NOT NULL
-- `phone` TEXT nullable
-- `email` TEXT nullable
+- `private_phone` TEXT nullable, required by trainer self-service once a trainer account is linked
+- `phone` TEXT nullable public phone
+- `email` TEXT nullable public email
 - `created_at` TIMESTAMP WITH TIME ZONE
 
 ### Updated table: `horses`
 
 - `trainer_id` UUID nullable FK -> `trainers.id` (`ON DELETE SET NULL`)
 - `trainer_name` TEXT free-text fallback when no trainer registry entry is linked
+
+### Updated table: `shows` (migration 043)
+
+- `aqha_show_number` TEXT nullable
+- `aqha_approval_status` TEXT default `NOT_SUBMITTED`
+- `aqha_approval_submitted_at` DATE nullable
+- `aqha_approval_notes` TEXT nullable
+
+### New table: `aqha_standard_classes`
+
+- `code` TEXT primary key
+- `name` TEXT NOT NULL
+- `division` TEXT NOT NULL
+- `sort_order` INTEGER NOT NULL default `0`
+- `source_year` INTEGER nullable
+- `notes` TEXT nullable
+
+Load this table from the official AQHA Class Code List using:
+
+```powershell
+python scripts/import_aqha_standard_classes.py database/seeds/aqha_standard_classes.csv --replace --source-year 2026
+```
+
+The 2026 AQHA Class Master Listing is stored as `database/seeds/aqha_standard_classes.csv` after extraction from the official PDF. Re-run the import command after applying migration `043_aqha_support.sql` to populate or refresh the lookup table.
+
+### Updated table: `users` (migration 044)
+
+- `aqha_management_workshop_completed_at` DATE nullable
+
+AQHA validation checks assigned show managers and show secretaries for a workshop date within 3 years of the show start date.
 
 ### Updated table: `exhibitors` (migration 041)
 
@@ -156,6 +192,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `standard_rings` and `standard_divisions` | Curated lookup lists used by the show setup picker; `standard_divisions.show_type_id NULL` is the generic fallback set |
 | `classes` | Competition classes; ordered by `sort_order`; `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event) |
 | `class_associations` | Per-class association codes |
+| `aqha_standard_classes` | AQHA class-code lookup used by the AQHA class picker and validation rules; seeded from the official 2026 AQHA Class Master Listing CSV |
 | `entries` | Exhibitor + horse in a class |
 | `show_entries` | Show-level back number assignment |
 | `results` | Manual placings; `raw_score` carries the numeric input for `pattern` (judge score) and `time` (seconds) classes — `place` is derived from `raw_score` for those types |
@@ -186,3 +223,4 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 - Settling a side pot is one-way: status moves to `settled`, payouts are written, and further edits are blocked.
 - Horse age is derived from foaling year and current year; it is not stored.
 - Horse registration numbers are unique per association across all horses.
+- AQHA entry validation requires an official AQHA class code, an AQHA horse registration, an AQHA exhibitor membership number, and enough DOB/foaling-date data to verify supported youth/select/horse-age rules.

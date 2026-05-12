@@ -21,7 +21,18 @@ const UNCERTIFIED_CODES = ['OPEN'];
 
 export default function CreateShowForm({ venues, showTypes }: { venues: Venue[]; showTypes: ShowType[] }) {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', venue_id: '', show_type_id: '', start_date: '', end_date: '', apha_show_number: '' });
+  const [form, setForm] = useState({
+    name: '',
+    venue_id: '',
+    show_type_id: '',
+    start_date: '',
+    end_date: '',
+    apha_show_number: '',
+    aqha_show_number: '',
+    aqha_approval_status: 'NOT_SUBMITTED',
+    aqha_approval_submitted_at: '',
+    aqha_approval_notes: '',
+  });
   const [affiliationIds, setAffiliationIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +52,7 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
   const affiliationOptions = showTypes.filter(
     (t) => !UNCERTIFIED_CODES.includes(t.code) && t.id !== form.show_type_id,
   );
+  const selectedShowType = showTypes.find((t) => t.id === form.show_type_id);
 
   const handleSubmit = async () => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
@@ -60,6 +72,10 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
         start_date: form.start_date,
         end_date: form.end_date,
         apha_show_number: form.apha_show_number || null,
+        aqha_show_number: form.aqha_show_number || null,
+        aqha_approval_status: form.aqha_approval_status,
+        aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
+        aqha_approval_notes: form.aqha_approval_notes || null,
       }),
     });
     if (!res.ok) {
@@ -113,7 +129,7 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
             className="w-full border rounded px-3 py-2" />
         </div>
       </div>
-      {showTypes.find((t) => t.id === form.show_type_id)?.code === 'APHA' && (
+      {selectedShowType?.code === 'APHA' && (
         <div>
           <label className="text-sm text-gray-500">APHA Show Number</label>
           <input
@@ -123,6 +139,47 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
             className="w-full border rounded px-3 py-2"
             placeholder="e.g. 2024-TX-0042"
           />
+        </div>
+      )}
+      {selectedShowType?.code === 'AQHA' && (
+        <div className="border rounded p-3 space-y-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+          <div>
+            <label className="text-sm text-gray-500">AQHA Show Number</label>
+            <input
+              name="aqha_show_number"
+              value={form.aqha_show_number}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              placeholder="Assigned by AQHA after approval"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm text-gray-500">AQHA Approval Status</label>
+              <select name="aqha_approval_status" value={form.aqha_approval_status} onChange={handleChange}
+                className="w-full border rounded px-3 py-2">
+                <option value="NOT_SUBMITTED">Not submitted</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CHANGES_REQUIRED">Changes required</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-gray-500">Submitted to AQHA</label>
+              <input name="aqha_approval_submitted_at" type="date" value={form.aqha_approval_submitted_at} onChange={handleChange}
+                className="w-full border rounded px-3 py-2" />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm text-gray-500">AQHA Approval Notes</label>
+            <input
+              name="aqha_approval_notes"
+              value={form.aqha_approval_notes}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              placeholder="Class schedule submitted, pending correction, etc."
+            />
+          </div>
         </div>
       )}
       {form.show_type_id && affiliationOptions.length > 0 && (

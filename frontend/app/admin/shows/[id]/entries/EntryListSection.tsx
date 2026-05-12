@@ -32,6 +32,17 @@ interface Props {
   isAphaShow: boolean;
 }
 
+function formatBackendDetail(detail: any, fallback: string) {
+  if (typeof detail === 'string') return detail;
+  if (detail?.code === 'ASSOCIATION_VALIDATION_FAILED' && Array.isArray(detail.issues)) {
+    return detail.issues
+      .filter((issue: any) => issue.severity === 'error')
+      .map((issue: any) => issue.message)
+      .join(' ');
+  }
+  return detail?.message ?? fallback;
+}
+
 function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
   entry: Entry;
   showId: string;
@@ -78,7 +89,7 @@ function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
       setEditing(false);
     } else {
       const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to save.');
+      setError(formatBackendDetail(err.detail, 'Failed to save.'));
     }
   };
 

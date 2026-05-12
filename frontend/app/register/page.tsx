@@ -33,6 +33,12 @@ export default function RegisterPage() {
               Register here
             </Link>
           </p>
+          <p style={{ color: '#8b7355' }}>
+            Registering as a Trainer?{' '}
+            <Link href="/register/trainer" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+              Register here
+            </Link>
+          </p>
         </div>
       </div>
     </main>

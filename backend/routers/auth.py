@@ -11,7 +11,7 @@ import bcrypt
 import logging
 
 from database import get_db
-from models import User, Exhibitor, ShowSecretaryCertification, ShowType
+from models import User, Exhibitor, ShowSecretaryCertification, ShowType, Trainer
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -46,6 +46,15 @@ class ShowManagerRegister(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+
+
+class TrainerRegister(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    private_phone: str
+    public_email: Optional[EmailStr] = None
+    public_phone: Optional[str] = None
 
 
 def hash_password(password: str) -> str:
@@ -173,6 +182,60 @@ async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = De
         hashed_password=hash_password(body.password),
     )
     db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+    }
+
+
+@router.post("/register/trainer")
+async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get_db)):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    if not body.private_phone.strip():
+        raise HTTPException(400, "Private phone is required")
+
+    existing_user = await db.execute(select(User).where(User.email == body.email))
+    if existing_user.scalar_one_or_none():
+        raise HTTPException(409, "Email already registered")
+
+    existing_trainer_result = await db.execute(
+        select(Trainer).where(Trainer.email == body.email).limit(1)
+    )
+    existing_trainer = existing_trainer_result.scalar_one_or_none()
+    if existing_trainer and existing_trainer.user_id is not None:
+        raise HTTPException(409, "A trainer profile is already linked to that email")
+
+    user = User(
+        email=body.email,
+        full_name=body.full_name,
+        role="TRAINER",
+        hashed_password=hash_password(body.password),
+    )
+    db.add(user)
+    await db.flush()
+
+    if existing_trainer:
+        existing_trainer.user_id = user.id
+        existing_trainer.name = existing_trainer.name or body.full_name
+        existing_trainer.private_phone = body.private_phone.strip()
+        existing_trainer.phone = existing_trainer.phone or (body.public_phone.strip() if body.public_phone else None)
+        if not existing_trainer.email and body.public_email:
+            existing_trainer.email = str(body.public_email)
+    else:
+        db.add(Trainer(
+            user_id=user.id,
+            name=body.full_name,
+            private_phone=body.private_phone.strip(),
+            phone=body.public_phone.strip() if body.public_phone else None,
+            email=str(body.public_email) if body.public_email else None,
+        ))
+
     await db.commit()
     await db.refresh(user)
 

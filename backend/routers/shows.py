@@ -11,8 +11,31 @@ from typing import Optional
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
-from models import Show, ShowAffiliation, ShowSecretary, ShowScorekeeper, ShowManager, Entry, Class, Horse, Exhibitor, ShowEntry, HorseRegistration, ShowType
-from schemas import ShowCreate, ShowUpdate, ShowOut, ShowAffiliationUpdate
+from models import (
+    AqhaStandardClass,
+    ClassAssociation,
+    Show,
+    ShowAffiliation,
+    ShowSecretary,
+    ShowScorekeeper,
+    ShowManager,
+    Entry,
+    Class,
+    Horse,
+    Exhibitor,
+    ShowEntry,
+    HorseRegistration,
+    ShowType,
+    User,
+)
+from schemas import (
+    AssociationValidationOut,
+    ShowCreate,
+    ShowUpdate,
+    ShowOut,
+    ShowAffiliationUpdate,
+)
+from rules import get_rules
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
@@ -30,6 +53,10 @@ def _serialize(show: Show) -> dict:
         "end_date": show.end_date,
         "status": show.status,
         "apha_show_number": show.apha_show_number,
+        "aqha_show_number": show.aqha_show_number,
+        "aqha_approval_status": show.aqha_approval_status,
+        "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
+        "aqha_approval_notes": show.aqha_approval_notes,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),
@@ -259,6 +286,129 @@ async def set_show_affiliations(
         db.add(ShowAffiliation(show_id=show_id, show_type_id=show_type_id))
     await db.commit()
     return {"ok": True}
+
+
+def _class_association_code(class_: Class, show_type_id: UUID) -> str | None:
+    for assoc in class_.associations or []:
+        if assoc.show_type_id == show_type_id or (assoc.show_type and assoc.show_type.code == "AQHA"):
+            return assoc.association_class_code
+    return None
+
+
+def _aqha_workshop_cutoff(show_date: date) -> date:
+    try:
+        return show_date.replace(year=show_date.year - 3)
+    except ValueError:
+        # Feb. 29 shows use Feb. 28 as the 3-year lookback boundary.
+        return show_date.replace(year=show_date.year - 3, day=28)
+
+
+async def _qualified_aqha_management_workshop_staff(db: AsyncSession, show: Show) -> list[User]:
+    cutoff = _aqha_workshop_cutoff(show.start_date)
+    secretary_result = await db.execute(
+        select(User)
+        .join(ShowSecretary, ShowSecretary.user_id == User.id)
+        .where(
+            ShowSecretary.show_id == show.id,
+            User.aqha_management_workshop_completed_at.is_not(None),
+            User.aqha_management_workshop_completed_at >= cutoff,
+        )
+    )
+    manager_result = await db.execute(
+        select(User)
+        .join(ShowManager, ShowManager.user_id == User.id)
+        .where(
+            ShowManager.show_id == show.id,
+            User.aqha_management_workshop_completed_at.is_not(None),
+            User.aqha_management_workshop_completed_at >= cutoff,
+        )
+    )
+    users_by_id = {user.id: user for user in secretary_result.scalars().all()}
+    users_by_id.update({user.id: user for user in manager_result.scalars().all()})
+    return list(users_by_id.values())
+
+
+@router.get("/{show_id}/aqha-validation", response_model=AssociationValidationOut)
+async def aqha_validation(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_with_type(db, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if not show.show_type or show.show_type.code != "AQHA":
+        raise HTTPException(400, "This show is not an AQHA sanctioned show")
+
+    classes_result = await db.execute(
+        select(Class)
+        .options(selectinload(Class.associations).selectinload(ClassAssociation.show_type))
+        .where(Class.show_id == show_id)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+    classes = classes_result.scalars().all()
+    codes = sorted(
+        {
+            code
+            for cls in classes
+            for code in [_class_association_code(cls, show.show_type_id)]
+            if code
+        }
+    )
+    standard_result = await db.execute(
+        select(AqhaStandardClass).where(AqhaStandardClass.code.in_(codes))
+    )
+    standard_by_code = {row.code: row for row in standard_result.scalars().all()}
+
+    rules = get_rules("AQHA")
+    issues = rules.validate_show_schedule(
+        show,
+        classes,
+        {
+            "aqha_show_type_id": show.show_type_id,
+            "standard_classes_by_code": standard_by_code,
+            "qualified_management_workshop_staff": await _qualified_aqha_management_workshop_staff(db, show),
+        },
+    )
+
+    entries_result = await db.execute(
+        select(Entry)
+        .join(Class, Entry.class_id == Class.id)
+        .where(Class.show_id == show_id)
+        .options(
+            selectinload(Entry.class_).selectinload(Class.associations).selectinload(ClassAssociation.show_type),
+            selectinload(Entry.horse).selectinload(Horse.registrations),
+            selectinload(Entry.exhibitor).selectinload(Exhibitor.registrations),
+        )
+        .order_by(Class.sort_order.nullslast(), Class.class_number, Entry.back_number)
+    )
+    for entry in entries_result.scalars().all():
+        class_ = entry.class_
+        aqha_code = _class_association_code(class_, show.show_type_id)
+        entry_issues = rules.validate_entry(
+            entry,
+            show,
+            class_,
+            {
+                "aqha_show_type_id": show.show_type_id,
+                "aqha_class_code": aqha_code,
+                "aqha_class": standard_by_code.get(aqha_code),
+            },
+        )
+        for issue in entry_issues:
+            issue.setdefault("entry_id", str(entry.id))
+        issues.extend(entry_issues)
+
+    return {
+        "show_id": show_id,
+        "association": "AQHA",
+        "error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
+        "warning_count": sum(1 for issue in issues if issue.get("severity") == "warning"),
+        "issues": issues,
+    }
 
 
 @router.get("/{show_id}/apha-export")

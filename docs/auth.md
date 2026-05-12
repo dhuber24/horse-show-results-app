@@ -54,14 +54,19 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 | `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration |
 | `SCOREKEEPER` | Enters placings for assigned shows |
 | `EXHIBITOR` | Views own entries/results and manages profile/horses |
+| `TRAINER` | Manages a linked trainer registry profile used on horse records |
 
 ## Registration
 
 - Exhibitor registration at `/register` creates both a `users` row and a linked `exhibitors` row. Keep those atomic.
-- Admin user creation (`POST /users/` and `POST /users/with-password`) and role promotion (`PATCH /users/{id}/role` to `EXHIBITOR`) also create the linked `exhibitors` row in the same transaction. The DB enforces this 1:1 link via a partial unique index on `exhibitors.user_id`, so duplicates can't be inserted even under a race.
+- Trainer registration at `/register/trainer` creates a `TRAINER` user and links it to the trainer registry row used on horse profiles. If a registry trainer already exists with the same email and no linked user, registration reuses that row.
+- Trainer accounts use one canonical name shared between `users.full_name` and `trainers.name`. Private email is the login email (`users.email`), private phone is `trainers.private_phone`, and optional public contact fields are `trainers.email` and `trainers.phone`.
+- Trainer profiles show horses whose `horses.trainer_id` is linked to the trainer's registry row.
+- Admin user creation (`POST /users/` and `POST /users/with-password`) and role promotion (`PATCH /users/{id}/role` to `EXHIBITOR` or `TRAINER`) also create the linked profile row in the same transaction. The DB enforces exhibitor 1:1 links via a partial unique index on `exhibitors.user_id`, and trainer 1:1 links via `idx_trainers_user_id_unique`.
 - Show Secretary registration at `/register/show-secretary` captures association certifications. APHA certification is required when APHA is selected.
 - Show Manager registration at `/register/show-manager` is available immediately. APHA certification lookup is informational.
-- New self-registered Show Secretaries and Show Managers are currently auto-approved. The `is_approved` column remains as an account lock gate.
+- Admin user profiles can record `aqha_management_workshop_completed_at`, which AQHA validation uses to confirm at least one assigned show manager or show secretary is workshop-current within 3 years.
+- New self-registered Show Secretaries, Show Managers, Trainers, and Exhibitors are currently auto-approved. The `is_approved` column remains as an account lock gate.
 - Show Manager approval happens at the show request level, not at account creation.
 
 ## Backend Guards
@@ -88,5 +93,6 @@ Show-scoped write access is usually checked with join tables:
 - Do not trust client-provided role or user IDs from browser code. Only server-side Next route handlers should attach backend auth headers.
 - Any endpoint returning PII or horse ownership data should require auth.
 - When changing an `EXHIBITOR` user to another role, the linked exhibitor data is preserved but the exhibitor dashboard no longer applies.
+- When changing a `TRAINER` user to another role, the linked trainer registry row is preserved but the trainer profile panel no longer applies.
 - `PATCH /users/me` requires `current_password` when changing `email` because email is the login identifier.
 - Admin user deletion is safer after migration `039_user_delete_set_null_fks.sql`, but deleting users can still affect ownership/audit attribution semantics (`SET NULL` references).

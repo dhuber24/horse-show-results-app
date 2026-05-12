@@ -4,17 +4,26 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Props {
-  user: { id: string; full_name: string; email: string };
+  user: {
+    id: string;
+    full_name: string;
+    email: string;
+    aqha_management_workshop_completed_at: string | null;
+  };
 }
 
 export default function EditUserForm({ user }: Props) {
   const router = useRouter();
   const [fullName, setFullName] = useState(user.full_name);
   const [email, setEmail] = useState(user.email);
+  const [aqhaWorkshopDate, setAqhaWorkshopDate] = useState(user.aqha_management_workshop_completed_at ?? '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const isDirty = fullName.trim() !== user.full_name || email.trim() !== user.email;
+  const isDirty =
+    fullName.trim() !== user.full_name ||
+    email.trim() !== user.email ||
+    aqhaWorkshopDate !== (user.aqha_management_workshop_completed_at ?? '');
 
   const handleSave = async () => {
     if (!fullName.trim() || !email.trim()) return;
@@ -23,7 +32,11 @@ export default function EditUserForm({ user }: Props) {
     const res = await fetch(`/api/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName.trim(), email: email.trim() }),
+      body: JSON.stringify({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        aqha_management_workshop_completed_at: aqhaWorkshopDate || null,
+      }),
     });
     setSaving(false);
     if (res.ok) {
@@ -58,6 +71,21 @@ export default function EditUserForm({ user }: Props) {
           className={inputClass}
           style={inputStyle}
         />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>
+          AQHA Show-Management Workshop Date
+        </label>
+        <input
+          type="date"
+          value={aqhaWorkshopDate}
+          onChange={e => setAqhaWorkshopDate(e.target.value)}
+          className={inputClass}
+          style={inputStyle}
+        />
+        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+          Used by AQHA validation to confirm at least one assigned manager or secretary is workshop-current within 3 years.
+        </p>
       </div>
       <div className="flex items-center gap-3">
         <button

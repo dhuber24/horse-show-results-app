@@ -11,6 +11,7 @@ A browser-based application for ranch and western pleasure horse shows.
 - Supports optional side-pot payouts across class bundles.
 - Publishes results live.
 - Supports APHA-specific class import/export and certification checks.
+- Supports AQHA class-code import, AQHA class picker, approval metadata, workshop tracking, and first-pass AQHA entry/schedule validation.
 - Supports trainer registry links with horse-level free-text fallback.
 
 ## What This App Does Not Do
@@ -18,7 +19,7 @@ A browser-based application for ranch and western pleasure horse shows.
 - No judging.
 - No maneuver scoring.
 - No penalty calculations.
-- No rule enforcement.
+- No judging-rule engine. The app has limited association compliance validation where the required data is modeled, such as AQHA class-code/registration/workshop/age checks.
 
 Placings entered by authorized show staff are final, with audit history for result changes.
 
@@ -39,8 +40,9 @@ Placings entered by authorized show staff are final, with audit history for resu
 - `SHOW_SECRETARY`: manages assigned shows, entries, classes, back numbers, and result administration.
 - `SCOREKEEPER`: enters placings for assigned shows.
 - `EXHIBITOR`: views own entries/results and manages profile/horses.
+- `TRAINER`: manages a linked trainer registry profile used on horse records.
 
-Show Secretary and Show Manager accounts are currently auto-approved. Show Manager show hosting requests require admin approval before a draft show is created.
+Show Secretary, Show Manager, Trainer, and Exhibitor accounts are currently auto-approved. Show Manager show hosting requests require admin approval before a draft show is created.
 
 ## Tech Stack
 
@@ -83,6 +85,7 @@ Local services:
 - Frontend conventions: [docs/frontend.md](docs/frontend.md)
 - Show workflow: [docs/show-workflow.md](docs/show-workflow.md)
 - APHA behavior: [docs/apha.md](docs/apha.md)
+- AQHA behavior: [docs/aqha.md](docs/aqha.md)
 - Historical improvements: [IMPROVEMENTS.md](IMPROVEMENTS.md)
 
 ## Status

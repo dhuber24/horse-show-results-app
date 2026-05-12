@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, useMemo } from 'react';
 
-const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR', 'TRAINER'];
 
 const ROLE_COLORS: Record<string, string> = {
   ADMIN: '#7c3aed',
@@ -11,6 +11,7 @@ const ROLE_COLORS: Record<string, string> = {
   SHOW_SECRETARY: '#1d4ed8',
   SCOREKEEPER: '#0369a1',
   EXHIBITOR: '#166534',
+  TRAINER: '#7c2d12',
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -19,6 +20,7 @@ const ROLE_LABELS: Record<string, string> = {
   SHOW_SECRETARY: 'Show Secretary',
   SCOREKEEPER: 'Scorekeeper',
   EXHIBITOR: 'Exhibitor',
+  TRAINER: 'Trainer',
 };
 
 type User = {

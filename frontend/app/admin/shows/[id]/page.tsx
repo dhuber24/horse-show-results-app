@@ -65,6 +65,21 @@ type ShowStaffData = {
   allUsers: StaffUser[];
 };
 
+type AqhaValidationIssue = {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  class_id?: string;
+  class_code?: string;
+  entry_id?: string;
+};
+
+type AqhaValidationData = {
+  error_count: number;
+  warning_count: number;
+  issues: AqhaValidationIssue[];
+};
+
 async function getShowStaff(showId: string, headers: Record<string, string>, isAdmin: boolean) {
   const [adminsRes, keepersRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
@@ -82,6 +97,14 @@ async function getShowStaff(showId: string, headers: Record<string, string>, isA
   };
 }
 
+async function getAqhaValidation(showId: string, headers: Record<string, string>) {
+  const res = await fetch(`${API_URL}/shows/${showId}/aqha-validation`, {
+    headers,
+    cache: 'no-store',
+  });
+  return res.ok ? res.json() : null;
+}
+
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
@@ -91,6 +114,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
   let staffData: ShowStaffData = { admins: [], scorekeepers: [], allUsers: [] };
+  let aqhaValidation: AqhaValidationData | null = null;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
     const headers = {
@@ -100,6 +124,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'X-User-Role': user.role,
     };
     staffData = await getShowStaff(id, headers, isAdmin);
+    if (show.show_type_code === 'AQHA') {
+      aqhaValidation = await getAqhaValidation(id, headers);
+    }
   }
 
   return (
@@ -211,6 +238,62 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               to enable export.
             </p>
           )}
+        </div>
+      )}
+
+      {show.show_type_code === 'AQHA' && (
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold" style={{ color: '#2c1810' }}>AQHA Approval</h2>
+            <span className="text-xs font-mono px-2 py-1 rounded bg-amber-100 text-amber-800">
+              {show.aqha_approval_status ?? 'NOT_SUBMITTED'}
+            </span>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2 text-sm" style={{ color: '#8b7355' }}>
+            <p>
+              Show #: <span className="font-mono" style={{ color: '#2c1810' }}>{show.aqha_show_number || 'Not assigned'}</span>
+            </p>
+            <p>
+              Submitted: <span style={{ color: '#2c1810' }}>{show.aqha_approval_submitted_at || 'Not submitted'}</span>
+            </p>
+          </div>
+          {show.aqha_approval_notes && (
+            <p className="text-sm" style={{ color: '#8b7355' }}>{show.aqha_approval_notes}</p>
+          )}
+          <div className="rounded p-3 text-sm" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
+            AQHA approval readiness: venue selected, class schedule built, AQHA class codes assigned, judge/show details confirmed, and show bill submitted with approval.
+          </div>
+          {aqhaValidation && (
+            <div className="rounded border p-3 text-sm space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#fffaf3' }}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium" style={{ color: '#2c1810' }}>AQHA validation</p>
+                <span className="text-xs" style={{ color: '#8b7355' }}>
+                  {aqhaValidation.error_count} error{aqhaValidation.error_count === 1 ? '' : 's'} · {aqhaValidation.warning_count} warning{aqhaValidation.warning_count === 1 ? '' : 's'}
+                </span>
+              </div>
+              {aqhaValidation.issues.length === 0 ? (
+                <p style={{ color: '#2f6b3f' }}>No AQHA validation issues found.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {aqhaValidation.issues.slice(0, 6).map((issue, index) => (
+                    <li key={`${issue.code}-${index}`} style={{ color: issue.severity === 'error' ? '#b42318' : '#92400e' }}>
+                      <span className="font-mono text-xs uppercase mr-1">{issue.severity}</span>
+                      {issue.class_code && <span className="font-mono text-xs mr-1">[{issue.class_code}]</span>}
+                      {issue.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {aqhaValidation.issues.length > 6 && (
+                <p className="text-xs" style={{ color: '#8b7355' }}>
+                  Showing first 6 of {aqhaValidation.issues.length} issues.
+                </p>
+              )}
+            </div>
+          )}
+          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+            Update AQHA approval details
+          </a>
         </div>
       )}
 

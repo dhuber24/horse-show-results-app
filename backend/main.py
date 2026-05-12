@@ -32,6 +32,7 @@ from routers.show_staff import router as show_staff_router
 from routers.show_requests import router as show_requests_router
 from routers.certifications import router as certifications_router
 from routers.apha_standard_classes import router as apha_standard_classes_router
+from routers.aqha_standard_classes import router as aqha_standard_classes_router
 from routers.standard_setup import router as standard_setup_router
 from routers.side_pots import router as side_pots_router
 
@@ -102,6 +103,7 @@ app.include_router(show_staff_router)
 app.include_router(show_requests_router)
 app.include_router(certifications_router)
 app.include_router(apha_standard_classes_router)
+app.include_router(aqha_standard_classes_router)
 app.include_router(standard_setup_router)
 app.include_router(side_pots_router)
 

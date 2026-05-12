@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr
+from datetime import date
 import bcrypt
 
 from database import get_db
@@ -20,7 +21,18 @@ from schemas import (
     ExhibitorRegistrationCreate, ExhibitorRegistrationOut,
 )
 
-VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR"}
+VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR", "TRAINER"}
+
+
+async def _ensure_role_profile(user: User, db: AsyncSession):
+    if user.role == "EXHIBITOR":
+        existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
+        if not existing.scalar_one_or_none():
+            db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
+    if user.role == "TRAINER":
+        existing = await db.execute(select(Trainer).where(Trainer.user_id == user.id))
+        if not existing.scalar_one_or_none():
+            db.add(Trainer(name=user.full_name, user_id=user.id))
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -43,8 +55,7 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     user = User(**body.model_dump())
     db.add(user)
     await db.flush()
-    if user.role == "EXHIBITOR":
-        db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
+    await _ensure_role_profile(user, db)
     await db.commit()
     await db.refresh(user)
     return user
@@ -87,8 +98,7 @@ async def create_user_with_password(
     user = User(email=body.email, full_name=body.full_name, role=body.role, hashed_password=hashed)
     db.add(user)
     await db.flush()
-    if user.role == "EXHIBITOR":
-        db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
+    await _ensure_role_profile(user, db)
     await db.commit()
     await db.refresh(user)
     return user
@@ -101,6 +111,10 @@ class RoleUpdate(BaseModel):
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
+
+
+class AdminUserProfileUpdate(UserProfileUpdate):
+    aqha_management_workshop_completed_at: Optional[date] = None
 
 
 class CurrentUserProfileUpdate(UserProfileUpdate):
@@ -170,7 +184,7 @@ async def change_current_user_password(
 
 
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
-async def update_user(user_id: UUID, body: UserProfileUpdate, db: AsyncSession = Depends(get_db)):
+async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSession = Depends(get_db)):
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -207,12 +221,8 @@ async def update_user_role(user_id: UUID, body: RoleUpdate, db: AsyncSession = D
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    promoted_to_exhibitor = body.role == "EXHIBITOR" and user.role != "EXHIBITOR"
     user.role = body.role
-    if promoted_to_exhibitor:
-        existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
-        if not existing.scalar_one_or_none():
-            db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
+    await _ensure_role_profile(user, db)
     await db.commit()
     await db.refresh(user)
     return user

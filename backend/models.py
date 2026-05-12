@@ -46,6 +46,10 @@ class Show(Base):
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
     apha_show_number = Column(Text, nullable=True)
+    aqha_show_number = Column(Text, nullable=True)
+    aqha_approval_status = Column(Text, nullable=False, default="NOT_SUBMITTED")
+    aqha_approval_submitted_at = Column(Date, nullable=True)
+    aqha_approval_notes = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -172,6 +176,7 @@ class User(Base):
     hashed_password = Column(Text, nullable=True)
     last_login_at = Column(TIMESTAMP(timezone=True), nullable=True)
     is_approved = Column(Boolean, nullable=False, default=True)
+    aqha_management_workshop_completed_at = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
@@ -182,6 +187,7 @@ class User(Base):
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
     show_requests = relationship("ShowRequest", back_populates="requested_by", cascade="all, delete")
+    trainer_profile = relationship("Trainer", back_populates="user", uselist=False)
 
 
 class VenueAdmin(Base):
@@ -252,11 +258,14 @@ class Trainer(Base):
     __tablename__ = "trainers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     name = Column(Text, nullable=False)
+    private_phone = Column(Text, nullable=True)
     phone = Column(Text, nullable=True)
     email = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    user = relationship("User", back_populates="trainer_profile")
     horses = relationship("Horse", back_populates="trainer")
 
 
@@ -551,6 +560,17 @@ class AphaStandardClass(Base):
     name = Column(Text, nullable=False)
     division = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
+
+
+class AqhaStandardClass(Base):
+    __tablename__ = "aqha_standard_classes"
+
+    code = Column(Text, primary_key=True)
+    name = Column(Text, nullable=False)
+    division = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    source_year = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
 
 
 class ShowRequest(Base):

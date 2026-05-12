@@ -1,6 +1,6 @@
 # APHA And Association Rules
 
-The app supports multiple associations, but APHA has the richest special handling today.
+The app supports multiple associations. APHA and AQHA both have association-specific setup flows; this page documents APHA-specific behavior. AQHA behavior lives in [aqha.md](aqha.md).
 
 ## Association Catalog
 
@@ -69,7 +69,7 @@ Frontend component:
 
 - `frontend/app/admin/shows/[id]/APHAClassPicker.tsx`
 
-Bulk import only applies to APHA shows.
+Bulk import from the APHA catalog only applies to APHA shows. AQHA shows use the parallel AQHA standard-class catalog and picker.
 
 ## APHA Results Export
 

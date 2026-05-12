@@ -1,6 +1,6 @@
 # Architecture
 
-Horse Show Results is a browser-based system for managing horse show entries, back numbers, manual placings, and published results. It is intentionally not a judging engine: it does not score maneuvers, calculate penalties, or enforce association judging rules.
+Horse Show Results is a browser-based system for managing horse show entries, back numbers, manual placings, and published results. It is intentionally not a judging engine: it does not score maneuvers or calculate penalties. It does include limited association compliance validation where the app models the required data, such as AQHA class-code, registration, membership-number, and age checks.
 
 ## Stack
 
@@ -80,6 +80,7 @@ Use this as the default routing heuristic when adding features:
 | ORM models | `backend/models.py` | Database entities and relationships |
 | API schemas | `backend/schemas.py` | Pydantic request/response models |
 | Backend routers | `backend/routers/` | Domain API endpoints |
+| Association rules | `backend/rules/` | Per-association validation hooks, with AQHA currently overriding entry and show-schedule validation |
 | Next auth | `frontend/auth.ts` | Credentials login through backend `/auth/verify` |
 | Backend fetch helper | `frontend/lib/backend-fetch.ts` | Auth headers and backend error handling |
 | Next pages | `frontend/app/` | App Router pages and layouts |
@@ -107,4 +108,13 @@ Show status transitions are handled through guarded write paths in `backend/rout
 - Status transitions are explicit updates, not a background scheduler.
 
 The backend also calls `Base.metadata.create_all()` on startup. Migrations remain the source of truth for intentional schema evolution.
+
+## Association Rules
+
+Association-specific behavior is dispatched through `backend/rules/__init__.py`.
+
+- `DefaultRules` is the safe fallback for unaffiliated or unsupported associations.
+- `AQHARules` currently validates official class-code presence, AQHA horse registration, AQHA exhibitor membership number presence, supported DOB/age constraints, youth/stallion restrictions, ranch/VRH minimum age, 2-year-old performance timing, and Level 1 schedule pairing warnings.
+- Entry create/update calls the rule layer before saving and blocks `error` severity issues.
+- `GET /shows/{show_id}/aqha-validation` returns show-level and existing-entry issues for AQHA dashboards.
 

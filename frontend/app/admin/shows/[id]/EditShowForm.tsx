@@ -26,6 +26,10 @@ interface Show {
   start_date: string;
   end_date: string;
   apha_show_number: string | null;
+  aqha_show_number: string | null;
+  aqha_approval_status: string;
+  aqha_approval_submitted_at: string | null;
+  aqha_approval_notes: string | null;
   affiliations: ShowAffiliation[];
 }
 
@@ -47,7 +51,6 @@ export default function EditShowForm({
   showTypes: ShowType[];
 }) {
   const router = useRouter();
-  const isAphaShow = show.show_type_code === 'APHA';
 
   const [form, setForm] = useState({
     name: show.name,
@@ -56,6 +59,10 @@ export default function EditShowForm({
     start_date: show.start_date,
     end_date: show.end_date,
     apha_show_number: show.apha_show_number ?? '',
+    aqha_show_number: show.aqha_show_number ?? '',
+    aqha_approval_status: show.aqha_approval_status ?? 'NOT_SUBMITTED',
+    aqha_approval_submitted_at: show.aqha_approval_submitted_at ?? '',
+    aqha_approval_notes: show.aqha_approval_notes ?? '',
   });
   const [affiliationIds, setAffiliationIds] = useState<Set<string>>(
     new Set(show.affiliations.map((a) => a.show_type_id)),
@@ -80,6 +87,7 @@ export default function EditShowForm({
   const affiliationOptions = showTypes.filter(
     (t) => !UNCERTIFIED_CODES.includes(t.code) && t.id !== form.show_type_id,
   );
+  const selectedShowType = showTypes.find((t) => t.id === form.show_type_id);
 
   const handleSave = async () => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
@@ -100,6 +108,10 @@ export default function EditShowForm({
           start_date: form.start_date,
           end_date: form.end_date,
           apha_show_number: form.apha_show_number || null,
+          aqha_show_number: form.aqha_show_number || null,
+          aqha_approval_status: form.aqha_approval_status,
+          aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
+          aqha_approval_notes: form.aqha_approval_notes || null,
         }),
       }),
       fetch(`/api/shows/${show.id}/affiliations`, {
@@ -161,7 +173,7 @@ export default function EditShowForm({
             className="w-full border rounded px-3 py-2" />
         </div>
       </div>
-      {isAphaShow && (
+      {selectedShowType?.code === 'APHA' && (
         <div>
           <label className="text-sm text-gray-500">APHA Show Number</label>
           <input
@@ -171,6 +183,47 @@ export default function EditShowForm({
             className="w-full border rounded px-3 py-2"
             placeholder="e.g. 2024-TX-0042"
           />
+        </div>
+      )}
+      {selectedShowType?.code === 'AQHA' && (
+        <div className="border rounded p-3 space-y-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+          <div>
+            <label className="text-sm text-gray-500">AQHA Show Number</label>
+            <input
+              name="aqha_show_number"
+              value={form.aqha_show_number}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              placeholder="Assigned by AQHA after approval"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm text-gray-500">AQHA Approval Status</label>
+              <select name="aqha_approval_status" value={form.aqha_approval_status} onChange={handleChange}
+                className="w-full border rounded px-3 py-2">
+                <option value="NOT_SUBMITTED">Not submitted</option>
+                <option value="SUBMITTED">Submitted</option>
+                <option value="APPROVED">Approved</option>
+                <option value="CHANGES_REQUIRED">Changes required</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-gray-500">Submitted to AQHA</label>
+              <input name="aqha_approval_submitted_at" type="date" value={form.aqha_approval_submitted_at} onChange={handleChange}
+                className="w-full border rounded px-3 py-2" />
+            </div>
+          </div>
+          <div>
+            <label className="text-sm text-gray-500">AQHA Approval Notes</label>
+            <input
+              name="aqha_approval_notes"
+              value={form.aqha_approval_notes}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              placeholder="Class schedule submitted, pending correction, etc."
+            />
+          </div>
         </div>
       )}
       {affiliationOptions.length > 0 && (

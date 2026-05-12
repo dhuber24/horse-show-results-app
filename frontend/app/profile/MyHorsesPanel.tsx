@@ -420,7 +420,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   className="text-xs font-medium hover:underline shrink-0"
                   style={{ color: '#2c1810' }}
                 >
-                  Create new profile ->
+                  Create new profile -&gt;
                 </button>
               )}
             </div>

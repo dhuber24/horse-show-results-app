@@ -12,6 +12,17 @@ interface Props {
   isAphaShow: boolean;
 }
 
+function formatBackendDetail(detail: any, fallback: string) {
+  if (typeof detail === 'string') return detail;
+  if (detail?.code === 'ASSOCIATION_VALIDATION_FAILED' && Array.isArray(detail.issues)) {
+    return detail.issues
+      .filter((issue: any) => issue.severity === 'error')
+      .map((issue: any) => issue.message)
+      .join(' ');
+  }
+  return detail?.message ?? fallback;
+}
+
 export default function CreateEntryForm({ showId, classes, horses, exhibitors, isAphaShow }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -73,7 +84,7 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
       if (res.status === 422 && detail?.code === 'COGGINS_EXPIRED') {
         setCogginsWarning(detail.message);
       } else {
-        setError(typeof detail === 'string' ? detail : 'Failed to add entry. May already exist.');
+        setError(formatBackendDetail(detail, 'Failed to add entry. May already exist.'));
       }
     }
   };

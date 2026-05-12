@@ -4,6 +4,8 @@ import { useState } from 'react';
 import EditAccountForm from './EditAccountForm';
 import ChangePasswordForm from './ChangePasswordForm';
 import MyHorsesPanel from './MyHorsesPanel';
+import TrainerHorsesPanel from './TrainerHorsesPanel';
+import TrainerProfileForm from './TrainerProfileForm';
 import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
 
 interface User { full_name: string; email: string; role: string; created_at: string; }
@@ -16,6 +18,10 @@ interface Horse {
   id: string; name: string; sex: string | null; age: number | null; breed_name: string | null;
   color_name: string | null; is_solid_paint_bred: boolean; owner_exhibitor_id: string | null;
   created_by_exhibitor_id: string | null;
+}
+interface TrainerHorse {
+  id: string; name: string; sex: string | null; age: number | null; breed_name: string | null;
+  color_name: string | null; is_solid_paint_bred: boolean; owner_exhibitor_name: string | null;
 }
 interface Exhibitor {
   id: string;
@@ -30,6 +36,14 @@ interface Exhibitor {
   parent_guardian_name: string | null;
   parent_guardian_phone: string | null;
 }
+interface TrainerProfile {
+  id: string;
+  name: string;
+  private_email: string;
+  private_phone: string | null;
+  public_email: string | null;
+  public_phone: string | null;
+}
 
 type Tab = 'account' | 'memberships' | 'horses';
 
@@ -40,6 +54,8 @@ interface Props {
   initialRegistrations: Registration[];
   initialDocuments: Document[];
   initialHorses: Horse[];
+  trainerProfile: TrainerProfile | null;
+  trainerHorses: TrainerHorse[];
   initialTab?: Tab;
 }
 
@@ -65,9 +81,12 @@ export default function ProfileTabs({
   initialRegistrations,
   initialDocuments,
   initialHorses,
+  trainerProfile,
+  trainerHorses,
   initialTab,
 }: Props) {
   const isExhibitor = role === 'EXHIBITOR' && exhibitor !== null;
+  const isTrainer = role === 'TRAINER';
   const safeInitialTab: Tab =
     isExhibitor && (initialTab === 'memberships' || initialTab === 'horses')
       ? initialTab
@@ -86,10 +105,31 @@ export default function ProfileTabs({
 
       {activeTab === 'account' && (
         <div className="space-y-6">
-          <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-            <h2 className="text-lg font-semibold mb-5" style={{ color: '#2c1810' }}>My Profile</h2>
-            <EditAccountForm user={user} exhibitor={isExhibitor ? exhibitor : null} />
-          </div>
+          {!isTrainer && (
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <h2 className="text-lg font-semibold mb-5" style={{ color: '#2c1810' }}>My Profile</h2>
+              <EditAccountForm user={user} exhibitor={isExhibitor ? exhibitor : null} />
+            </div>
+          )}
+
+          {isTrainer && (
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <h2 className="text-lg font-semibold mb-5" style={{ color: '#2c1810' }}>My Profile</h2>
+              <TrainerProfileForm trainer={trainerProfile} />
+            </div>
+          )}
+
+          {isTrainer && (
+            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+              <div className="flex items-baseline justify-between gap-3 mb-3">
+                <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Horses</h2>
+                <span className="text-xs" style={{ color: '#8b7355' }}>
+                  {trainerHorses.length} linked
+                </span>
+              </div>
+              <TrainerHorsesPanel horses={trainerHorses} />
+            </div>
+          )}
 
           <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
             <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Change Password</h2>

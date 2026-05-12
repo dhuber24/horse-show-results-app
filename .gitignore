@@ -5,3 +5,4 @@ __pycache__/
 .next/
 node_modules/
 .claude/scheduled_tasks.lock
+docs/sources/

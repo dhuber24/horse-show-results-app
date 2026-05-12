@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCOREKEEPER', 'EXHIBITOR', 'TRAINER'];
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
@@ -11,6 +11,7 @@ const ROLE_LABELS: Record<string, string> = {
   SHOW_SECRETARY: 'Show Secretary',
   SCOREKEEPER: 'Scorekeeper',
   EXHIBITOR: 'Exhibitor',
+  TRAINER: 'Trainer',
 };
 
 export default function CreateUserForm() {
