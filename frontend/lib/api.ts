@@ -150,3 +150,9 @@ export async function fetchDivisions(showId: string) {
   if (!res.ok) return [];
   return res.json();
 }
+
+export async function fetchClassTemplates(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/schedule-builder/templates`);
+  if (!res.ok) return [];
+  return res.json();
+}

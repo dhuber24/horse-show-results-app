@@ -553,6 +553,25 @@ class ShowManager(Base):
     user = relationship("User", back_populates="manager_shows")
 
 
+class ClassTemplate(Base):
+    """Library of class templates used by the Schedule Builder.
+
+    Rows with show_id NULL and is_seed=True are the global canonical library
+    (Showmanship, Western Pleasure, etc.). Custom templates carry a show_id
+    and are scoped to that show.
+    """
+    __tablename__ = "class_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=True)
+    name = Column(Text, nullable=False)
+    default_score_type = Column(Text, nullable=False, server_default="placement")
+    category = Column(Text, nullable=False, server_default="rail")
+    sort_order = Column(Integer, nullable=False, default=0)
+    is_seed = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class AphaStandardClass(Base):
     __tablename__ = "apha_standard_classes"
 

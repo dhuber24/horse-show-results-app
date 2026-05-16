@@ -835,6 +835,40 @@ class AqhaStandardClassOut(BaseModel):
         from_attributes = True
 
 
+# ── Class Templates (Schedule Builder) ─────────────────────────────────────────
+
+class ClassTemplateOut(BaseModel):
+    id: UUID
+    show_id: Optional[UUID] = None
+    name: str
+    default_score_type: Literal["placement", "pattern", "time"]
+    category: Literal["halter", "showmanship", "rail", "pattern", "speed", "other"]
+    sort_order: int
+    is_seed: bool
+
+    class Config:
+        from_attributes = True
+
+
+class ClassTemplateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    default_score_type: Literal["placement", "pattern", "time"] = "placement"
+    category: Literal["halter", "showmanship", "rail", "pattern", "speed", "other"] = "rail"
+
+
+class ScheduleBuilderPick(BaseModel):
+    template_id: UUID
+    division_ids: list[UUID] = Field(default_factory=list)
+    # Optional override; falls back to template.default_score_type
+    score_type: Optional[Literal["placement", "pattern", "time"]] = None
+
+
+class ScheduleBuilderBuild(BaseModel):
+    class_date: date
+    ring_id: Optional[UUID] = None
+    picks: list[ScheduleBuilderPick] = Field(min_length=1)
+
+
 class BulkClassItem(BaseModel):
     association_code: Optional[str] = Field(default=None, min_length=1, max_length=50)
     apha_code: Optional[str] = Field(default=None, min_length=1, max_length=50)

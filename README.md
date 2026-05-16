@@ -13,6 +13,7 @@ A browser-based application for ranch and western pleasure horse shows.
 - Supports APHA-specific class import/export and certification checks.
 - Supports AQHA class-code import, AQHA class picker, approval metadata, workshop tracking, and first-pass AQHA entry/schedule validation.
 - Supports trainer registry links with horse-level free-text fallback.
+- Supports per-show class templates and schedule-builder tools for quickly creating ordered class lineups.
 
 ## What This App Does Not Do
 

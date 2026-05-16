@@ -307,6 +307,7 @@ export default function EditClassCard({
         </div>
       )}
 
+      {(associations.length > 0 || availableShowTypes.length > 0) && (
       <div className="border-t pt-3 space-y-2" style={{ borderColor: '#e8d5b7' }}>
         <label className="text-sm font-medium" style={{ color: '#2c1810' }}>Association class codes</label>
         {associations.length > 0 ? (
@@ -388,6 +389,7 @@ export default function EditClassCard({
         )}
         {assocError && <p className="text-red-600 text-xs">{assocError}</p>}
       </div>
+      )}
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between flex-wrap gap-y-2">

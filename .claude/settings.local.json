@@ -91,7 +91,13 @@
       "WebFetch(domain:www.swanlakestables.com)",
       "WebFetch(domain:www.eqgroup.com)",
       "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1)",
-      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1\")"
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1\")",
+      "Bash(git show *)",
+      "Bash(npm --prefix frontend run lint)",
+      "Bash(npm --prefix c:/Projects/horse-show-results-app/frontend run build)",
+      "Bash(bash c:/Projects/horse-show-results-app/RUN_TESTS.sh)",
+      "Read(//tmp/**)",
+      "Bash(bash -x c:/Projects/horse-show-results-app/RUN_TESTS.sh)"
     ]
   }
 }
