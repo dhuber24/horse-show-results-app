@@ -151,8 +151,17 @@ export async function fetchDivisions(showId: string) {
   return res.json();
 }
 
-export async function fetchClassTemplates(showId: string) {
-  const res = await fetch(`${API_URL}/shows/${showId}/schedule-builder/templates`);
+export async function fetchSections(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/sections/`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchStandardSections(showTypeId?: string) {
+  const url = showTypeId
+    ? `${API_URL}/standard-setup/sections?show_type_id=${encodeURIComponent(showTypeId)}`
+    : `${API_URL}/standard-setup/sections`;
+  const res = await fetch(url);
   if (!res.ok) return [];
   return res.json();
 }

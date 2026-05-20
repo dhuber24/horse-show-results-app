@@ -14,6 +14,7 @@ import models  # noqa: F401 — ensure all models are registered before create_a
 from routers.shows import router as shows_router
 from routers.rings import router as rings_router
 from routers.divisions import router as divisions_router
+from routers.sections import router as sections_router
 from routers.classes import router as classes_router
 from routers.people import users_router, horses_router, exhibitors_router
 from routers.trainers import router as trainers_router
@@ -86,6 +87,7 @@ app.include_router(dashboard_router)
 app.include_router(shows_router)
 app.include_router(rings_router)
 app.include_router(divisions_router)
+app.include_router(sections_router)
 app.include_router(classes_router)
 app.include_router(users_router)
 app.include_router(horses_router)

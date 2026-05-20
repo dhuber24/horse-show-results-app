@@ -7,7 +7,17 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
-from models import Class, Show, Result, ClassAssociation, AphaStandardClass, AqhaStandardClass, ShowType
+from models import (
+    Class,
+    Show,
+    Result,
+    ClassAssociation,
+    AphaStandardClass,
+    AqhaStandardClass,
+    ShowType,
+    Division,
+    Section,
+)
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
@@ -73,6 +83,22 @@ async def create_class(
             400,
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
+
+    division: Division | None = None
+    if body.division_id is not None:
+        division = await db.get(Division, body.division_id)
+        if not division or division.show_id != show_id:
+            raise HTTPException(400, "Division does not belong to this show")
+
+    if body.section_id is not None:
+        section = await db.get(Section, body.section_id)
+        if not section or section.show_id != show_id:
+            raise HTTPException(400, "Section does not belong to this show")
+
+    score_type = body.score_type
+    if score_type is None:
+        score_type = division.default_score_type if division else "placement"
+
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
@@ -81,7 +107,13 @@ async def create_class(
         show_id=show_id,
         sort_order=next_sort_order,
         class_number=str(next_sort_order),
-        **body.model_dump(),
+        ring_id=body.ring_id,
+        division_id=body.division_id,
+        section_id=body.section_id,
+        class_name=body.class_name,
+        class_date=body.class_date,
+        status=body.status,
+        score_type=score_type,
     )
     db.add(class_)
     try:
@@ -122,7 +154,16 @@ async def update_class(
             400,
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
-    for k, v in body.model_dump(exclude_unset=True).items():
+    update_fields = body.model_dump(exclude_unset=True)
+    if "section_id" in update_fields and update_fields["section_id"] is not None:
+        section = await db.get(Section, update_fields["section_id"])
+        if not section or section.show_id != show_id:
+            raise HTTPException(400, "Section does not belong to this show")
+    if "division_id" in update_fields and update_fields["division_id"] is not None:
+        division = await db.get(Division, update_fields["division_id"])
+        if not division or division.show_id != show_id:
+            raise HTTPException(400, "Division does not belong to this show")
+    for k, v in update_fields.items():
         setattr(class_, k, v)
     try:
         await db.commit()

@@ -4,27 +4,35 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getShowDates } from './showDateUtils';
 
-interface Ring { id: string; name: string; }
-interface Division { id: string; name: string; }
-
 type ScoreType = 'placement' | 'pattern' | 'time';
+
+interface Ring { id: string; name: string; }
+interface Division { id: string; name: string; default_score_type: ScoreType; }
+interface Section { id: string; name: string; }
+
+const SCORE_TYPE_LABEL: Record<ScoreType, string> = {
+  placement: 'Placement',
+  pattern: 'Pattern',
+  time: 'Timed',
+};
 
 const EMPTY_FORM: {
   class_name: string;
   class_date: string;
   ring_id: string;
   division_id: string;
-  score_type: ScoreType;
-} = { class_name: '', class_date: '', ring_id: '', division_id: '', score_type: 'placement' };
+  section_id: string;
+} = { class_name: '', class_date: '', ring_id: '', division_id: '', section_id: '' };
 
 export default function CreateClassForm({
-  showId, showStartDate, showEndDate, rings, divisions,
+  showId, showStartDate, showEndDate, rings, divisions, sections,
 }: {
   showId: string;
   showStartDate: string;
   showEndDate: string;
   rings: Ring[];
   divisions: Division[];
+  sections: Section[];
 }) {
   const router = useRouter();
   const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
@@ -32,6 +40,11 @@ export default function CreateClassForm({
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedDivision = useMemo(
+    () => divisions.find((d) => d.id === form.division_id) ?? null,
+    [divisions, form.division_id],
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -60,7 +73,7 @@ export default function CreateClassForm({
         status: 'OPEN',
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
-        score_type: form.score_type,
+        section_id: form.section_id || null,
       }),
     });
     setSaving(false);
@@ -104,42 +117,52 @@ export default function CreateClassForm({
             ))}
           </select>
         </div>
-        <div className="flex-1">
-          <label className="text-sm text-gray-500">Scoring</label>
-          <select name="score_type" value={form.score_type} onChange={handleChange}
-            className="w-full border rounded px-3 py-2"
-            title="Placement: judges rank entries (rail, halter). Pattern score: judges score numerically (showmanship, horsemanship, trail, reining). Timed: clocked event (barrels, poles, stakes).">
-            <option value="placement">Placement</option>
-            <option value="pattern">Pattern score</option>
-            <option value="time">Timed</option>
-          </select>
-        </div>
+        {rings.length > 0 && (
+          <div className="flex-1">
+            <label className="text-sm text-gray-500">Ring</label>
+            <select name="ring_id" value={form.ring_id} onChange={handleChange}
+              className="w-full border rounded px-3 py-2">
+              <option value="">None</option>
+              {rings.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+        )}
       </div>
-      {(rings.length > 0 || divisions.length > 0) && (
+      {(divisions.length > 0 || sections.length > 0) && (
         <div className="flex gap-3">
-          {rings.length > 0 && (
-            <div className="flex-1">
-              <label className="text-sm text-gray-500">Ring</label>
-              <select name="ring_id" value={form.ring_id} onChange={handleChange}
-                className="w-full border rounded px-3 py-2">
-                <option value="">None</option>
-                {rings.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
-          )}
           {divisions.length > 0 && (
             <div className="flex-1">
-              <label className="text-sm text-gray-500">Division</label>
+              <label className="text-sm text-gray-500">Division (discipline)</label>
               <select name="division_id" value={form.division_id} onChange={handleChange}
                 className="w-full border rounded px-3 py-2">
                 <option value="">None</option>
-                {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                {divisions.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {sections.length > 0 && (
+            <div className="flex-1">
+              <label className="text-sm text-gray-500">Section (bracket)</label>
+              <select name="section_id" value={form.section_id} onChange={handleChange}
+                className="w-full border rounded px-3 py-2">
+                <option value="">None</option>
+                {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           )}
         </div>
       )}
-      <p className="text-xs" style={{ color: '#8b7355' }}>Class number is assigned automatically based on schedule order. Add association codes after creating.</p>
+      <p className="text-xs" style={{ color: '#8b7355' }}>
+        Scoring is taken from the division’s default
+        {selectedDivision ? (
+          <> — <span className="font-medium">{SCORE_TYPE_LABEL[selectedDivision.default_score_type]}</span></>
+        ) : (
+          <> (Placement when no division is selected)</>
+        )}
+        . Class number is assigned automatically.
+      </p>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex gap-2">
         <button onClick={handleSubmit} disabled={saving}

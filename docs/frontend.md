@@ -57,8 +57,8 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/admin` | Admin landing |
 | `/admin/shows` | Admin/manager/secretary show list |
 | `/admin/shows/[id]` | Show management dashboard, including AQHA approval/validation card for AQHA shows |
-| `/admin/shows/[id]/setup` | Ring/division setup from standard lists |
-| `/admin/shows/[id]/classes` | Class list, reorder, APHA/AQHA standard-class import |
+| `/admin/shows/[id]/setup` | Ring, division (discipline), and section (bracket) setup from standard lists |
+| `/admin/shows/[id]/classes` | Class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import |
 | `/admin/shows/[id]/entries` | Entries by class |
 | `/admin/shows/[id]/back-numbers` | Show-level back number assignment |
 | `/admin/shows/[id]/side-pots` | Side pot list, create form |

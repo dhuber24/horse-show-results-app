@@ -3,23 +3,44 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+type ScoreType = 'placement' | 'pattern' | 'time';
+
 export type SetupItem = {
   id: string;
   name: string;
   sort_order: number | null;
   class_count: number;
+  default_score_type?: ScoreType;
 };
 
-type StandardOption = { id: string; name: string };
+type StandardOption = { id: string; name: string; default_score_type?: ScoreType };
 
 type Props = {
-  kind: 'ring' | 'division';
+  kind: 'ring' | 'division' | 'section';
   showId: string;
   items: SetupItem[];
   standardOptions: StandardOption[];
   title: string;
   emptyHint: string;
   pickerHint: string;
+};
+
+const SCORE_TYPE_LABEL: Record<ScoreType, string> = {
+  placement: 'Placement',
+  pattern: 'Pattern',
+  time: 'Timed',
+};
+
+const SCORE_TYPE_OPTIONS: { value: ScoreType; label: string; hint: string }[] = [
+  { value: 'placement', label: 'Placement', hint: 'Judge ranks horses (rail, halter)' },
+  { value: 'pattern', label: 'Pattern', hint: 'Numeric scores (showmanship, reining)' },
+  { value: 'time', label: 'Timed', hint: 'Clocked event (barrels, poles)' },
+];
+
+const COLLECTION_SEGMENT: Record<Props['kind'], string> = {
+  ring: 'rings',
+  division: 'divisions',
+  section: 'sections',
 };
 
 export default function SetupListPanel({
@@ -37,15 +58,17 @@ export default function SetupListPanel({
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editScoreType, setEditScoreType] = useState<ScoreType>('placement');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [customName, setCustomName] = useState('');
+  const [customScoreType, setCustomScoreType] = useState<ScoreType>('placement');
 
   const [showPicker, setShowPicker] = useState(false);
   const [pickedNames, setPickedNames] = useState<Set<string>>(new Set());
 
-  const collectionPath = `/api/shows/${showId}/${kind === 'ring' ? 'rings' : 'divisions'}`;
+  const collectionPath = `/api/shows/${showId}/${COLLECTION_SEGMENT[kind]}`;
   const itemPath = (id: string) => `${collectionPath}/${id}`;
 
   const usedNames = useMemo(
@@ -63,10 +86,12 @@ export default function SetupListPanel({
     setError(null);
     setBusy(true);
     try {
+      const body: Record<string, unknown> = { name };
+      if (kind === 'division') body.default_score_type = customScoreType;
       const res = await fetch(collectionPath, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(body),
       });
       const json = res.status === 204 ? null : await res.json();
       if (!res.ok) {
@@ -74,6 +99,7 @@ export default function SetupListPanel({
         return;
       }
       setCustomName('');
+      setCustomScoreType('placement');
       setShowCustomForm(false);
       router.refresh();
     } finally {
@@ -111,14 +137,16 @@ export default function SetupListPanel({
     setError(null);
     setBusy(true);
     try {
+      const body: Record<string, unknown> = { name };
+      if (kind === 'division') body.default_score_type = editScoreType;
       const res = await fetch(itemPath(id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(body),
       });
       const json = res.status === 204 ? null : await res.json();
       if (!res.ok) {
-        setError(json?.detail || 'Failed to rename');
+        setError(json?.detail || 'Failed to save');
         return;
       }
       setEditingId(null);
@@ -156,7 +184,6 @@ export default function SetupListPanel({
     setError(null);
     setBusy(true);
     try {
-      // Swap sort_order values. Fall back to position-based if either is null.
       const aOrder = a.sort_order ?? (idx + 1) * 10;
       const bOrder = b.sort_order ?? (swapIdx + 1) * 10;
       await Promise.all([
@@ -176,6 +203,13 @@ export default function SetupListPanel({
       setBusy(false);
     }
   }
+
+  const customPlaceholder =
+    kind === 'ring'
+      ? 'e.g. Ring 1'
+      : kind === 'division'
+        ? 'e.g. Western Pleasure'
+        : 'e.g. 10 & Under';
 
   return (
     <section
@@ -226,26 +260,62 @@ export default function SetupListPanel({
                   </button>
                 </div>
                 {editingId === item.id ? (
-                  <input
-                    autoFocus
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRename(item.id);
-                      if (e.key === 'Escape') {
-                        setEditingId(null);
-                        setEditName('');
-                      }
-                    }}
-                    className="flex-1 border rounded px-2 py-1 text-sm"
-                    style={{ borderColor: '#d4b896' }}
-                  />
+                  <div className="flex-1 flex flex-col gap-1">
+                    <input
+                      autoFocus
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && kind !== 'division') handleRename(item.id);
+                        if (e.key === 'Escape') {
+                          setEditingId(null);
+                          setEditName('');
+                        }
+                      }}
+                      className="border rounded px-2 py-1 text-sm"
+                      style={{ borderColor: '#d4b896' }}
+                    />
+                    {kind === 'division' && (
+                      <div className="flex flex-wrap gap-1 text-xs">
+                        {SCORE_TYPE_OPTIONS.map((opt) => (
+                          <label
+                            key={opt.value}
+                            className="flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded"
+                            style={{
+                              background: editScoreType === opt.value ? '#fef3c7' : 'transparent',
+                              color: '#5c3d1e',
+                            }}
+                            title={opt.hint}
+                          >
+                            <input
+                              type="radio"
+                              name={`edit-score-${item.id}`}
+                              checked={editScoreType === opt.value}
+                              onChange={() => setEditScoreType(opt.value)}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : (
-                  <span style={{ color: '#2c1810' }}>{item.name}</span>
+                  <>
+                    <span style={{ color: '#2c1810' }}>{item.name}</span>
+                    {kind === 'division' && item.default_score_type && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded"
+                        style={{ color: '#7c5c2e', background: '#fef3c7' }}
+                        title={`Default scoring: ${SCORE_TYPE_LABEL[item.default_score_type]}`}
+                      >
+                        {SCORE_TYPE_LABEL[item.default_score_type]}
+                      </span>
+                    )}
+                    <span className="text-xs" style={{ color: '#8b7355' }}>
+                      {item.class_count} class{item.class_count === 1 ? '' : 'es'}
+                    </span>
+                  </>
                 )}
-                <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {item.class_count} class{item.class_count === 1 ? '' : 'es'}
-                </span>
               </div>
 
               {editingId === item.id ? (
@@ -295,12 +365,13 @@ export default function SetupListPanel({
                     onClick={() => {
                       setEditingId(item.id);
                       setEditName(item.name);
+                      setEditScoreType(item.default_score_type ?? 'placement');
                     }}
                     disabled={busy}
                     className="text-xs hover:underline disabled:opacity-50"
                     style={{ color: '#8b4513' }}
                   >
-                    Rename
+                    Edit
                   </button>
                   <button
                     onClick={() => setConfirmDeleteId(item.id)}
@@ -343,40 +414,67 @@ export default function SetupListPanel({
       )}
 
       {showCustomForm && (
-        <div className="flex items-center gap-2 mt-3">
-          <input
-            autoFocus
-            placeholder={kind === 'ring' ? 'e.g. Ring 1' : 'e.g. Western Pleasure'}
-            value={customName}
-            onChange={(e) => setCustomName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmitCustom();
-              if (e.key === 'Escape') {
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              placeholder={customPlaceholder}
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && kind !== 'division') handleSubmitCustom();
+                if (e.key === 'Escape') {
+                  setShowCustomForm(false);
+                  setCustomName('');
+                }
+              }}
+              className="flex-1 border rounded px-3 py-1 text-sm"
+              style={{ borderColor: '#d4b896' }}
+            />
+            <button
+              onClick={handleSubmitCustom}
+              disabled={busy || !customName.trim()}
+              className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
+              style={{ backgroundColor: '#8b4513' }}
+            >
+              {busy ? 'Adding…' : 'Add'}
+            </button>
+            <button
+              onClick={() => {
                 setShowCustomForm(false);
                 setCustomName('');
-              }
-            }}
-            className="flex-1 border rounded px-3 py-1 text-sm"
-            style={{ borderColor: '#d4b896' }}
-          />
-          <button
-            onClick={handleSubmitCustom}
-            disabled={busy || !customName.trim()}
-            className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513' }}
-          >
-            {busy ? 'Adding…' : 'Add'}
-          </button>
-          <button
-            onClick={() => {
-              setShowCustomForm(false);
-              setCustomName('');
-            }}
-            className="px-3 py-1 rounded text-sm border"
-            style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
-          >
-            Cancel
-          </button>
+              }}
+              className="px-3 py-1 rounded text-sm border"
+              style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+            >
+              Cancel
+            </button>
+          </div>
+          {kind === 'division' && (
+            <div>
+              <p className="text-xs mb-1" style={{ color: '#5c3d1e' }}>
+                Scoring (how this discipline is judged)
+              </p>
+              <div className="flex flex-wrap gap-3 text-xs">
+                {SCORE_TYPE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className="flex items-center gap-1 cursor-pointer"
+                    style={{ color: '#5c3d1e' }}
+                  >
+                    <input
+                      type="radio"
+                      name="custom-score-type"
+                      checked={customScoreType === opt.value}
+                      onChange={() => setCustomScoreType(opt.value)}
+                    />
+                    <span className="font-medium">{opt.label}</span>
+                    <span style={{ color: '#8b7355' }}>— {opt.hint}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -407,7 +505,15 @@ export default function SetupListPanel({
                         setPickedNames(next);
                       }}
                     />
-                    {opt.name}
+                    <span>{opt.name}</span>
+                    {kind === 'division' && opt.default_score_type && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded"
+                        style={{ color: '#7c5c2e', background: '#fef3c7' }}
+                      >
+                        {SCORE_TYPE_LABEL[opt.default_score_type]}
+                      </span>
+                    )}
                   </label>
                 );
               })}

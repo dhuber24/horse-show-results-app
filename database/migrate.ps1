@@ -37,7 +37,7 @@ Get-ChildItem "$migrationsDir\*.sql" | Sort-Object Name | ForEach-Object {
         Write-Host "  skipped: $name (already applied)"
     } else {
         Write-Host "  applying: $name"
-        docker run --rm -v "${migrationsDir}:/migrations" postgres:16-alpine psql $psqlUrl -f "/migrations/$name"
+        docker run --rm -v "${migrationsDir}:/migrations" postgres:16-alpine psql $psqlUrl -v ON_ERROR_STOP=1 -f "/migrations/$name"
         if ($LASTEXITCODE -ne 0) {
             throw "Failed to apply migration $name."
         }

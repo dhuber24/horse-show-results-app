@@ -5,33 +5,26 @@ import { useRouter } from 'next/navigation';
 import { getShowDates } from './showDateUtils';
 
 interface Ring { id: string; name: string; }
-interface Division { id: string; name: string; }
 type ScoreType = 'placement' | 'pattern' | 'time';
-type Category = 'halter' | 'showmanship' | 'rail' | 'pattern' | 'speed' | 'other';
+interface Division { id: string; name: string; default_score_type: ScoreType; }
+interface Section { id: string; name: string; }
 
-interface ClassTemplate {
-  id: string;
-  show_id: string | null;
-  name: string;
-  default_score_type: ScoreType;
-  category: Category;
-  sort_order: number;
-  is_seed: boolean;
-}
+// Sentinel section id for the "(no section)" column. The builder swaps this
+// for an empty section_ids list when calling the backend so the class is
+// created with no section attached.
+const NO_SECTION = '__none__';
 
-// Sentinel division id for the "(no division)" column. The builder swaps this
-// for an empty division_ids list when calling the backend so the class is
-// created with no division attached.
-const NO_DIVISION = '__none__';
-
-const CATEGORY_LABELS: Record<Category, string> = {
-  halter: 'Halter',
-  showmanship: 'Showmanship',
-  rail: 'Rail',
+const SCORE_TYPE_LABEL: Record<ScoreType, string> = {
+  placement: 'Placement',
   pattern: 'Pattern',
-  speed: 'Speed',
-  other: 'Other',
+  time: 'Timed',
 };
+
+const SCORE_TYPE_OPTIONS: { value: ScoreType; label: string; hint: string }[] = [
+  { value: 'placement', label: 'Placement', hint: 'Judge ranks horses (rail, halter)' },
+  { value: 'pattern', label: 'Pattern', hint: 'Numeric scores (showmanship, reining)' },
+  { value: 'time', label: 'Timed', hint: 'Clocked event (barrels, poles)' },
+];
 
 export default function ScheduleBuilder({
   showId,
@@ -39,50 +32,49 @@ export default function ScheduleBuilder({
   showEndDate,
   rings,
   divisions: initialDivisions,
-  templates: initialTemplates,
+  sections: initialSections,
 }: {
   showId: string;
   showStartDate: string;
   showEndDate: string;
   rings: Ring[];
   divisions: Division[];
-  templates: ClassTemplate[];
+  sections: Section[];
 }) {
   const router = useRouter();
   const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
 
   const [open, setOpen] = useState(false);
-  const [templates, setTemplates] = useState<ClassTemplate[]>(initialTemplates);
   const [divisions, setDivisions] = useState<Division[]>(initialDivisions);
+  const [sections, setSections] = useState<Section[]>(initialSections);
 
   const [classDate, setClassDate] = useState(showStartDate);
   const [ringId, setRingId] = useState<string>('');
 
-  // checks: Map<templateId, Set<divisionId | NO_DIVISION>>
+  // checks: Map<divisionId, Set<sectionId | NO_SECTION>>
   const [checks, setChecks] = useState<Record<string, Set<string>>>({});
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
 
-  // Custom template add
-  const [showAddTemplate, setShowAddTemplate] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
-  const [newTemplateScore, setNewTemplateScore] = useState<ScoreType>('placement');
-  const [newTemplateCategory, setNewTemplateCategory] = useState<Category>('rail');
-  const [templateAdding, setTemplateAdding] = useState(false);
-  const [templateError, setTemplateError] = useState<string | null>(null);
-
   // Custom division add
   const [showAddDivision, setShowAddDivision] = useState(false);
   const [newDivisionName, setNewDivisionName] = useState('');
+  const [newDivisionScore, setNewDivisionScore] = useState<ScoreType>('placement');
   const [divisionAdding, setDivisionAdding] = useState(false);
   const [divisionError, setDivisionError] = useState<string | null>(null);
 
-  // Columns: every show division, plus a "(no division)" column at the end.
+  // Custom section add
+  const [showAddSection, setShowAddSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState('');
+  const [sectionAdding, setSectionAdding] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
+
+  // Columns: every show section, plus a "(no section)" column at the end.
   const columns = useMemo(
-    () => [...divisions, { id: NO_DIVISION, name: '(no division)' }],
-    [divisions],
+    () => [...sections, { id: NO_SECTION, name: '(no section)' }],
+    [sections],
   );
 
   const totalSelected = useMemo(
@@ -90,91 +82,48 @@ export default function ScheduleBuilder({
     [checks],
   );
 
-  const toggleCell = (templateId: string, divisionId: string) => {
+  const toggleCell = (divisionId: string, sectionId: string) => {
     setChecks((prev) => {
       const next = { ...prev };
-      const row = new Set(next[templateId] ?? []);
-      if (row.has(divisionId)) row.delete(divisionId);
-      else row.add(divisionId);
-      if (row.size === 0) delete next[templateId];
-      else next[templateId] = row;
+      const row = new Set(next[divisionId] ?? []);
+      if (row.has(sectionId)) row.delete(sectionId);
+      else row.add(sectionId);
+      if (row.size === 0) delete next[divisionId];
+      else next[divisionId] = row;
       return next;
     });
   };
 
-  const toggleRow = (templateId: string) => {
+  const toggleRow = (divisionId: string) => {
     setChecks((prev) => {
       const next = { ...prev };
-      const row = next[templateId] ?? new Set<string>();
+      const row = next[divisionId] ?? new Set<string>();
       const allColIds = columns.map((c) => c.id);
       const allSelected = allColIds.every((cid) => row.has(cid));
       if (allSelected) {
-        delete next[templateId];
+        delete next[divisionId];
       } else {
-        next[templateId] = new Set(allColIds);
+        next[divisionId] = new Set(allColIds);
       }
       return next;
     });
   };
 
-  const toggleColumn = (divisionId: string) => {
+  const toggleColumn = (sectionId: string) => {
     setChecks((prev) => {
       const next: Record<string, Set<string>> = {};
-      const allSelected = templates.every((t) => prev[t.id]?.has(divisionId));
-      for (const t of templates) {
-        const row = new Set(prev[t.id] ?? []);
-        if (allSelected) row.delete(divisionId);
-        else row.add(divisionId);
-        if (row.size > 0) next[t.id] = row;
+      const allSelected = divisions.every((d) => prev[d.id]?.has(sectionId));
+      for (const d of divisions) {
+        const row = new Set(prev[d.id] ?? []);
+        if (allSelected) row.delete(sectionId);
+        else row.add(sectionId);
+        if (row.size > 0) next[d.id] = row;
       }
       return next;
     });
   };
 
   const clearAll = () => setChecks({});
-
-  const handleAddTemplate = async () => {
-    const name = newTemplateName.trim();
-    if (!name) {
-      setTemplateError('Template name is required.');
-      return;
-    }
-    setTemplateAdding(true);
-    setTemplateError(null);
-    const res = await fetch(`/api/shows/${showId}/schedule-builder/templates`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name,
-        default_score_type: newTemplateScore,
-        category: newTemplateCategory,
-      }),
-    });
-    setTemplateAdding(false);
-    if (res.ok) {
-      const created: ClassTemplate = await res.json();
-      setTemplates((prev) => [...prev, created]);
-      setNewTemplateName('');
-      setShowAddTemplate(false);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setTemplateError(err.detail ?? 'Failed to add template.');
-    }
-  };
-
-  const handleDeleteTemplate = async (templateId: string) => {
-    const res = await fetch(`/api/shows/${showId}/schedule-builder/templates/${templateId}`, {
-      method: 'DELETE',
-    });
-    if (res.status === 204) {
-      setTemplates((prev) => prev.filter((t) => t.id !== templateId));
-      setChecks((prev) => {
-        const next = { ...prev };
-        delete next[templateId];
-        return next;
-      });
-    }
-  };
 
   const handleAddDivision = async () => {
     const name = newDivisionName.trim();
@@ -187,17 +136,43 @@ export default function ScheduleBuilder({
     const res = await fetch(`/api/shows/${showId}/divisions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, default_score_type: newDivisionScore }),
     });
     setDivisionAdding(false);
     if (res.ok) {
       const created: Division = await res.json();
       setDivisions((prev) => [...prev, created]);
       setNewDivisionName('');
+      setNewDivisionScore('placement');
       setShowAddDivision(false);
     } else {
       const err = await res.json().catch(() => ({}));
       setDivisionError(err.detail ?? 'Failed to add division.');
+    }
+  };
+
+  const handleAddSection = async () => {
+    const name = newSectionName.trim();
+    if (!name) {
+      setSectionError('Section name is required.');
+      return;
+    }
+    setSectionAdding(true);
+    setSectionError(null);
+    const res = await fetch(`/api/shows/${showId}/sections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    setSectionAdding(false);
+    if (res.ok) {
+      const created: Section = await res.json();
+      setSections((prev) => [...prev, created]);
+      setNewSectionName('');
+      setShowAddSection(false);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setSectionError(err.detail ?? 'Failed to add section.');
     }
   };
 
@@ -208,15 +183,15 @@ export default function ScheduleBuilder({
     setSuccessCount(null);
 
     const picks = Object.entries(checks)
-      .map(([templateId, divSet]) => {
-        const divisionIds = Array.from(divSet).filter((d) => d !== NO_DIVISION);
-        const wantsNoDivision = divSet.has(NO_DIVISION);
-        const items: { template_id: string; division_ids: string[] }[] = [];
-        if (divisionIds.length > 0) {
-          items.push({ template_id: templateId, division_ids: divisionIds });
+      .map(([divisionId, secSet]) => {
+        const sectionIds = Array.from(secSet).filter((s) => s !== NO_SECTION);
+        const wantsNoSection = secSet.has(NO_SECTION);
+        const items: { division_id: string; section_ids: string[] }[] = [];
+        if (sectionIds.length > 0) {
+          items.push({ division_id: divisionId, section_ids: sectionIds });
         }
-        if (wantsNoDivision) {
-          items.push({ template_id: templateId, division_ids: [] });
+        if (wantsNoSection) {
+          items.push({ division_id: divisionId, section_ids: [] });
         }
         return items;
       })
@@ -263,7 +238,8 @@ export default function ScheduleBuilder({
         <div>
           <h3 className="font-semibold" style={{ color: '#2c1810' }}>Build Schedule</h3>
           <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-            Pick the classes to add. Each checked cell creates one numbered class.
+            Check the divisions × sections cells you want. Each checked cell creates one numbered class.
+            Class names are auto-built as &ldquo;{'{Section}'} {'{Division}'}&rdquo;.
           </p>
         </div>
         <button onClick={() => setOpen(false)} className="text-sm" style={{ color: '#8b7355' }}>
@@ -302,8 +278,7 @@ export default function ScheduleBuilder({
 
       {showDivisionEmptyHint && (
         <p className="text-xs px-3 py-2 rounded" style={{ color: '#7c5c2e', background: '#fef3c7' }}>
-          No divisions yet. Add age/skill divisions below or in <span className="font-medium">Setup → Divisions</span>, then check cells.
-          You can also leave divisions empty and use the <span className="font-medium">(no division)</span> column for standalone classes.
+          No divisions yet. Add a discipline below or in <span className="font-medium">Setup → Divisions</span>, then check cells.
         </p>
       )}
 
@@ -313,13 +288,13 @@ export default function ScheduleBuilder({
           <thead className="sticky top-0 bg-white border-b">
             <tr>
               <th className="px-2 py-2 text-left font-medium" style={{ color: '#5c3d1e' }}>
-                Class template
+                Division
               </th>
               <th className="px-2 py-2 text-center font-medium w-10" title="Toggle whole row" style={{ color: '#5c3d1e' }}>
                 All
               </th>
               {columns.map((c) => {
-                const allColSelected = templates.length > 0 && templates.every((t) => checks[t.id]?.has(c.id));
+                const allColSelected = divisions.length > 0 && divisions.every((d) => checks[d.id]?.has(c.id));
                 return (
                   <th key={c.id} className="px-2 py-2 text-left font-medium whitespace-nowrap" style={{ color: '#5c3d1e' }}>
                     <button
@@ -336,47 +311,37 @@ export default function ScheduleBuilder({
             </tr>
           </thead>
           <tbody>
-            {templates.map((t, i) => {
-              const row = checks[t.id] ?? new Set<string>();
+            {divisions.map((d, i) => {
+              const row = checks[d.id] ?? new Set<string>();
               const allRowSelected = columns.every((c) => row.has(c.id));
               return (
-                <tr key={t.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafaf8' }}>
+                <tr key={d.id} style={{ background: i % 2 === 0 ? '#fff' : '#fafaf8' }}>
                   <td className="px-2 py-1.5 whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      <span style={{ color: '#2c1810' }}>{t.name}</span>
+                      <span style={{ color: '#2c1810' }}>{d.name}</span>
                       <span
                         className="text-xs px-1.5 py-0.5 rounded"
                         style={{ color: '#7c5c2e', background: '#fef3c7' }}
-                        title={`Default score type: ${t.default_score_type}`}
+                        title={`Scoring: ${SCORE_TYPE_LABEL[d.default_score_type]}`}
                       >
-                        {CATEGORY_LABELS[t.category]}
+                        {SCORE_TYPE_LABEL[d.default_score_type]}
                       </span>
-                      {!t.is_seed && (
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTemplate(t.id)}
-                          className="text-xs text-red-600 hover:underline"
-                          title="Delete custom template"
-                        >
-                          remove
-                        </button>
-                      )}
                     </div>
                   </td>
                   <td className="px-2 py-1.5 text-center">
                     <input
                       type="checkbox"
                       checked={allRowSelected}
-                      onChange={() => toggleRow(t.id)}
+                      onChange={() => toggleRow(d.id)}
                       title={allRowSelected ? 'Clear this row' : 'Select all in this row'}
                     />
                   </td>
                   {columns.map((c) => (
-                    <td key={c.id} className="px-2 py-1.5 text-center" onClick={() => toggleCell(t.id, c.id)} style={{ cursor: 'pointer' }}>
+                    <td key={c.id} className="px-2 py-1.5 text-center" onClick={() => toggleCell(d.id, c.id)} style={{ cursor: 'pointer' }}>
                       <input
                         type="checkbox"
                         checked={row.has(c.id)}
-                        onChange={() => toggleCell(t.id, c.id)}
+                        onChange={() => toggleCell(d.id, c.id)}
                         onClick={(e) => e.stopPropagation()}
                       />
                     </td>
@@ -388,63 +353,8 @@ export default function ScheduleBuilder({
         </table>
       </div>
 
-      {/* Custom template + division add */}
-      <div className="flex gap-4 flex-wrap">
-        {!showAddTemplate ? (
-          <button
-            type="button"
-            onClick={() => setShowAddTemplate(true)}
-            className="text-xs hover:underline"
-            style={{ color: '#7c5c2e' }}
-          >
-            + Add custom template
-          </button>
-        ) : (
-          <div className="flex gap-2 flex-wrap items-end p-2 rounded" style={{ background: '#f7efe1' }}>
-            <input
-              autoFocus
-              placeholder="Template name"
-              value={newTemplateName}
-              onChange={(e) => setNewTemplateName(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
-            />
-            <select
-              value={newTemplateScore}
-              onChange={(e) => setNewTemplateScore(e.target.value as ScoreType)}
-              className="border rounded px-2 py-1 text-sm"
-              title="How is this class scored?"
-            >
-              <option value="placement">Placement</option>
-              <option value="pattern">Pattern</option>
-              <option value="time">Timed</option>
-            </select>
-            <select
-              value={newTemplateCategory}
-              onChange={(e) => setNewTemplateCategory(e.target.value as Category)}
-              className="border rounded px-2 py-1 text-sm"
-            >
-              {(Object.keys(CATEGORY_LABELS) as Category[]).map((k) => (
-                <option key={k} value={k}>{CATEGORY_LABELS[k]}</option>
-              ))}
-            </select>
-            <button
-              onClick={handleAddTemplate}
-              disabled={templateAdding}
-              className="px-3 py-1 rounded text-white text-sm disabled:opacity-50"
-              style={{ background: '#7c5c2e' }}
-            >
-              {templateAdding ? 'Adding…' : 'Add'}
-            </button>
-            <button
-              onClick={() => { setShowAddTemplate(false); setTemplateError(null); }}
-              className="text-sm text-gray-500"
-            >
-              Cancel
-            </button>
-            {templateError && <span className="text-xs text-red-600 w-full">{templateError}</span>}
-          </div>
-        )}
-
+      {/* Custom division + section add */}
+      <div className="space-y-3">
         {!showAddDivision ? (
           <button
             type="button"
@@ -455,36 +365,99 @@ export default function ScheduleBuilder({
             + Add custom division
           </button>
         ) : (
+          <div className="p-3 rounded space-y-2" style={{ background: '#f7efe1' }}>
+            <p className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+              Add custom division
+            </p>
+            <input
+              autoFocus
+              placeholder="Discipline name (e.g. Western Pleasure)"
+              value={newDivisionName}
+              onChange={(e) => setNewDivisionName(e.target.value)}
+              className="w-full border rounded px-2 py-1 text-sm"
+            />
+            <div>
+              <p className="text-xs mb-1" style={{ color: '#5c3d1e' }}>
+                Scoring — how is this discipline judged?
+              </p>
+              <div className="flex flex-wrap gap-3 text-xs">
+                {SCORE_TYPE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className="flex items-center gap-1 cursor-pointer"
+                    style={{ color: '#5c3d1e' }}
+                  >
+                    <input
+                      type="radio"
+                      name="new-division-score"
+                      checked={newDivisionScore === opt.value}
+                      onChange={() => setNewDivisionScore(opt.value)}
+                    />
+                    <span className="font-medium">{opt.label}</span>
+                    <span style={{ color: '#8b7355' }}>— {opt.hint}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 items-center">
+              <button
+                onClick={handleAddDivision}
+                disabled={divisionAdding}
+                className="px-3 py-1 rounded text-white text-sm disabled:opacity-50"
+                style={{ background: '#7c5c2e' }}
+              >
+                {divisionAdding ? 'Adding…' : 'Add'}
+              </button>
+              <button
+                onClick={() => { setShowAddDivision(false); setDivisionError(null); }}
+                className="text-sm text-gray-500"
+              >
+                Cancel
+              </button>
+              {divisionError && <span className="text-xs text-red-600">{divisionError}</span>}
+            </div>
+          </div>
+        )}
+
+        {!showAddSection ? (
+          <button
+            type="button"
+            onClick={() => setShowAddSection(true)}
+            className="text-xs hover:underline"
+            style={{ color: '#7c5c2e' }}
+          >
+            + Add custom section
+          </button>
+        ) : (
           <div className="flex gap-2 flex-wrap items-end p-2 rounded" style={{ background: '#f7efe1' }}>
             <input
               autoFocus
-              placeholder="Division name (e.g. 10 & Under)"
-              value={newDivisionName}
-              onChange={(e) => setNewDivisionName(e.target.value)}
+              placeholder="Section name (e.g. 10 & Under)"
+              value={newSectionName}
+              onChange={(e) => setNewSectionName(e.target.value)}
               className="border rounded px-2 py-1 text-sm"
             />
             <button
-              onClick={handleAddDivision}
-              disabled={divisionAdding}
+              onClick={handleAddSection}
+              disabled={sectionAdding}
               className="px-3 py-1 rounded text-white text-sm disabled:opacity-50"
               style={{ background: '#7c5c2e' }}
             >
-              {divisionAdding ? 'Adding…' : 'Add'}
+              {sectionAdding ? 'Adding…' : 'Add'}
             </button>
             <button
-              onClick={() => { setShowAddDivision(false); setDivisionError(null); }}
+              onClick={() => { setShowAddSection(false); setSectionError(null); }}
               className="text-sm text-gray-500"
             >
               Cancel
             </button>
-            {divisionError && <span className="text-xs text-red-600 w-full">{divisionError}</span>}
+            {sectionError && <span className="text-xs text-red-600 w-full">{sectionError}</span>}
           </div>
         )}
       </div>
 
       <p className="text-xs" style={{ color: '#8b7355' }}>
-        Class numbers continue from the show&apos;s current schedule. Names are auto-generated as
-        {' '}&ldquo;{'{Division}'} {'{Template}'}&rdquo; (e.g. &ldquo;10 &amp; Under Showmanship&rdquo;).
+        Class numbers continue from the show&apos;s current schedule. Scoring is set from each division&apos;s default.
       </p>
 
       <div className="flex gap-2 items-center">

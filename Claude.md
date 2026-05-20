@@ -83,7 +83,10 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 
 - `shows`: event shell with venue, dates, primary association, status, optional APHA show number, and AQHA approval metadata.
 - `show_requests`: Show Manager request workflow; approval creates a draft show.
-- `classes`: competition classes, sorted by `sort_order`. `score_type` is `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event).
+- `divisions`: per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that new classes inherit when score_type is omitted.
+- `sections`: per-show **age/skill brackets** within a discipline (10 & Under, Walk-Trot, Amateur). Optional. New in migration 048.
+- `standard_divisions` / `standard_sections`: curated lookup lists for the setup picker; `show_type_id NULL` is the generic fallback.
+- `classes`: competition classes, sorted by `sort_order`. Nullable `division_id` (discipline) and `section_id` (bracket). `score_type` is `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event); derived from `division.default_score_type` at create time when omitted.
 - `class_associations`: association-specific codes for a class, useful for dual-sanctioned shows.
 - `aqha_standard_classes`: official AQHA class-code lookup used by the AQHA picker and validation.
 - `entries`: class-level exhibitor/horse registrations.
@@ -173,7 +176,8 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 - Deleting a horse preserves entry history by setting `entries.horse_id` to `NULL`.
 - The repo has historical duplicate migration numbering around `024_*`; preserve filenames and ordering behavior.
 - `ConfirmDialog` exists but is no longer the preferred delete pattern.
-- `classes.score_type` defaults to `placement`. APHA/AQHA bulk-imported classes also default to `placement` and need to be flipped to `pattern` per class today (no auto-tagging yet). Side pots with `sum_scores` only see `pattern`/`time` classes.
+- `classes.score_type` is derived from `division.default_score_type` at create time when not explicitly set. APHA/AQHA bulk-imported classes still default to `placement` (no division attached) and need to be flipped to `pattern` per class today. Side pots with `sum_scores` only see `pattern`/`time` classes.
+- Migration 048 dropped `class_templates` and the `category` concept; "Division = discipline" and "Section = bracket" are the canonical vocabulary. Per-show `divisions` rows that pre-date 048 may still contain bracket-named entries — secretaries clean those up in the Setup UI.
 - For `pattern`/`time` classes the scorekeeper enters `raw_score` and the backend recomputes `place` and `is_tie` for every result in the class on insert/update/delete. Audit rows are only written for `placement` classes.
 - Settling a side pot is irreversible — `status` flips to `settled`, payouts are written, and edits/deletes are blocked.
 

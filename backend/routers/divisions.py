@@ -4,9 +4,33 @@ from sqlalchemy import select, func
 from uuid import UUID
 
 from database import get_db
-from models import Division, Show, Class
+from models import Division, Show, Class, StandardDivision
 from schemas import DivisionCreate, DivisionUpdate, DivisionOut, DivisionBulkCreate
 from routers.shows import _assert_show_access
+
+
+def _infer_score_type(name: str) -> str:
+    """Best-effort discipline → score_type guess for bulk-added division names
+    that don't match a standard_divisions row. Mirrors migration 048's heuristic.
+    """
+    n = name.lower()
+    if any(token in n for token in ("barrel", "pole", "stake")):
+        return "time"
+    if any(
+        token in n
+        for token in (
+            "showmanship",
+            "horsemanship",
+            "equitation",
+            "reining",
+            "ranch riding",
+            "ranch trail",
+            "hunter hack",
+            "trail",
+        )
+    ):
+        return "pattern"
+    return "placement"
 
 router = APIRouter(prefix="/shows/{show_id}/divisions", tags=["Divisions"])
 
@@ -27,6 +51,7 @@ async def _division_with_count(division: Division, db: AsyncSession) -> Division
         show_id=division.show_id,
         name=division.name,
         sort_order=division.sort_order,
+        default_score_type=division.default_score_type,
         class_count=count.scalar_one(),
     )
 
@@ -57,6 +82,7 @@ async def list_divisions(show_id: UUID, db: AsyncSession = Depends(get_db)):
             show_id=d.show_id,
             name=d.name,
             sort_order=d.sort_order,
+            default_score_type=d.default_score_type,
             class_count=counts.get(d.id, 0),
         )
         for d in divs
@@ -75,7 +101,12 @@ async def create_division(
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
     sort_order = body.sort_order if body.sort_order is not None else await _next_sort_order(show_id, db)
-    division = Division(show_id=show_id, name=body.name, sort_order=sort_order)
+    division = Division(
+        show_id=show_id,
+        name=body.name,
+        sort_order=sort_order,
+        default_score_type=body.default_score_type,
+    )
     db.add(division)
     await db.commit()
     await db.refresh(division)
@@ -95,14 +126,32 @@ async def bulk_create_divisions(
     await _get_show_or_404(show_id, db)
     existing_res = await db.execute(select(Division.name).where(Division.show_id == show_id))
     existing = {row[0] for row in existing_res.all()}
+
+    # Look up the standard discipline list so picked names inherit the curated
+    # default_score_type. Names not in the standard list fall back to a
+    # heuristic on the name itself.
+    cleaned = [raw.strip() for raw in body.names if raw.strip()]
+    std_lookup: dict[str, str] = {}
+    if cleaned:
+        std_res = await db.execute(
+            select(StandardDivision.name, StandardDivision.default_score_type)
+            .where(StandardDivision.name.in_(cleaned))
+        )
+        std_lookup = {row[0]: row[1] for row in std_res.all()}
+
     sort_order = await _next_sort_order(show_id, db)
     created: list[Division] = []
-    for raw in body.names:
-        name = raw.strip()
-        if not name or name in existing:
+    for name in cleaned:
+        if name in existing:
             continue
         existing.add(name)
-        division = Division(show_id=show_id, name=name, sort_order=sort_order)
+        score_type = std_lookup.get(name) or _infer_score_type(name)
+        division = Division(
+            show_id=show_id,
+            name=name,
+            sort_order=sort_order,
+            default_score_type=score_type,
+        )
         sort_order += 10
         db.add(division)
         created.append(division)
@@ -132,6 +181,8 @@ async def update_division(
         division.name = body.name
     if body.sort_order is not None:
         division.sort_order = body.sort_order
+    if body.default_score_type is not None:
+        division.default_score_type = body.default_score_type
     await db.commit()
     await db.refresh(division)
     return await _division_with_count(division, db)
