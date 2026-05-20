@@ -3,6 +3,8 @@ import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import SetupListPanel, { SetupItem } from './SetupListPanel';
 
+type ScoreType = 'placement' | 'pattern' | 'time';
+
 async function fetchAuthed(url: string) {
   const headers = await getAuthHeaders();
   if (!headers) return [];
@@ -14,24 +16,39 @@ async function fetchAuthed(url: string) {
 export default async function ShowSetupPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [rings, divisions, standardRings, standardDivisions] = await Promise.all([
+  const [
+    rings,
+    divisions,
+    sections,
+    standardRings,
+    standardDivisions,
+    standardSections,
+  ] = await Promise.all([
     fetchAuthed(`${API_URL}/shows/${id}/rings/`) as Promise<SetupItem[]>,
     fetchAuthed(`${API_URL}/shows/${id}/divisions/`) as Promise<SetupItem[]>,
+    fetchAuthed(`${API_URL}/shows/${id}/sections/`) as Promise<SetupItem[]>,
     fetchAuthed(`${API_URL}/standard-setup/rings`) as Promise<{ id: string; name: string }[]>,
     fetchAuthed(
       `${API_URL}/standard-setup/divisions?show_type_id=${encodeURIComponent(show.show_type_id)}`,
+    ) as Promise<{ id: string; name: string; default_score_type: ScoreType }[]>,
+    fetchAuthed(
+      `${API_URL}/standard-setup/sections?show_type_id=${encodeURIComponent(show.show_type_id)}`,
     ) as Promise<{ id: string; name: string }[]>,
   ]);
 
-  // Standard division endpoint returns the show-type rows plus generic
-  // fallbacks. Dedupe by name (case-insensitive) so the picker stays clean.
-  const seen = new Set<string>();
-  const dedupedDivisions = standardDivisions.filter((d) => {
-    const key = d.name.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Dedupe standard lists by name (case-insensitive) — show-type-specific rows
+  // may overlap the generic NULL-show_type_id fallback.
+  function dedupeByName<T extends { name: string }>(list: T[]): T[] {
+    const seen = new Set<string>();
+    return list.filter((d) => {
+      const key = d.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  const dedupedDivisions = dedupeByName(standardDivisions);
+  const dedupedSections = dedupeByName(standardSections);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-8">
@@ -41,15 +58,15 @@ export default async function ShowSetupPage({ params }: { params: Promise<{ id: 
             { label: 'Admin', href: '/admin' },
             { label: 'Shows', href: '/admin/shows' },
             { label: show.name, href: `/admin/shows/${id}` },
-            { label: 'Rings & Divisions' },
+            { label: 'Rings, Divisions & Sections' },
           ]}
         />
         <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
-          Rings &amp; Divisions
+          Rings, Divisions &amp; Sections
         </h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          Set up the arenas and class groupings for {show.name}. Classes can then be assigned to a
-          ring or division when you create or edit them.
+          Set up the arenas, disciplines, and age/skill brackets for {show.name}. Classes can then be assigned
+          to a ring, a division (discipline), and an optional section (bracket).
         </p>
       </div>
 
@@ -69,8 +86,18 @@ export default async function ShowSetupPage({ params }: { params: Promise<{ id: 
         items={divisions}
         standardOptions={dedupedDivisions}
         title="Divisions"
-        emptyHint="No divisions configured. Divisions group classes (e.g. Halter, Western Pleasure, Trail) for scheduling and points."
-        pickerHint={`Standard ${show.show_type_code ?? ''} divisions. Demographic splits (Open / Amateur / Youth) are tracked per entry, not at the division level.`}
+        emptyHint="No divisions configured. A Division is a discipline (Halter, Western Pleasure, Trail, Barrels). Each one carries a default scoring method that newly-created classes inherit."
+        pickerHint={`Standard ${show.show_type_code ?? ''} disciplines. Demographic splits (Open / Amateur / Youth) are tracked per entry, not at the division level.`}
+      />
+
+      <SetupListPanel
+        kind="section"
+        showId={id}
+        items={sections}
+        standardOptions={dedupedSections}
+        title="Sections"
+        emptyHint="No sections configured. A Section is an age or skill bracket within a discipline (10 & Under, Walk-Trot, Amateur). Optional — leave empty if classes don't split by bracket."
+        pickerHint="Standard age/skill brackets. Pair these with divisions in the Schedule Builder to create classes like ‘10 & Under Showmanship’."
       />
     </main>
   );

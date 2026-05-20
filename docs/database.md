@@ -58,6 +58,8 @@ Current migration files:
 | `044_aqha_workshop_tracking.sql` | Add `users.aqha_management_workshop_completed_at` for AQHA show-management workshop validation |
 | `045_trainer_accounts.sql` | Add `TRAINER` role and link trainer registry rows to user accounts |
 | `046_trainer_private_phone.sql` | Add private phone storage for trainer accounts |
+| `047_class_templates.sql` | Original Schedule Builder seed library (templates + OPEN-style age-bracket "divisions"); superseded by 048 |
+| `048_consolidate_divisions.sql` | Consolidate Divisions/Sections/Classes: add `divisions.default_score_type`, new `sections` and `standard_sections` tables, `classes.section_id`; migrate 047 brackets into sections; merge `class_templates` into `standard_divisions`; drop `class_templates` |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -188,9 +190,11 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `shows` | Event shell with primary show type, venue, dates, status |
 | `show_affiliations` | Secondary associations available for selected classes |
 | `show_requests` | Show Manager request/approval workflow |
-| `rings` and `divisions` | Per-show arenas and class groupings, each with `sort_order` |
-| `standard_rings` and `standard_divisions` | Curated lookup lists used by the show setup picker; `standard_divisions.show_type_id NULL` is the generic fallback set |
-| `classes` | Competition classes; ordered by `sort_order`; `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event) |
+| `rings` | Per-show arenas, each with `sort_order` |
+| `divisions` | Per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit when score_type is omitted. Legacy rows from before migration 048 are not auto-classified; secretaries may need to clean up names that are really sections. |
+| `sections` | Per-show **age/skill brackets** within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional. New in migration 048. |
+| `standard_rings`, `standard_divisions`, `standard_sections` | Curated lookup lists used by the setup picker. `show_type_id NULL` is the generic fallback set. `standard_divisions` carries `default_score_type` for each discipline. |
+| `classes` | Competition classes; ordered by `sort_order`. Nullable `division_id` (discipline) and `section_id` (bracket). `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event); set from `division.default_score_type` at create time when omitted. |
 | `class_associations` | Per-class association codes |
 | `aqha_standard_classes` | AQHA class-code lookup used by the AQHA class picker and validation rules; seeded from the official 2026 AQHA Class Master Listing CSV |
 | `entries` | Exhibitor + horse in a class |
@@ -214,8 +218,8 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 
 ## Integrity Rules
 
-- Shows cascade to rings, divisions, classes, show staff links, show entries, and side pots.
-- Classes cascade to entries, results, and side pot bundle rows.
+- Shows cascade to rings, divisions, sections, classes, show staff links, show entries, and side pots.
+- Classes cascade to entries, results, and side pot bundle rows. Deleting a section sets `classes.section_id` to `NULL` to preserve class history.
 - Horse deletion sets `entries.horse_id` to `NULL` to preserve history.
 - Results changes should write audit rows for `placement` classes; pattern/time classes recompute `place` from `raw_score` on every save and skip the audit (the score is the editorial decision, not the derived placing).
 - For `pattern` and `time` classes, `raw_score` is required on insert and update; the backend recomputes every result's `place` and `is_tie` flags after each change so equal scores share a place.

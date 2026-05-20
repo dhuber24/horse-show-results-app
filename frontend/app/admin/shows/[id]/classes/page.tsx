@@ -1,4 +1,4 @@
-import { fetchShow, fetchClasses, fetchShowTypes, fetchRings, fetchDivisions, fetchClassTemplates } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchShowTypes, fetchRings, fetchDivisions, fetchSections } from '@/lib/api';
 import CreateClassForm from '../CreateClassForm';
 import ClassListWithReorder from '../ClassListWithReorder';
 import APHAClassPicker from '../APHAClassPicker';
@@ -8,13 +8,13 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowClassesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, classes, showTypes, rings, divisions, classTemplates] = await Promise.all([
+  const [show, classes, showTypes, rings, divisions, sections] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchShowTypes(),
     fetchRings(id),
     fetchDivisions(id),
-    fetchClassTemplates(id),
+    fetchSections(id),
   ]);
 
   const isApha = show.show_type_code === 'APHA';
@@ -57,14 +57,21 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <CreateClassForm showId={id} showStartDate={show.start_date} showEndDate={show.end_date} rings={rings} divisions={divisions} />
+        <CreateClassForm
+          showId={id}
+          showStartDate={show.start_date}
+          showEndDate={show.end_date}
+          rings={rings}
+          divisions={divisions}
+          sections={sections}
+        />
         <ScheduleBuilder
           showId={id}
           showStartDate={show.start_date}
           showEndDate={show.end_date}
           rings={rings}
           divisions={divisions}
-          templates={classTemplates}
+          sections={sections}
         />
         {isApha && (
           <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />

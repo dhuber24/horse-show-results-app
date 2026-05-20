@@ -59,6 +59,7 @@ class Show(Base):
     affiliations = relationship("ShowAffiliation", back_populates="show", cascade="all, delete", lazy="selectin")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
+    sections = relationship("Section", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
@@ -97,9 +98,25 @@ class Division(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=True)
+    default_score_type = Column(Text, nullable=False, server_default="placement")
 
     show = relationship("Show", back_populates="divisions")
     classes = relationship("Class", back_populates="division")
+
+
+class Section(Base):
+    """Per-show age/skill bracket within a Division (e.g. 10 & Under, Walk-Trot, Amateur)."""
+    __tablename__ = "sections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=True)
+
+    __table_args__ = (UniqueConstraint("show_id", "name", name="uq_sections_show_name"),)
+
+    show = relationship("Show", back_populates="sections")
+    classes = relationship("Class", back_populates="section")
 
 
 class StandardRing(Base):
@@ -117,6 +134,25 @@ class StandardDivision(Base):
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True)
     name = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
+    default_score_type = Column(Text, nullable=False, server_default="placement")
+
+
+class StandardSection(Base):
+    __tablename__ = "standard_sections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True)
+    name = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "show_type_id",
+            "name",
+            name="uq_standard_sections_type_name",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
 
 class Class(Base):
@@ -126,6 +162,7 @@ class Class(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     ring_id = Column(UUID(as_uuid=True), ForeignKey("rings.id"), nullable=True)
     division_id = Column(UUID(as_uuid=True), ForeignKey("divisions.id"), nullable=True)
+    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id", ondelete="SET NULL"), nullable=True)
     class_number = Column(Text, nullable=False)
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
@@ -136,6 +173,7 @@ class Class(Base):
     show = relationship("Show", back_populates="classes")
     ring = relationship("Ring", back_populates="classes")
     division = relationship("Division", back_populates="classes")
+    section = relationship("Section", back_populates="classes")
     sort_order = Column(Integer, nullable=True)
 
     entries = relationship("Entry", back_populates="class_", cascade="all, delete")
@@ -551,25 +589,6 @@ class ShowManager(Base):
 
     show = relationship("Show", back_populates="show_managers")
     user = relationship("User", back_populates="manager_shows")
-
-
-class ClassTemplate(Base):
-    """Library of class templates used by the Schedule Builder.
-
-    Rows with show_id NULL and is_seed=True are the global canonical library
-    (Showmanship, Western Pleasure, etc.). Custom templates carry a show_id
-    and are scoped to that show.
-    """
-    __tablename__ = "class_templates"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=True)
-    name = Column(Text, nullable=False)
-    default_score_type = Column(Text, nullable=False, server_default="placement")
-    category = Column(Text, nullable=False, server_default="rail")
-    sort_order = Column(Integer, nullable=False, default=0)
-    is_seed = Column(Boolean, nullable=False, server_default="false")
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 class AphaStandardClass(Base):

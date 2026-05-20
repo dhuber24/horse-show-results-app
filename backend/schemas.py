@@ -153,19 +153,24 @@ class RingBulkCreate(BaseModel):
 
 # ── Divisions ──────────────────────────────────────────────────────────────────
 
+ScoreType = Literal["placement", "pattern", "time"]
+
 class DivisionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     sort_order: Optional[int] = None
+    default_score_type: ScoreType = "placement"
 
 class DivisionUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     sort_order: Optional[int] = None
+    default_score_type: Optional[ScoreType] = None
 
 class DivisionOut(BaseModel):
     id: UUID
     show_id: UUID
     name: str
     sort_order: Optional[int] = None
+    default_score_type: ScoreType = "placement"
     class_count: Optional[int] = None
 
     class Config:
@@ -175,7 +180,33 @@ class DivisionBulkCreate(BaseModel):
     names: list[str] = Field(min_length=1)
 
 
-# ── Standard rings & divisions (lookup) ────────────────────────────────────────
+# ── Sections ───────────────────────────────────────────────────────────────────
+# A Section is an age/skill bracket within a Division (e.g. "10 & Under",
+# "Walk-Trot", "Amateur"). Optional — many classes have no Section.
+
+class SectionCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+
+class SectionUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+
+class SectionOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    name: str
+    sort_order: Optional[int] = None
+    class_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class SectionBulkCreate(BaseModel):
+    names: list[str] = Field(min_length=1)
+
+
+# ── Standard rings, divisions, sections (lookup) ──────────────────────────────
 
 class StandardRingOut(BaseModel):
     id: UUID
@@ -190,6 +221,16 @@ class StandardDivisionOut(BaseModel):
     show_type_id: Optional[UUID] = None
     name: str
     sort_order: int
+    default_score_type: ScoreType = "placement"
+
+    class Config:
+        from_attributes = True
+
+class StandardSectionOut(BaseModel):
+    id: UUID
+    show_type_id: Optional[UUID] = None
+    name: str
+    sort_order: int
 
     class Config:
         from_attributes = True
@@ -200,18 +241,21 @@ class StandardDivisionOut(BaseModel):
 class ClassCreate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
+    section_id: Optional[UUID] = None
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
-    score_type: Literal["placement", "pattern", "time"] = "placement"
+    # Omit to derive from division.default_score_type at creation time.
+    score_type: Optional[ScoreType] = None
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
+    section_id: Optional[UUID] = None
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
-    score_type: Optional[Literal["placement", "pattern", "time"]] = None
+    score_type: Optional[ScoreType] = None
 
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
@@ -253,6 +297,7 @@ class ClassOut(BaseModel):
     show_id: UUID
     ring_id: Optional[UUID]
     division_id: Optional[UUID]
+    section_id: Optional[UUID] = None
     class_number: str
     class_name: str
     class_date: date
@@ -496,8 +541,11 @@ class TrainerOut(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
     name: str
+    private_phone: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    user_email: Optional[str] = None
+    horse_count: int = 0
     created_at: datetime
 
     class Config:
@@ -835,32 +883,15 @@ class AqhaStandardClassOut(BaseModel):
         from_attributes = True
 
 
-# ── Class Templates (Schedule Builder) ─────────────────────────────────────────
-
-class ClassTemplateOut(BaseModel):
-    id: UUID
-    show_id: Optional[UUID] = None
-    name: str
-    default_score_type: Literal["placement", "pattern", "time"]
-    category: Literal["halter", "showmanship", "rail", "pattern", "speed", "other"]
-    sort_order: int
-    is_seed: bool
-
-    class Config:
-        from_attributes = True
-
-
-class ClassTemplateCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    default_score_type: Literal["placement", "pattern", "time"] = "placement"
-    category: Literal["halter", "showmanship", "rail", "pattern", "speed", "other"] = "rail"
-
+# ── Schedule Builder ───────────────────────────────────────────────────────────
+# Picks are (Division × Sections) matrix cells. Each pick creates one class per
+# selected section (or a single class if no sections are chosen). Score type
+# falls back to division.default_score_type when omitted.
 
 class ScheduleBuilderPick(BaseModel):
-    template_id: UUID
-    division_ids: list[UUID] = Field(default_factory=list)
-    # Optional override; falls back to template.default_score_type
-    score_type: Optional[Literal["placement", "pattern", "time"]] = None
+    division_id: UUID
+    section_ids: list[UUID] = Field(default_factory=list)
+    score_type: Optional[ScoreType] = None
 
 
 class ScheduleBuilderBuild(BaseModel):

@@ -1,8 +1,9 @@
 """Read-only lookup endpoints for the show setup picker.
 
-Exposes curated lists of standard ring names and association-specific
-division names. Standard divisions with show_type_id NULL are a generic
-fallback used when no curated list exists for a given show type.
+Exposes curated lists of standard ring names, discipline-style division
+names, and bracket-style section names. Rows with show_type_id NULL are
+the generic fallback used when no curated list exists for a given show
+type.
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,8 +11,8 @@ from sqlalchemy import select, or_
 from uuid import UUID
 
 from database import get_db
-from models import StandardRing, StandardDivision
-from schemas import StandardRingOut, StandardDivisionOut
+from models import StandardRing, StandardDivision, StandardSection
+from schemas import StandardRingOut, StandardDivisionOut, StandardSectionOut
 
 router = APIRouter(prefix="/standard-setup", tags=["Standard Setup"])
 
@@ -42,5 +43,24 @@ async def list_standard_divisions(
             )
         )
     stmt = stmt.order_by(StandardDivision.sort_order, StandardDivision.name)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.get("/sections", response_model=list[StandardSectionOut])
+async def list_standard_sections(
+    show_type_id: UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return sections for the given show type, plus the generic fallback set."""
+    stmt = select(StandardSection)
+    if show_type_id is not None:
+        stmt = stmt.where(
+            or_(
+                StandardSection.show_type_id == show_type_id,
+                StandardSection.show_type_id.is_(None),
+            )
+        )
+    stmt = stmt.order_by(StandardSection.sort_order, StandardSection.name)
     result = await db.execute(stmt)
     return result.scalars().all()

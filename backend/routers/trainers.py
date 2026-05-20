@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from uuid import UUID
@@ -21,10 +21,33 @@ _horse_options = [
 ]
 
 
+def _trainer_to_out(trainer: Trainer, horse_count: int) -> TrainerOut:
+    return TrainerOut(
+        id=trainer.id,
+        user_id=trainer.user_id,
+        name=trainer.name,
+        private_phone=trainer.private_phone,
+        phone=trainer.phone,
+        email=trainer.email,
+        user_email=trainer.user.email if trainer.user else None,
+        horse_count=horse_count,
+        created_at=trainer.created_at,
+    )
+
+
 @router.get("/", response_model=list[TrainerOut], dependencies=[Depends(require_authenticated)])
 async def list_trainers(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Trainer).order_by(Trainer.name))
-    return result.scalars().all()
+    result = await db.execute(
+        select(Trainer).options(selectinload(Trainer.user)).order_by(Trainer.name)
+    )
+    trainers = result.scalars().all()
+    counts_res = await db.execute(
+        select(Horse.trainer_id, func.count())
+        .where(Horse.trainer_id.is_not(None))
+        .group_by(Horse.trainer_id)
+    )
+    counts = {row[0]: row[1] for row in counts_res.all()}
+    return [_trainer_to_out(t, counts.get(t.id, 0)) for t in trainers]
 
 
 @router.post("/", response_model=TrainerOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -33,11 +56,11 @@ async def create_trainer(body: TrainerCreate, db: AsyncSession = Depends(get_db)
     db.add(trainer)
     try:
         await db.commit()
-        await db.refresh(trainer)
+        await db.refresh(trainer, attribute_names=["user"])
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "A trainer with that name already exists")
-    return trainer
+    return _trainer_to_out(trainer, 0)
 
 
 @router.get("/me", response_model=TrainerProfileOut)
@@ -129,18 +152,21 @@ async def list_my_trainer_horses(
 
 @router.patch("/{trainer_id}", response_model=TrainerOut, dependencies=[Depends(require_admin)])
 async def update_trainer(trainer_id: UUID, body: TrainerUpdate, db: AsyncSession = Depends(get_db)):
-    trainer = await db.get(Trainer, trainer_id)
+    trainer = await db.get(Trainer, trainer_id, options=[selectinload(Trainer.user)])
     if not trainer:
         raise HTTPException(404, "Trainer not found")
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(trainer, k, v)
     try:
         await db.commit()
-        await db.refresh(trainer)
+        await db.refresh(trainer, attribute_names=["user"])
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "A trainer with that name already exists")
-    return trainer
+    count_res = await db.execute(
+        select(func.count()).select_from(Horse).where(Horse.trainer_id == trainer.id)
+    )
+    return _trainer_to_out(trainer, count_res.scalar_one() or 0)
 
 
 @router.delete("/{trainer_id}", status_code=204, dependencies=[Depends(require_admin)])

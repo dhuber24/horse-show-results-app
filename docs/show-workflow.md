@@ -46,18 +46,31 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 1. Admin or Show Secretary creates a show directly.
 2. Show is edited while in `DRAFT`.
-3. Rings and divisions are configured at `/admin/shows/[id]/setup` (optional but recommended for multi-arena shows or when you want classes grouped for the schedule).
+3. Rings, divisions, and sections are configured at `/admin/shows/[id]/setup` (optional but recommended for multi-arena shows, multi-discipline shows, or shows that split by age/skill bracket).
 4. Classes, entries, staff, and back numbers are configured.
 5. Show is published once it has a venue and at least one class.
 6. Results are entered manually and published immediately.
 
-## Rings And Divisions Setup
+## Rings, Divisions, and Sections Setup
 
-- Each show can declare its own list of rings (physical arenas) and divisions (class groupings such as Halter, Western Pleasure, Trail).
-- The setup page at `/admin/shows/[id]/setup` exposes a picker seeded from `standard_rings` and `standard_divisions`. Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set.
-- Class records reference rings and divisions through nullable foreign keys; setup is optional for small shows that only need a flat class list.
-- Rings and divisions cannot be deleted while any class still references them; reassign or delete those classes first (the API returns 409 with a human-readable detail and the UI disables the delete button accordingly).
-- Demographic divisions (Open / Amateur / Youth / SPB) are still tracked per entry via `entries.apha_division`, not at the show-division level. Keep the picker discipline-only.
+- A **Ring** is a physical arena.
+- A **Division** is a discipline (Halter, Western Pleasure, Trail, Barrels). Each division carries a `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit.
+- A **Section** is an age or skill bracket within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional.
+- The setup page at `/admin/shows/[id]/setup` exposes three pickers — Rings, Divisions, and Sections — each seeded from a curated standard list (`standard_rings`, `standard_divisions`, `standard_sections`). Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set. Standard sections include the OPEN-style age brackets (Lead Line, 10 & Under, 11-13, 14-17, 18 & Over, Walk-Trot, Walk-Trot-Canter, Novice/Green Horse, Open).
+- Class records reference rings, divisions, and sections through nullable foreign keys; setup is optional for small shows that only need a flat class list.
+- Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Deleting a section sets `classes.section_id` to NULL rather than blocking.
+- Demographic splits (Open / Amateur / Youth / SPB) for APHA are still tracked per entry via `entries.apha_division`, not at the section or division level. Sections are about age/skill brackets at the class level, not entry-level eligibility.
+- Existing per-show `divisions` rows from before migration 048 are not auto-classified into sections — secretaries may need to delete bracket-named divisions and recreate them as sections.
+
+## Schedule Builder
+
+The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divisions × sections** matrix:
+
+- Rows are divisions (disciplines).
+- Columns are sections (age/skill brackets), plus a "(no section)" column for unbracketed classes.
+- Each checked cell materializes one numbered class. Class names auto-generate as `"{Section} {Division}"` (e.g. "10 & Under Showmanship") when a section is paired, or just `"{Division}"` when no section is selected.
+- `score_type` is taken from the division's `default_score_type` for every class the build creates (with a per-pick override available in the API for advanced use).
+- New disciplines or brackets can be added inline from the builder (custom division add form includes a scoring radio; custom section add form is name-only).
 
 ## Entries And Back Numbers
 
@@ -113,7 +126,7 @@ Classes are tagged with a `score_type` in the class editor (`/admin/shows/[id]/c
 | `pattern` | Showmanship, horsemanship, equitation, trail, reining, western/ranch riding, longe line | Numerical judge score (~70 baseline) | Highest score wins; ties share a place |
 | `time` | Barrel racing, pole bending, stake race | Time in seconds | Lowest time wins; ties share a place |
 
-Newly created classes default to `placement`; APHA/AQHA bulk-imported classes also default to `placement` and need to be flipped per class today.
+Single classes created through `CreateClassForm` or the Schedule Builder inherit `score_type` from the selected division's `default_score_type`. APHA/AQHA bulk-imported classes still default to `placement` and need to be flipped per class today.
 
 ## Side Pots (Divisional Jackpots)
 
