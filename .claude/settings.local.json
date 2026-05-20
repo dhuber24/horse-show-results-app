@@ -116,7 +116,9 @@
       "PowerShell(gh --version)",
       "PowerShell(winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements)",
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth status 2>&1)",
-      "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr create --title \"feat: add per-show sections and expand admin trainer fields\" --body-file .pr-body.tmp.md)"
+      "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr create --title \"feat: add per-show sections and expand admin trainer fields\" --body-file .pr-body.tmp.md)",
+      "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr merge 1 --squash --delete-branch 2>&1)",
+      "Bash(git branch *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates"
