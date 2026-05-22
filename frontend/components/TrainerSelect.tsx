@@ -10,18 +10,57 @@ interface Trainer {
 interface Props {
   trainerId: string | null;
   trainerName: string | null;
-  onChange: (trainerId: string | null, trainerName: string | null) => void;
+  trainerFirstName?: string | null;
+  trainerLastName?: string | null;
+  trainerEmail?: string | null;
+  onChange: (next: {
+    trainerId: string | null;
+    trainerName: string | null;
+    trainerFirstName: string | null;
+    trainerLastName: string | null;
+    trainerEmail: string | null;
+  }) => void;
   disabled?: boolean;
   trainers?: Trainer[];
 }
 
 const OTHER_VALUE = '__other__';
 
-export default function TrainerSelect({ trainerId, trainerName, onChange, disabled, trainers: initialTrainers }: Props) {
+export default function TrainerSelect({
+  trainerId,
+  trainerName,
+  trainerFirstName,
+  trainerLastName,
+  trainerEmail,
+  onChange,
+  disabled,
+  trainers: initialTrainers,
+}: Props) {
   const [trainers, setTrainers] = useState<Trainer[]>(initialTrainers ?? []);
   const [loading, setLoading] = useState(!initialTrainers);
   const [selection, setSelection] = useState('');
-  const [manualName, setManualName] = useState(trainerName ?? '');
+  const [manualFirstName, setManualFirstName] = useState('');
+  const [manualLastName, setManualLastName] = useState('');
+  const [manualEmail, setManualEmail] = useState(trainerEmail ?? '');
+
+  const splitName = (value: string | null | undefined) => {
+    const name = (value ?? '').trim();
+    const [first = '', ...rest] = name.split(/\s+/);
+    return { first, last: rest.join(' ') };
+  };
+
+  const emitOther = (firstName: string, lastName: string, email: string) => {
+    const first = firstName.trim();
+    const last = lastName.trim();
+    const emailValue = email.trim();
+    onChange({
+      trainerId: null,
+      trainerName: first && last ? `${first} ${last}` : null,
+      trainerFirstName: first || null,
+      trainerLastName: last || null,
+      trainerEmail: emailValue || null,
+    });
+  };
 
   useEffect(() => {
     if (initialTrainers) {
@@ -55,17 +94,24 @@ export default function TrainerSelect({ trainerId, trainerName, onChange, disabl
   useEffect(() => {
     if (trainerId) {
       setSelection(trainerId);
-      setManualName('');
+      setManualFirstName('');
+      setManualLastName('');
+      setManualEmail('');
       return;
     }
-    if (trainerName) {
+    if (trainerName || trainerFirstName || trainerLastName || trainerEmail) {
+      const { first, last } = splitName(trainerName);
       setSelection(OTHER_VALUE);
-      setManualName(trainerName);
+      setManualFirstName(trainerFirstName ?? first);
+      setManualLastName(trainerLastName ?? last);
+      setManualEmail(trainerEmail ?? '');
       return;
     }
     setSelection('');
-    setManualName('');
-  }, [trainerId, trainerName]);
+    setManualFirstName('');
+    setManualLastName('');
+    setManualEmail('');
+  }, [trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail]);
 
   const isOther = useMemo(() => selection === OTHER_VALUE, [selection]);
 
@@ -73,24 +119,43 @@ export default function TrainerSelect({ trainerId, trainerName, onChange, disabl
     setSelection(value);
 
     if (!value) {
-      setManualName('');
-      onChange(null, null);
+      setManualFirstName('');
+      setManualLastName('');
+      setManualEmail('');
+      onChange({ trainerId: null, trainerName: null, trainerFirstName: null, trainerLastName: null, trainerEmail: null });
       return;
     }
     if (value === OTHER_VALUE) {
-      const nextManual = trainerName ?? manualName;
-      setManualName(nextManual);
-      onChange(null, nextManual.trim() ? nextManual : null);
+      const { first, last } = splitName(trainerName);
+      const nextFirst = trainerFirstName ?? (first || manualFirstName);
+      const nextLast = trainerLastName ?? (last || manualLastName);
+      const nextEmail = trainerEmail ?? manualEmail;
+      setManualFirstName(nextFirst);
+      setManualLastName(nextLast);
+      setManualEmail(nextEmail);
+      emitOther(nextFirst, nextLast, nextEmail);
       return;
     }
 
-    setManualName('');
-    onChange(value, null);
+    setManualFirstName('');
+    setManualLastName('');
+    setManualEmail('');
+    onChange({ trainerId: value, trainerName: null, trainerFirstName: null, trainerLastName: null, trainerEmail: null });
   };
 
-  const handleManualChange = (value: string) => {
-    setManualName(value);
-    onChange(null, value.trim() ? value : null);
+  const handleManualFirstNameChange = (value: string) => {
+    setManualFirstName(value);
+    emitOther(value, manualLastName, manualEmail);
+  };
+
+  const handleManualLastNameChange = (value: string) => {
+    setManualLastName(value);
+    emitOther(manualFirstName, value, manualEmail);
+  };
+
+  const handleManualEmailChange = (value: string) => {
+    setManualEmail(value);
+    emitOther(manualFirstName, manualLastName, value);
   };
 
   if (loading) {
@@ -106,6 +171,8 @@ export default function TrainerSelect({ trainerId, trainerName, onChange, disabl
     );
   }
 
+  const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
+
   return (
     <div>
       <select
@@ -113,7 +180,7 @@ export default function TrainerSelect({ trainerId, trainerName, onChange, disabl
         onChange={(e) => handleSelectChange(e.target.value)}
         disabled={disabled}
         className="w-full border rounded px-3 py-2 text-sm"
-        style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+        style={inputStyle}
       >
         <option value="">- No trainer -</option>
         {trainers.map((trainer) => (
@@ -121,19 +188,42 @@ export default function TrainerSelect({ trainerId, trainerName, onChange, disabl
             {trainer.name}
           </option>
         ))}
-        <option value={OTHER_VALUE}>Other - enter name</option>
+        <option value={OTHER_VALUE}>Other - enter trainer details</option>
       </select>
 
       {isOther && (
-        <input
-          type="text"
-          value={manualName}
-          onChange={(e) => handleManualChange(e.target.value)}
-          placeholder="Trainer name"
-          disabled={disabled}
-          className="w-full border rounded px-3 py-2 text-sm mt-2"
-          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
-        />
+        <div className="mt-2 space-y-2">
+          <input
+            type="text"
+            value={manualFirstName}
+            onChange={(e) => handleManualFirstNameChange(e.target.value)}
+            placeholder="Trainer first name *"
+            disabled={disabled}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <input
+            type="text"
+            value={manualLastName}
+            onChange={(e) => handleManualLastNameChange(e.target.value)}
+            placeholder="Trainer last name *"
+            disabled={disabled}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <input
+            type="email"
+            value={manualEmail}
+            onChange={(e) => handleManualEmailChange(e.target.value)}
+            placeholder="Trainer email *"
+            disabled={disabled}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={inputStyle}
+          />
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            First name, last name, and email are required. If this trainer is already in the registry, those three fields will link this horse to the existing trainer.
+          </p>
+        </div>
       )}
     </div>
   );

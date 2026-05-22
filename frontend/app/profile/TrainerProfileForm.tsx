@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 
 export interface TrainerProfile {
   id: string;
+  first_name: string;
+  last_name: string;
   name: string;
   private_email: string;
   private_phone: string | null;
@@ -70,7 +72,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
-    name: trainer?.name ?? '',
+    first_name: trainer?.first_name ?? '',
+    last_name: trainer?.last_name ?? '',
     private_email: trainer?.private_email ?? '',
     private_phone: trainer?.private_phone ?? '',
     public_email: trainer?.public_email ?? '',
@@ -119,8 +122,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.private_email.trim() || !form.private_phone.trim()) {
-      setMessage({ type: 'error', text: 'Name, private email, and private phone are required.' });
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.private_email.trim() || !form.private_phone.trim()) {
+      setMessage({ type: 'error', text: 'First name, last name, private email, and private phone are required.' });
       return;
     }
 
@@ -129,7 +132,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
     const privateEmailChanged = form.private_email !== originalPrivateEmail;
 
     const body: Record<string, unknown> = {
-      name: form.name,
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
       private_email: form.private_email,
       private_phone: form.private_phone,
       public_email: form.public_email || null,
@@ -212,8 +216,11 @@ export default function TrainerProfileForm({ trainer }: Props) {
           Used for your account and admin/office contact. Not shown on your public profile or in ads.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Display Name">
-            <input value={form.name} onChange={(e) => update('name', e.target.value)} className={inputClass} style={inputStyle} />
+          <Field label="First Name">
+            <input value={form.first_name} onChange={(e) => update('first_name', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Last Name">
+            <input value={form.last_name} onChange={(e) => update('last_name', e.target.value)} className={inputClass} style={inputStyle} />
           </Field>
           <Field label="Private Email (login)">
             <input type="email" value={form.private_email} onChange={(e) => update('private_email', e.target.value)} className={inputClass} style={inputStyle} />

@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation';
 export default function TrainerRegisterForm() {
   const router = useRouter();
   const [form, setForm] = useState({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     private_phone: '',
     public_email: '',
@@ -23,8 +24,8 @@ export default function TrainerRegisterForm() {
   };
 
   const handleSubmit = async () => {
-    if (!form.full_name || !form.email || !form.private_phone || !form.password) {
-      setError('Name, private email, private phone, and password are required.');
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email || !form.private_phone || !form.password) {
+      setError('First name, last name, private email, private phone, and password are required.');
       return;
     }
     if (form.password !== form.confirm_password) {
@@ -43,7 +44,8 @@ export default function TrainerRegisterForm() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        full_name: form.full_name,
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
         email: form.email,
         private_phone: form.private_phone,
         public_email: form.public_email || null,
@@ -78,7 +80,8 @@ export default function TrainerRegisterForm() {
     <div className="space-y-5">
       <div className="space-y-4">
         {[
-          { name: 'full_name', label: 'Trainer Name', type: 'text', placeholder: 'Jane Smith' },
+          { name: 'first_name', label: 'First Name', type: 'text', placeholder: 'Jane' },
+          { name: 'last_name', label: 'Last Name', type: 'text', placeholder: 'Smith' },
           { name: 'email', label: 'Private Email', type: 'email', placeholder: 'you@example.com' },
           { name: 'private_phone', label: 'Private Phone', type: 'tel', placeholder: '(555) 123-4567' },
           { name: 'public_email', label: 'Public Email', type: 'email', placeholder: 'public@example.com (optional)' },

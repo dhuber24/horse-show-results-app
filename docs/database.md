@@ -61,6 +61,8 @@ Current migration files:
 | `047_class_templates.sql` | Original Schedule Builder seed library (templates + OPEN-style age-bracket "divisions"); superseded by 048 |
 | `048_consolidate_divisions.sql` | Consolidate Divisions/Sections/Classes: add `divisions.default_score_type`, new `sections` and `standard_sections` tables, `classes.section_id`; migrate 047 brackets into sections; merge `class_templates` into `standard_divisions`; drop `class_templates` |
 | `049_trainer_credentials_and_profile.sql` | Add ad-ready public profile fields (business_name, city/state/country, website, bio, socials, is_public), compliance fields (safesport_completed_at, background_check_expires_at), self-attested has_liability_insurance, plus new `trainer_registrations` table (mirrors `exhibitor_registrations` with `status` and `expires_at`) and `trainer_documents` table for headshot uploads |
+| `050_first_last_name.sql` | Add required `first_name` and `last_name` columns to `users` and `trainers`, backfilled from `users.full_name` and `trainers.name`; application model events derive legacy display columns from first/last while older response fields remain available |
+| `051_trainer_user_delete_cascade.sql` | Change `trainers.user_id` to `ON DELETE CASCADE` so deleting a linked trainer user removes the trainer registry row instead of orphaning it |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -86,8 +88,11 @@ If a manual migration file is applied outside the runner, also insert its filena
 ### New table: `trainers`
 
 - `id` UUID primary key
-- `user_id` UUID nullable FK -> `users.id` (`ON DELETE SET NULL`), unique when present
+- `user_id` UUID nullable FK -> `users.id` (`ON DELETE CASCADE`), unique when present
 - `name` TEXT NOT NULL
+- `first_name` TEXT NOT NULL (migration 050; editable source of truth)
+- `last_name` TEXT NOT NULL (migration 050; editable source of truth)
+- `name` TEXT NOT NULL derived display field retained for existing trainer list/profile responses
 - `private_phone` TEXT nullable, required by trainer self-service once a trainer account is linked
 - `phone` TEXT nullable public phone
 - `email` TEXT nullable public email
@@ -153,6 +158,9 @@ The 2026 AQHA Class Master Listing is stored as `database/seeds/aqha_standard_cl
 ### Updated table: `users` (migration 044)
 
 - `aqha_management_workshop_completed_at` DATE nullable
+- `first_name` TEXT NOT NULL (migration 050; editable source of truth)
+- `last_name` TEXT NOT NULL (migration 050; editable source of truth)
+- `full_name` TEXT NOT NULL derived display field retained for existing user/session responses
 
 AQHA validation checks assigned show managers and show secretaries for a workshop date within 3 years of the show start date.
 

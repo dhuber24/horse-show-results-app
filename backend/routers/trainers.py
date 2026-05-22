@@ -9,7 +9,7 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_authenticated, safe_uuid
-from models import Horse, ShowType, Trainer, TrainerDocument, TrainerRegistration
+from models import Horse, ShowType, Trainer, TrainerDocument, TrainerRegistration, User
 from schemas import (
     HorseOut,
     TrainerCreate,
@@ -43,6 +43,8 @@ def _trainer_to_out(trainer: Trainer, horse_count: int) -> TrainerOut:
     return TrainerOut(
         id=trainer.id,
         user_id=trainer.user_id,
+        first_name=trainer.first_name,
+        last_name=trainer.last_name,
         name=trainer.name,
         private_phone=trainer.private_phone,
         phone=trainer.phone,
@@ -74,6 +76,28 @@ def _background_current(value: date | None) -> bool:
     if not value:
         return False
     return value >= date.today()
+
+
+def _split_person_name(value: str) -> tuple[str, str]:
+    first, _, last = value.strip().partition(" ")
+    return first.strip(), last.strip()
+
+
+def _resolve_name_updates(
+    updates: dict,
+    current_first: str,
+    current_last: str,
+) -> tuple[str, str]:
+    first = updates.pop("first_name", None)
+    last = updates.pop("last_name", None)
+    legacy_name = updates.pop("name", None)
+    if legacy_name is not None and first is None and last is None:
+        first, last = _split_person_name(legacy_name)
+    next_first = (first if first is not None else current_first).strip()
+    next_last = (last if last is not None else current_last).strip()
+    if not next_first or not next_last:
+        raise HTTPException(400, "First name and last name are required")
+    return next_first, next_last
 
 
 async def _load_trainer_for_self(user_id: str, db: AsyncSession) -> Trainer:
@@ -148,12 +172,12 @@ async def update_my_trainer_profile(
         raise HTTPException(404, "Trainer profile not found")
 
     updates = body.model_dump(exclude_unset=True)
-    next_name = updates.get("name", trainer.name)
+    next_first_name, next_last_name = _resolve_name_updates(
+        updates, trainer.first_name, trainer.last_name
+    )
     next_private_phone = updates.get("private_phone", trainer.private_phone)
     next_private_email = str(updates.get("private_email", trainer.user.email))
 
-    if not next_name or not next_name.strip():
-        raise HTTPException(400, "Name is required")
     if not next_private_phone or not next_private_phone.strip():
         raise HTTPException(400, "Private phone is required")
     if not next_private_email or not next_private_email.strip():
@@ -169,8 +193,10 @@ async def update_my_trainer_profile(
             raise HTTPException(400, "Password is incorrect")
         trainer.user.email = next_private_email
 
-    trainer.name = next_name.strip()
-    trainer.user.full_name = trainer.name
+    trainer.first_name = next_first_name
+    trainer.last_name = next_last_name
+    trainer.user.first_name = next_first_name
+    trainer.user.last_name = next_last_name
     trainer.private_phone = next_private_phone.strip()
 
     if "public_email" in updates:
@@ -460,10 +486,15 @@ async def update_trainer(trainer_id: UUID, body: TrainerUpdate, db: AsyncSession
     if not trainer:
         raise HTTPException(404, "Trainer not found")
     updates = body.model_dump(exclude_unset=True)
+    if "first_name" in updates or "last_name" in updates or "name" in updates:
+        trainer.first_name, trainer.last_name = _resolve_name_updates(
+            updates, trainer.first_name, trainer.last_name
+        )
+        if trainer.user:
+            trainer.user.first_name = trainer.first_name
+            trainer.user.last_name = trainer.last_name
     for k, v in updates.items():
         setattr(trainer, k, v)
-    if "name" in updates and trainer.user:
-        trainer.user.full_name = trainer.name
     try:
         await db.commit()
         await db.refresh(trainer, attribute_names=["user"])
@@ -481,8 +512,19 @@ async def delete_trainer(trainer_id: UUID, db: AsyncSession = Depends(get_db)):
     trainer = await db.get(Trainer, trainer_id)
     if not trainer:
         raise HTTPException(404, "Trainer not found")
+    linked_user = await db.get(User, trainer.user_id) if trainer.user_id else None
     await db.delete(trainer)
-    await db.commit()
+    if linked_user:
+        await db.delete(linked_user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            "Cannot delete trainer: linked user is still referenced by other records. "
+            "Remove the dependent records first.",
+        )
 
 
 # ── Public ad-facing endpoint (used later by ad/listing surfaces) ──────────────
@@ -496,6 +538,8 @@ async def get_public_trainer(trainer_id: UUID, db: AsyncSession = Depends(get_db
     affiliations = await _list_registrations(trainer.id, db)
     return TrainerPublicOut(
         id=trainer.id,
+        first_name=trainer.first_name,
+        last_name=trainer.last_name,
         name=trainer.name,
         business_name=trainer.business_name,
         city=trainer.city,

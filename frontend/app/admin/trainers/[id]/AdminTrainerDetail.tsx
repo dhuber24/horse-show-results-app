@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 interface AdminTrainer {
   id: string;
   user_id: string | null;
+  first_name: string;
+  last_name: string;
   name: string;
   private_phone: string | null;
   phone: string | null;
@@ -66,7 +68,8 @@ interface Props {
 export default function AdminTrainerDetail({ trainer, initialAffiliations }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
-    name: trainer.name,
+    first_name: trainer.first_name,
+    last_name: trainer.last_name,
     private_phone: trainer.private_phone ?? '',
     phone: trainer.phone ?? '',
     email: trainer.email ?? '',
@@ -110,7 +113,8 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations }: Pro
     setSaving(true);
     setMessage(null);
     const body: Record<string, unknown> = {
-      name: form.name.trim(),
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
       private_phone: form.private_phone.trim() || null,
       phone: form.phone.trim() || null,
       email: form.email.trim() || null,
@@ -181,8 +185,11 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations }: Pro
       <section className="rounded-lg border p-5" style={sectionStyle}>
         <h2 className="font-semibold mb-4" style={{ color: '#2c1810' }}>Profile</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Name *">
-            <input value={form.name} onChange={(e) => update('name', e.target.value)} className={inputClass} style={inputStyle} />
+          <Field label="First Name *">
+            <input value={form.first_name} onChange={(e) => update('first_name', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Last Name *">
+            <input value={form.last_name} onChange={(e) => update('last_name', e.target.value)} className={inputClass} style={inputStyle} />
           </Field>
           <Field label="Private Phone">
             <input value={form.private_phone} onChange={(e) => update('private_phone', e.target.value)} className={inputClass} style={inputStyle} />
@@ -262,8 +269,8 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations }: Pro
 
       <button
         onClick={handleSave}
-        disabled={saving || !form.name.trim()}
-        title={!form.name.trim() ? 'Name is required' : undefined}
+        disabled={saving || !form.first_name.trim() || !form.last_name.trim()}
+        title={!form.first_name.trim() || !form.last_name.trim() ? 'First name and last name are required' : undefined}
         className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
         style={{ backgroundColor: '#8b4513' }}
       >

@@ -39,6 +39,9 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     name: horse.name,
     trainer_id: horse.trainer_id ?? '',
     trainer_name: horse.trainer_name ?? '',
+    trainer_first_name: '',
+    trainer_last_name: '',
+    trainer_email: '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
     breed_id: horse.breed_id ?? '',
@@ -71,6 +74,13 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
 
   const handleSave = async () => {
     if (!form.name.trim()) { setError('Horse name is required.'); return; }
+    const hasOtherTrainer = !form.trainer_id && (
+      form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
+    );
+    if (hasOtherTrainer && (!form.trainer_first_name.trim() || !form.trainer_last_name.trim() || !form.trainer_email.trim())) {
+      setError('Trainer first name, last name, and email are required when adding a new trainer.');
+      return;
+    }
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -81,6 +91,9 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
         name: form.name.trim(),
         trainer_id: form.trainer_id || null,
         trainer_name: form.trainer_name.trim() || null,
+        trainer_first_name: form.trainer_first_name.trim() || null,
+        trainer_last_name: form.trainer_last_name.trim() || null,
+        trainer_email: form.trainer_email.trim() || null,
         sex: form.sex || null,
         foaling_date: form.foaling_date || null,
         breed_id: form.breed_id || null,
@@ -227,10 +240,16 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
             <TrainerSelect
               trainerId={form.trainer_id || null}
               trainerName={form.trainer_name || null}
-              onChange={(trainerId, trainerName) => setForm((prev) => ({
+              trainerFirstName={form.trainer_first_name || null}
+              trainerLastName={form.trainer_last_name || null}
+              trainerEmail={form.trainer_email || null}
+              onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
                 ...prev,
                 trainer_id: trainerId ?? '',
                 trainer_name: trainerName ?? '',
+                trainer_first_name: trainerFirstName ?? '',
+                trainer_last_name: trainerLastName ?? '',
+                trainer_email: trainerEmail ?? '',
               }))}
             />
           </div>

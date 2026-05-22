@@ -1,6 +1,7 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, union
+from sqlalchemy import select, union, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from uuid import UUID
@@ -24,15 +25,31 @@ from schemas import (
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR", "TRAINER"}
 
 
+def _display_name(first_name: str, last_name: str) -> str:
+    return f"{first_name.strip()} {last_name.strip()}".strip()
+
+
+def _split_person_name(value: str) -> tuple[str, str]:
+    first, _, last = value.strip().partition(" ")
+    return first.strip(), last.strip()
+
+
+def _validate_name_parts(first_name: Optional[str], last_name: Optional[str]) -> None:
+    if first_name is not None and not first_name.strip():
+        raise HTTPException(400, "First name is required")
+    if last_name is not None and not last_name.strip():
+        raise HTTPException(400, "Last name is required")
+
+
 async def _ensure_role_profile(user: User, db: AsyncSession):
     if user.role == "EXHIBITOR":
         existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
         if not existing.scalar_one_or_none():
-            db.add(Exhibitor(full_name=user.full_name, user_id=user.id))
+            db.add(Exhibitor(full_name=_display_name(user.first_name, user.last_name), user_id=user.id))
     if user.role == "TRAINER":
         existing = await db.execute(select(Trainer).where(Trainer.user_id == user.id))
         if not existing.scalar_one_or_none():
-            db.add(Trainer(name=user.full_name, user_id=user.id))
+            db.add(Trainer(first_name=user.first_name, last_name=user.last_name, user_id=user.id))
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -52,6 +69,7 @@ async def list_users(
 
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
+    _validate_name_parts(body.first_name, body.last_name)
     user = User(**body.model_dump())
     db.add(user)
     await db.flush()
@@ -63,7 +81,8 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 class UserWithPasswordCreate(BaseModel):
     email: EmailStr
-    full_name: str
+    first_name: str
+    last_name: str
     role: str
     password: str
 
@@ -89,13 +108,20 @@ async def create_user_with_password(
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    _validate_name_parts(body.first_name, body.last_name)
 
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
-    user = User(email=body.email, full_name=body.full_name, role=body.role, hashed_password=hashed)
+    user = User(
+        email=body.email,
+        first_name=body.first_name.strip(),
+        last_name=body.last_name.strip(),
+        role=body.role,
+        hashed_password=hashed,
+    )
     db.add(user)
     await db.flush()
     await _ensure_role_profile(user, db)
@@ -109,7 +135,8 @@ class RoleUpdate(BaseModel):
 
 
 class UserProfileUpdate(BaseModel):
-    full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: Optional[EmailStr] = None
 
 
@@ -155,8 +182,9 @@ async def update_current_user(
             raise HTTPException(400, "Password is incorrect.")
 
     updates = body.model_dump(exclude_unset=True, exclude={'current_password'})
+    _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
     for k, v in updates.items():
-        setattr(user, k, v)
+        setattr(user, k, v.strip() if isinstance(v, str) else v)
     try:
         await db.commit()
         await db.refresh(user)
@@ -188,8 +216,10 @@ async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSess
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(user, k, v)
+    updates = body.model_dump(exclude_unset=True)
+    _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
+    for k, v in updates.items():
+        setattr(user, k, v.strip() if isinstance(v, str) else v)
     try:
         await db.commit()
         await db.refresh(user)
@@ -254,6 +284,10 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "User not found")
+    linked_trainer = await db.execute(select(Trainer).where(Trainer.user_id == user_id))
+    trainer = linked_trainer.scalar_one_or_none()
+    if trainer:
+        await db.delete(trainer)
     await db.delete(user)
     try:
         await db.commit()
@@ -276,6 +310,83 @@ _horse_options = [
     selectinload(Horse.owner_exhibitor),
     selectinload(Horse.trainer),
 ]
+
+
+def _digits_only(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return re.sub(r"\D", "", value)
+
+
+async def _find_or_create_trainer_by_name_email(
+    first_name: str, last_name: str, email: str, db: AsyncSession
+) -> Trainer:
+    # Match exact first name + last name + email, case-insensitively. Email is
+    # the validation key for "Other" trainer rows so we avoid creating duplicate
+    # registry records when the trainer already exists.
+    first_norm = first_name.strip()
+    last_norm = last_name.strip()
+    email_norm = email.strip().lower()
+    existing = await db.execute(
+        select(Trainer).where(
+            func.lower(Trainer.first_name) == first_norm.lower(),
+            func.lower(Trainer.last_name) == last_norm.lower(),
+            func.lower(Trainer.email) == email_norm,
+        )
+    )
+    trainer = existing.scalar_one_or_none()
+    if trainer:
+        return trainer
+    trainer = Trainer(
+        first_name=first_norm,
+        last_name=last_norm,
+        email=email_norm,
+        user_id=None,
+    )
+    db.add(trainer)
+    await db.flush()
+    return trainer
+
+
+async def _resolve_horse_trainer_fields(data: dict, db: AsyncSession) -> None:
+    """In-place: resolve transient trainer fields into horse storage columns.
+
+    Rules:
+    - trainer_id set: keep it, clear free-text fallback.
+    - trainer_first_name + trainer_last_name + trainer_email, no trainer_id:
+      find-or-create a registry row and link to it.
+    - trainer_name only (legacy): keep as free-text fallback.
+    - Pops transient trainer fields so they don't leak into Horse(**data).
+    """
+    trainer_phone = data.pop("trainer_phone", None)
+    trainer_first_name = data.pop("trainer_first_name", None)
+    trainer_last_name = data.pop("trainer_last_name", None)
+    trainer_email = data.pop("trainer_email", None)
+    if data.get("trainer_id"):
+        data["trainer_name"] = None
+        return
+    if trainer_first_name and trainer_last_name and trainer_email:
+        trainer = await _find_or_create_trainer_by_name_email(
+            trainer_first_name, trainer_last_name, str(trainer_email), db
+        )
+        data["trainer_id"] = trainer.id
+        data["trainer_name"] = None
+        return
+    name = data.get("trainer_name")
+    if name and trainer_phone:
+        first_name, last_name = _split_person_name(name)
+        if not last_name:
+            return
+        trainer = Trainer(
+            first_name=first_name,
+            last_name=last_name,
+            phone=trainer_phone.strip(),
+            user_id=None,
+        )
+        db.add(trainer)
+        await db.flush()
+        data["trainer_id"] = trainer.id
+        data["trainer_name"] = None
 
 
 async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
@@ -339,9 +450,7 @@ async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
     if body.trainer_id is not None and not await db.get(Trainer, body.trainer_id):
         raise HTTPException(400, "Selected trainer is not in the registry.")
     data = body.model_dump()
-    # trainer_id and trainer_name are mutually exclusive; clear whichever wasn't intended
-    if data.get('trainer_id'):
-        data['trainer_name'] = None
+    await _resolve_horse_trainer_fields(data, db)
     horse = Horse(**data)
     db.add(horse)
     await db.commit()
@@ -379,11 +488,32 @@ async def update_horse(
     if 'trainer_id' in update_data and update_data['trainer_id'] is not None:
         if not await db.get(Trainer, update_data['trainer_id']):
             raise HTTPException(400, "Selected trainer is not in the registry.")
-    # trainer_id and trainer_name are mutually exclusive
-    if update_data.get('trainer_id'):
-        update_data['trainer_name'] = None
-    elif 'trainer_name' in update_data and update_data.get('trainer_name'):
-        update_data['trainer_id'] = None
+    # If the caller is switching/clearing the trainer, resolve trainer_id or
+    # transient trainer identity fields into the columns we store. The legacy
+    # name-only path keeps the free-text fallback for backwards compatibility.
+    if (
+        'trainer_id' in update_data
+        or 'trainer_name' in update_data
+        or 'trainer_phone' in update_data
+        or 'trainer_first_name' in update_data
+        or 'trainer_last_name' in update_data
+        or 'trainer_email' in update_data
+    ):
+        if update_data.get('trainer_id'):
+            update_data['trainer_name'] = None
+        elif (
+            update_data.get('trainer_first_name')
+            and update_data.get('trainer_last_name')
+            and update_data.get('trainer_email')
+        ) or (update_data.get('trainer_name') and update_data.get('trainer_phone')):
+            await _resolve_horse_trainer_fields(update_data, db)
+        else:
+            update_data.pop('trainer_phone', None)
+            update_data.pop('trainer_first_name', None)
+            update_data.pop('trainer_last_name', None)
+            update_data.pop('trainer_email', None)
+            if 'trainer_name' in update_data and update_data.get('trainer_name'):
+                update_data['trainer_id'] = None
     for k, v in update_data.items():
         setattr(horse, k, v)
     await db.commit()
@@ -707,7 +837,9 @@ async def create_owned_horse(
     )
     if not result.scalar_one_or_none():
         raise HTTPException(403, "You can only add horses to your own profile")
-    horse = Horse(**body.model_dump(exclude={'owner_exhibitor_id'}), owner_exhibitor_id=exhibitor_id)
+    horse_data = body.model_dump(exclude={'owner_exhibitor_id'})
+    await _resolve_horse_trainer_fields(horse_data, db)
+    horse = Horse(**horse_data, owner_exhibitor_id=exhibitor_id)
     db.add(horse)
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
@@ -893,8 +1025,10 @@ async def create_horse_for_exhibitor(
                 f"If this is the same horse, contact your show secretary.",
             )
 
+    horse_data = body.model_dump(exclude={'owner_exhibitor_id', 'registrations'})
+    await _resolve_horse_trainer_fields(horse_data, db)
     horse = Horse(
-        **body.model_dump(exclude={'owner_exhibitor_id', 'registrations'}),
+        **horse_data,
         created_by_exhibitor_id=exhibitor_id,
         owner_exhibitor_id=exhibitor_id,
     )

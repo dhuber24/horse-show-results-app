@@ -2,11 +2,23 @@ import uuid
 from datetime import date, datetime
 from sqlalchemy import (
     Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
-    TIMESTAMP, UniqueConstraint, CheckConstraint, Numeric, func
+    TIMESTAMP, UniqueConstraint, CheckConstraint, Numeric, func, event
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from database import Base
+
+
+def _split_person_name(value: str | None) -> tuple[str, str]:
+    name = (value or "").strip()
+    if not name:
+        return "", ""
+    first, _, rest = name.partition(" ")
+    return first.strip(), rest.strip()
+
+
+def _compose_person_name(first_name: str | None, last_name: str | None) -> str:
+    return " ".join(part for part in ((first_name or "").strip(), (last_name or "").strip()) if part)
 
 
 class ShowType(Base):
@@ -210,6 +222,8 @@ class User(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     role = Column(Text, nullable=False)
     full_name = Column(Text, nullable=False)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False)
     email = Column(Text, unique=True, nullable=False)
     hashed_password = Column(Text, nullable=True)
     last_login_at = Column(TIMESTAMP(timezone=True), nullable=True)
@@ -225,7 +239,7 @@ class User(Base):
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
     show_requests = relationship("ShowRequest", back_populates="requested_by", cascade="all, delete")
-    trainer_profile = relationship("Trainer", back_populates="user", uselist=False)
+    trainer_profile = relationship("Trainer", back_populates="user", uselist=False, passive_deletes=True)
 
 
 class VenueAdmin(Base):
@@ -296,8 +310,10 @@ class Trainer(Base):
     __tablename__ = "trainers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     name = Column(Text, nullable=False)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False)
     private_phone = Column(Text, nullable=True)
     phone = Column(Text, nullable=True)
     email = Column(Text, nullable=True)
@@ -320,13 +336,29 @@ class Trainer(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="trainer_profile")
-    horses = relationship("Horse", back_populates="trainer")
+    horses = relationship("Horse", back_populates="trainer", passive_deletes=True)
     registrations = relationship(
         "TrainerRegistration", back_populates="trainer", cascade="all, delete-orphan"
     )
     documents = relationship(
         "TrainerDocument", back_populates="trainer", cascade="all, delete-orphan"
     )
+
+
+@event.listens_for(User, "before_insert")
+@event.listens_for(User, "before_update")
+def _sync_user_name_parts(mapper, connection, target: User) -> None:
+    if not (target.first_name or "").strip() and not (target.last_name or "").strip():
+        target.first_name, target.last_name = _split_person_name(target.full_name)
+    target.full_name = _compose_person_name(target.first_name, target.last_name)
+
+
+@event.listens_for(Trainer, "before_insert")
+@event.listens_for(Trainer, "before_update")
+def _sync_trainer_name_parts(mapper, connection, target: Trainer) -> None:
+    if not (target.first_name or "").strip() and not (target.last_name or "").strip():
+        target.first_name, target.last_name = _split_person_name(target.name)
+    target.name = _compose_person_name(target.first_name, target.last_name)
 
 
 class TrainerRegistration(Base):

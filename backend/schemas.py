@@ -315,12 +315,15 @@ class ClassOut(BaseModel):
 
 class UserCreate(BaseModel):
     role: str = Field(min_length=1, max_length=20)
-    full_name: str = Field(min_length=1, max_length=200)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
 
 class UserOut(BaseModel):
     id: UUID
     role: str
+    first_name: str
+    last_name: str
     full_name: str
     email: str
     last_login_at: Optional[datetime] = None
@@ -518,13 +521,16 @@ class HorseRegistrationOut(BaseModel):
 # ── Trainers ───────────────────────────────────────────────────────────────────
 
 class TrainerCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
     private_phone: Optional[str] = Field(default=None, max_length=30)
     phone: Optional[str] = Field(default=None, max_length=30)
     email: Optional[str] = Field(default=None, max_length=200)
 
 class TrainerUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
+    first_name: Optional[str] = Field(default=None, max_length=100)
+    last_name: Optional[str] = Field(default=None, max_length=100)
     private_phone: Optional[str] = Field(default=None, max_length=30)
     phone: Optional[str] = Field(default=None, max_length=30)
     email: Optional[str] = Field(default=None, max_length=200)
@@ -544,6 +550,8 @@ class TrainerUpdate(BaseModel):
 
 class TrainerProfileUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
+    first_name: Optional[str] = Field(default=None, max_length=100)
+    last_name: Optional[str] = Field(default=None, max_length=100)
     private_email: Optional[EmailStr] = None
     private_phone: Optional[str] = Field(default=None, max_length=30)
     public_email: Optional[EmailStr] = None
@@ -568,6 +576,8 @@ class TrainerProfileUpdate(BaseModel):
 class TrainerOut(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
+    first_name: str
+    last_name: str
     name: str
     private_phone: Optional[str] = None
     phone: Optional[str] = None
@@ -653,6 +663,10 @@ class HorseCreate(BaseModel):
     owner_exhibitor_id: Optional[UUID] = None
     trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_phone: Optional[str] = Field(default=None, max_length=30)
+    trainer_first_name: Optional[str] = Field(default=None, max_length=100)
+    trainer_last_name: Optional[str] = Field(default=None, max_length=100)
+    trainer_email: Optional[EmailStr] = None
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
@@ -667,6 +681,10 @@ class HorseUpdate(BaseModel):
     owner_exhibitor_id: Optional[UUID] = None
     trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
+    trainer_phone: Optional[str] = Field(default=None, max_length=30)
+    trainer_first_name: Optional[str] = Field(default=None, max_length=100)
+    trainer_last_name: Optional[str] = Field(default=None, max_length=100)
+    trainer_email: Optional[EmailStr] = None
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
@@ -937,6 +955,8 @@ class AphaStandardClassOut(BaseModel):
 class TrainerProfileOut(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
+    first_name: str
+    last_name: str
     name: str
     private_email: str
     private_phone: Optional[str] = None
@@ -968,6 +988,8 @@ class TrainerProfileOut(BaseModel):
         return {
             'id': v.id,
             'user_id': getattr(v, 'user_id', None),
+            'first_name': getattr(v, 'first_name', ''),
+            'last_name': getattr(v, 'last_name', ''),
             'name': v.name,
             'private_email': user.email if user else getattr(v, 'email', None),
             'private_phone': getattr(v, 'private_phone', None),
@@ -998,6 +1020,8 @@ class TrainerPublicOut(BaseModel):
     badges that summarize current status.
     """
     id: UUID
+    first_name: str
+    last_name: str
     name: str
     business_name: Optional[str] = None
     city: Optional[str] = None

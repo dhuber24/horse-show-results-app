@@ -14,7 +14,7 @@ interface AphaCert {
 
 export default function ShowManagerRegisterForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', confirm_password: '' });
+  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [aphaCert, setAphaCert] = useState<AphaCert>({ status: 'idle' });
@@ -46,7 +46,7 @@ export default function ShowManagerRegisterForm() {
   };
 
   const handleSubmit = async () => {
-    if (!form.full_name || !form.email || !form.password) {
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email || !form.password) {
       setError('All fields are required.');
       return;
     }
@@ -65,7 +65,12 @@ export default function ShowManagerRegisterForm() {
     const res = await fetch('/api/auth/register/show-manager', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: form.full_name, email: form.email, password: form.password }),
+      body: JSON.stringify({
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        email: form.email,
+        password: form.password,
+      }),
     });
 
     if (!res.ok) {
@@ -90,7 +95,8 @@ export default function ShowManagerRegisterForm() {
     <div className="space-y-5">
       <div className="space-y-4">
         {[
-          { name: 'full_name', label: 'Full Name', type: 'text', placeholder: 'Jane Smith' },
+          { name: 'first_name', label: 'First Name', type: 'text', placeholder: 'Jane' },
+          { name: 'last_name', label: 'Last Name', type: 'text', placeholder: 'Smith' },
           { name: 'email', label: 'Email', type: 'email', placeholder: 'you@example.com' },
           { name: 'password', label: 'Password', type: 'password', placeholder: '•••••••• (min 8 chars)' },
           { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },

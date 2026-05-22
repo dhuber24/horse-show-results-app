@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 interface Props {
   user: {
     id: string;
+    first_name: string;
+    last_name: string;
     full_name: string;
     email: string;
     aqha_management_workshop_completed_at: string | null;
@@ -14,26 +16,29 @@ interface Props {
 
 export default function EditUserForm({ user }: Props) {
   const router = useRouter();
-  const [fullName, setFullName] = useState(user.full_name);
+  const [firstName, setFirstName] = useState(user.first_name);
+  const [lastName, setLastName] = useState(user.last_name);
   const [email, setEmail] = useState(user.email);
   const [aqhaWorkshopDate, setAqhaWorkshopDate] = useState(user.aqha_management_workshop_completed_at ?? '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isDirty =
-    fullName.trim() !== user.full_name ||
+    firstName.trim() !== user.first_name ||
+    lastName.trim() !== user.last_name ||
     email.trim() !== user.email ||
     aqhaWorkshopDate !== (user.aqha_management_workshop_completed_at ?? '');
 
   const handleSave = async () => {
-    if (!fullName.trim() || !email.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) return;
     setSaving(true);
     setMessage(null);
     const res = await fetch(`/api/users/${user.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        full_name: fullName.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         email: email.trim(),
         aqha_management_workshop_completed_at: aqhaWorkshopDate || null,
       }),
@@ -54,10 +59,19 @@ export default function EditUserForm({ user }: Props) {
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Full Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
         <input
-          value={fullName}
-          onChange={e => setFullName(e.target.value)}
+          value={firstName}
+          onChange={e => setFirstName(e.target.value)}
+          className={inputClass}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+        <input
+          value={lastName}
+          onChange={e => setLastName(e.target.value)}
           className={inputClass}
           style={inputStyle}
         />

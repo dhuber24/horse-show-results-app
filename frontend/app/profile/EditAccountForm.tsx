@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface User { full_name: string; email: string; created_at: string; }
+interface User { first_name: string; last_name: string; full_name: string; email: string; created_at: string; }
 interface Exhibitor {
   id: string;
   date_of_birth: string | null;
@@ -46,7 +46,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 export default function EditAccountForm({ user, exhibitor }: Props) {
   const router = useRouter();
 
-  const [userForm, setUserForm] = useState({ full_name: user.full_name, email: user.email });
+  const [userForm, setUserForm] = useState({ first_name: user.first_name, last_name: user.last_name, email: user.email });
   const [currentPassword, setCurrentPassword] = useState('');
   const [exForm, setExForm] = useState({
     date_of_birth: exhibitor?.date_of_birth ?? '',
@@ -74,8 +74,8 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
     setExForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSave = async () => {
-    if (!userForm.full_name.trim() || !userForm.email.trim()) {
-      setError('Name and email are required.');
+    if (!userForm.first_name.trim() || !userForm.last_name.trim() || !userForm.email.trim()) {
+      setError('First name, last name, and email are required.');
       return;
     }
     if (emailChanged && !currentPassword) {
@@ -86,7 +86,11 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
     setLoading(true);
     setError(null);
 
-    const userBody: Record<string, string> = { full_name: userForm.full_name, email: userForm.email };
+    const userBody: Record<string, string> = {
+      first_name: userForm.first_name.trim(),
+      last_name: userForm.last_name.trim(),
+      email: userForm.email.trim(),
+    };
     if (emailChanged) userBody.current_password = currentPassword;
 
     const requests: Promise<Response>[] = [
@@ -137,8 +141,12 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
       <div className="space-y-3">
         <SectionHeading>Login details</SectionHeading>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Full Name">
-            <input name="full_name" type="text" value={userForm.full_name} onChange={handleUser}
+          <Field label="First Name">
+            <input name="first_name" type="text" value={userForm.first_name} onChange={handleUser}
+              className={inputCls} style={inputStyle} />
+          </Field>
+          <Field label="Last Name">
+            <input name="last_name" type="text" value={userForm.last_name} onChange={handleUser}
               className={inputCls} style={inputStyle} />
           </Field>
           <Field label="Email">

@@ -16,7 +16,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function CreateUserForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ email: '', full_name: '', role: 'SHOW_SECRETARY', password: '' });
+  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'SHOW_SECRETARY', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +28,12 @@ export default function CreateUserForm() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          first_name: form.first_name.trim(),
+          last_name: form.last_name.trim(),
+          email: form.email.trim(),
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -47,13 +52,23 @@ export default function CreateUserForm() {
   return (
     <form onSubmit={handleSubmit} className="grid sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Full Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
         <input
           required
           className={inputClass}
           style={inputStyle}
-          value={form.full_name}
-          onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
+          value={form.first_name}
+          onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+        <input
+          required
+          className={inputClass}
+          style={inputStyle}
+          value={form.last_name}
+          onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))}
         />
       </div>
       <div>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime, timezone
@@ -27,7 +27,8 @@ class UserVerify(BaseModel):
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    first_name: str
+    last_name: str
 
 
 class SecretaryCertificationIn(BaseModel):
@@ -38,20 +39,23 @@ class SecretaryCertificationIn(BaseModel):
 class ShowSecretaryRegister(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    first_name: str
+    last_name: str
     certifications: list[SecretaryCertificationIn] = []
 
 
 class ShowManagerRegister(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    first_name: str
+    last_name: str
 
 
 class TrainerRegister(BaseModel):
     email: EmailStr
     password: str
-    full_name: str
+    first_name: str
+    last_name: str
     private_phone: str
     public_email: Optional[EmailStr] = None
     public_phone: Optional[str] = None
@@ -63,6 +67,15 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
+
+
+def display_name(first_name: str, last_name: str) -> str:
+    return f"{first_name.strip()} {last_name.strip()}".strip()
+
+
+def validate_name_parts(first_name: str, last_name: str) -> None:
+    if not first_name.strip() or not last_name.strip():
+        raise HTTPException(400, "First name and last name are required")
 
 
 @router.post("/verify")
@@ -88,6 +101,8 @@ async def verify_user(request: Request, body: UserVerify, db: AsyncSession = Dep
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
         "role": user.role,
     }
@@ -97,21 +112,24 @@ async def verify_user(request: Request, body: UserVerify, db: AsyncSession = Dep
 async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    validate_name_parts(body.first_name, body.last_name)
 
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(409, "Email already registered")
 
+    full_name = display_name(body.first_name, body.last_name)
     user = User(
         email=body.email,
-        full_name=body.full_name,
+        first_name=body.first_name.strip(),
+        last_name=body.last_name.strip(),
         role="EXHIBITOR",  # self-registration always creates EXHIBITOR accounts
         hashed_password=hash_password(body.password),
     )
     db.add(user)
     await db.flush()
 
-    exhibitor = Exhibitor(full_name=body.full_name, user_id=user.id)
+    exhibitor = Exhibitor(full_name=full_name, user_id=user.id)
     db.add(exhibitor)
 
     await db.commit()
@@ -120,6 +138,8 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
         "role": user.role,
     }
@@ -129,6 +149,7 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
 async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession = Depends(get_db)):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    validate_name_parts(body.first_name, body.last_name)
 
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
@@ -141,7 +162,8 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
 
     user = User(
         email=body.email,
-        full_name=body.full_name,
+        first_name=body.first_name.strip(),
+        last_name=body.last_name.strip(),
         role="SHOW_SECRETARY",
         hashed_password=hash_password(body.password),
     )
@@ -161,6 +183,8 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
         "role": user.role,
     }
@@ -170,6 +194,7 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
 async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = Depends(get_db)):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    validate_name_parts(body.first_name, body.last_name)
 
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
@@ -177,7 +202,8 @@ async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = De
 
     user = User(
         email=body.email,
-        full_name=body.full_name,
+        first_name=body.first_name.strip(),
+        last_name=body.last_name.strip(),
         role="SHOW_MANAGER",
         hashed_password=hash_password(body.password),
     )
@@ -188,6 +214,8 @@ async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = De
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
         "role": user.role,
     }
@@ -199,21 +227,42 @@ async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get
         raise HTTPException(400, "Password must be at least 8 characters")
     if not body.private_phone.strip():
         raise HTTPException(400, "Private phone is required")
+    validate_name_parts(body.first_name, body.last_name)
 
     existing_user = await db.execute(select(User).where(User.email == body.email))
     if existing_user.scalar_one_or_none():
         raise HTTPException(409, "Email already registered")
 
+    trainer_email_candidates = [str(body.email).lower()]
+    if body.public_email:
+        trainer_email_candidates.append(str(body.public_email).lower())
     existing_trainer_result = await db.execute(
-        select(Trainer).where(Trainer.email == body.email).limit(1)
+        select(Trainer)
+        .where(func.lower(Trainer.email).in_(trainer_email_candidates))
+        .limit(1)
     )
     existing_trainer = existing_trainer_result.scalar_one_or_none()
     if existing_trainer and existing_trainer.user_id is not None:
         raise HTTPException(409, "A trainer profile is already linked to that email")
 
+    # If no email-only match, fall back to first + last + public email against
+    # unclaimed registry rows. This lets a registry row that an exhibitor
+    # created from the horse form get merged into the trainer's account.
+    if not existing_trainer and body.public_email:
+        existing_by_name_email = await db.execute(
+            select(Trainer).where(
+                func.lower(Trainer.first_name) == body.first_name.strip().lower(),
+                func.lower(Trainer.last_name) == body.last_name.strip().lower(),
+                func.lower(Trainer.email) == str(body.public_email).lower(),
+                Trainer.user_id.is_(None),
+            )
+        )
+        existing_trainer = existing_by_name_email.scalar_one_or_none()
+
     user = User(
         email=body.email,
-        full_name=body.full_name,
+        first_name=body.first_name.strip(),
+        last_name=body.last_name.strip(),
         role="TRAINER",
         hashed_password=hash_password(body.password),
     )
@@ -222,7 +271,8 @@ async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get
 
     if existing_trainer:
         existing_trainer.user_id = user.id
-        existing_trainer.name = existing_trainer.name or body.full_name
+        existing_trainer.first_name = existing_trainer.first_name or body.first_name.strip()
+        existing_trainer.last_name = existing_trainer.last_name or body.last_name.strip()
         existing_trainer.private_phone = body.private_phone.strip()
         existing_trainer.phone = existing_trainer.phone or (body.public_phone.strip() if body.public_phone else None)
         if not existing_trainer.email and body.public_email:
@@ -230,7 +280,8 @@ async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get
     else:
         db.add(Trainer(
             user_id=user.id,
-            name=body.full_name,
+            first_name=body.first_name.strip(),
+            last_name=body.last_name.strip(),
             private_phone=body.private_phone.strip(),
             phone=body.public_phone.strip() if body.public_phone else None,
             email=str(body.public_email) if body.public_email else None,
@@ -242,6 +293,8 @@ async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "full_name": user.full_name,
         "role": user.role,
     }

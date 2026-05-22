@@ -118,7 +118,15 @@
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" auth status 2>&1)",
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr create --title \"feat: add per-show sections and expand admin trainer fields\" --body-file .pr-body.tmp.md)",
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr merge 1 --squash --delete-branch 2>&1)",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "WebFetch(domain:www.aqha.com)",
+      "WebFetch(domain:nrha.com)",
+      "Bash(bash RUN_TESTS.sh)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(echo \"Baseline exit: $?\")",
+      "Read(//c/Users/Home/projects/**)",
+      "Bash(python -m compileall backend/routers/trainers.py)",
+      "Bash(awk -F: '{print $1}')"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates"

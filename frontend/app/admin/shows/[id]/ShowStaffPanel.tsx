@@ -15,7 +15,7 @@ type Props = {
   isAdmin: boolean;
 };
 
-const emptyForm = { full_name: '', email: '', password: '' };
+const emptyForm = { first_name: '', last_name: '', email: '', password: '' };
 
 export default function ShowStaffPanel({
   showId,
@@ -109,7 +109,13 @@ export default function ShowStaffPanel({
       const createRes = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...createForm, role: 'SCOREKEEPER' }),
+        body: JSON.stringify({
+          ...createForm,
+          first_name: createForm.first_name.trim(),
+          last_name: createForm.last_name.trim(),
+          email: createForm.email.trim(),
+          role: 'SCOREKEEPER',
+        }),
       });
       const newUser = await createRes.json();
       if (!createRes.ok) { setCreateError(newUser.detail || 'Failed to create scorekeeper'); return; }
@@ -292,10 +298,16 @@ export default function ShowStaffPanel({
             <p className="text-sm font-medium" style={{ color: '#2c1810' }}>New Scorekeeper</p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Full Name</label>
+                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
                 <input required className={`${inputClass} w-full`} style={inputStyle}
-                  value={createForm.full_name}
-                  onChange={e => setCreateForm(f => ({ ...f, full_name: e.target.value }))} />
+                  value={createForm.first_name}
+                  onChange={e => setCreateForm(f => ({ ...f, first_name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+                <input required className={`${inputClass} w-full`} style={inputStyle}
+                  value={createForm.last_name}
+                  onChange={e => setCreateForm(f => ({ ...f, last_name: e.target.value }))} />
               </div>
               <div>
                 <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Email</label>

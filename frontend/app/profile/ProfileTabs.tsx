@@ -9,7 +9,7 @@ import TrainerProfileForm, { TrainerProfile } from './TrainerProfileForm';
 import TrainerAffiliationsPanel from '@/components/TrainerAffiliationsPanel';
 import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
 
-interface User { full_name: string; email: string; role: string; created_at: string; }
+interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
 interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; member_number: string; }
 interface Document {
   id: string; document_type: string; original_filename: string;

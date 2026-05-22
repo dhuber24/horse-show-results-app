@@ -1,5 +1,12 @@
 # Codex Handoff — Horse Section Improvements
 
+Status: Completed on May 22, 2026. The original handoff is retained below for
+context, but the trainer registry UI, horse trainer selection, optional owner
+handling, riders display, database documentation updates, validation commands,
+and pending migrations have been completed. Claude's follow-up work for
+"Other" trainers has since been updated to require first name, last name, and
+email, then merge those unclaimed trainer rows during trainer registration.
+
 This document describes the remaining frontend work to complete the horse section
 improvements. All backend changes are already committed and ready.
 

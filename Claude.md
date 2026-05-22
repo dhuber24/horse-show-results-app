@@ -94,13 +94,13 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `results`: placings. For `pattern`/`time` classes, `raw_score` is the source of truth and `place` is recomputed server-side on every change.
 - `result_audit`: placing change history (placement classes only — derived placings are not audited).
 - `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
-- `users`: login accounts and roles.
+- `users`: login accounts and roles. First/last name are the editable source of truth; `full_name` is a derived display compatibility field.
 - `exhibitors`: person/profile records, optionally linked to users.
 - `horses`: horse records with owner/trainer text, breed/color, registrations, documents, and APHA SPB flag.
 - `exhibitor_registrations`: exhibitor membership numbers per association.
 - `backend/rules`: association-specific validation hooks; AQHA currently enforces the first practical validation slice.
 - `users.aqha_management_workshop_completed_at`: AQHA show-management workshop date used to validate assigned managers/secretaries.
-- `trainers`: trainer registry; carries private contact, public ad-ready profile (`business_name`, location, `website`, `bio`, socials, `is_public`), compliance dates (`safesport_completed_at`, `background_check_expires_at`), and a self-attested `has_liability_insurance` flag.
+- `trainers`: trainer registry; first/last name mirror the linked user when present, and derived `name` remains for trainer-list display. Carries private contact, public ad-ready profile (`business_name`, location, `website`, `bio`, socials, `is_public`), compliance dates (`safesport_completed_at`, `background_check_expires_at`), and a self-attested `has_liability_insurance` flag.
 - `trainer_registrations`: per-association trainer membership with `status` (`professional`/`non_pro`/`general`) and optional `expires_at`. Mirrors `exhibitor_registrations`.
 - `trainer_documents`: trainer-uploaded images stored as BYTEA. Currently restricted to one `HEADSHOT` per trainer.
 
