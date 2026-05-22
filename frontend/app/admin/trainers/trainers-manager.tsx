@@ -225,6 +225,9 @@ export default function TrainersManager({ initialTrainers }: Props) {
                       </dl>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
+                      <Link href={`/admin/trainers/${trainer.id}`} className="text-sm font-medium underline" style={{ color: '#8b4513' }}>
+                        Manage
+                      </Link>
                       <button onClick={() => startEdit(trainer)} className="text-sm font-medium" style={{ color: '#8b4513' }}>Edit</button>
                       {confirmDeleteId === trainer.id ? (
                         <span className="flex items-center gap-2">

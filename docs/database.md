@@ -60,6 +60,7 @@ Current migration files:
 | `046_trainer_private_phone.sql` | Add private phone storage for trainer accounts |
 | `047_class_templates.sql` | Original Schedule Builder seed library (templates + OPEN-style age-bracket "divisions"); superseded by 048 |
 | `048_consolidate_divisions.sql` | Consolidate Divisions/Sections/Classes: add `divisions.default_score_type`, new `sections` and `standard_sections` tables, `classes.section_id`; migrate 047 brackets into sections; merge `class_templates` into `standard_divisions`; drop `class_templates` |
+| `049_trainer_credentials_and_profile.sql` | Add ad-ready public profile fields (business_name, city/state/country, website, bio, socials, is_public), compliance fields (safesport_completed_at, background_check_expires_at), self-attested has_liability_insurance, plus new `trainer_registrations` table (mirrors `exhibitor_registrations` with `status` and `expires_at`) and `trainer_documents` table for headshot uploads |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -90,7 +91,35 @@ If a manual migration file is applied outside the runner, also insert its filena
 - `private_phone` TEXT nullable, required by trainer self-service once a trainer account is linked
 - `phone` TEXT nullable public phone
 - `email` TEXT nullable public email
+- Public profile (migration 049): `business_name`, `city`, `state`, `country` (NOT NULL default `'US'`), `website`, `bio`, `social_facebook`, `social_instagram`, `social_tiktok`
+- `is_public` BOOLEAN NOT NULL default FALSE — gate for ad-facing exposure
+- Compliance (migration 049): `safesport_completed_at` DATE (valid 1 year), `background_check_expires_at` DATE
+- `has_liability_insurance` BOOLEAN NOT NULL default FALSE — self-attested
 - `created_at` TIMESTAMP WITH TIME ZONE
+
+### New table: `trainer_registrations` (migration 049)
+
+Mirrors `exhibitor_registrations` with extra credential fields:
+
+- `id` UUID primary key
+- `trainer_id` UUID NOT NULL FK -> `trainers.id` (`ON DELETE CASCADE`)
+- `show_type_id` UUID NOT NULL FK -> `show_types.id` (`ON DELETE CASCADE`)
+- `member_number` TEXT NOT NULL
+- `status` TEXT NOT NULL default `'general'`, CHECK `('professional','non_pro','general')` — captures AQHA Professional Horseman / NRHA Pro / Non Pro distinction
+- `expires_at` DATE nullable
+- UNIQUE `(trainer_id, show_type_id)`
+
+### New table: `trainer_documents` (migration 049)
+
+BYTEA storage parallel to `exhibitor_documents`, currently restricted to one `HEADSHOT` per trainer (partial unique index). The CHECK can be extended in a follow-up migration to accept COI, W-9 indicator, etc.
+
+- `id` UUID primary key
+- `trainer_id` UUID NOT NULL FK -> `trainers.id` (`ON DELETE CASCADE`)
+- `document_type` TEXT NOT NULL CHECK `('HEADSHOT')`
+- `original_filename`, `file_data` BYTEA, `mime_type`, `file_size`
+- `uploaded_by_user_id` UUID nullable FK -> `users.id` (`ON DELETE SET NULL`)
+- `created_at` TIMESTAMPTZ
+- Partial unique index `idx_trainer_documents_one_headshot` on `(trainer_id)` where `document_type = 'HEADSHOT'`
 
 ### Updated table: `horses`
 

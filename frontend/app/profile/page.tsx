@@ -26,6 +26,7 @@ export default async function ProfilePage({
   let exhibitorRegs: any[] = [];
   let trainerProfile: any = null;
   let trainerHorses: any[] = [];
+  let trainerAffiliations: any[] = [];
 
   if (role === 'EXHIBITOR') {
     const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
@@ -56,12 +57,14 @@ export default async function ProfilePage({
   }
 
   if (role === 'TRAINER') {
-    const [trainerRes, trainerHorsesRes] = await Promise.all([
+    const [trainerRes, trainerHorsesRes, trainerAffiliationsRes] = await Promise.all([
       fetch(`${API_URL}/trainers/me`, { headers: headers!, cache: 'no-store' }),
       fetch(`${API_URL}/trainers/me/horses`, { headers: headers!, cache: 'no-store' }),
+      fetch(`${API_URL}/trainers/me/registrations`, { headers: headers!, cache: 'no-store' }),
     ]);
     if (trainerRes.ok) trainerProfile = await trainerRes.json();
     if (trainerHorsesRes.ok) trainerHorses = await trainerHorsesRes.json();
+    if (trainerAffiliationsRes.ok) trainerAffiliations = await trainerAffiliationsRes.json();
   }
 
   return (
@@ -79,7 +82,10 @@ export default async function ProfilePage({
         initialHorses={horses}
         trainerProfile={trainerProfile}
         trainerHorses={trainerHorses}
-        initialTab={tab === 'memberships' || tab === 'horses' ? tab : 'account'}
+        trainerAffiliations={trainerAffiliations}
+        initialTab={
+          tab === 'memberships' || tab === 'horses' || tab === 'affiliations' ? tab : 'account'
+        }
       />
     </main>
   );

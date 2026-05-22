@@ -18,6 +18,7 @@ from routers.sections import router as sections_router
 from routers.classes import router as classes_router
 from routers.people import users_router, horses_router, exhibitors_router
 from routers.trainers import router as trainers_router
+from routers.trainer_documents import router as trainer_documents_router
 from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
 from routers.horse_documents import router as horse_documents_router
@@ -92,6 +93,7 @@ app.include_router(classes_router)
 app.include_router(users_router)
 app.include_router(horses_router)
 app.include_router(trainers_router)
+app.include_router(trainer_documents_router)
 app.include_router(breeds_router)
 app.include_router(horse_colors_router)
 app.include_router(horse_documents_router)

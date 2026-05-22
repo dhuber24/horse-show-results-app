@@ -301,10 +301,74 @@ class Trainer(Base):
     private_phone = Column(Text, nullable=True)
     phone = Column(Text, nullable=True)
     email = Column(Text, nullable=True)
+
+    business_name = Column(Text, nullable=True)
+    city = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    country = Column(Text, nullable=False, server_default="US")
+    website = Column(Text, nullable=True)
+    bio = Column(Text, nullable=True)
+    social_facebook = Column(Text, nullable=True)
+    social_instagram = Column(Text, nullable=True)
+    social_tiktok = Column(Text, nullable=True)
+    is_public = Column(Boolean, nullable=False, server_default="false")
+
+    safesport_completed_at = Column(Date, nullable=True)
+    background_check_expires_at = Column(Date, nullable=True)
+    has_liability_insurance = Column(Boolean, nullable=False, server_default="false")
+
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="trainer_profile")
     horses = relationship("Horse", back_populates="trainer")
+    registrations = relationship(
+        "TrainerRegistration", back_populates="trainer", cascade="all, delete-orphan"
+    )
+    documents = relationship(
+        "TrainerDocument", back_populates="trainer", cascade="all, delete-orphan"
+    )
+
+
+class TrainerRegistration(Base):
+    __tablename__ = "trainer_registrations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    member_number = Column(Text, nullable=False)
+    status = Column(
+        Text,
+        CheckConstraint("status IN ('professional', 'non_pro', 'general')"),
+        nullable=False,
+        server_default="general",
+    )
+    expires_at = Column(Date, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("trainer_id", "show_type_id"),)
+
+    trainer = relationship("Trainer", back_populates="registrations")
+    show_type = relationship("ShowType")
+
+
+class TrainerDocument(Base):
+    __tablename__ = "trainer_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
+    document_type = Column(
+        Text,
+        CheckConstraint("document_type IN ('HEADSHOT')"),
+        nullable=False,
+    )
+    original_filename = Column(Text, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    trainer = relationship("Trainer", back_populates="documents")
 
 
 class Horse(Base):

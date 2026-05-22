@@ -1,29 +1,110 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface TrainerProfile {
+export interface TrainerProfile {
   id: string;
   name: string;
   private_email: string;
   private_phone: string | null;
   public_email: string | null;
   public_phone: string | null;
+  business_name: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  website: string | null;
+  bio: string | null;
+  social_facebook: string | null;
+  social_instagram: string | null;
+  social_tiktok: string | null;
+  is_public: boolean;
+  safesport_completed_at: string | null;
+  background_check_expires_at: string | null;
+  has_liability_insurance: boolean;
+  has_headshot: boolean;
 }
 
-export default function TrainerProfileForm({ trainer }: { trainer: TrainerProfile | null }) {
+interface Props {
+  trainer: TrainerProfile | null;
+}
+
+const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
+const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
+const labelStyle = { color: '#5a3e2b' } as const;
+const sectionStyle = { backgroundColor: '#ffffff', borderColor: '#d4b896' } as const;
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1" style={labelStyle}>{label}</label>
+      {children}
+      {hint && <p className="text-xs mt-1" style={{ color: '#8b7355' }}>{hint}</p>}
+    </div>
+  );
+}
+
+function isCurrentSafesport(value: string | null): boolean {
+  if (!value) return false;
+  const completed = new Date(value + 'T00:00:00');
+  const oneYearLater = new Date(completed);
+  oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
+  return oneYearLater >= new Date();
+}
+
+function isCurrentBackground(value: string | null): boolean {
+  if (!value) return false;
+  return new Date(value + 'T00:00:00') >= new Date();
+}
+
+export default function TrainerProfileForm({ trainer }: Props) {
   const router = useRouter();
+
   const [form, setForm] = useState({
     name: trainer?.name ?? '',
     private_email: trainer?.private_email ?? '',
     private_phone: trainer?.private_phone ?? '',
     public_email: trainer?.public_email ?? '',
     public_phone: trainer?.public_phone ?? '',
+    business_name: trainer?.business_name ?? '',
+    city: trainer?.city ?? '',
+    state: trainer?.state ?? '',
+    country: trainer?.country ?? 'US',
+    website: trainer?.website ?? '',
+    bio: trainer?.bio ?? '',
+    social_facebook: trainer?.social_facebook ?? '',
+    social_instagram: trainer?.social_instagram ?? '',
+    social_tiktok: trainer?.social_tiktok ?? '',
+    is_public: trainer?.is_public ?? false,
+    safesport_completed_at: trainer?.safesport_completed_at ?? '',
+    background_check_expires_at: trainer?.background_check_expires_at ?? '',
+    has_liability_insurance: trainer?.has_liability_insurance ?? false,
     current_password: '',
   });
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [photoBust, setPhotoBust] = useState(0);
+  const [hasHeadshot, setHasHeadshot] = useState(trainer?.has_headshot ?? false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const originalPrivateEmail = trainer?.private_email ?? '';
+  const safesportCurrent = isCurrentSafesport(form.safesport_completed_at || null);
+  const backgroundCurrent = isCurrentBackground(form.background_check_expires_at || null);
+
+  useEffect(() => {
+    setHasHeadshot(trainer?.has_headshot ?? false);
+  }, [trainer?.has_headshot]);
 
   if (!trainer) {
     return (
@@ -32,9 +113,12 @@ export default function TrainerProfileForm({ trainer }: { trainer: TrainerProfil
       </p>
     );
   }
-  const originalPrivateEmail = trainer.private_email;
 
-  async function handleSave() {
+  const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSave = async () => {
     if (!form.name.trim() || !form.private_email.trim() || !form.private_phone.trim()) {
       setMessage({ type: 'error', text: 'Name, private email, and private phone are required.' });
       return;
@@ -43,70 +127,275 @@ export default function TrainerProfileForm({ trainer }: { trainer: TrainerProfil
     setSaving(true);
     setMessage(null);
     const privateEmailChanged = form.private_email !== originalPrivateEmail;
+
+    const body: Record<string, unknown> = {
+      name: form.name,
+      private_email: form.private_email,
+      private_phone: form.private_phone,
+      public_email: form.public_email || null,
+      public_phone: form.public_phone || null,
+      business_name: form.business_name || null,
+      city: form.city || null,
+      state: form.state || null,
+      country: form.country || null,
+      website: form.website || null,
+      bio: form.bio || null,
+      social_facebook: form.social_facebook || null,
+      social_instagram: form.social_instagram || null,
+      social_tiktok: form.social_tiktok || null,
+      is_public: form.is_public,
+      has_liability_insurance: form.has_liability_insurance,
+      current_password: privateEmailChanged ? form.current_password : undefined,
+    };
+
+    if (form.safesport_completed_at) {
+      body.safesport_completed_at = form.safesport_completed_at;
+    } else if (trainer.safesport_completed_at) {
+      body.clear_safesport_completed_at = true;
+    }
+    if (form.background_check_expires_at) {
+      body.background_check_expires_at = form.background_check_expires_at;
+    } else if (trainer.background_check_expires_at) {
+      body.clear_background_check_expires_at = true;
+    }
+
     const res = await fetch('/api/trainers/me', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: form.name,
-        private_email: form.private_email,
-        private_phone: form.private_phone,
-        public_email: form.public_email || null,
-        public_phone: form.public_phone || null,
-        current_password: privateEmailChanged ? form.current_password : undefined,
-      }),
+      body: JSON.stringify(body),
     });
     setSaving(false);
     if (res.ok) {
       setMessage({ type: 'success', text: 'Trainer profile updated.' });
       router.refresh();
     } else {
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       setMessage({ type: 'error', text: json.detail || 'Failed to update trainer profile.' });
     }
-  }
+  };
+
+  const handlePhotoUpload = async (file: File) => {
+    setPhotoError(null);
+    setUploadingPhoto(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/trainers/me/photo', { method: 'POST', body: fd });
+    setUploadingPhoto(false);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setPhotoError(err.detail || 'Failed to upload headshot.');
+      return;
+    }
+    setHasHeadshot(true);
+    setPhotoBust((n) => n + 1);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handlePhotoDelete = async () => {
+    setPhotoError(null);
+    const res = await fetch('/api/trainers/me/photo', { method: 'DELETE' });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({}));
+      setPhotoError(err.detail || 'Failed to remove headshot.');
+      return;
+    }
+    setHasHeadshot(false);
+    setPhotoBust((n) => n + 1);
+  };
 
   return (
-    <div className="space-y-4">
-      {[
-        { name: 'name', label: 'Display Name', type: 'text' },
-        { name: 'private_email', label: 'Private Email', type: 'email' },
-        { name: 'private_phone', label: 'Private Phone', type: 'tel' },
-        { name: 'public_email', label: 'Public Email', type: 'email' },
-        { name: 'public_phone', label: 'Public Phone', type: 'tel' },
-      ].map((field) => (
-        <div key={field.name}>
-          <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>
-            {field.label}
-          </label>
-          <input
-            type={field.type}
-            value={(form as Record<string, string>)[field.name]}
-            onChange={(e) => setForm((prev) => ({ ...prev, [field.name]: e.target.value }))}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1"
-            style={{ borderColor: '#d4b896' }}
-          />
+    <div className="space-y-6">
+      {/* ── Account & private contact ─────────────────────────────────────── */}
+      <section className="rounded-lg border p-5" style={sectionStyle}>
+        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Account &amp; Private Contact</h3>
+        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
+          Used for your account and admin/office contact. Not shown on your public profile or in ads.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Display Name">
+            <input value={form.name} onChange={(e) => update('name', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Private Email (login)">
+            <input type="email" value={form.private_email} onChange={(e) => update('private_email', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Private Phone">
+            <input type="tel" value={form.private_phone} onChange={(e) => update('private_phone', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          {form.private_email !== originalPrivateEmail && (
+            <Field label="Current Password" hint="Required to change your private email">
+              <input
+                type="password"
+                value={form.current_password}
+                onChange={(e) => update('current_password', e.target.value)}
+                className={inputClass}
+                style={inputStyle}
+              />
+            </Field>
+          )}
         </div>
-      ))}
+      </section>
 
-      {form.private_email !== originalPrivateEmail && (
-        <div>
-          <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>
-            Current Password
+      {/* ── Public / ad-facing profile ────────────────────────────────────── */}
+      <section className="rounded-lg border p-5" style={sectionStyle}>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="font-semibold" style={{ color: '#2c1810' }}>Public Profile</h3>
+            <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+              Shown to exhibitors browsing trainers and, in the future, on ad surfaces. Turn off &ldquo;Show my profile publicly&rdquo; to hide everything below.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-sm shrink-0" style={{ color: '#2c1810' }}>
+            <input
+              type="checkbox"
+              checked={form.is_public}
+              onChange={(e) => update('is_public', e.target.checked)}
+            />
+            Show publicly
           </label>
-          <input
-            type="password"
-            value={form.current_password}
-            onChange={(e) => setForm((prev) => ({ ...prev, current_password: e.target.value }))}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1"
-            style={{ borderColor: '#d4b896' }}
-            placeholder="Required to change private email"
-          />
         </div>
-      )}
 
-      <p className="text-xs" style={{ color: '#8b7355' }}>
-        Private contact fields are required and visible only to your account/admin workflows. Public fields are optional and can be shown with your trainer record.
-      </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Business / Barn Name">
+            <input value={form.business_name} onChange={(e) => update('business_name', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Website">
+            <input type="url" placeholder="https://" value={form.website} onChange={(e) => update('website', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="City">
+            <input value={form.city} onChange={(e) => update('city', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="State / Province">
+            <input value={form.state} onChange={(e) => update('state', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Country">
+            <input value={form.country} onChange={(e) => update('country', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Public Phone">
+            <input type="tel" value={form.public_phone} onChange={(e) => update('public_phone', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Public Email">
+            <input type="email" value={form.public_email} onChange={(e) => update('public_email', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Facebook" hint="Profile URL or handle">
+            <input value={form.social_facebook} onChange={(e) => update('social_facebook', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="Instagram" hint="@handle or profile URL">
+            <input value={form.social_instagram} onChange={(e) => update('social_instagram', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+          <Field label="TikTok" hint="@handle or profile URL">
+            <input value={form.social_tiktok} onChange={(e) => update('social_tiktok', e.target.value)} className={inputClass} style={inputStyle} />
+          </Field>
+        </div>
+
+        <div className="mt-4">
+          <Field label="Bio" hint="2000 characters max. Disciplines, experience, philosophy, etc.">
+            <textarea
+              value={form.bio}
+              onChange={(e) => update('bio', e.target.value)}
+              rows={5}
+              maxLength={2000}
+              className={inputClass}
+              style={inputStyle}
+            />
+          </Field>
+        </div>
+
+        <div className="mt-5 border-t pt-5" style={{ borderColor: '#f0e4d0' }}>
+          <h4 className="text-sm font-medium mb-2" style={{ color: '#2c1810' }}>Headshot</h4>
+          <div className="flex items-start gap-4 flex-wrap">
+            <div
+              className="w-28 h-28 rounded-full border flex items-center justify-center overflow-hidden shrink-0"
+              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+            >
+              {hasHeadshot ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={photoBust}
+                  src={`/api/trainers/me/photo?v=${photoBust}`}
+                  alt="Trainer headshot"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xs" style={{ color: '#8b7355' }}>No photo</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handlePhotoUpload(f);
+                }}
+                className="text-sm"
+              />
+              <p className="text-xs" style={{ color: '#8b7355' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
+              {hasHeadshot && (
+                <button
+                  type="button"
+                  onClick={handlePhotoDelete}
+                  className="text-xs text-red-600 hover:underline"
+                >
+                  Remove headshot
+                </button>
+              )}
+              {uploadingPhoto && <p className="text-xs" style={{ color: '#8b7355' }}>Uploading...</p>}
+              {photoError && <p className="text-xs text-red-600">{photoError}</p>}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Compliance ────────────────────────────────────────────────────── */}
+      <section className="rounded-lg border p-5" style={sectionStyle}>
+        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Compliance</h3>
+        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
+          Visible to you and to show management. The dates themselves are not shown publicly — only a current/expired badge.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field
+            label="SafeSport Training Completed"
+            hint={safesportCurrent ? 'Current (valid 1 year from completion)' : form.safesport_completed_at ? 'Expired — renew to restore current status' : 'Not on file'}
+          >
+            <input
+              type="date"
+              value={form.safesport_completed_at}
+              onChange={(e) => update('safesport_completed_at', e.target.value)}
+              className={inputClass}
+              style={inputStyle}
+            />
+          </Field>
+          <Field
+            label="Background Check Expires"
+            hint={backgroundCurrent ? 'Current' : form.background_check_expires_at ? 'Expired — submit a new check' : 'Not on file'}
+          >
+            <input
+              type="date"
+              value={form.background_check_expires_at}
+              onChange={(e) => update('background_check_expires_at', e.target.value)}
+              className={inputClass}
+              style={inputStyle}
+            />
+          </Field>
+        </div>
+      </section>
+
+      {/* ── Insurance ─────────────────────────────────────────────────────── */}
+      <section className="rounded-lg border p-5" style={sectionStyle}>
+        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Liability Insurance</h3>
+        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
+          Many shows require commercial equine liability coverage. This is self-attested; carrier/policy details and certificate upload will be added later.
+        </p>
+        <label className="flex items-center gap-2 text-sm" style={{ color: '#2c1810' }}>
+          <input
+            type="checkbox"
+            checked={form.has_liability_insurance}
+            onChange={(e) => update('has_liability_insurance', e.target.checked)}
+          />
+          I carry commercial equine liability insurance
+        </label>
+      </section>
 
       {message && (
         <p className={`text-sm ${message.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>

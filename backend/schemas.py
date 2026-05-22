@@ -528,6 +528,19 @@ class TrainerUpdate(BaseModel):
     private_phone: Optional[str] = Field(default=None, max_length=30)
     phone: Optional[str] = Field(default=None, max_length=30)
     email: Optional[str] = Field(default=None, max_length=200)
+    business_name: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    country: Optional[str] = Field(default=None, max_length=50)
+    website: Optional[str] = Field(default=None, max_length=300)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    social_facebook: Optional[str] = Field(default=None, max_length=200)
+    social_instagram: Optional[str] = Field(default=None, max_length=200)
+    social_tiktok: Optional[str] = Field(default=None, max_length=200)
+    is_public: Optional[bool] = None
+    safesport_completed_at: Optional[date] = None
+    background_check_expires_at: Optional[date] = None
+    has_liability_insurance: Optional[bool] = None
 
 class TrainerProfileUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
@@ -536,6 +549,21 @@ class TrainerProfileUpdate(BaseModel):
     public_email: Optional[EmailStr] = None
     public_phone: Optional[str] = Field(default=None, max_length=30)
     current_password: Optional[str] = None
+    business_name: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    country: Optional[str] = Field(default=None, max_length=50)
+    website: Optional[str] = Field(default=None, max_length=300)
+    bio: Optional[str] = Field(default=None, max_length=2000)
+    social_facebook: Optional[str] = Field(default=None, max_length=200)
+    social_instagram: Optional[str] = Field(default=None, max_length=200)
+    social_tiktok: Optional[str] = Field(default=None, max_length=200)
+    is_public: Optional[bool] = None
+    safesport_completed_at: Optional[date] = None
+    clear_safesport_completed_at: bool = False
+    background_check_expires_at: Optional[date] = None
+    clear_background_check_expires_at: bool = False
+    has_liability_insurance: Optional[bool] = None
 
 class TrainerOut(BaseModel):
     id: UUID
@@ -545,7 +573,73 @@ class TrainerOut(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     user_email: Optional[str] = None
+    business_name: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    website: Optional[str] = None
+    is_public: bool = False
+    safesport_completed_at: Optional[date] = None
+    background_check_expires_at: Optional[date] = None
+    has_liability_insurance: bool = False
     horse_count: int = 0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TrainerRegistrationCreate(BaseModel):
+    show_type_id: UUID
+    member_number: str = Field(min_length=1, max_length=100)
+    status: Literal["professional", "non_pro", "general"] = "general"
+    expires_at: Optional[date] = None
+
+
+class TrainerRegistrationUpdate(BaseModel):
+    member_number: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    status: Optional[Literal["professional", "non_pro", "general"]] = None
+    expires_at: Optional[date] = None
+    clear_expires_at: bool = False
+
+
+class TrainerRegistrationOut(BaseModel):
+    id: UUID
+    trainer_id: UUID
+    show_type_id: UUID
+    show_type_code: str
+    show_type_name: str
+    member_number: str
+    status: Literal["professional", "non_pro", "general"]
+    expires_at: Optional[date] = None
+    created_at: datetime
+
+    @model_validator(mode='before')
+    @classmethod
+    def from_registration(cls, v):
+        if isinstance(v, dict):
+            return v
+        show_type = getattr(v, 'show_type', None)
+        return {
+            'id': v.id,
+            'trainer_id': v.trainer_id,
+            'show_type_id': v.show_type_id,
+            'show_type_code': show_type.code if show_type else '',
+            'show_type_name': show_type.name if show_type else '',
+            'member_number': v.member_number,
+            'status': v.status,
+            'expires_at': v.expires_at,
+            'created_at': v.created_at,
+        }
+
+
+class TrainerDocumentOut(BaseModel):
+    id: UUID
+    trainer_id: UUID
+    document_type: str
+    original_filename: str
+    mime_type: str
+    file_size: int
     created_at: datetime
 
     class Config:
@@ -848,6 +942,20 @@ class TrainerProfileOut(BaseModel):
     private_phone: Optional[str] = None
     public_email: Optional[str] = None
     public_phone: Optional[str] = None
+    business_name: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    website: Optional[str] = None
+    bio: Optional[str] = None
+    social_facebook: Optional[str] = None
+    social_instagram: Optional[str] = None
+    social_tiktok: Optional[str] = None
+    is_public: bool = False
+    safesport_completed_at: Optional[date] = None
+    background_check_expires_at: Optional[date] = None
+    has_liability_insurance: bool = False
+    has_headshot: bool = False
     created_at: datetime
 
     @model_validator(mode='before')
@@ -856,6 +964,7 @@ class TrainerProfileOut(BaseModel):
         if isinstance(v, dict):
             return v
         user = getattr(v, 'user', None)
+        docs = getattr(v, 'documents', None) or []
         return {
             'id': v.id,
             'user_id': getattr(v, 'user_id', None),
@@ -864,8 +973,48 @@ class TrainerProfileOut(BaseModel):
             'private_phone': getattr(v, 'private_phone', None),
             'public_email': getattr(v, 'email', None),
             'public_phone': getattr(v, 'phone', None),
+            'business_name': getattr(v, 'business_name', None),
+            'city': getattr(v, 'city', None),
+            'state': getattr(v, 'state', None),
+            'country': getattr(v, 'country', None),
+            'website': getattr(v, 'website', None),
+            'bio': getattr(v, 'bio', None),
+            'social_facebook': getattr(v, 'social_facebook', None),
+            'social_instagram': getattr(v, 'social_instagram', None),
+            'social_tiktok': getattr(v, 'social_tiktok', None),
+            'is_public': bool(getattr(v, 'is_public', False)),
+            'safesport_completed_at': getattr(v, 'safesport_completed_at', None),
+            'background_check_expires_at': getattr(v, 'background_check_expires_at', None),
+            'has_liability_insurance': bool(getattr(v, 'has_liability_insurance', False)),
+            'has_headshot': any(getattr(d, 'document_type', None) == 'HEADSHOT' for d in docs),
             'created_at': v.created_at,
         }
+
+
+class TrainerPublicOut(BaseModel):
+    """Ad-facing trainer card. Returned only when is_public is True.
+
+    Raw compliance dates and policy details stay out; consumers see boolean
+    badges that summarize current status.
+    """
+    id: UUID
+    name: str
+    business_name: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    website: Optional[str] = None
+    bio: Optional[str] = None
+    public_email: Optional[str] = None
+    public_phone: Optional[str] = None
+    social_facebook: Optional[str] = None
+    social_instagram: Optional[str] = None
+    social_tiktok: Optional[str] = None
+    has_headshot: bool = False
+    safesport_current: bool = False
+    background_check_current: bool = False
+    has_liability_insurance: bool = False
+    affiliations: list[TrainerRegistrationOut] = []
 
     class Config:
         from_attributes = True
