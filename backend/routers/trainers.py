@@ -237,6 +237,30 @@ async def list_my_trainer_horses(
     return horses_result.scalars().all()
 
 
+@router.delete("/me/horses/{horse_id}", status_code=204)
+async def unlink_horse_from_my_trainer_profile(
+    horse_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    # Lets a trainer remove a horse that an exhibitor wrongly linked to them.
+    # Only succeeds when the horse is currently linked to this trainer.
+    result = await db.execute(select(Trainer).where(Trainer.user_id == safe_uuid(user_id)))
+    trainer = result.scalar_one_or_none()
+    if not trainer:
+        raise HTTPException(404, "Trainer profile not found")
+
+    horse = await db.get(Horse, horse_id)
+    if not horse or horse.trainer_id != trainer.id:
+        raise HTTPException(404, "Horse is not linked to your trainer profile")
+
+    horse.trainer_id = None
+    # Also clear the free-text fallback so the horse doesn't keep claiming this
+    # trainer by name after the registry link is removed.
+    horse.trainer_name = None
+    await db.commit()
+
+
 # ── Trainer professional affiliations ──────────────────────────────────────────
 
 
