@@ -100,6 +100,9 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `exhibitor_registrations`: exhibitor membership numbers per association.
 - `backend/rules`: association-specific validation hooks; AQHA currently enforces the first practical validation slice.
 - `users.aqha_management_workshop_completed_at`: AQHA show-management workshop date used to validate assigned managers/secretaries.
+- `trainers`: trainer registry; carries private contact, public ad-ready profile (`business_name`, location, `website`, `bio`, socials, `is_public`), compliance dates (`safesport_completed_at`, `background_check_expires_at`), and a self-attested `has_liability_insurance` flag.
+- `trainer_registrations`: per-association trainer membership with `status` (`professional`/`non_pro`/`general`) and optional `expires_at`. Mirrors `exhibitor_registrations`.
+- `trainer_documents`: trainer-uploaded images stored as BYTEA. Currently restricted to one `HEADSHOT` per trainer.
 
 ## Common Feature Recipe
 
