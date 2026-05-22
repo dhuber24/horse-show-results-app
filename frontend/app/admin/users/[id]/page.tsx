@@ -7,6 +7,7 @@ import ChangeRoleForm from './ChangeRoleForm';
 import ResetPasswordForm from './ResetPasswordForm';
 import DeleteUserButton from './DeleteUserButton';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import AdminTrainerDetail from '@/app/admin/trainers/[id]/AdminTrainerDetail';
 
 async function getUser(id: string, headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/users/${id}`, { headers, cache: 'no-store' });
@@ -23,6 +24,19 @@ async function getExhibitorByUser(userId: string, headers: Record<string, string
 
 async function getExhibitorHorses(exhibitorId: string, headers: Record<string, string>): Promise<any[]> {
   const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}/owned-horses`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+async function getTrainerByUser(userId: string, headers: Record<string, string>) {
+  const res = await fetch(`${API_URL}/trainers/`, { headers, cache: 'no-store' });
+  if (!res.ok) return null;
+  const trainers = await res.json();
+  return trainers.find((t: { user_id: string | null }) => t.user_id === userId) ?? null;
+}
+
+async function getTrainerAffiliations(trainerId: string, headers: Record<string, string>): Promise<any[]> {
+  const res = await fetch(`${API_URL}/trainers/${trainerId}/registrations`, { headers, cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
 }
@@ -50,11 +64,20 @@ export default async function UserDetailPage({
 
   let exhibitor: any = null;
   let exhibitorHorses: any[] = [];
+  let trainer: any = null;
+  let trainerAffiliations: any[] = [];
 
   if (user.role === 'EXHIBITOR') {
     exhibitor = await getExhibitorByUser(user.id, headers);
     if (exhibitor) {
       exhibitorHorses = await getExhibitorHorses(exhibitor.id, headers);
+    }
+  }
+
+  if (user.role === 'TRAINER') {
+    trainer = await getTrainerByUser(user.id, headers);
+    if (trainer) {
+      trainerAffiliations = await getTrainerAffiliations(trainer.id, headers);
     }
   }
 
@@ -81,10 +104,23 @@ export default async function UserDetailPage({
         </div>
       </div>
 
-      <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Profile</h2>
-        <EditUserForm user={user} />
-      </section>
+      {user.role === 'TRAINER' ? (
+        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Trainer Profile</h2>
+          {trainer ? (
+            <AdminTrainerDetail trainer={trainer} initialAffiliations={trainerAffiliations} />
+          ) : (
+            <p className="text-sm" style={{ color: '#8b7355' }}>
+              No trainer registry row is linked to this account.
+            </p>
+          )}
+        </section>
+      ) : (
+        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Profile</h2>
+          <EditUserForm user={user} />
+        </section>
+      )}
 
       <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
         <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Role</h2>
