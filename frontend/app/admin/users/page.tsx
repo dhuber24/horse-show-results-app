@@ -15,7 +15,6 @@ export default async function UsersPage() {
   const session = await auth();
   if (!session?.user) redirect('/login');
   const user = session.user as any;
-  if (user.role !== 'ADMIN') redirect('/admin');
 
   const headers = {
     'Content-Type': 'application/json',

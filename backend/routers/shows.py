@@ -57,6 +57,7 @@ def _serialize(show: Show) -> dict:
         "aqha_approval_status": show.aqha_approval_status,
         "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
         "aqha_approval_notes": show.aqha_approval_notes,
+        "office_charge_cents": show.office_charge_cents,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),
@@ -139,7 +140,7 @@ async def create_show(
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
     if x_user_role not in ("ADMIN", "SHOW_SECRETARY", "SHOW_MANAGER"):
-        raise HTTPException(403, "Admin or Show Secretary access required")
+        raise HTTPException(403, "Admin, Show Secretary, or Show Manager access required")
 
     show = Show(**body.model_dump(), created_by_user_id=safe_uuid(x_user_id))
     db.add(show)

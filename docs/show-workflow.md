@@ -35,18 +35,16 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 ## Show Manager Path
 
 1. Show Manager self-registers.
-2. Show Manager submits a request at `/show-requests/new`.
-3. Admin reviews at `/admin/show-requests`.
-4. On approval, a `DRAFT` show is created and the manager is assigned in `show_managers`.
-5. Manager assigns Show Secretaries and Scorekeepers.
-6. Secretary/manager completes setup, classes, entries, and back numbers.
-7. Scorekeepers enter placings when the show is active.
+2. Show Manager creates a `DRAFT` show directly at `/admin/shows/new`. `POST /shows/` auto-inserts a `show_managers` row linking the creator to the new show.
+3. Manager assigns Show Secretaries and Scorekeepers.
+4. Secretary/manager completes setup, classes, entries, and back numbers.
+5. Scorekeepers enter placings when the show is active.
 
 ## Direct Admin Or Secretary Path
 
 1. Admin or Show Secretary creates a show directly.
 2. Show is edited while in `DRAFT`.
-3. Rings, divisions, and sections are configured at `/admin/shows/[id]/setup` (optional but recommended for multi-arena shows, multi-discipline shows, or shows that split by age/skill bracket).
+3. Rings and divisions are configured at `/admin/shows/[id]/setup` (required before classes can be created). Sections (age/skill brackets) remain optional.
 4. Classes, entries, staff, and back numbers are configured.
 5. Show is published once it has a venue and at least one class.
 6. Results are entered manually and published immediately.
@@ -57,7 +55,7 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 - A **Division** is a discipline (Halter, Western Pleasure, Trail, Barrels). Each division carries a `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit.
 - A **Section** is an age or skill bracket within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional.
 - The setup page at `/admin/shows/[id]/setup` exposes three pickers — Rings, Divisions, and Sections — each seeded from a curated standard list (`standard_rings`, `standard_divisions`, `standard_sections`). Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set. Standard sections include the OPEN-style age brackets (Lead Line, 10 & Under, 11-13, 14-17, 18 & Over, Walk-Trot, Walk-Trot-Canter, Novice/Green Horse, Open).
-- Class records reference rings, divisions, and sections through nullable foreign keys; setup is optional for small shows that only need a flat class list.
+- Class records reference rings, divisions, and sections through nullable foreign keys at the DB level, but the Classes page (`/admin/shows/[id]/classes`) redirects back to the setup page with a banner until at least one ring and one division exist. Sections remain optional.
 - Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Deleting a section sets `classes.section_id` to NULL rather than blocking.
 - Demographic splits (Open / Amateur / Youth / SPB) for APHA are still tracked per entry via `entries.apha_division`, not at the section or division level. Sections are about age/skill brackets at the class level, not entry-level eligibility.
 - Existing per-show `divisions` rows from before migration 048 are not auto-classified into sections — secretaries may need to delete bracket-named divisions and recreate them as sections.
@@ -103,6 +101,23 @@ The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divis
 - Exhibitors can maintain association membership numbers through exhibitor registration endpoints.
 - Exhibitor membership-card documents can be tagged to a specific association (`show_type_id`) for multi-association shows.
 - Exhibitors can manage horse relationships across owner-linked horses, created horses, and linked horses.
+
+## Exhibitor Self-Registration
+
+Exhibitors can register themselves for a show that is `PUBLISHED`. The flow lives at `/shows/[id]/register`, surfaced as a CTA on the show detail page for any logged-in `EXHIBITOR` while the show is `PUBLISHED`.
+
+- Backend endpoints (`backend/routers/show_registration.py`):
+  - `GET /shows/{id}/register/preview` returns the show, the caller's exhibitor profile, OPEN classes with `entry_fee_cents`, the horses on the exhibitor's profile (owned + created + linked), and any existing entries (used to pre-disable already-entered horses).
+  - `POST /shows/{id}/register/` accepts `{ entries: [{ class_id, horse_id, apha_division?, relationship_to_owner? }] }`. The exhibitor is resolved from the authenticated user — body never carries `exhibitor_id`.
+- Status gate: only `PUBLISHED` shows accept self-registration. Once a show flips to `ACTIVE`, `COMPLETED`, or back to `DRAFT`, the endpoint returns 403 and the show secretary must add late entries through the admin entries flow.
+- A `show_entries` row is auto-created on first registration (back number stays NULL — the secretary still assigns it).
+- Coggins and association validation (`backend/rules`) run identically to the secretary entry create path. AQHA errors block, and a missing/expired Coggins returns `422 COGGINS_EXPIRED`.
+- Fees are surfaced to the exhibitor in three layers; the app does not collect payment.
+  - **Per-class entry fee** (`classes.entry_fee_cents`, migration 054, default 0). Set on the class editor or via the bulk "Set fee…" action on the schedule list.
+  - **NSBA sanction fee** (auto-computed at preview/POST time). Any class whose primary `show_type_code` is `NSBA` or whose `class_associations` include an `NSBA` row carries an additional `max($3, 6% × entry_fee)` charge per entry, matching the official [NSBA sanction-fees rule](https://www.nsba.com/images/documents/Show-Approval-Documents/Sanction-Fees.pdf). The preview endpoint returns `is_nsba_approved` and `nsba_sanction_cents` per class; the form shows the rollup as a separate line item.
+  - **Office charge per horse** (`shows.office_charge_cents`, migration 055, default 0). One-time charge per distinct horse on the registration, set on the show edit page (Office charge per horse field). Typically covers drug testing and administrative overhead (NSBA World Show uses $75).
+- Exhibitors with no horses on their profile see an empty-state nudging them to add a horse first.
+- **Withdraw**: while the show is still `PUBLISHED`, exhibitors can withdraw any of their own entries inline (`DELETE /shows/{id}/register/entries/{entry_id}`). The registration screen renders each existing entry as a chip with an inline confirm; the dashboard ShowCard surfaces a "Manage registration" link to the same screen. Withdraw is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
 
 ## Scorekeeper Flow
 

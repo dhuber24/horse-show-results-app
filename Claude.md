@@ -74,19 +74,18 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 - `SHOW_MANAGER`: requests and manages hosted shows; can assign staff for their shows.
 - `SHOW_SECRETARY`: manages assigned shows, classes, entries, back numbers, and results administration.
 - `SCOREKEEPER`: enters placings for assigned shows.
-- `EXHIBITOR`: views own entries/results and manages profile/horses.
+- `EXHIBITOR`: views own entries/results, manages profile/horses, and self-registers for any `PUBLISHED` show (picks classes + horses; secretary handles back numbers and any late-add entries after the show goes `ACTIVE`).
 - `TRAINER`: manages a linked trainer registry profile used on horse records.
 
-New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are currently auto-approved. The `users.is_approved` column remains as an account lock gate. Show Manager approval applies to show requests, not account creation.
+New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are currently auto-approved. The `users.is_approved` column remains as an account lock gate. Show Managers create shows directly via `/admin/shows/new`; there is no per-show approval gate.
 
 ## Core Data Concepts
 
-- `shows`: event shell with venue, dates, primary association, status, optional APHA show number, and AQHA approval metadata.
-- `show_requests`: Show Manager request workflow; approval creates a draft show.
+- `shows`: event shell with venue, dates, primary association, status, optional APHA show number, AQHA approval metadata, and `office_charge_cents` (one-time per horse, shown on the self-registration screen).
 - `divisions`: per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that new classes inherit when score_type is omitted.
 - `sections`: per-show **age/skill brackets** within a discipline (10 & Under, Walk-Trot, Amateur). Optional. New in migration 048.
 - `standard_divisions` / `standard_sections`: curated lookup lists for the setup picker; `show_type_id NULL` is the generic fallback.
-- `classes`: competition classes, sorted by `sort_order`. Nullable `division_id` (discipline) and `section_id` (bracket). `score_type` is `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event); derived from `division.default_score_type` at create time when omitted.
+- `classes`: competition classes, sorted by `sort_order`. Nullable `division_id` (discipline) and `section_id` (bracket). `score_type` is `placement` (judges rank — rail/halter), `pattern` (judges score numerically — showmanship/horsemanship/etc.), or `time` (clocked event); derived from `division.default_score_type` at create time when omitted. `entry_fee_cents` is informational and surfaced on the exhibitor self-registration screen — the app does not collect payment.
 - `class_associations`: association-specific codes for a class, useful for dual-sanctioned shows.
 - `aqha_standard_classes`: official AQHA class-code lookup used by the AQHA picker and validation.
 - `entries`: class-level exhibitor/horse registrations.
@@ -186,4 +185,4 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 
 ## Current Status
 
-Active development. Core user management, show setup, class/entry management, back numbers, scorekeeper placing entry, exhibitor dashboard/profile, show requests, APHA class import/export, AQHA class-code import/picker/validation, horse document workflows, score-driven placings (pattern/time classes), and side pot management (divisional jackpots) are present.
+Active development. Core user management, show setup, class/entry management, back numbers, scorekeeper placing entry, exhibitor dashboard/profile, APHA class import/export, AQHA class-code import/picker/validation, horse document workflows, score-driven placings (pattern/time classes), and side pot management (divisional jackpots) are present.

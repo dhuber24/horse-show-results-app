@@ -23,6 +23,9 @@ export default async function AdminVenuePage({ params }: { params: Promise<{ id:
   const session = await auth();
   const user = session?.user as any;
   const isAdmin = user?.role === 'ADMIN';
+  const isCreator =
+    user?.role === 'SHOW_MANAGER' && !!user?.id && venue.created_by_user_id === user.id;
+  const canEdit = isAdmin || isCreator;
 
   let panelData = { admins: [], allUsers: [] };
   if (isAdmin && user?.id) {
@@ -44,11 +47,22 @@ export default async function AdminVenuePage({ params }: { params: Promise<{ id:
           { label: 'Venues', href: '/admin/venues' },
           { label: venue.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Venue</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+          {canEdit ? 'Edit Venue' : 'Venue Details'}
+        </h1>
       </div>
 
       <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <EditVenueForm venue={venue} />
+        {canEdit ? (
+          <EditVenueForm venue={venue} />
+        ) : (
+          <dl className="space-y-2 text-sm">
+            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>Name: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.name}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>Address: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.address || '—'}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>City: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.city || '—'}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>State: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.state || '—'}</dd></div>
+          </dl>
+        )}
       </div>
 
       {isAdmin && (

@@ -22,7 +22,15 @@ const EMPTY_FORM: {
   ring_id: string;
   division_id: string;
   section_id: string;
-} = { class_name: '', class_date: '', ring_id: '', division_id: '', section_id: '' };
+  entry_fee: string;
+} = { class_name: '', class_date: '', ring_id: '', division_id: '', section_id: '', entry_fee: '' };
+
+function parseDollarsToCents(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === '') return 0;
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  return Math.round(parseFloat(trimmed) * 100);
+}
 
 export default function CreateClassForm({
   showId, showStartDate, showEndDate, rings, divisions, sections,
@@ -61,6 +69,11 @@ export default function CreateClassForm({
       setError('Class name and date are required.');
       return;
     }
+    const feeCents = parseDollarsToCents(form.entry_fee);
+    if (feeCents === null) {
+      setError('Entry fee must be a dollar amount (e.g. 25 or 25.50).');
+      return;
+    }
     setSaving(true);
     setError(null);
     const res = await fetch('/api/classes', {
@@ -74,6 +87,7 @@ export default function CreateClassForm({
         ring_id: form.ring_id || null,
         division_id: form.division_id || null,
         section_id: form.section_id || null,
+        entry_fee_cents: feeCents,
       }),
     });
     setSaving(false);
@@ -128,6 +142,24 @@ export default function CreateClassForm({
           </div>
         )}
       </div>
+      <div className="flex gap-3">
+        <div className="flex-1 max-w-[200px]">
+          <label className="text-sm text-gray-500">Entry fee (USD)</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#8b7355' }}>$</span>
+            <input
+              name="entry_fee"
+              inputMode="decimal"
+              value={form.entry_fee}
+              onChange={handleChange}
+              placeholder="0.00"
+              className="w-full border rounded pl-6 pr-3 py-2"
+              title="Per-entry fee shown to exhibitors on the registration screen. The app does not collect payment."
+            />
+          </div>
+        </div>
+      </div>
+
       {(divisions.length > 0 || sections.length > 0) && (
         <div className="flex gap-3">
           {divisions.length > 0 && (

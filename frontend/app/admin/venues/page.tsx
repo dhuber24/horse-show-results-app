@@ -30,13 +30,13 @@ export default async function AdminVenuesPage() {
       <div>
         <Breadcrumbs crumbs={[
           { label: 'Admin', href: '/admin' },
-          { label: role === 'SHOW_SECRETARY' ? 'My Venues' : 'Venues' },
+          { label: 'Venues' },
         ]} />
         <div className="flex items-center justify-between mt-2">
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
-            {role === 'SHOW_SECRETARY' ? 'My Venues' : 'Venues'}
+            Venues
           </h1>
-          {role === 'ADMIN' && (
+          {(role === 'ADMIN' || role === 'SHOW_MANAGER') && (
             <Link
               href="/admin/venues/new"
               className="text-sm px-4 py-2 rounded font-medium"
@@ -49,11 +49,9 @@ export default async function AdminVenuesPage() {
       </div>
 
       {venues.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>
-          {role === 'SHOW_SECRETARY' ? 'No venues have been assigned to you yet.' : 'No venues yet.'}
-        </p>
-      ) : role === 'ADMIN' ? (
-        <VenueList initialVenues={venues} />
+        <p style={{ color: '#8b7355' }}>No venues yet.</p>
+      ) : role === 'ADMIN' || role === 'SHOW_MANAGER' ? (
+        <VenueList initialVenues={venues} currentUserId={user?.id} role={role} />
       ) : (
         <ul className="space-y-3">
           {(venues as any[]).map((venue: any) => (

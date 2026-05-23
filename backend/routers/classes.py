@@ -114,6 +114,7 @@ async def create_class(
         class_date=body.class_date,
         status=body.status,
         score_type=score_type,
+        entry_fee_cents=body.entry_fee_cents,
     )
     db.add(class_)
     try:

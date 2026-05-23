@@ -32,7 +32,7 @@ Current migration files:
 | `020_class_associations.sql` | Per-association class codes |
 | `021_drop_apha_class_code.sql` | Drop legacy APHA class code |
 | `022_show_manager_role.sql` | Show Manager role and join table |
-| `023_show_requests.sql` | Show request workflow |
+| `023_show_requests.sql` | Show request workflow (dropped in 052) |
 | `024_apha_standard_classes.sql` | APHA reference class list |
 | `024_cert_org_users.sql` | Certification lookup table |
 | `024_unique_class_number.sql` | Historical class number uniqueness |
@@ -63,6 +63,10 @@ Current migration files:
 | `049_trainer_credentials_and_profile.sql` | Add ad-ready public profile fields (business_name, city/state/country, website, bio, socials, is_public), compliance fields (safesport_completed_at, background_check_expires_at), self-attested has_liability_insurance, plus new `trainer_registrations` table (mirrors `exhibitor_registrations` with `status` and `expires_at`) and `trainer_documents` table for headshot uploads |
 | `050_first_last_name.sql` | Add required `first_name` and `last_name` columns to `users` and `trainers`, backfilled from `users.full_name` and `trainers.name`; application model events derive legacy display columns from first/last while older response fields remain available |
 | `051_trainer_user_delete_cascade.sql` | Change `trainers.user_id` to `ON DELETE CASCADE` so deleting a linked trainer user removes the trainer registry row instead of orphaning it |
+| `052_drop_show_requests.sql` | Drop the legacy `show_requests` table and approval flow (Show Managers now create shows directly) |
+| `053_venue_creator.sql` | Add `venues.created_by_user_id` so Show Managers can delete venues they created |
+| `054_class_entry_fee.sql` | Add `classes.entry_fee_cents` (default 0) to support the exhibitor self-registration fee summary; no payment is collected by the app |
+| `055_show_office_charge_and_nsba.sql` | Add `shows.office_charge_cents` (one-time per horse, default 0) and seed the `NSBA` show type so per-class NSBA sanction fees (`max($3, 6% × entry_fee)`) can be auto-computed at registration time from existing `class_associations` rows |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -190,7 +194,6 @@ erDiagram
     shows ||--o{ show_affiliations : has
     shows ||--o{ classes : schedules
     shows ||--o{ show_entries : assigns_back_numbers
-    shows ||--o{ show_requests : created_from
 
     classes ||--o{ class_associations : has_codes
     classes ||--o{ entries : contains
@@ -223,10 +226,9 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | Entity | Notes |
 | --- | --- |
 | `show_types` | Association catalog, currently AQHA, APHA, WSCA, NSBA, ApHC, FQHR, OPEN |
-| `venues` | Show locations |
+| `venues` | Show locations. `created_by_user_id` (added in migration 053) tracks the creator so Show Managers can delete venues they created. |
 | `shows` | Event shell with primary show type, venue, dates, status |
 | `show_affiliations` | Secondary associations available for selected classes |
-| `show_requests` | Show Manager request/approval workflow |
 | `rings` | Per-show arenas, each with `sort_order` |
 | `divisions` | Per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit when score_type is omitted. Legacy rows from before migration 048 are not auto-classified; secretaries may need to clean up names that are really sections. |
 | `sections` | Per-show **age/skill brackets** within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional. New in migration 048. |

@@ -10,23 +10,37 @@ const adminTiles = [
   { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scorekeepers.', icon: 'U' },
 ];
 
-const showAdminTiles = [
+const showSecretaryTiles = [
   { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you own.', icon: 'T' },
 ];
+
+const showManagerTiles = [
+  { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you run.', icon: 'T' },
+  { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where your shows are held.', icon: 'V' },
+];
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: 'Admin',
+  SHOW_SECRETARY: 'Show Secretary',
+  SHOW_MANAGER: 'Show Manager',
+};
 
 export default async function AdminPage() {
   const session = await auth();
   const role = (session?.user as any)?.role;
 
   if (!session?.user) redirect('/login');
-  if (role !== 'ADMIN' && role !== 'SHOW_SECRETARY') redirect('/');
+  if (role !== 'ADMIN' && role !== 'SHOW_SECRETARY' && role !== 'SHOW_MANAGER') redirect('/');
 
-  const tiles = role === 'SHOW_SECRETARY' ? showAdminTiles : adminTiles;
+  const tiles =
+    role === 'SHOW_SECRETARY' ? showSecretaryTiles :
+    role === 'SHOW_MANAGER' ? showManagerTiles :
+    adminTiles;
 
   return (
     <main className="max-w-4xl mx-auto p-4 md:p-6">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>{role === 'SHOW_SECRETARY' ? 'Show Secretary' : 'Admin'}</h1>
+        <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>{ROLE_LABELS[role] ?? 'Admin'}</h1>
         <Link href="/" className="text-sm hover:underline" style={{ color: '#8b4513' }}>Back to Shows</Link>
       </div>
       <div className="grid sm:grid-cols-2 gap-4">

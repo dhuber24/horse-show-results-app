@@ -13,8 +13,16 @@ async function fetchAuthed(url: string) {
   return res.json();
 }
 
-export default async function ShowSetupPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ShowSetupPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ missing?: string }>;
+}) {
   const { id } = await params;
+  const sp = (await searchParams) ?? {};
+  const missingParam = (sp.missing ?? '').split(',').filter(Boolean);
   const show = await fetchShow(id);
   const [
     rings,
@@ -68,6 +76,16 @@ export default async function ShowSetupPage({ params }: { params: Promise<{ id: 
           Set up the arenas, disciplines, and age/skill brackets for {show.name}. Classes can then be assigned
           to a ring, a division (discipline), and an optional section (bracket).
         </p>
+        {missingParam.length > 0 && (
+          <div
+            className="mt-3 rounded border p-3 text-sm"
+            style={{ borderColor: '#e8b923', backgroundColor: '#fef8e1', color: '#5c3d1e' }}
+            role="alert"
+          >
+            Add at least one {missingParam.join(' and ')} before creating classes. Classes are
+            assigned to a ring and a division, so both must exist first.
+          </div>
+        )}
       </div>
 
       <SetupListPanel

@@ -47,6 +47,7 @@ class VenueOut(BaseModel):
     address: Optional[str]
     city: Optional[str]
     state: Optional[str]
+    created_by_user_id: Optional[UUID] = None
     created_at: datetime
 
     class Config:
@@ -67,6 +68,7 @@ class ShowCreate(BaseModel):
     aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
+    office_charge_cents: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -86,6 +88,7 @@ class ShowUpdate(BaseModel):
     aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
+    office_charge_cents: Optional[int] = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -120,6 +123,7 @@ class ShowOut(BaseModel):
     aqha_approval_status: str = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = None
+    office_charge_cents: int = 0
     affiliations: list[ShowAffiliationOut] = []
     created_at: datetime
 
@@ -247,6 +251,7 @@ class ClassCreate(BaseModel):
     status: Literal["OPEN", "CLOSED"] = "OPEN"
     # Omit to derive from division.default_score_type at creation time.
     score_type: Optional[ScoreType] = None
+    entry_fee_cents: int = Field(default=0, ge=0)
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -256,6 +261,7 @@ class ClassUpdate(BaseModel):
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
     score_type: Optional[ScoreType] = None
+    entry_fee_cents: Optional[int] = Field(default=None, ge=0)
 
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
@@ -303,6 +309,7 @@ class ClassOut(BaseModel):
     class_date: date
     status: str
     score_type: str = "placement"
+    entry_fee_cents: int = 0
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime

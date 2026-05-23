@@ -61,6 +61,7 @@ function FieldRow({
 export default function TrainersManager({ initialTrainers }: Props) {
   const [trainers, setTrainers] = useState<Trainer[]>(initialTrainers);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [isAdding, setIsAdding] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,6 +89,7 @@ export default function TrainersManager({ initialTrainers }: Props) {
     const created: Trainer = await res.json();
     setTrainers((prev) => [...prev, created]);
     setForm(emptyForm);
+    setIsAdding(false);
   };
 
   const handleDelete = async (id: string) => {
@@ -104,25 +106,57 @@ export default function TrainersManager({ initialTrainers }: Props) {
   return (
     <div className="space-y-6">
       <section className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Add Trainer</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <FieldRow label="First name *" htmlFor="new-trainer-first-name">
-            <input id="new-trainer-first-name" value={form.first_name} onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-          </FieldRow>
-          <FieldRow label="Last name *" htmlFor="new-trainer-last-name">
-            <input id="new-trainer-last-name" value={form.last_name} onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-          </FieldRow>
-          <FieldRow label="Private phone" htmlFor="new-trainer-private-phone" hint="Internal contact, not shown publicly">
-            <input id="new-trainer-private-phone" value={form.private_phone} onChange={(e) => setForm((p) => ({ ...p, private_phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-          </FieldRow>
-          <FieldRow label="Public phone" htmlFor="new-trainer-phone">
-            <input id="new-trainer-phone" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-          </FieldRow>
-          <FieldRow label="Public email" htmlFor="new-trainer-email">
-            <input id="new-trainer-email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
-          </FieldRow>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold" style={{ color: '#2c1810' }}>Trainers</h2>
+          {!isAdding && (
+            <button
+              onClick={() => {
+                setError(null);
+                setIsAdding(true);
+              }}
+              className="px-4 py-2 rounded text-sm font-medium"
+              style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+            >
+              Add Trainer
+            </button>
+          )}
         </div>
-        <button onClick={handleCreate} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>Add Trainer</button>
+
+        {isAdding && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FieldRow label="First name *" htmlFor="new-trainer-first-name">
+                <input id="new-trainer-first-name" value={form.first_name} onChange={(e) => setForm((p) => ({ ...p, first_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
+              </FieldRow>
+              <FieldRow label="Last name *" htmlFor="new-trainer-last-name">
+                <input id="new-trainer-last-name" value={form.last_name} onChange={(e) => setForm((p) => ({ ...p, last_name: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
+              </FieldRow>
+              <FieldRow label="Private phone" htmlFor="new-trainer-private-phone" hint="Internal contact, not shown publicly">
+                <input id="new-trainer-private-phone" value={form.private_phone} onChange={(e) => setForm((p) => ({ ...p, private_phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
+              </FieldRow>
+              <FieldRow label="Public phone" htmlFor="new-trainer-phone">
+                <input id="new-trainer-phone" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
+              </FieldRow>
+              <FieldRow label="Public email" htmlFor="new-trainer-email">
+                <input id="new-trainer-email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={inputStyle} />
+              </FieldRow>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={handleCreate} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>Add Trainer</button>
+              <button
+                onClick={() => {
+                  setForm(emptyForm);
+                  setError(null);
+                  setIsAdding(false);
+                }}
+                className="text-sm font-medium hover:underline"
+                style={{ color: '#8b7355' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="space-y-2">

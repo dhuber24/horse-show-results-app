@@ -126,7 +126,14 @@
       "Bash(echo \"Baseline exit: $?\")",
       "Read(//c/Users/Home/projects/**)",
       "Bash(python -m compileall backend/routers/trainers.py)",
-      "Bash(awk -F: '{print $1}')"
+      "Bash(awk -F: '{print $1}')",
+      "Bash(xargs grep -l \"SHOW_MANAGER\")",
+      "PowerShell(npm run type-check 2>&1)",
+      "WebFetch(domain:www.suncircuit.com)",
+      "WebFetch(domain:www.nsba.com)",
+      "Bash(python -c \"import pypdf; r = pypdf.PdfReader\\(r'C:\\\\Users\\\\Home\\\\.claude\\\\projects\\\\c--Users-Home-projects-horse-show-results-app\\\\e8063f08-0674-4ab9-a904-c448d4512a22\\\\tool-results\\\\webfetch-1779555974331-gz0zhs.pdf'\\); [print\\(p.extract_text\\(\\)\\) for p in r.pages]\")",
+      "Bash(python -c \"import pypdf; r = pypdf.PdfReader\\(r'C:\\\\Users\\\\Home\\\\.claude\\\\projects\\\\c--Users-Home-projects-horse-show-results-app\\\\e8063f08-0674-4ab9-a904-c448d4512a22\\\\tool-results\\\\webfetch-1779556019696-apy1bo.bin'\\); [print\\(f'--- PAGE {i+1} ---'\\); print\\(p.extract_text\\(\\)\\) for i, p in enumerate\\(r.pages\\)]\")",
+      "Bash(python)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates"

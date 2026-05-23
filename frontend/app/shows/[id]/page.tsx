@@ -15,8 +15,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const session = await auth();
   const role = (session?.user as any)?.role;
   const canScore = (role === 'ADMIN' || role === 'SCOREKEEPER');
+  const canSelfRegister = role === 'EXHIBITOR';
 
   const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
+  const registrationOpen = show.status === 'PUBLISHED';
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -42,6 +44,32 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
       </div>
+
+      {canSelfRegister && registrationOpen && (
+        <div
+          className="mb-4 px-4 py-3 rounded border flex items-center justify-between gap-3"
+          style={{ backgroundColor: '#f0e8d8', borderColor: '#d4b896' }}
+        >
+          <div className="text-sm" style={{ color: '#5d4a37' }}>
+            Registration is open for this show.
+          </div>
+          <Link
+            href={`/shows/${id}/register`}
+            className="text-sm font-medium px-3 py-1.5 rounded text-white"
+            style={{ backgroundColor: '#8b4513' }}
+          >
+            Register for classes →
+          </Link>
+        </div>
+      )}
+      {canSelfRegister && !registrationOpen && show.status !== 'DRAFT' && (
+        <div
+          className="mb-4 px-4 py-3 rounded border text-sm"
+          style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        >
+          Online registration is closed. Contact the show secretary to be added to classes.
+        </div>
+      )}
 
       {show.status !== 'ACTIVE' && (
         <div

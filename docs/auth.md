@@ -73,7 +73,7 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 - Show Manager registration at `/register/show-manager` is available immediately. APHA certification lookup is informational.
 - Admin user profiles can record `aqha_management_workshop_completed_at`, which AQHA validation uses to confirm at least one assigned show manager or show secretary is workshop-current within 3 years.
 - New self-registered Show Secretaries, Show Managers, Trainers, and Exhibitors are currently auto-approved. The `is_approved` column remains as an account lock gate.
-- Show Manager approval happens at the show request level, not at account creation.
+- Show Managers create shows directly via `/admin/shows/new`; `POST /shows/` auto-links them via `show_managers`. There is no per-show approval gate.
 
 ## Backend Guards
 

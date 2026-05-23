@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { fetchShow, fetchClasses, fetchShowTypes, fetchRings, fetchDivisions, fetchSections } from '@/lib/api';
 import CreateClassForm from '../CreateClassForm';
 import ClassListWithReorder from '../ClassListWithReorder';
@@ -16,6 +17,13 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
     fetchDivisions(id),
     fetchSections(id),
   ]);
+
+  if (rings.length === 0 || divisions.length === 0) {
+    const missing: string[] = [];
+    if (rings.length === 0) missing.push('rings');
+    if (divisions.length === 0) missing.push('divisions');
+    redirect(`/admin/shows/${id}/setup?missing=${missing.join(',')}`);
+  }
 
   const isApha = show.show_type_code === 'APHA';
   const isAqha = show.show_type_code === 'AQHA';

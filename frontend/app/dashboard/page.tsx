@@ -202,6 +202,15 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
             {formatDateRange(show.show_start_date, show.show_end_date)}
             {show.show_venue && <> · {show.show_venue}</>}
           </p>
+          {show.show_status === 'PUBLISHED' && (
+            <Link
+              href={`/shows/${show.show_id}/register`}
+              className="inline-block mt-1 text-xs font-medium hover:underline"
+              style={{ color: '#8b4513' }}
+            >
+              Manage registration →
+            </Link>
+          )}
         </div>
         <span
           className="text-xs px-2 py-0.5 rounded font-medium shrink-0 mt-0.5"

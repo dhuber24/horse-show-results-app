@@ -41,6 +41,7 @@ class Venue(Base):
     address = Column(Text)
     city = Column(Text)
     state = Column(Text)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     shows = relationship("Show", back_populates="venue_rel")
@@ -62,6 +63,7 @@ class Show(Base):
     aqha_approval_status = Column(Text, nullable=False, default="NOT_SUBMITTED")
     aqha_approval_submitted_at = Column(Date, nullable=True)
     aqha_approval_notes = Column(Text, nullable=True)
+    office_charge_cents = Column(Integer, nullable=False, server_default="0")
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -180,6 +182,7 @@ class Class(Base):
     class_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="OPEN")
     score_type = Column(Text, nullable=False, server_default="placement")
+    entry_fee_cents = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -238,7 +241,6 @@ class User(Base):
     manager_shows = relationship("ShowManager", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
-    show_requests = relationship("ShowRequest", back_populates="requested_by", cascade="all, delete")
     trainer_profile = relationship("Trainer", back_populates="user", uselist=False, passive_deletes=True)
 
 
@@ -705,30 +707,6 @@ class AqhaStandardClass(Base):
     sort_order = Column(Integer, nullable=False, default=0)
     source_year = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
-
-
-class ShowRequest(Base):
-    __tablename__ = "show_requests"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    show_name = Column(Text, nullable=False)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
-    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"), nullable=True)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    manager_association_id = Column(Text, nullable=True)
-    association_approval_confirmed = Column(Boolean, nullable=False, server_default="false")
-    notes = Column(Text, nullable=True)
-    status = Column(Text, nullable=False, server_default="PENDING")
-    admin_notes = Column(Text, nullable=True)
-    created_show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-
-    requested_by = relationship("User", back_populates="show_requests")
-    show_type = relationship("ShowType")
-    venue = relationship("Venue")
 
 
 class SidePot(Base):

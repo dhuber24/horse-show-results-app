@@ -9,9 +9,16 @@ interface Venue {
   address: string | null;
   city: string | null;
   state: string | null;
+  created_by_user_id?: string | null;
 }
 
-export default function VenueList({ initialVenues }: { initialVenues: Venue[] }) {
+interface VenueListProps {
+  initialVenues: Venue[];
+  currentUserId?: string;
+  role?: string;
+}
+
+export default function VenueList({ initialVenues, currentUserId, role }: VenueListProps) {
   const [venues, setVenues] = useState<Venue[]>(initialVenues);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -37,7 +44,13 @@ export default function VenueList({ initialVenues }: { initialVenues: Venue[] })
 
   return (
     <ul className="space-y-3">
-      {venues.map(venue => (
+      {venues.map(venue => {
+        const isAdmin = role === 'ADMIN';
+        const isCreator =
+          role === 'SHOW_MANAGER' && !!currentUserId && venue.created_by_user_id === currentUserId;
+        const canDelete = isAdmin || isCreator;
+        const canEdit = isAdmin || isCreator;
+        return (
         <li
           key={venue.id}
           className="flex items-center justify-between p-4 rounded-lg border"
@@ -74,24 +87,37 @@ export default function VenueList({ initialVenues }: { initialVenues: Venue[] })
               </>
             ) : (
               <>
-                <Link
-                  href={`/admin/venues/${venue.id}`}
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: '#8b4513' }}
-                >
-                  Edit →
-                </Link>
-                <button
-                  onClick={() => { setConfirmDeleteId(venue.id); setDeleteError(null); }}
-                  className="text-sm text-red-600 hover:text-red-800"
-                >
-                  Delete
-                </button>
+                {canEdit ? (
+                  <Link
+                    href={`/admin/venues/${venue.id}`}
+                    className="text-sm font-medium hover:underline"
+                    style={{ color: '#8b4513' }}
+                  >
+                    Edit →
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/admin/venues/${venue.id}`}
+                    className="text-sm font-medium hover:underline"
+                    style={{ color: '#8b4513' }}
+                  >
+                    View →
+                  </Link>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={() => { setConfirmDeleteId(venue.id); setDeleteError(null); }}
+                    className="text-sm text-red-600 hover:text-red-800"
+                  >
+                    Delete
+                  </button>
+                )}
               </>
             )}
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

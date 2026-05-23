@@ -22,9 +22,25 @@ interface ClassItem {
   class_date: string;
   status: string;
   score_type: 'placement' | 'pattern' | 'time';
+  entry_fee_cents: number;
   ring_id: string | null;
   division_id: string | null;
   associations: ClassAssociation[];
+}
+
+function centsToDollarsInput(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function parseDollarsToCents(input: string): number | null {
+  const trimmed = input.trim();
+  if (trimmed === '') return 0;
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  return Math.round(parseFloat(trimmed) * 100);
+}
+
+function formatMoney(cents: number): string {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
@@ -57,6 +73,7 @@ export default function EditClassCard({
     division_id: cls.division_id ?? '',
     status: cls.status,
     score_type: cls.score_type,
+    entry_fee: centsToDollarsInput(cls.entry_fee_cents),
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -69,13 +86,16 @@ export default function EditClassCard({
   const [assocError, setAssocError] = useState<string | null>(null);
   const [confirmDeleteAssocId, setConfirmDeleteAssocId] = useState<string | null>(null);
 
+  const parsedFeeCents = parseDollarsToCents(form.entry_fee);
+  const feeInvalid = parsedFeeCents === null;
   const isDirty =
     form.class_name !== cls.class_name ||
     form.class_date !== cls.class_date ||
     (form.ring_id || null) !== cls.ring_id ||
     (form.division_id || null) !== cls.division_id ||
     form.status !== cls.status ||
-    form.score_type !== cls.score_type;
+    form.score_type !== cls.score_type ||
+    (!feeInvalid && parsedFeeCents !== cls.entry_fee_cents);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -84,6 +104,10 @@ export default function EditClassCard({
   const handleSave = async () => {
     if (!form.class_name || !form.class_date) {
       setError('Class name and date are required.');
+      return;
+    }
+    if (feeInvalid || parsedFeeCents === null) {
+      setError('Entry fee must be a dollar amount (e.g. 25 or 25.50).');
       return;
     }
     setSaving(true);
@@ -100,6 +124,7 @@ export default function EditClassCard({
         division_id: form.division_id || null,
         status: form.status,
         score_type: form.score_type,
+        entry_fee_cents: parsedFeeCents,
       }),
     });
     setSaving(false);
@@ -143,6 +168,7 @@ export default function EditClassCard({
       division_id: cls.division_id ?? '',
       status: cls.status,
       score_type: cls.score_type,
+      entry_fee: centsToDollarsInput(cls.entry_fee_cents),
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -222,6 +248,15 @@ export default function EditClassCard({
               {a.show_type_code}:{a.association_class_code}
             </span>
           ))}
+          {cls.entry_fee_cents > 0 && (
+            <span
+              className="text-xs ml-2 px-1.5 py-0.5 rounded font-medium"
+              style={{ backgroundColor: '#f0e8d8', color: '#5d4a37' }}
+              title="Entry fee shown to exhibitors on the registration screen."
+            >
+              {formatMoney(cls.entry_fee_cents)}
+            </span>
+          )}
           {cls.score_type !== 'placement' && (
             <span
               className="text-xs ml-2 px-1.5 py-0.5 rounded"
@@ -282,6 +317,35 @@ export default function EditClassCard({
           </select>
         </div>
       </div>
+      <div className="flex gap-3">
+        <div className="flex-1 max-w-[200px]">
+          <label className="text-sm text-gray-500">Entry fee (USD)</label>
+          <div className="relative">
+            <span
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-sm"
+              style={{ color: '#8b7355' }}
+            >
+              $
+            </span>
+            <input
+              name="entry_fee"
+              inputMode="decimal"
+              value={form.entry_fee}
+              onChange={handleChange}
+              placeholder="0.00"
+              className="w-full border rounded pl-6 pr-3 py-2"
+              style={{ borderColor: feeInvalid ? '#fca5a5' : undefined }}
+              title="Fee charged per entry in this class. Displayed to exhibitors on the registration screen; the app does not collect payment."
+            />
+          </div>
+          {feeInvalid && (
+            <p className="text-xs mt-1" style={{ color: '#b91c1c' }}>
+              Enter a dollar amount, e.g. 25 or 25.50.
+            </p>
+          )}
+        </div>
+      </div>
+
       {(rings.length > 0 || divisions.length > 0) && (
         <div className="flex gap-3">
           {rings.length > 0 && (
@@ -396,8 +460,16 @@ export default function EditClassCard({
         <div className="flex gap-2 items-center">
           <button
             onClick={handleSave}
-            disabled={saving || !isDirty}
-            title={!isDirty ? 'No changes to save' : saving ? 'Saving, please wait…' : undefined}
+            disabled={saving || !isDirty || feeInvalid}
+            title={
+              feeInvalid
+                ? 'Fix the entry fee before saving'
+                : !isDirty
+                ? 'No changes to save'
+                : saving
+                ? 'Saving, please wait…'
+                : undefined
+            }
             className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}

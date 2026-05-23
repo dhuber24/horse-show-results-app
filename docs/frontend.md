@@ -68,8 +68,6 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/admin/users/[id]` | User profile, role, password, delete controls, and AQHA workshop date tracking |
 | `/register/trainer` | Trainer account registration |
 | `/admin/venues` | Venue management |
-| `/admin/show-requests` | Admin show request review |
-| `/show-requests` | Show Manager request list |
 
 ## Validation
 

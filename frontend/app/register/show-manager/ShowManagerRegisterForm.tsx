@@ -87,7 +87,7 @@ export default function ShowManagerRegisterForm() {
       return;
     }
 
-    router.push('/show-requests');
+    router.push('/admin/shows/new');
     router.refresh();
   };
 

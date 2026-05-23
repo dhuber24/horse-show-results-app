@@ -25,6 +25,7 @@ interface ClassItem {
   class_date: string;
   status: string;
   score_type: 'placement' | 'pattern' | 'time';
+  entry_fee_cents: number;
   sort_order: number | null;
   ring_id: string | null;
   division_id: string | null;
@@ -75,6 +76,11 @@ export default function ClassListWithReorder({
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
+  const [feeMode, setFeeMode] = useState(false);
+  const [feeInput, setFeeInput] = useState('');
+  const [feeApplying, setFeeApplying] = useState(false);
+  const [feeError, setFeeError] = useState<string | null>(null);
+  const [feeStatus, setFeeStatus] = useState<string | null>(null);
 
   const currentIds = ordered.map((c) => c.id).join(',');
   const isDirty = currentIds !== savedIds;
@@ -152,6 +158,54 @@ export default function ClassListWithReorder({
     } else {
       setSelectedIds(new Set());
       setConfirmBulkDelete(false);
+      router.refresh();
+    }
+  };
+
+  // ── Bulk set fee ──────────────────────────────────────────────────────────
+
+  const parseDollarsToCents = (input: string): number | null => {
+    const trimmed = input.trim();
+    if (trimmed === '') return null;
+    if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+    return Math.round(parseFloat(trimmed) * 100);
+  };
+
+  const cancelFeeMode = () => {
+    setFeeMode(false);
+    setFeeInput('');
+    setFeeError(null);
+  };
+
+  const handleBulkSetFee = async () => {
+    const cents = parseDollarsToCents(feeInput);
+    if (cents === null) {
+      setFeeError('Enter a dollar amount (e.g. 25 or 25.50).');
+      return;
+    }
+    setFeeApplying(true);
+    setFeeError(null);
+    setFeeStatus(null);
+    const ids = [...selectedIds];
+    const results = await Promise.all(
+      ids.map((classId) =>
+        fetch('/api/classes', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ showId, classId, entry_fee_cents: cents }),
+        }),
+      ),
+    );
+    setFeeApplying(false);
+    const failed = results.filter((r) => !r.ok).length;
+    if (failed > 0) {
+      setFeeError(`${failed} class${failed > 1 ? 'es' : ''} could not be updated.`);
+    } else {
+      const dollars = (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+      setFeeStatus(`Set fee to ${dollars} for ${ids.length} class${ids.length > 1 ? 'es' : ''}.`);
+      setFeeMode(false);
+      setFeeInput('');
+      setSelectedIds(new Set());
       router.refresh();
     }
   };
@@ -278,8 +332,55 @@ export default function ClassListWithReorder({
               </button>
               {bulkDeleteError && <span className="text-xs text-red-600 w-full">{bulkDeleteError}</span>}
             </div>
+          ) : feeMode ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-xs font-medium" style={{ color: '#5c3d1e' }}>
+                Set entry fee to
+              </label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  value={feeInput}
+                  onChange={(e) => setFeeInput(e.target.value)}
+                  placeholder="0.00"
+                  className="w-24 border rounded pl-5 pr-2 py-1 text-sm"
+                  style={{ borderColor: '#d4b896' }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleBulkSetFee();
+                    if (e.key === 'Escape') cancelFeeMode();
+                  }}
+                />
+              </div>
+              <button
+                onClick={handleBulkSetFee}
+                disabled={feeApplying}
+                className="text-xs font-medium px-3 py-1 rounded disabled:opacity-50"
+                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              >
+                {feeApplying ? 'Applying…' : `Apply to ${selectedIds.size}`}
+              </button>
+              <button
+                onClick={cancelFeeMode}
+                disabled={feeApplying}
+                className="text-xs hover:underline"
+                style={{ color: '#8b7355' }}
+              >
+                Cancel
+              </button>
+              {feeError && <span className="text-xs text-red-600 w-full">{feeError}</span>}
+            </div>
           ) : (
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setFeeMode(true); setFeeError(null); setFeeStatus(null); }}
+                className="text-sm font-medium hover:underline"
+                style={{ color: '#5c3d1e' }}
+              >
+                Set fee…
+              </button>
               <button onClick={() => setConfirmBulkDelete(true)} className="text-sm text-red-600 hover:text-red-800 font-medium">
                 Delete selected
               </button>
@@ -290,6 +391,7 @@ export default function ClassListWithReorder({
           )}
         </div>
       )}
+      {feeStatus && <p className="text-sm text-green-700 px-1">{feeStatus}</p>}
 
       {/* Filter input */}
       <div className="relative">
