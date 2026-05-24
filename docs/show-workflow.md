@@ -71,14 +71,15 @@ The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divis
 - `score_type` is taken from the division's `default_score_type` for every class the build creates (with a per-pick override available in the API for advanced use).
 - New disciplines or brackets can be added inline from the builder (custom division add form includes a scoring radio; custom section add form is name-only).
 
-## Pasted Class Lists
+## Standard Library Quick-Start
 
-The "Paste Class List" action on `/admin/shows/[id]/classes` bulk-adds class names for any show type, including OPEN shows:
+The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the click-pick equivalent of the AQHA/APHA pickers for any show type:
 
-- The secretary pastes one class per line. A per-line bracket can be supplied with `Class Name | Bracket`; otherwise the dialog's default bracket is used, or "Unassigned" if no bracket is provided.
-- The backend routes each name through `backend/rules/disciplines.py`, creates any missing per-show Division and Section rows, registers the `(division, section)` membership, and creates the class with the inferred default `score_type`.
-- The preview endpoint `POST /shows/{id}/classes/bulk-from-names/preview` returns the same routing groups the UI shows before commit.
-- The commit endpoint `POST /shows/{id}/classes/bulk-from-names` creates the classes and then renumbers the schedule.
+- The picker loads `standard_divisions` and `standard_sections` for the show's primary show type (with the NULL-show-type generic fallback) and renders the cartesian product as a flat table — one row per `(discipline × bracket)` cell.
+- The secretary filters by discipline / bracket / search, checks the cells they want, sees a routing-summary panel, and commits.
+- On commit, `POST /shows/{id}/classes/from-library` creates any missing per-show Division (with the discipline's `default_score_type`), Section, and `(division, section)` membership; then creates one class per pick named `"{Section} {Discipline}"` with the discipline's scoring type. The schedule is renumbered.
+- Each pick already carries division name + score type from `standard_divisions`, so this endpoint skips the name-keyword classifier used by the AQHA/APHA bulk imports.
+- Disciplines or brackets that don't appear in the standard library are added on the Setup page; they'll appear here the next time the picker opens.
 
 ## Entries And Back Numbers
 
@@ -91,7 +92,7 @@ The "Paste Class List" action on `/admin/shows/[id]/classes` bulk-adds class nam
 ## Association Class Setup
 
 - APHA and AQHA shows can bulk-add classes from official standard-class catalogs at `/admin/shows/[id]/classes`.
-- All show types can bulk-add classes from pasted names using the same discipline classifier used by the APHA/AQHA catalog import.
+- All show types can bulk-add classes from the **Standard Library** picker (cartesian product of `standard_divisions` × `standard_sections` for the show type) — no typing, no parsing, just check the cells.
 - APHA reference data lives in `apha_standard_classes`.
 - AQHA reference data lives in `aqha_standard_classes` and is seeded from `database/seeds/aqha_standard_classes.csv`, which is extracted from the official 2026 AQHA Class Master Listing PDF.
 - Imported classes create a `class_associations` row so later validation/export logic can read the association class code from one normalized location.
@@ -122,7 +123,7 @@ Exhibitors can register themselves for a show that is `PUBLISHED`. The flow live
   - `POST /shows/{id}/register/` accepts `{ entries: [{ class_id, horse_id, apha_division?, relationship_to_owner? }] }`. The exhibitor is resolved from the authenticated user — body never carries `exhibitor_id`.
 - Status gate: only `PUBLISHED` shows accept self-registration. Once a show flips to `ACTIVE`, `COMPLETED`, or back to `DRAFT`, the endpoint returns 403 and the show secretary must add late entries through the admin entries flow.
 - A `show_entries` row is auto-created on first registration (back number stays NULL — the secretary still assigns it).
-- Coggins and association validation (`backend/rules`) run identically to the secretary entry create path. AQHA errors block, and a missing/expired Coggins returns `422 COGGINS_EXPIRED`.
+- Coggins and association validation (`backend/rules`) run identically to the secretary entry create path. The preview endpoint includes each horse's Coggins readiness so the self-registration picker can grey out horses with missing or expired Coggins before submit. AQHA errors still block at submit time, and a missing/expired Coggins returns `422 COGGINS_EXPIRED`.
 - Fees are surfaced to the exhibitor in three layers; the app does not collect payment.
   - **Per-class entry fee** (`classes.entry_fee_cents`, migration 054, default 0). Set on the class editor or via the bulk "Set fee…" action on the schedule list.
   - **NSBA sanction fee** (auto-computed at preview/POST time). Any class whose primary `show_type_code` is `NSBA` or whose `class_associations` include an `NSBA` row carries an additional `max($3, 6% × entry_fee)` charge per entry, matching the official [NSBA sanction-fees rule](https://www.nsba.com/images/documents/Show-Approval-Documents/Sanction-Fees.pdf). The preview endpoint returns `is_nsba_approved` and `nsba_sanction_cents` per class; the form shows the rollup as a separate line item.

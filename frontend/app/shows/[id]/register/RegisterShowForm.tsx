@@ -14,7 +14,19 @@ type PreviewClass = {
   nsba_sanction_cents: number;
 };
 
-type PreviewHorse = { id: string; name: string };
+type RegistrationRequirement = {
+  code: string;
+  label: string;
+  status: 'valid' | 'missing' | 'expired';
+  message: string;
+};
+
+type PreviewHorse = {
+  id: string;
+  name: string;
+  can_register?: boolean;
+  registration_requirements?: RegistrationRequirement[];
+};
 
 type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
 
@@ -45,6 +57,16 @@ function formatDate(dateStr: string): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function horseBlockers(horse: PreviewHorse): string[] {
+  return (horse.registration_requirements ?? [])
+    .filter((req) => req.status !== 'valid')
+    .map((req) => req.message);
+}
+
+function canRegisterHorse(horse: PreviewHorse): boolean {
+  return horse.can_register ?? horseBlockers(horse).length === 0;
 }
 
 export default function RegisterShowForm({ showId, preview }: { showId: string; preview: PreviewData }) {
@@ -90,6 +112,15 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     for (const h of horses) m.set(h.id, h.name);
     return m;
   }, [horses]);
+  const horseById = useMemo(() => {
+    const m = new Map<string, PreviewHorse>();
+    for (const h of horses) m.set(h.id, h);
+    return m;
+  }, [horses]);
+  const unavailableHorses = useMemo(
+    () => horses.filter((h) => !canRegisterHorse(h)),
+    [horses],
+  );
 
   const selectedClassIds = Object.keys(selection).filter((cid) => selection[cid]);
   const classById = useMemo(() => {
@@ -162,6 +193,20 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
       setError('Pick a horse for at least one class to register.');
       return;
     }
+    const unavailableEntry = entries.find((entry) => {
+      const horse = horseById.get(entry.horse_id);
+      return horse && !canRegisterHorse(horse);
+    });
+    if (unavailableEntry) {
+      const horse = horseById.get(unavailableEntry.horse_id);
+      const blocker = horse ? horseBlockers(horse)[0] : null;
+      setError(
+        blocker
+          ? `${horse?.name ?? 'This horse'} cannot be registered yet: ${blocker}.`
+          : `${horse?.name ?? 'This horse'} cannot be registered yet.`,
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch(`/api/shows/${showId}/register`, {
@@ -221,6 +266,15 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
       >
         Pick a horse for each class you want to enter. The show secretary assigns your back number
         once the show begins. Fees shown are informational — payment is collected at the show.
+        {unavailableHorses.length > 0 && (
+          <div className="mt-2 pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
+            {unavailableHorses.length} horse{unavailableHorses.length === 1 ? ' is' : 's are'} unavailable until
+            required documents are added.{' '}
+            <Link href="/profile?tab=horses" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+              Manage horse documents
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 space-y-6">
@@ -327,9 +381,11 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
                           <option value="">— skip —</option>
                           {horses.map((h) => {
                             const already = existingHorseIds.includes(h.id);
+                            const blockers = horseBlockers(h);
+                            const blocked = !canRegisterHorse(h);
                             return (
-                              <option key={h.id} value={h.id} disabled={already}>
-                                {h.name}{already ? ' (entered)' : ''}
+                              <option key={h.id} value={h.id} disabled={already || blocked}>
+                                {h.name}{already ? ' (entered)' : blocked ? ` (${blockers[0] ?? 'documents required'})` : ''}
                               </option>
                             );
                           })}

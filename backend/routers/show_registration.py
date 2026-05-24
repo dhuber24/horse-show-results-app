@@ -183,6 +183,29 @@ async def _assert_coggins(horse_id: UUID, db: AsyncSession) -> None:
         raise HTTPException(422, {"code": "COGGINS_EXPIRED", "message": msg})
 
 
+def _coggins_requirement(expiry_dates: list[date | None]) -> dict:
+    today = date.today()
+    has_valid = any(expiry_date is None or expiry_date >= today for expiry_date in expiry_dates)
+    if has_valid:
+        return {
+            "code": "COGGINS",
+            "label": "Coggins Test (EIA)",
+            "status": "valid",
+            "message": "Valid Coggins on file",
+        }
+
+    return {
+        "code": "COGGINS",
+        "label": "Coggins Test (EIA)",
+        "status": "expired" if expiry_dates else "missing",
+        "message": (
+            "Coggins on file has expired"
+            if expiry_dates
+            else "No valid Coggins on file for this horse"
+        ),
+    }
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/preview")
@@ -212,11 +235,21 @@ async def preview_registration(
 
     horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
     horses: list[Horse] = []
+    coggins_expiries_by_horse: dict[UUID, list[date | None]] = {}
     if horse_ids:
         horses_result = await db.execute(
             select(Horse).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
         )
         horses = horses_result.scalars().all()
+        coggins_expiries_by_horse = {h.id: [] for h in horses}
+        coggins_result = await db.execute(
+            select(HorseDocument.horse_id, HorseDocument.expiry_date).where(
+                HorseDocument.horse_id.in_(horse_ids),
+                HorseDocument.document_type == "COGGINS",
+            )
+        )
+        for horse_id, expiry_date in coggins_result.all():
+            coggins_expiries_by_horse.setdefault(horse_id, []).append(expiry_date)
 
     existing_result = await db.execute(
         select(Entry)
@@ -256,7 +289,17 @@ async def preview_registration(
             for c in classes
         ],
         "horses": [
-            {"id": str(h.id), "name": h.name}
+            {
+                "id": str(h.id),
+                "name": h.name,
+                "can_register": (
+                    _coggins_requirement(coggins_expiries_by_horse.get(h.id, []))["status"]
+                    == "valid"
+                ),
+                "registration_requirements": [
+                    _coggins_requirement(coggins_expiries_by_horse.get(h.id, []))
+                ],
+            }
             for h in horses
         ],
         "existing_entries": [
@@ -511,4 +554,3 @@ async def withdraw_entry(
 
     await db.delete(entry)
     await db.commit()
-
