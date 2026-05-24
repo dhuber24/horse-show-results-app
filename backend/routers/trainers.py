@@ -27,6 +27,7 @@ router = APIRouter(prefix="/trainers", tags=["Trainers"])
 
 _horse_options = [
     selectinload(Horse.breed),
+    selectinload(Horse.breeds),
     selectinload(Horse.color),
     selectinload(Horse.owner_exhibitor),
     selectinload(Horse.trainer),
@@ -258,6 +259,27 @@ async def list_my_trainer_horses(
         select(Horse)
         .options(*_horse_options)
         .where(Horse.trainer_id == trainer.id)
+        .order_by(Horse.name)
+    )
+    return horses_result.scalars().all()
+
+
+@router.get(
+    "/{trainer_id}/horses",
+    response_model=list[HorseOut],
+    dependencies=[Depends(require_authenticated)],
+)
+async def list_trainer_horses(
+    trainer_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_admin_or_self(trainer_id, user_id, x_user_role, db)
+    horses_result = await db.execute(
+        select(Horse)
+        .options(*_horse_options)
+        .where(Horse.trainer_id == trainer_id)
         .order_by(Horse.name)
     )
     return horses_result.scalars().all()

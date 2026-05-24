@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
@@ -34,7 +35,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
     trainer_email: '',
     sex: '',
     foaling_date: '',
-    breed_id: '',
+    breed_ids: [] as string[],
     color_id: '',
     is_solid_paint_bred: false,
   });
@@ -116,7 +117,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
     };
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
-    if (form.breed_id) body.breed_id = form.breed_id;
+    body.breed_ids = form.breed_ids;
     if (form.color_id) body.color_id = form.color_id;
 
     const res = await fetch('/api/horses', {
@@ -228,12 +229,12 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
             </label>
             <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
           </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
-            <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- Not specified -</option>
-              {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+          <div className="sm:col-span-2">
+            <BreedCheckboxGroup
+              breeds={breeds}
+              selectedIds={form.breed_ids}
+              onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
+            />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>

@@ -133,10 +133,40 @@
       "WebFetch(domain:www.nsba.com)",
       "Bash(python -c \"import pypdf; r = pypdf.PdfReader\\(r'C:\\\\Users\\\\Home\\\\.claude\\\\projects\\\\c--Users-Home-projects-horse-show-results-app\\\\e8063f08-0674-4ab9-a904-c448d4512a22\\\\tool-results\\\\webfetch-1779555974331-gz0zhs.pdf'\\); [print\\(p.extract_text\\(\\)\\) for p in r.pages]\")",
       "Bash(python -c \"import pypdf; r = pypdf.PdfReader\\(r'C:\\\\Users\\\\Home\\\\.claude\\\\projects\\\\c--Users-Home-projects-horse-show-results-app\\\\e8063f08-0674-4ab9-a904-c448d4512a22\\\\tool-results\\\\webfetch-1779556019696-apy1bo.bin'\\); [print\\(f'--- PAGE {i+1} ---'\\); print\\(p.extract_text\\(\\)\\) for i, p in enumerate\\(r.pages\\)]\")",
-      "Bash(python)"
+      "Bash(python)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(findstr \":3000 :8000\")",
+      "Bash(rm -rf \"frontend/app/api/shows/[id]\")",
+      "Bash(curl -s -o nul -w \"HTTP %{http_code}\\\\n\" http://localhost:3000)",
+      "Bash(py -m compileall backend/routers/people.py)",
+      "PowerShell(py -m compileall backend/routers/people.py)",
+      "PowerShell(python -m compileall backend/routers/people.py)",
+      "PowerShell(npm --prefix frontend run type-check)",
+      "PowerShell(python -m compileall backend/routers/auth.py backend/routers/people.py)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1)",
+      "PowerShell(python -m compileall backend/models.py backend/routers/entries.py backend/routers/show_registration.py)",
+      "PowerShell(docker compose ps)",
+      "PowerShell(docker compose logs --tail=30 frontend)",
+      "PowerShell(docker compose exec frontend sh -c \"rm -rf .next\")",
+      "PowerShell(docker compose up -d frontend --force-recreate)",
+      "PowerShell(docker compose logs --tail=15 frontend)",
+      "WebFetch(domain:wsca.org)",
+      "WebFetch(domain:nsba.com)",
+      "WebFetch(domain:www.wsca.org)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1 2>&1 | Select-Object -Last 10)",
+      "PowerShell(python -m compileall backend/models.py backend/schemas.py backend/routers/classes.py)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File c:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\database\\\\migrate.ps1 2>&1 | Select-Object -Last 8)",
+      "PowerShell(npm run build --prefix frontend 2>&1)",
+      "PowerShell($envFile = Resolve-Path \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\.env\"; Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -tAc \"SELECT code || '|' || name FROM aqha_standard_classes\" 2>&1 | Out-File -FilePath C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\aqha_names.txt -Encoding utf8; docker run --rm postgres:16-alpine psql $psqlUrl -tAc \"SELECT code || '|' || name FROM apha_standard_classes\" 2>&1 | Out-File -FilePath C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\apha_names.txt -Encoding utf8; \"AQHA: \" + \\(Get-Content C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\aqha_names.txt\\).Count + \" lines\"; \"APHA: \" + \\(Get-Content C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\apha_names.txt\\).Count + \" lines\")",
+      "Bash(rm -f frontend/app/admin/shows/\\\\[id\\\\]/BulkClassFromTextImporter.tsx)",
+      "Bash(rm -rf frontend/app/api/shows/\\\\[showId\\\\]/classes/bulk-from-names)",
+      "Bash(mkdir -p frontend/app/api/shows/\\\\[showId\\\\]/classes/from-library 2>&1)"
     ],
     "additionalDirectories": [
-      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates"
+      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates",
+      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[id]",
+      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\classes"
     ]
   }
 }

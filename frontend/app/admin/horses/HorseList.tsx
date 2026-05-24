@@ -10,6 +10,7 @@ interface Horse {
   owner_exhibitor_name: string | null;
   owner_name: string | null;
   breed_name: string | null;
+  breed_names?: string[];
   color_name: string | null;
   age: number | null;
 }
@@ -24,7 +25,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
   const [deleteError, setDeleteError] = useState<{ id: string; message: string } | null>(null);
 
   const breeds = useMemo(() => {
-    const names = horses.map((h) => h.breed_name).filter(Boolean) as string[];
+    const names = horses.flatMap((h) => h.breed_names?.length ? h.breed_names : (h.breed_name ? [h.breed_name] : []));
     return Array.from(new Set(names)).sort();
   }, [horses]);
 
@@ -32,9 +33,10 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
     const q = search.toLowerCase();
     return horses.filter((h) => {
       if (sexFilter && h.sex !== sexFilter) return false;
-      if (breedFilter && h.breed_name !== breedFilter) return false;
+      const horseBreeds = h.breed_names?.length ? h.breed_names : (h.breed_name ? [h.breed_name] : []);
+      if (breedFilter && !horseBreeds.includes(breedFilter)) return false;
       if (q) {
-        const haystack = [h.name, h.owner_exhibitor_name, h.owner_name, h.breed_name, h.color_name]
+        const haystack = [h.name, h.owner_exhibitor_name, h.owner_name, ...horseBreeds, h.color_name]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
@@ -142,7 +144,9 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
                   {(horse.owner_exhibitor_name || horse.owner_name) && (
                     <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
                   )}
-                  {horse.breed_name && <span>{horse.breed_name}</span>}
+                  {(horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name) && (
+                    <span>{horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name}</span>
+                  )}
                   {horse.color_name && <span>{horse.color_name}</span>}
                   {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
                 </div>

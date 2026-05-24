@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -20,7 +21,7 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     owner_exhibitor_id: '',
     sex: '',
     foaling_date: '',
-    breed_id: '',
+    breed_ids: [] as string[],
     color_id: '',
   });
   const [saving, setSaving] = useState(false);
@@ -38,7 +39,7 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     if (form.owner_exhibitor_id) body.owner_exhibitor_id = form.owner_exhibitor_id;
     if (form.sex) body.sex = form.sex;
     if (form.foaling_date) body.foaling_date = form.foaling_date;
-    if (form.breed_id) body.breed_id = form.breed_id;
+    body.breed_ids = form.breed_ids;
     if (form.color_id) body.color_id = form.color_id;
 
     const res = await fetch('/api/horses', {
@@ -49,7 +50,7 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     setSaving(false);
     if (res.ok) {
       router.refresh();
-      setForm({ name: '', owner_exhibitor_id: '', sex: '', foaling_date: '', breed_id: '', color_id: '' });
+      setForm({ name: '', owner_exhibitor_id: '', sex: '', foaling_date: '', breed_ids: [], color_id: '' });
     } else {
       setError('Failed to add horse.');
     }
@@ -85,10 +86,13 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
             className="w-full border rounded px-3 py-2"
           />
         </div>
-        <select name="breed_id" value={form.breed_id} onChange={handleChange} className="border rounded px-3 py-2">
-          <option value="">Breed</option>
-          {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-        </select>
+        <div className="sm:col-span-2">
+          <BreedCheckboxGroup
+            breeds={breeds}
+            selectedIds={form.breed_ids}
+            onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
+          />
+        </div>
         <select name="color_id" value={form.color_id} onChange={handleChange} className="border rounded px-3 py-2">
           <option value="">Color</option>
           {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

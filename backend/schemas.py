@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from sqlalchemy import inspect as sa_inspect
 from typing import Optional, Any, Literal
 from datetime import date, datetime
 from uuid import UUID
@@ -743,6 +744,7 @@ class HorseCreate(BaseModel):
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
+    breed_ids: Optional[list[UUID]] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
 
@@ -761,6 +763,7 @@ class HorseUpdate(BaseModel):
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
+    breed_ids: Optional[list[UUID]] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: Optional[bool] = None
 
@@ -777,6 +780,8 @@ class HorseOut(BaseModel):
     sex: Optional[str] = None
     breed_id: Optional[UUID] = None
     breed_name: Optional[str] = None
+    breed_ids: list[UUID] = Field(default_factory=list)
+    breed_names: list[str] = Field(default_factory=list)
     color_id: Optional[UUID] = None
     color_name: Optional[str] = None
     is_solid_paint_bred: bool = False
@@ -789,7 +794,13 @@ class HorseOut(BaseModel):
         if isinstance(v, dict):
             return v
         foaling_date = getattr(v, 'foaling_date', None)
-        breed = getattr(v, 'breed', None)
+        unloaded = sa_inspect(v).unloaded
+        breed = None if 'breed' in unloaded else getattr(v, 'breed', None)
+        breeds = [] if 'breeds' in unloaded else list(getattr(v, 'breeds', None) or [])
+        if not breeds and breed:
+            breeds = [breed]
+        breed_ids = [b.id for b in breeds]
+        breed_names = [b.name for b in breeds]
         color = getattr(v, 'color', None)
         owner_exhibitor = getattr(v, 'owner_exhibitor', None)
         trainer = getattr(v, 'trainer', None)
@@ -805,8 +816,10 @@ class HorseOut(BaseModel):
             'trainer_name': trainer.name if trainer else getattr(v, 'trainer_name', None),
             'foaling_date': foaling_date,
             'sex': v.sex,
-            'breed_id': v.breed_id,
-            'breed_name': breed.name if breed else None,
+            'breed_id': breed_ids[0] if breed_ids else v.breed_id,
+            'breed_name': ', '.join(breed_names) if breed_names else (breed.name if breed else None),
+            'breed_ids': breed_ids,
+            'breed_names': breed_names,
             'color_id': v.color_id,
             'color_name': color.name if color else None,
             'is_solid_paint_bred': getattr(v, 'is_solid_paint_bred', False),
@@ -1207,45 +1220,21 @@ class BulkClassCreate(BaseModel):
     classes: list[BulkClassItem] = Field(min_length=1)
 
 
-class BulkClassFromNamesItem(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    bracket: Optional[str] = Field(default=None, max_length=100)
+# ── Standard Library Class Picker ──────────────────────────────────────────────
+# Quick-start picker for any show type: cartesian product of selected disciplines
+# and brackets drawn from `standard_divisions` / `standard_sections`. The picker
+# already knows each pair's division name, bracket name, and intended scoring,
+# so the commit endpoint takes them verbatim — no name classification needed.
+
+class ClassFromLibraryPick(BaseModel):
+    division_name: str = Field(min_length=1, max_length=100)
+    section_name: str = Field(min_length=1, max_length=100)
+    default_score_type: ScoreType = "placement"
 
 
-class BulkClassFromNamesPreviewRequest(BaseModel):
-    default_bracket: Optional[str] = Field(default=None, max_length=100)
-    classes: list[BulkClassFromNamesItem] = Field(min_length=1)
-
-
-class BulkClassFromNamesCreate(BulkClassFromNamesPreviewRequest):
+class ClassesFromLibraryCreate(BaseModel):
     class_date: date
-
-
-class BulkClassRoutingSection(BaseModel):
-    section: str
-    count: int
-
-
-class BulkClassRoutingGroup(BaseModel):
-    division: str
-    sections: list[BulkClassRoutingSection]
-    count: int
-
-
-class BulkClassRoutingItem(BaseModel):
-    name: str
-    bracket: str
-    auto_discipline: Optional[str] = None
-    auto_score_type: ScoreType
-    routed_division: str
-    routed_section: str
-    is_unassigned: bool = False
-
-
-class BulkClassFromNamesPreview(BaseModel):
-    items: list[BulkClassRoutingItem]
-    groups: list[BulkClassRoutingGroup]
-    unrouted_count: int = 0
+    picks: list[ClassFromLibraryPick] = Field(min_length=1)
 
 
 class AssociationValidationIssue(BaseModel):

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import HorseDocuments from '@/components/HorseDocuments';
 import TrainerSelect from '@/components/TrainerSelect';
 
@@ -24,6 +25,7 @@ interface Horse {
   foaling_date: string | null;
   sex: string | null;
   breed_id: string | null;
+  breed_ids?: string[];
   color_id: string | null;
   is_solid_paint_bred: boolean;
   age: number | null;
@@ -53,7 +55,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     trainer_email: '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
-    breed_id: horse.breed_id ?? '',
+    breed_ids: horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []),
     color_id: horse.color_id ?? '',
     is_solid_paint_bred: horse.is_solid_paint_bred,
   });
@@ -98,7 +100,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       trainer_email: form.trainer_email.trim() || null,
       sex: form.sex || null,
       foaling_date: form.foaling_date || null,
-      breed_id: form.breed_id || null,
+      breed_ids: form.breed_ids,
       color_id: form.color_id || null,
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
@@ -226,12 +228,12 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Foaling Date {displayAge !== null && displayAge !== undefined && <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>}</label>
             <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
           </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
-            <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- Not specified -</option>
-              {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+          <div className="sm:col-span-2">
+            <BreedCheckboxGroup
+              breeds={breeds}
+              selectedIds={form.breed_ids}
+              onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
+            />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>

@@ -12,7 +12,7 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
-from models import User, Horse, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration, Trainer
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration, Trainer
 from schemas import (
     UserCreate, UserOut,
     HorseCreate, HorseCreateWithRegistrations, HorseUpdate, HorseOut,
@@ -322,6 +322,7 @@ horses_router = APIRouter(prefix="/horses", tags=["Horses"])
 
 _horse_options = [
     selectinload(Horse.breed),
+    selectinload(Horse.breeds),
     selectinload(Horse.color),
     selectinload(Horse.owner_exhibitor),
     selectinload(Horse.trainer),
@@ -405,6 +406,33 @@ async def _resolve_horse_trainer_fields(data: dict, db: AsyncSession) -> None:
         data["trainer_name"] = None
 
 
+async def _pop_resolved_horse_breeds(data: dict, db: AsyncSession) -> Optional[list[Breed]]:
+    """Return selected breeds and remove plural-only input from Horse column data."""
+    has_breed_ids = "breed_ids" in data
+    breed_ids = data.pop("breed_ids", None)
+
+    if not has_breed_ids:
+        if "breed_id" not in data:
+            return None
+        breed_ids = [data["breed_id"]] if data["breed_id"] else []
+    elif breed_ids is None:
+        breed_ids = [data["breed_id"]] if data.get("breed_id") else []
+
+    unique_ids = list(dict.fromkeys(breed_ids))
+    if not unique_ids:
+        data["breed_id"] = None
+        return []
+
+    result = await db.execute(select(Breed).where(Breed.id.in_(unique_ids)))
+    breeds_by_id = {breed.id: breed for breed in result.scalars().all()}
+    missing = [breed_id for breed_id in unique_ids if breed_id not in breeds_by_id]
+    if missing:
+        raise HTTPException(400, "One or more selected breeds are not valid.")
+
+    data["breed_id"] = unique_ids[0]
+    return [breeds_by_id[breed_id] for breed_id in unique_ids]
+
+
 async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSession):
     """Raises 403 if caller is not ADMIN and is not the owner of this horse.
     Only the registered owner (an exhibitor) can modify a horse."""
@@ -466,8 +494,11 @@ async def create_horse(body: HorseCreate, db: AsyncSession = Depends(get_db)):
     if body.trainer_id is not None and not await db.get(Trainer, body.trainer_id):
         raise HTTPException(400, "Selected trainer is not in the registry.")
     data = body.model_dump()
+    breeds = await _pop_resolved_horse_breeds(data, db)
     await _resolve_horse_trainer_fields(data, db)
     horse = Horse(**data)
+    if breeds is not None:
+        horse.breeds = breeds
     db.add(horse)
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
@@ -504,6 +535,7 @@ async def update_horse(
     if 'trainer_id' in update_data and update_data['trainer_id'] is not None:
         if not await db.get(Trainer, update_data['trainer_id']):
             raise HTTPException(400, "Selected trainer is not in the registry.")
+    breeds = await _pop_resolved_horse_breeds(update_data, db)
     # If the caller is switching/clearing the trainer, resolve trainer_id or
     # transient trainer identity fields into the columns we store. The legacy
     # name-only path keeps the free-text fallback for backwards compatibility.
@@ -532,6 +564,8 @@ async def update_horse(
                 update_data['trainer_id'] = None
     for k, v in update_data.items():
         setattr(horse, k, v)
+    if breeds is not None:
+        horse.breeds = breeds
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse_id))
     return result.scalar_one()
@@ -857,8 +891,11 @@ async def create_owned_horse(
     if not result.scalar_one_or_none():
         raise HTTPException(403, "You can only add horses to your own profile")
     horse_data = body.model_dump(exclude={'owner_exhibitor_id'})
+    breeds = await _pop_resolved_horse_breeds(horse_data, db)
     await _resolve_horse_trainer_fields(horse_data, db)
     horse = Horse(**horse_data, owner_exhibitor_id=exhibitor_id)
+    if breeds is not None:
+        horse.breeds = breeds
     db.add(horse)
     await db.commit()
     result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
@@ -1045,12 +1082,15 @@ async def create_horse_for_exhibitor(
             )
 
     horse_data = body.model_dump(exclude={'owner_exhibitor_id', 'registrations'})
+    breeds = await _pop_resolved_horse_breeds(horse_data, db)
     await _resolve_horse_trainer_fields(horse_data, db)
     horse = Horse(
         **horse_data,
         created_by_exhibitor_id=exhibitor_id,
         owner_exhibitor_id=exhibitor_id,
     )
+    if breeds is not None:
+        horse.breeds = breeds
     db.add(horse)
     await db.flush()
 

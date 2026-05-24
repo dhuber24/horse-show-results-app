@@ -22,6 +22,14 @@ def _compose_person_name(first_name: str | None, last_name: str | None) -> str:
     return " ".join(part for part in ((first_name or "").strip(), (last_name or "").strip()) if part)
 
 
+horse_breeds = Table(
+    "horse_breeds",
+    Base.metadata,
+    Column("horse_id", UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), primary_key=True),
+    Column("breed_id", UUID(as_uuid=True), ForeignKey("breeds.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class ShowType(Base):
     __tablename__ = "show_types"
 
@@ -353,6 +361,7 @@ class Breed(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     horses = relationship("Horse", back_populates="breed")
+    registered_horses = relationship("Horse", secondary=horse_breeds, back_populates="breeds")
 
 
 class HorseColor(Base):
@@ -483,6 +492,7 @@ class Horse(Base):
     entries = relationship("Entry", back_populates="horse", passive_deletes=True)
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="horse", cascade="all, delete")
     breed = relationship("Breed", back_populates="horses")
+    breeds = relationship("Breed", secondary=horse_breeds, back_populates="registered_horses")
     color = relationship("HorseColor", back_populates="horses")
     trainer = relationship("Trainer", back_populates="horses")
     registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")

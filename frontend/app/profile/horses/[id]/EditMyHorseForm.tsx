@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
 
 interface Breed { id: string; name: string; }
@@ -20,6 +21,8 @@ interface Horse {
   sex: string | null;
   foaling_date: string | null;
   breed_id: string | null;
+  breed_ids?: string[];
+  breed_names?: string[];
   color_id: string | null;
   is_solid_paint_bred: boolean;
   age: number | null;
@@ -44,7 +47,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     trainer_email: '',
     sex: horse.sex ?? '',
     foaling_date: horse.foaling_date ?? '',
-    breed_id: horse.breed_id ?? '',
+    breed_ids: horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []),
     color_id: horse.color_id ?? '',
     is_solid_paint_bred: horse.is_solid_paint_bred,
   });
@@ -96,7 +99,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
         trainer_email: form.trainer_email.trim() || null,
         sex: form.sex || null,
         foaling_date: form.foaling_date || null,
-        breed_id: form.breed_id || null,
+        breed_ids: form.breed_ids,
         color_id: form.color_id || null,
         is_solid_paint_bred: form.is_solid_paint_bred,
       }),
@@ -179,7 +182,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
             <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Trainer</dt><dd style={{ color: '#2c1810' }}>{form.trainer_name || '-'}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sex</dt><dd style={{ color: '#2c1810' }}>{form.sex || '-'}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Foaling Date</dt><dd style={{ color: '#2c1810' }}>{form.foaling_date || '-'}{displayAge !== null && displayAge !== undefined ? ` (age ${displayAge})` : ''}</dd></div>
-            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breed</dt><dd style={{ color: '#2c1810' }}>{breeds.find((b) => b.id === form.breed_id)?.name || '-'}</dd></div>
+            <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breeds</dt><dd style={{ color: '#2c1810' }}>{form.breed_ids.map((id) => breeds.find((b) => b.id === id)?.name).filter(Boolean).join(', ') || '-'}</dd></div>
             <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Color</dt><dd style={{ color: '#2c1810' }}>{colors.find((c) => c.id === form.color_id)?.name || '-'}</dd></div>
             {form.is_solid_paint_bred && (
               <div className="sm:col-span-2"><dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Solid Paint-Bred (SPB)</dd></div>
@@ -277,12 +280,12 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
               className="w-full border rounded px-3 py-2"
             />
           </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Breed</label>
-            <select name="breed_id" value={form.breed_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- Not specified -</option>
-              {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+          <div className="sm:col-span-2">
+            <BreedCheckboxGroup
+              breeds={breeds}
+              selectedIds={form.breed_ids}
+              onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
+            />
           </div>
           <div>
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>

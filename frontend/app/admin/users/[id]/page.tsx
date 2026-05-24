@@ -41,6 +41,12 @@ async function getTrainerAffiliations(trainerId: string, headers: Record<string,
   return res.json();
 }
 
+async function getTrainerHorses(trainerId: string, headers: Record<string, string>): Promise<any[]> {
+  const res = await fetch(`${API_URL}/trainers/${trainerId}/horses`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export default async function UserDetailPage({
   params,
 }: {
@@ -66,6 +72,7 @@ export default async function UserDetailPage({
   let exhibitorHorses: any[] = [];
   let trainer: any = null;
   let trainerAffiliations: any[] = [];
+  let trainerHorses: any[] = [];
 
   if (user.role === 'EXHIBITOR') {
     exhibitor = await getExhibitorByUser(user.id, headers);
@@ -77,7 +84,10 @@ export default async function UserDetailPage({
   if (user.role === 'TRAINER') {
     trainer = await getTrainerByUser(user.id, headers);
     if (trainer) {
-      trainerAffiliations = await getTrainerAffiliations(trainer.id, headers);
+      [trainerAffiliations, trainerHorses] = await Promise.all([
+        getTrainerAffiliations(trainer.id, headers),
+        getTrainerHorses(trainer.id, headers),
+      ]);
     }
   }
 
@@ -108,7 +118,11 @@ export default async function UserDetailPage({
         <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
           <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Trainer Profile</h2>
           {trainer ? (
-            <AdminTrainerDetail trainer={trainer} initialAffiliations={trainerAffiliations} />
+            <AdminTrainerDetail
+              trainer={trainer}
+              initialAffiliations={trainerAffiliations}
+              initialHorses={trainerHorses}
+            />
           ) : (
             <p className="text-sm" style={{ color: '#8b7355' }}>
               No trainer registry row is linked to this account.

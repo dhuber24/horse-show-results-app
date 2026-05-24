@@ -13,9 +13,10 @@ export default async function AdminTrainerDetailPage({
   const headers = await getAuthHeaders();
   if (!headers) return notFound();
 
-  const [trainerRes, regsRes] = await Promise.all([
+  const [trainerRes, regsRes, horsesRes] = await Promise.all([
     fetch(`${API_URL}/trainers/${id}`, { headers, cache: 'no-store' }).catch(() => null),
     fetch(`${API_URL}/trainers/${id}/registrations`, { headers, cache: 'no-store' }).catch(() => null),
+    fetch(`${API_URL}/trainers/${id}/horses`, { headers, cache: 'no-store' }).catch(() => null),
   ]);
 
   // /trainers/{id} GET isn't exposed — the trainers list returns all. Find ours.
@@ -26,6 +27,7 @@ export default async function AdminTrainerDetailPage({
   if (!trainer) return notFound();
 
   const affiliations = regsRes && regsRes.ok ? await regsRes.json() : [];
+  const horses = horsesRes && horsesRes.ok ? await horsesRes.json() : [];
   // Silence unused — kept in case we add a dedicated GET later.
   void trainerRes;
 
@@ -50,7 +52,7 @@ export default async function AdminTrainerDetailPage({
         )}
       </div>
 
-      <AdminTrainerDetail trainer={trainer} initialAffiliations={affiliations} />
+      <AdminTrainerDetail trainer={trainer} initialAffiliations={affiliations} initialHorses={horses} />
     </main>
   );
 }

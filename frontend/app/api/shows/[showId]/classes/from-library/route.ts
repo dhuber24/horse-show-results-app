@@ -7,7 +7,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/bulk-from-names/preview`, {
+  const res = await fetch(`${API_URL}/shows/${showId}/classes/from-library`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),

@@ -25,12 +25,7 @@ from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
     BulkClassCreate,
-    BulkClassFromNamesCreate,
-    BulkClassFromNamesPreview,
-    BulkClassFromNamesPreviewRequest,
-    BulkClassRoutingGroup,
-    BulkClassRoutingItem,
-    BulkClassRoutingSection,
+    ClassesFromLibraryCreate,
 )
 from routers.shows import _assert_show_access
 
@@ -62,9 +57,12 @@ async def _create_classes_auto_routed(
     is created on the new class).
 
     Discipline (Division) comes from :func:`classify_class_name` against the
-    class name; bracket (Section) comes from ``item['bracket']``. Missing
-    divisions/sections are created on the fly. (div, sec) membership is
-    registered in ``division_sections``.
+    class name, UNLESS the caller passes ``explicit_division`` on the item —
+    used by the standard-library picker, which already knows the division and
+    score type for each pick and doesn't need name-keyword inference. Bracket
+    (Section) always comes from ``item['bracket']``. Missing divisions /
+    sections are created on the fly; the (div, sec) membership is registered
+    in ``division_sections``.
 
     Caller is responsible for ``db.commit()`` and follow-up renumbering.
     """
@@ -104,11 +102,16 @@ async def _create_classes_auto_routed(
     for item in items:
         next_sort_order += 1
         name = item["name"]
-        classified = classify_class_name(name)
-        if classified is not None:
-            discipline_name, score_type = classified
+        explicit_division = item.get("explicit_division")
+        if explicit_division:
+            discipline_name = explicit_division
+            score_type = item.get("explicit_score_type") or "placement"
         else:
-            discipline_name, score_type = "Unassigned", "placement"
+            classified = classify_class_name(name)
+            if classified is not None:
+                discipline_name, score_type = classified
+            else:
+                discipline_name, score_type = "Unassigned", "placement"
         bracket_name = (item.get("bracket") or "").strip() or "Unassigned"
 
         division = await get_or_make_division(discipline_name, score_type)
@@ -146,68 +149,6 @@ async def _create_classes_auto_routed(
         created.append(cls)
 
     return created
-
-
-def _route_class_name(name: str, bracket: str | None = None) -> dict:
-    classified = classify_class_name(name)
-    if classified is not None:
-        discipline_name, score_type = classified
-    else:
-        discipline_name, score_type = UNASSIGNED_LABEL, "placement"
-    section_name = (bracket or "").strip() or UNASSIGNED_LABEL
-    return {
-        "name": name.strip(),
-        "bracket": section_name,
-        "auto_discipline": classified[0] if classified else None,
-        "auto_score_type": score_type,
-        "routed_division": discipline_name,
-        "routed_section": section_name,
-        "is_unassigned": discipline_name == UNASSIGNED_LABEL,
-    }
-
-
-def _preview_routed_items(items: list[dict]) -> BulkClassFromNamesPreview:
-    preview_items = [
-        BulkClassRoutingItem(**_route_class_name(item["name"], item.get("bracket")))
-        for item in items
-    ]
-    group_counts: dict[str, dict[str, int]] = {}
-    for item in preview_items:
-        sections = group_counts.setdefault(item.routed_division, {})
-        sections[item.routed_section] = sections.get(item.routed_section, 0) + 1
-    groups = [
-        BulkClassRoutingGroup(
-            division=division,
-            sections=[
-                BulkClassRoutingSection(section=section, count=count)
-                for section, count in sorted(sections.items())
-            ],
-            count=sum(sections.values()),
-        )
-        for division, sections in sorted(group_counts.items())
-    ]
-    return BulkClassFromNamesPreview(
-        items=preview_items,
-        groups=groups,
-        unrouted_count=sum(1 for item in preview_items if item.is_unassigned),
-    )
-
-
-def _manual_name_items(body: BulkClassFromNamesPreviewRequest) -> list[dict]:
-    default_bracket = (body.default_bracket or "").strip()
-    out: list[dict] = []
-    seen: set[tuple[str, str]] = set()
-    for item in body.classes:
-        name = item.name.strip()
-        bracket = (item.bracket or default_bracket or "").strip()
-        if not name:
-            continue
-        key = (name.casefold(), bracket.casefold())
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append({"name": name, "bracket": bracket})
-    return out
 
 
 async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Division, Section]:
@@ -343,37 +284,28 @@ async def create_class(
     return class_
 
 
-@router.post("/bulk-from-names/preview", response_model=BulkClassFromNamesPreview)
-async def preview_bulk_classes_from_names(
-    show_id: UUID,
-    body: BulkClassFromNamesPreviewRequest,
-    x_api_key: str = Header(...),
-    x_user_id: str = Header(...),
-    x_user_role: str = Header(...),
-    db: AsyncSession = Depends(get_db),
-):
-    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    await _get_show_or_404(show_id, db)
-    items = _manual_name_items(body)
-    if not items:
-        raise HTTPException(422, "At least one class name is required")
-    return _preview_routed_items(items)
-
-
 @router.post(
-    "/bulk-from-names",
+    "/from-library",
     response_model=list[ClassOut],
     status_code=201,
     dependencies=[Depends(require_admin_or_show_admin)],
 )
-async def bulk_create_classes_from_names(
+async def bulk_create_classes_from_library(
     show_id: UUID,
-    body: BulkClassFromNamesCreate,
+    body: ClassesFromLibraryCreate,
     x_api_key: str = Header(...),
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
+    """Bulk-create classes from explicit (division, section) picks.
+
+    The standard-library picker generates one pick per checked cell in the
+    discipline × bracket matrix and submits them here. Each pick carries the
+    discipline's `default_score_type` from `standard_divisions`, so we skip
+    name-keyword classification entirely. Missing per-show divisions /
+    sections / memberships are created on the fly.
+    """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
     if body.class_date < show.start_date or body.class_date > show.end_date:
@@ -382,9 +314,28 @@ async def bulk_create_classes_from_names(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
 
-    items = _manual_name_items(body)
+    # Dedup picks on (division, section) so the same checkbox toggled twice
+    # in the UI doesn't try to create the same class twice.
+    seen: set[tuple[str, str]] = set()
+    items: list[dict] = []
+    for pick in body.picks:
+        div_name = pick.division_name.strip()
+        sec_name = pick.section_name.strip()
+        if not div_name or not sec_name:
+            continue
+        key = (div_name.casefold(), sec_name.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        # Class name pattern matches Schedule Builder: "{Section} {Division}"
+        items.append({
+            "name": f"{sec_name} {div_name}",
+            "bracket": sec_name,
+            "explicit_division": div_name,
+            "explicit_score_type": pick.default_score_type,
+        })
     if not items:
-        raise HTTPException(422, "At least one class name is required")
+        raise HTTPException(422, "At least one pick is required")
 
     created = await _create_classes_auto_routed(
         show_id=show_id,

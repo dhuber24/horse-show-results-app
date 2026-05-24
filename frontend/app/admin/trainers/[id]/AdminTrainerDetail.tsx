@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -36,6 +37,18 @@ interface Affiliation {
   expires_at: string | null;
 }
 
+interface TrainerHorse {
+  id: string;
+  name: string;
+  owner_exhibitor_name: string | null;
+  owner_name: string | null;
+  sex: string | null;
+  age: number | null;
+  breed_name: string | null;
+  color_name: string | null;
+  is_solid_paint_bred: boolean;
+}
+
 interface ShowType { id: string; code: string; name: string; }
 
 const UNCERTIFIED_CODES = ['OPEN'];
@@ -63,9 +76,10 @@ function Field({ label, children, hint }: { label: string; children: React.React
 interface Props {
   trainer: AdminTrainer;
   initialAffiliations: Affiliation[];
+  initialHorses?: TrainerHorse[];
 }
 
-export default function AdminTrainerDetail({ trainer, initialAffiliations }: Props) {
+export default function AdminTrainerDetail({ trainer, initialAffiliations, initialHorses = [] }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     first_name: trainer.first_name,
@@ -276,6 +290,58 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations }: Pro
       >
         {saving ? 'Saving...' : 'Save Trainer'}
       </button>
+
+      <section className="rounded-lg border p-5 space-y-4" style={sectionStyle}>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horses Trained</h2>
+          <span className="text-xs" style={{ color: '#8b7355' }}>
+            {initialHorses.length} linked
+          </span>
+        </div>
+
+        {initialHorses.length === 0 ? (
+          <p className="text-sm" style={{ color: '#8b7355' }}>
+            No horses are linked to this trainer yet.
+          </p>
+        ) : (
+          <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+            {initialHorses.map((horse) => (
+              <li key={horse.id} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+                    {horse.name}
+                    {horse.sex && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                        {horse.sex}
+                      </span>
+                    )}
+                    {horse.is_solid_paint_bred && (
+                      <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                        SPB
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: '#8b7355' }}>
+                    {(horse.owner_exhibitor_name || horse.owner_name) && (
+                      <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
+                    )}
+                    {horse.breed_name && <span>{horse.breed_name}</span>}
+                    {horse.color_name && <span>{horse.color_name}</span>}
+                    {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
+                  </div>
+                </div>
+                <Link
+                  href={`/admin/horses/${horse.id}`}
+                  className="text-sm shrink-0 hover:underline"
+                  style={{ color: '#8b4513' }}
+                >
+                  Edit
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="rounded-lg border p-5 space-y-4" style={sectionStyle}>
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Professional Affiliations</h2>
