@@ -48,8 +48,12 @@ export async function fetchHorses(headers?: HeadersInit) {
   return res.json();
 }
 
-export async function fetchExhibitors(headers?: HeadersInit) {
-  const res = await fetch(`${API_URL}/exhibitors/`, headers ? { headers } : {});
+export async function fetchExhibitors(
+  headers?: HeadersInit,
+  opts?: { withUser?: boolean },
+) {
+  const qs = opts?.withUser ? '?with_user=true' : '';
+  const res = await fetch(`${API_URL}/exhibitors/${qs}`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch exhibitors');
   return res.json();
 }

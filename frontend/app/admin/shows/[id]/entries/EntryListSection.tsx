@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
 
 interface Entry {
   id: string;
@@ -22,76 +21,43 @@ interface Entry {
 }
 
 interface ClassGroup {
-  cls: { id: string; class_number?: string; class_name?: string; name?: string };
+  cls: { id: string; class_number?: string; class_name?: string; name?: string; score_type?: string };
   entries: Entry[];
 }
 
 interface Props {
   showId: string;
   entriesByClass: ClassGroup[];
-  isAphaShow: boolean;
 }
 
-function formatBackendDetail(detail: any, fallback: string) {
-  if (typeof detail === 'string') return detail;
-  if (detail?.code === 'ASSOCIATION_VALIDATION_FAILED' && Array.isArray(detail.issues)) {
-    return detail.issues
-      .filter((issue: any) => issue.severity === 'error')
-      .map((issue: any) => issue.message)
-      .join(' ');
-  }
-  return detail?.message ?? fallback;
+function entryHaystack(e: Entry): string {
+  return [
+    e.horse_name ?? e.horse?.name ?? '',
+    e.exhibitor_name ?? e.exhibitor?.full_name ?? '',
+    e.back_number != null ? `#${e.back_number} ${e.back_number}` : '',
+    e.apha_division ?? '',
+  ].join(' ').toLowerCase();
 }
 
-function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
+function classHaystack(cls: ClassGroup['cls']): string {
+  return [
+    cls.class_number ?? '',
+    cls.class_name ?? cls.name ?? '',
+  ].join(' ').toLowerCase();
+}
+
+function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
   entry: Entry;
   showId: string;
-  isAphaShow: boolean;
-  onSaved: (updated: Entry) => void;
+  exhibitorEntryCount: number;
   onDeleted: (id: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    back_number: entry.back_number != null ? String(entry.back_number) : '',
-    apha_division: entry.apha_division ?? '',
-    relationship_to_owner: entry.relationship_to_owner ?? '',
-    is_disqualified: entry.is_disqualified,
-  });
-
   const horseName = entry.horse_name ?? entry.horse?.name ?? '(unknown horse)';
   const exhibitorName = entry.exhibitor_name ?? entry.exhibitor?.full_name ?? '(unknown exhibitor)';
-  const showRelationship = isAphaShow && RELATIONSHIP_REQUIRED_DIVISIONS.has(form.apha_division);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    const res = await fetch(`/api/entries/${entry.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        showId,
-        classId: entry.class_id,
-        back_number: form.back_number ? parseInt(form.back_number) : null,
-        apha_division: isAphaShow && form.apha_division ? form.apha_division : null,
-        relationship_to_owner: isAphaShow && form.relationship_to_owner ? form.relationship_to_owner : null,
-        is_disqualified: form.is_disqualified,
-      }),
-    });
-    setSaving(false);
-    if (res.ok) {
-      const updated = await res.json();
-      onSaved(updated);
-      setEditing(false);
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setError(formatBackendDetail(err.detail, 'Failed to save.'));
-    }
-  };
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -107,92 +73,6 @@ function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
       setError('Failed to delete entry.');
     }
   };
-
-  if (editing) {
-    return (
-      <li className="rounded border p-3 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
-        <div className="text-sm font-medium" style={{ color: '#2c1810' }}>
-          {horseName} — {exhibitorName}
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <div>
-            <label className="block text-xs mb-1" style={{ color: '#5c3d1e' }}>Back #</label>
-            <input
-              type="number"
-              value={form.back_number}
-              onChange={e => setForm(f => ({ ...f, back_number: e.target.value }))}
-              className="w-24 border rounded px-2 py-1 text-sm"
-              style={{ borderColor: '#d4b896' }}
-              placeholder="—"
-            />
-          </div>
-          {isAphaShow && (
-            <>
-              <div>
-                <label className="block text-xs mb-1" style={{ color: '#5c3d1e' }}>APHA Division</label>
-                <select
-                  value={form.apha_division}
-                  onChange={e => setForm(f => ({ ...f, apha_division: e.target.value }))}
-                  className="border rounded px-2 py-1 text-sm"
-                  style={{ borderColor: '#d4b896' }}
-                >
-                  <option value="">— Not specified —</option>
-                  {APHA_DIVISIONS.map(d => (
-                    <option key={d.value} value={d.value}>{d.label}</option>
-                  ))}
-                </select>
-              </div>
-              {showRelationship && (
-                <div>
-                  <label className="block text-xs mb-1" style={{ color: '#5c3d1e' }}>Relationship to Owner</label>
-                  <select
-                    value={form.relationship_to_owner}
-                    onChange={e => setForm(f => ({ ...f, relationship_to_owner: e.target.value }))}
-                    className="border rounded px-2 py-1 text-sm"
-                    style={{ borderColor: '#d4b896' }}
-                  >
-                    <option value="">— Not specified —</option>
-                    {RELATIONSHIP_OPTIONS.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="flex items-end pb-1">
-                <label className="flex items-center gap-1.5 text-sm cursor-pointer" style={{ color: '#5c3d1e' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.is_disqualified}
-                    onChange={e => setForm(f => ({ ...f, is_disqualified: e.target.checked }))}
-                    className="h-4 w-4"
-                  />
-                  Disqualified (DQ)
-                </label>
-              </div>
-            </>
-          )}
-        </div>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-3 py-1 rounded text-xs font-medium text-white disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513' }}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            onClick={() => { setEditing(false); setError(null); }}
-            className="px-3 py-1 rounded text-xs border"
-            style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
-          >
-            Cancel
-          </button>
-        </div>
-      </li>
-    );
-  }
 
   return (
     <li className="flex items-center justify-between text-sm py-1 gap-2">
@@ -211,16 +91,17 @@ function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
             {entry.apha_division.replace(/_/g, ' ')}
           </span>
         )}
+        {exhibitorEntryCount > 1 && (
+          <span
+            className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+            title={`This exhibitor has ${exhibitorEntryCount} entries in this class`}
+          >
+            ⚠ {exhibitorEntryCount} horses
+          </span>
+        )}
       </span>
       <span className="flex items-center gap-2 shrink-0">
         {error && <span className="text-xs text-red-600">{error}</span>}
-        <button
-          onClick={() => setEditing(true)}
-          className="text-xs hover:underline"
-          style={{ color: '#8b4513' }}
-        >
-          Edit
-        </button>
         <button
           onClick={() => setConfirmDelete(true)}
           className="text-xs hover:underline text-red-600"
@@ -244,19 +125,40 @@ function EntryRow({ entry, showId, isAphaShow, onSaved, onDeleted }: {
   );
 }
 
-export default function EntryListSection({ showId, entriesByClass, isAphaShow }: Props) {
+export default function EntryListSection({ showId, entriesByClass }: Props) {
   const router = useRouter();
   const [groups, setGroups] = useState<ClassGroup[]>(entriesByClass);
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const handleSaved = (classId: string, updated: Entry) => {
-    setGroups(prev => prev.map(g =>
-      g.cls.id !== classId ? g : {
-        ...g,
-        entries: g.entries.map(e => e.id === updated.id ? updated : e),
+  const normalizedQuery = query.trim().toLowerCase();
+  const isFiltering = normalizedQuery.length > 0;
+
+  const visibleGroups = useMemo(() => {
+    if (!isFiltering) {
+      return groups.map(g => ({ group: g, matchedEntries: g.entries }));
+    }
+    return groups.flatMap(g => {
+      const classMatches = classHaystack(g.cls).includes(normalizedQuery);
+      const entryMatches = g.entries.filter(e => entryHaystack(e).includes(normalizedQuery));
+      if (classMatches) {
+        return [{ group: g, matchedEntries: g.entries }];
       }
-    ));
-    router.refresh();
-  };
+      if (entryMatches.length > 0) {
+        return [{ group: g, matchedEntries: entryMatches }];
+      }
+      return [];
+    });
+  }, [groups, normalizedQuery, isFiltering]);
+
+  const totalEntries = useMemo(
+    () => groups.reduce((sum, g) => sum + g.entries.length, 0),
+    [groups]
+  );
+  const totalMatched = useMemo(
+    () => visibleGroups.reduce((sum, v) => sum + v.matchedEntries.length, 0),
+    [visibleGroups]
+  );
 
   const handleDeleted = (classId: string, entryId: string) => {
     setGroups(prev => prev.map(g =>
@@ -268,44 +170,127 @@ export default function EntryListSection({ showId, entriesByClass, isAphaShow }:
     router.refresh();
   };
 
+  const toggleClass = (classId: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+  };
+
+  const expandAll = () => setExpanded(new Set(groups.map(g => g.cls.id)));
+  const collapseAll = () => setExpanded(new Set());
+
   if (groups.length === 0) {
     return <p style={{ color: '#8b7355' }}>No classes yet. Add a class first.</p>;
   }
 
   return (
-    <div className="space-y-4">
-      {groups.map(({ cls, entries }) => (
-        <div
-          key={cls.id}
-          className="p-4 rounded-lg border"
-          style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold" style={{ color: '#2c1810' }}>
-              {cls.class_number != null ? `${cls.class_number} — ` : ''}{cls.class_name ?? cls.name ?? 'Class'}
-              <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
-                ({entries.length})
-              </span>
-            </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search by horse, exhibitor, back #, or class…"
+          className="flex-1 min-w-[220px] border rounded px-3 py-2 text-sm"
+          style={{ borderColor: '#d4b896' }}
+        />
+        {!isFiltering && (
+          <div className="flex gap-2 text-xs">
+            <button
+              onClick={expandAll}
+              className="px-2 py-1 rounded border hover:bg-amber-50"
+              style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+            >
+              Expand all
+            </button>
+            <button
+              onClick={collapseAll}
+              className="px-2 py-1 rounded border hover:bg-amber-50"
+              style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+            >
+              Collapse all
+            </button>
           </div>
-          {entries.length === 0 ? (
-            <p className="text-sm" style={{ color: '#8b7355' }}>No entries yet.</p>
-          ) : (
-            <ul className="space-y-1">
-              {entries.map(entry => (
-                <EntryRow
-                  key={entry.id}
-                  entry={entry}
-                  showId={showId}
-                  isAphaShow={isAphaShow}
-                  onSaved={updated => handleSaved(cls.id, updated)}
-                  onDeleted={id => handleDeleted(cls.id, id)}
-                />
-              ))}
-            </ul>
-          )}
+        )}
+      </div>
+
+      {isFiltering && (
+        <p className="text-xs" style={{ color: '#8b7355' }}>
+          {totalMatched === 0
+            ? 'No entries match.'
+            : `Showing ${totalMatched} of ${totalEntries} entries across ${visibleGroups.length} class${visibleGroups.length === 1 ? '' : 'es'}.`}
+        </p>
+      )}
+
+      {visibleGroups.length === 0 ? null : (
+        <div className="space-y-2">
+          {visibleGroups.map(({ group: { cls, entries: allEntries }, matchedEntries }) => {
+            const isOpen = isFiltering || expanded.has(cls.id);
+            const countByExhibitor = matchedEntries.reduce<Record<string, number>>((acc, e) => {
+              acc[e.exhibitor_id] = (acc[e.exhibitor_id] ?? 0) + 1;
+              return acc;
+            }, {});
+            const matchInfo =
+              isFiltering && matchedEntries.length !== allEntries.length
+                ? `${matchedEntries.length} of ${allEntries.length}`
+                : String(allEntries.length);
+
+            return (
+              <div
+                key={cls.id}
+                className="rounded-lg border"
+                style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => !isFiltering && toggleClass(cls.id)}
+                  disabled={isFiltering}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-50 transition-colors disabled:cursor-default disabled:hover:bg-transparent"
+                >
+                  <div className="flex items-center gap-2 font-semibold" style={{ color: '#2c1810' }}>
+                    <span
+                      className="inline-block w-4 text-center text-sm"
+                      style={{ color: '#8b4513' }}
+                      aria-hidden
+                    >
+                      {isOpen ? '▾' : '▸'}
+                    </span>
+                    <span>
+                      {cls.class_number != null ? `${cls.class_number} — ` : ''}
+                      {cls.class_name ?? cls.name ?? 'Class'}
+                    </span>
+                    <span className="text-sm font-normal" style={{ color: '#8b7355' }}>
+                      ({matchInfo})
+                    </span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-3">
+                    {matchedEntries.length === 0 ? (
+                      <p className="text-sm" style={{ color: '#8b7355' }}>No entries yet.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {matchedEntries.map(entry => (
+                          <EntryRow
+                            key={entry.id}
+                            entry={entry}
+                            showId={showId}
+                            exhibitorEntryCount={countByExhibitor[entry.exhibitor_id] ?? 1}
+                            onDeleted={id => handleDeleted(cls.id, id)}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      ))}
+      )}
     </div>
   );
 }

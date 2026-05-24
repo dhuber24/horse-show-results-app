@@ -1,20 +1,25 @@
 import { fetchShow } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import BackNumberForm from './BackNumberForm';
 import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
-async function fetchBackNumberExhibitors(showId: string) {
+async function fetchBackNumberExhibitors(showId: string, headers: HeadersInit) {
   const API_URL = process.env.API_URL || 'http://backend:8000';
-  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/exhibitors`, { cache: 'no-store' });
+  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/exhibitors`, {
+    cache: 'no-store',
+    headers,
+  });
   if (!res.ok) return [];
   return res.json();
 }
 
 export default async function BackNumbersPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const headers = await getAuthHeaders();
   const [show, enrichedExhibitors] = await Promise.all([
     fetchShow(id),
-    fetchBackNumberExhibitors(id),
+    fetchBackNumberExhibitors(id, headers || {}),
   ]);
 
   return (

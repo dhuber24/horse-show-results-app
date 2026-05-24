@@ -191,10 +191,12 @@ class DivisionBulkCreate(BaseModel):
 class SectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     sort_order: Optional[int] = None
+    division_ids: list[UUID] = Field(default_factory=list)
 
 class SectionUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     sort_order: Optional[int] = None
+    division_ids: Optional[list[UUID]] = None
 
 class SectionOut(BaseModel):
     id: UUID
@@ -202,12 +204,29 @@ class SectionOut(BaseModel):
     name: str
     sort_order: Optional[int] = None
     class_count: Optional[int] = None
+    division_ids: list[UUID] = Field(default_factory=list)
+
+    @model_validator(mode='before')
+    @classmethod
+    def derive_division_ids(cls, v):
+        if isinstance(v, dict):
+            return v
+        divisions = getattr(v, 'divisions', None)
+        return {
+            'id': v.id,
+            'show_id': v.show_id,
+            'name': v.name,
+            'sort_order': v.sort_order,
+            'class_count': getattr(v, 'class_count', None),
+            'division_ids': [d.id for d in (divisions or [])],
+        }
 
     class Config:
         from_attributes = True
 
 class SectionBulkCreate(BaseModel):
     names: list[str] = Field(min_length=1)
+    division_ids: list[UUID] = Field(default_factory=list)
 
 
 # ── Standard rings, divisions, sections (lookup) ──────────────────────────────
@@ -244,8 +263,8 @@ class StandardSectionOut(BaseModel):
 
 class ClassCreate(BaseModel):
     ring_id: Optional[UUID] = None
-    division_id: Optional[UUID] = None
-    section_id: Optional[UUID] = None
+    division_id: UUID
+    section_id: UUID
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
@@ -268,7 +287,7 @@ class ClassReorder(BaseModel):
 
 class ClassAssociationCreate(BaseModel):
     show_type_id: UUID
-    association_class_code: str = Field(min_length=1, max_length=50)
+    association_class_code: Optional[str] = Field(default=None, max_length=50)
 
 class ClassAssociationOut(BaseModel):
     id: UUID
@@ -276,7 +295,7 @@ class ClassAssociationOut(BaseModel):
     show_type_id: UUID
     show_type_code: Optional[str] = None
     show_type_name: Optional[str] = None
-    association_class_code: str
+    association_class_code: Optional[str] = None
     created_at: datetime
 
     @model_validator(mode='before')
@@ -302,8 +321,8 @@ class ClassOut(BaseModel):
     id: UUID
     show_id: UUID
     ring_id: Optional[UUID]
-    division_id: Optional[UUID]
-    section_id: Optional[UUID] = None
+    division_id: UUID
+    section_id: UUID
     class_number: str
     class_name: str
     class_date: date
@@ -312,6 +331,53 @@ class ClassOut(BaseModel):
     entry_fee_cents: int = 0
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Show Fees ─────────────────────────────────────────────────────────────────
+
+FeeUnit = Literal[
+    'flat',
+    'per_entry',
+    'per_horse',
+    'per_class_per_horse',
+    'per_night',
+    'per_stall',
+    'per_bag',
+    'percent_of_entry',
+]
+
+
+class ShowFeeCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=200)
+    amount_cents: int = Field(default=0, ge=0)
+    unit: FeeUnit
+    notes: Optional[str] = Field(default=None, max_length=500)
+    sort_order: int = 0
+
+
+class ShowFeeUpdate(BaseModel):
+    code: Optional[str] = Field(default=None, max_length=64)
+    label: Optional[str] = Field(default=None, max_length=200)
+    amount_cents: Optional[int] = Field(default=None, ge=0)
+    unit: Optional[FeeUnit] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+    sort_order: Optional[int] = None
+
+
+class ShowFeeOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    code: str
+    label: str
+    amount_cents: int
+    unit: FeeUnit
+    notes: Optional[str] = None
+    sort_order: int
     created_at: datetime
 
     class Config:
@@ -954,6 +1020,26 @@ class AphaStandardClassOut(BaseModel):
     name: str
     division: str
     sort_order: int
+    # Auto-derived from the class name by rules/disciplines.py — surfaced so the
+    # picker can preview which Division each class will land in on bulk import.
+    auto_discipline: Optional[str] = None
+    auto_score_type: Optional[ScoreType] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def derive_discipline(cls, v):
+        if isinstance(v, dict):
+            return v
+        from rules.disciplines import classify_class_name
+        classified = classify_class_name(v.name)
+        return {
+            'code': v.code,
+            'name': v.name,
+            'division': v.division,
+            'sort_order': v.sort_order,
+            'auto_discipline': classified[0] if classified else None,
+            'auto_score_type': classified[1] if classified else None,
+        }
 
     class Config:
         from_attributes = True
@@ -1058,6 +1144,26 @@ class AqhaStandardClassOut(BaseModel):
     sort_order: int
     source_year: Optional[int] = None
     notes: Optional[str] = None
+    auto_discipline: Optional[str] = None
+    auto_score_type: Optional[ScoreType] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def derive_discipline(cls, v):
+        if isinstance(v, dict):
+            return v
+        from rules.disciplines import classify_class_name
+        classified = classify_class_name(v.name)
+        return {
+            'code': v.code,
+            'name': v.name,
+            'division': v.division,
+            'sort_order': v.sort_order,
+            'source_year': v.source_year,
+            'notes': v.notes,
+            'auto_discipline': classified[0] if classified else None,
+            'auto_score_type': classified[1] if classified else None,
+        }
 
     class Config:
         from_attributes = True
@@ -1099,6 +1205,47 @@ class BulkClassItem(BaseModel):
 class BulkClassCreate(BaseModel):
     class_date: date
     classes: list[BulkClassItem] = Field(min_length=1)
+
+
+class BulkClassFromNamesItem(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    bracket: Optional[str] = Field(default=None, max_length=100)
+
+
+class BulkClassFromNamesPreviewRequest(BaseModel):
+    default_bracket: Optional[str] = Field(default=None, max_length=100)
+    classes: list[BulkClassFromNamesItem] = Field(min_length=1)
+
+
+class BulkClassFromNamesCreate(BulkClassFromNamesPreviewRequest):
+    class_date: date
+
+
+class BulkClassRoutingSection(BaseModel):
+    section: str
+    count: int
+
+
+class BulkClassRoutingGroup(BaseModel):
+    division: str
+    sections: list[BulkClassRoutingSection]
+    count: int
+
+
+class BulkClassRoutingItem(BaseModel):
+    name: str
+    bracket: str
+    auto_discipline: Optional[str] = None
+    auto_score_type: ScoreType
+    routed_division: str
+    routed_section: str
+    is_unassigned: bool = False
+
+
+class BulkClassFromNamesPreview(BaseModel):
+    items: list[BulkClassRoutingItem]
+    groups: list[BulkClassRoutingGroup]
+    unrouted_count: int = 0
 
 
 class AssociationValidationIssue(BaseModel):

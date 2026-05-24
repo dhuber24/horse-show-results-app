@@ -38,6 +38,12 @@ const tiles = (showId: string) => [
     icon: '🔢',
   },
   {
+    href: `/admin/shows/${showId}/fees`,
+    title: 'Fee Schedule',
+    description: 'Class entry fees, office charge, stalls, campsites, and more.',
+    icon: '💵',
+  },
+  {
     href: `/admin/shows/${showId}/side-pots`,
     title: 'Side Pots',
     description: 'Create and manage divisional jackpots.',

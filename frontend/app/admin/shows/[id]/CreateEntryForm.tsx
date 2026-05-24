@@ -25,6 +25,7 @@ function formatBackendDetail(detail: any, fallback: string) {
 
 export default function CreateEntryForm({ showId, classes, horses, exhibitors, isAphaShow }: Props) {
   const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState({
     classId: '',
     exhibitor_id: '',
@@ -101,8 +102,30 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
     await submitEntry(false);
   };
 
+  if (!isOpen) {
+    return (
+      <button
+        onClick={() => setIsOpen(true)}
+        className="w-full border-2 border-dashed rounded-lg p-3 text-sm font-medium hover:bg-amber-50 transition-colors"
+        style={{ borderColor: '#d4b896', color: '#8b4513' }}
+      >
+        + Add Entry
+      </button>
+    );
+  }
+
   return (
-    <div className="border rounded-lg p-4 space-y-3">
+    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+      <div className="flex items-center justify-between -mt-1">
+        <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Add Entry</h3>
+        <button
+          onClick={() => { setIsOpen(false); setError(null); setCogginsWarning(null); }}
+          className="text-xs hover:underline"
+          style={{ color: '#8b7355' }}
+        >
+          Cancel
+        </button>
+      </div>
       <select name="classId" value={form.classId} onChange={handleChange}
         className="w-full border rounded px-3 py-2">
         <option value="">Select class *</option>

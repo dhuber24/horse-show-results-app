@@ -44,7 +44,7 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 1. Admin or Show Secretary creates a show directly.
 2. Show is edited while in `DRAFT`.
-3. Rings and divisions are configured at `/admin/shows/[id]/setup` (required before classes can be created). Sections (age/skill brackets) remain optional.
+3. Rings, divisions, and sections are configured at `/admin/shows/[id]/setup`. At least one ring, one division, and one section assigned to that division are required before a class can be created.
 4. Classes, entries, staff, and back numbers are configured.
 5. Show is published once it has a venue and at least one class.
 6. Results are entered manually and published immediately.
@@ -53,10 +53,10 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 - A **Ring** is a physical arena.
 - A **Division** is a discipline (Halter, Western Pleasure, Trail, Barrels). Each division carries a `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit.
-- A **Section** is an age or skill bracket within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional.
-- The setup page at `/admin/shows/[id]/setup` exposes three pickers — Rings, Divisions, and Sections — each seeded from a curated standard list (`standard_rings`, `standard_divisions`, `standard_sections`). Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set. Standard sections include the OPEN-style age brackets (Lead Line, 10 & Under, 11-13, 14-17, 18 & Over, Walk-Trot, Walk-Trot-Canter, Novice/Green Horse, Open).
-- Class records reference rings, divisions, and sections through nullable foreign keys at the DB level, but the Classes page (`/admin/shows/[id]/classes`) redirects back to the setup page with a banner until at least one ring and one division exist. Sections remain optional.
-- Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Deleting a section sets `classes.section_id` to NULL rather than blocking.
+- A **Section** is an age or skill bracket (10 & Under, 11-13, Walk-Trot, Amateur). Sections live independently in `sections` but are scoped to one or more divisions via the `division_sections` join (migration 061). The Setup UI shows each section's current division memberships under its name and lets the secretary edit them inline.
+- The setup page at `/admin/shows/[id]/setup` exposes three pickers — Rings, Divisions, and Sections — each seeded from a curated standard list (`standard_rings`, `standard_divisions`, `standard_sections`). Standard divisions are association-aware: APHA and AQHA show types get curated discipline lists; other show types fall back to a generic set. New sections (custom or picked from the standard list) start with **no** division memberships; the secretary clicks Edit and chooses one or more divisions before the section can be used on a class.
+- Class records require **both** `division_id` and `section_id` (migration 061) and the `(division_id, section_id)` pair must be a row in `division_sections` — enforced by a composite FK. The class create/edit forms gate the section dropdown on the chosen division and only show sections that belong to it. The Classes page (`/admin/shows/[id]/classes`) redirects to setup until at least one ring and one division exist.
+- Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Removing a division from a section that still has classes pairing them also returns 409.
 - Demographic splits (Open / Amateur / Youth / SPB) for APHA are still tracked per entry via `entries.apha_division`, not at the section or division level. Sections are about age/skill brackets at the class level, not entry-level eligibility.
 - Existing per-show `divisions` rows from before migration 048 are not auto-classified into sections — secretaries may need to delete bracket-named divisions and recreate them as sections.
 
@@ -65,10 +65,20 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divisions × sections** matrix:
 
 - Rows are divisions (disciplines).
-- Columns are sections (age/skill brackets), plus a "(no section)" column for unbracketed classes.
-- Each checked cell materializes one numbered class. Class names auto-generate as `"{Section} {Division}"` (e.g. "10 & Under Showmanship") when a section is paired, or just `"{Division}"` when no section is selected.
+- Columns are sections (age/skill brackets), plus a "(no section)" column for unbracketed classes — picks in that column are stored under the per-show "Unassigned" section so the class still satisfies the required-both rule.
+- Each checked cell materializes one numbered class and also registers the `(division, section)` pair in `division_sections` if it wasn't already a member — the matrix is effectively the secretary declaring "this section applies to this division".
+- Class names auto-generate as `"{Section} {Division}"` (e.g. "10 & Under Showmanship") when a real section is paired, or just `"{Division}"` for the Unassigned column.
 - `score_type` is taken from the division's `default_score_type` for every class the build creates (with a per-pick override available in the API for advanced use).
 - New disciplines or brackets can be added inline from the builder (custom division add form includes a scoring radio; custom section add form is name-only).
+
+## Pasted Class Lists
+
+The "Paste Class List" action on `/admin/shows/[id]/classes` bulk-adds class names for any show type, including OPEN shows:
+
+- The secretary pastes one class per line. A per-line bracket can be supplied with `Class Name | Bracket`; otherwise the dialog's default bracket is used, or "Unassigned" if no bracket is provided.
+- The backend routes each name through `backend/rules/disciplines.py`, creates any missing per-show Division and Section rows, registers the `(division, section)` membership, and creates the class with the inferred default `score_type`.
+- The preview endpoint `POST /shows/{id}/classes/bulk-from-names/preview` returns the same routing groups the UI shows before commit.
+- The commit endpoint `POST /shows/{id}/classes/bulk-from-names` creates the classes and then renumbers the schedule.
 
 ## Entries And Back Numbers
 
@@ -81,6 +91,7 @@ The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divis
 ## Association Class Setup
 
 - APHA and AQHA shows can bulk-add classes from official standard-class catalogs at `/admin/shows/[id]/classes`.
+- All show types can bulk-add classes from pasted names using the same discipline classifier used by the APHA/AQHA catalog import.
 - APHA reference data lives in `apha_standard_classes`.
 - AQHA reference data lives in `aqha_standard_classes` and is seeded from `database/seeds/aqha_standard_classes.csv`, which is extracted from the official 2026 AQHA Class Master Listing PDF.
 - Imported classes create a `class_associations` row so later validation/export logic can read the association class code from one normalized location.

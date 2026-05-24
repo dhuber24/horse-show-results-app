@@ -342,6 +342,21 @@ async def register_for_show(
 
     rules = get_rules(show.show_type.code if show.show_type else None)
 
+    # Pull all of this exhibitor's existing entries for the requested classes
+    # so we can pre-check "exhibitor already in this non-pattern class" rules
+    # and reject duplicates inside the submitted batch too.
+    existing_entries_result = await db.execute(
+        select(Entry.class_id).where(
+            Entry.exhibitor_id == exhibitor.id,
+            Entry.class_id.in_(requested_class_ids),
+        )
+    )
+    existing_non_pattern_classes: set[UUID] = {
+        cid for (cid,) in existing_entries_result.all()
+        if classes_by_id[cid].score_type != "pattern"
+    }
+    batch_non_pattern_classes: set[UUID] = set()
+
     created: list[Entry] = []
     fee_breakdown: list[FeeBreakdownItem] = []
     subtotal = 0
@@ -353,6 +368,15 @@ async def register_for_show(
         horse = horses_by_id.get(item.horse_id)
         if not horse:
             raise HTTPException(404, "Horse not found")
+
+        if cls.score_type != "pattern":
+            if cls.id in existing_non_pattern_classes or cls.id in batch_non_pattern_classes:
+                raise HTTPException(
+                    409,
+                    f"You can only enter class {cls.class_number} "
+                    f"({cls.class_name}) once.",
+                )
+            batch_non_pattern_classes.add(cls.id)
 
         await _assert_coggins(item.horse_id, db)
 
@@ -413,12 +437,17 @@ async def register_for_show(
 
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
+        msg = str(exc.orig) if exc.orig is not None else ""
+        if "entries_class_horse_uniq" in msg:
+            raise HTTPException(
+                409,
+                "One of the selected horses is already entered in that class.",
+            )
         raise HTTPException(
             409,
-            "You are already registered for one of the selected (class, horse) "
-            "combinations.",
+            "One or more selections conflict with an existing entry.",
         )
 
     for entry in created:

@@ -14,18 +14,28 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 export default async function ShowEntriesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const headers = await getAuthHeaders();
-  const [show, classes, horses, exhibitors] = await Promise.all([
+  const [show, classes, horses, allExhibitors] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchHorses(headers || undefined),
     fetchExhibitors(headers || undefined),
   ]);
 
+  const horsesById = new Map<string, any>(horses.map((h: any) => [h.id, h]));
+  const exhibitorsById = new Map<string, any>(allExhibitors.map((e: any) => [e.id, e]));
+
   const entriesByClass = await Promise.all(
-    classes.map(async (cls: any) => ({
-      cls,
-      entries: await fetchEntries(id, cls.id).catch(() => []),
-    }))
+    classes.map(async (cls: any) => {
+      const raw = await fetchEntries(id, cls.id).catch(() => []);
+      return {
+        cls,
+        entries: raw.map((e: any) => ({
+          ...e,
+          horse_name: horsesById.get(e.horse_id)?.name,
+          exhibitor_name: exhibitorsById.get(e.exhibitor_id)?.full_name,
+        })),
+      };
+    })
   );
 
   return (
@@ -53,8 +63,7 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       </div>
 
       <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Entry</h2>
-        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={exhibitors} isAphaShow={show.show_type_code === 'APHA'} />
+        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={allExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
 
       <section className="space-y-4">
@@ -62,7 +71,6 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
         <EntryListSection
           showId={id}
           entriesByClass={entriesByClass}
-          isAphaShow={show.show_type_code === 'APHA'}
         />
       </section>
     </main>

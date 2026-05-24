@@ -7,13 +7,14 @@ import { getShowDates } from './showDateUtils';
 interface ShowType { id: string; code: string; name: string; }
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; }
+interface Section { id: string; name: string; division_ids?: string[]; }
 interface ClassAssociation {
   id: string;
   class_id: string;
   show_type_id: string;
   show_type_code: string | null;
   show_type_name: string | null;
-  association_class_code: string;
+  association_class_code: string | null;
 }
 interface ClassItem {
   id: string;
@@ -25,18 +26,8 @@ interface ClassItem {
   entry_fee_cents: number;
   ring_id: string | null;
   division_id: string | null;
+  section_id: string | null;
   associations: ClassAssociation[];
-}
-
-function centsToDollarsInput(cents: number): string {
-  return (cents / 100).toFixed(2);
-}
-
-function parseDollarsToCents(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === '') return 0;
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
-  return Math.round(parseFloat(trimmed) * 100);
 }
 
 function formatMoney(cents: number): string {
@@ -52,7 +43,7 @@ const SCORE_TYPE_LABELS: Record<ClassItem['score_type'], string> = {
 };
 
 export default function EditClassCard({
-  cls, position, showId, showStartDate, showEndDate, showTypes, rings, divisions,
+  cls, position, showId, showStartDate, showEndDate, showTypes, rings, divisions, sections,
 }: {
   cls: ClassItem;
   position: number;
@@ -62,6 +53,7 @@ export default function EditClassCard({
   showTypes: ShowType[];
   rings: Ring[];
   divisions: Division[];
+  sections: Section[];
 }) {
   const router = useRouter();
   const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
@@ -71,9 +63,9 @@ export default function EditClassCard({
     class_date: cls.class_date,
     ring_id: cls.ring_id ?? '',
     division_id: cls.division_id ?? '',
+    section_id: cls.section_id ?? '',
     status: cls.status,
     score_type: cls.score_type,
-    entry_fee: centsToDollarsInput(cls.entry_fee_cents),
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -86,19 +78,36 @@ export default function EditClassCard({
   const [assocError, setAssocError] = useState<string | null>(null);
   const [confirmDeleteAssocId, setConfirmDeleteAssocId] = useState<string | null>(null);
 
-  const parsedFeeCents = parseDollarsToCents(form.entry_fee);
-  const feeInvalid = parsedFeeCents === null;
   const isDirty =
     form.class_name !== cls.class_name ||
     form.class_date !== cls.class_date ||
     (form.ring_id || null) !== cls.ring_id ||
     (form.division_id || null) !== cls.division_id ||
+    (form.section_id || null) !== cls.section_id ||
     form.status !== cls.status ||
-    form.score_type !== cls.score_type ||
-    (!feeInvalid && parsedFeeCents !== cls.entry_fee_cents);
+    form.score_type !== cls.score_type;
+
+  const sectionsForDivision = useMemo(
+    () =>
+      form.division_id
+        ? sections.filter((s) => (s.division_ids ?? []).includes(form.division_id))
+        : [],
+    [sections, form.division_id],
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => {
+      if (name === 'division_id') {
+        // If the previously-selected section isn't valid for the new division,
+        // clear it so the composite FK doesn't reject the save.
+        const stillValid = value
+          ? sections.find((s) => s.id === prev.section_id)?.division_ids?.includes(value)
+          : false;
+        return { ...prev, division_id: value, section_id: stillValid ? prev.section_id : '' };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleSave = async () => {
@@ -106,8 +115,12 @@ export default function EditClassCard({
       setError('Class name and date are required.');
       return;
     }
-    if (feeInvalid || parsedFeeCents === null) {
-      setError('Entry fee must be a dollar amount (e.g. 25 or 25.50).');
+    if (!form.division_id) {
+      setError('A division is required.');
+      return;
+    }
+    if (!form.section_id) {
+      setError('A section is required.');
       return;
     }
     setSaving(true);
@@ -121,10 +134,10 @@ export default function EditClassCard({
         class_name: form.class_name,
         class_date: form.class_date,
         ring_id: form.ring_id || null,
-        division_id: form.division_id || null,
+        division_id: form.division_id,
+        section_id: form.section_id,
         status: form.status,
         score_type: form.score_type,
-        entry_fee_cents: parsedFeeCents,
       }),
     });
     setSaving(false);
@@ -166,9 +179,9 @@ export default function EditClassCard({
       class_date: cls.class_date,
       ring_id: cls.ring_id ?? '',
       division_id: cls.division_id ?? '',
+      section_id: cls.section_id ?? '',
       status: cls.status,
       score_type: cls.score_type,
-      entry_fee: centsToDollarsInput(cls.entry_fee_cents),
     });
     setEditing(false);
     setConfirmDelete(false);
@@ -176,16 +189,21 @@ export default function EditClassCard({
   };
 
   const handleAddAssoc = async () => {
-    if (!newAssoc.show_type_id || !newAssoc.association_class_code.trim()) {
-      setAssocError('Select an association and enter a class code.');
+    if (!newAssoc.show_type_id) {
+      setAssocError('Select an association.');
       return;
     }
     setAddingAssoc(true);
     setAssocError(null);
+    const code = newAssoc.association_class_code.trim();
     const res = await fetch(`/api/classes/${cls.id}/associations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ showId, ...newAssoc }),
+      body: JSON.stringify({
+        showId,
+        show_type_id: newAssoc.show_type_id,
+        association_class_code: code ? code : null,
+      }),
     });
     setAddingAssoc(false);
     if (res.ok) {
@@ -217,6 +235,7 @@ export default function EditClassCard({
 
   const ringName = cls.ring_id ? rings.find((r) => r.id === cls.ring_id)?.name : null;
   const divisionName = cls.division_id ? divisions.find((d) => d.id === cls.division_id)?.name : null;
+  const sectionName = cls.section_id ? sections.find((s) => s.id === cls.section_id)?.name : null;
 
   if (!editing) {
     return (
@@ -238,6 +257,9 @@ export default function EditClassCard({
           {divisionName && (
             <span className="text-xs ml-2" style={{ color: '#8b7355' }}>· {divisionName}</span>
           )}
+          {sectionName && sectionName !== 'Unassigned' && (
+            <span className="text-xs ml-1" style={{ color: '#8b7355' }}>/ {sectionName}</span>
+          )}
           {associations.map((a) => (
             <span
               key={a.id}
@@ -245,7 +267,7 @@ export default function EditClassCard({
               style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
               title={a.show_type_name ?? undefined}
             >
-              {a.show_type_code}:{a.association_class_code}
+              {a.show_type_code}{a.association_class_code ? `:${a.association_class_code}` : ''}
             </span>
           ))}
           {cls.entry_fee_cents > 0 && (
@@ -318,58 +340,44 @@ export default function EditClassCard({
         </div>
       </div>
       <div className="flex gap-3">
-        <div className="flex-1 max-w-[200px]">
-          <label className="text-sm text-gray-500">Entry fee (USD)</label>
-          <div className="relative">
-            <span
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-sm"
-              style={{ color: '#8b7355' }}
-            >
-              $
-            </span>
-            <input
-              name="entry_fee"
-              inputMode="decimal"
-              value={form.entry_fee}
-              onChange={handleChange}
-              placeholder="0.00"
-              className="w-full border rounded pl-6 pr-3 py-2"
-              style={{ borderColor: feeInvalid ? '#fca5a5' : undefined }}
-              title="Fee charged per entry in this class. Displayed to exhibitors on the registration screen; the app does not collect payment."
-            />
+        {rings.length > 0 && (
+          <div className="flex-1">
+            <label className="text-sm text-gray-500">Ring</label>
+            <select name="ring_id" value={form.ring_id} onChange={handleChange}
+              className="w-full border rounded px-3 py-2">
+              <option value="">None</option>
+              {rings.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
           </div>
-          {feeInvalid && (
-            <p className="text-xs mt-1" style={{ color: '#b91c1c' }}>
-              Enter a dollar amount, e.g. 25 or 25.50.
+        )}
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Division *</label>
+          <select name="division_id" value={form.division_id} onChange={handleChange}
+            className="w-full border rounded px-3 py-2">
+            <option value="">Select…</option>
+            {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Section *</label>
+          <select
+            name="section_id"
+            value={form.section_id}
+            onChange={handleChange}
+            disabled={!form.division_id}
+            className="w-full border rounded px-3 py-2 disabled:bg-gray-100"
+            title={!form.division_id ? 'Pick a division first' : undefined}
+          >
+            <option value="">{form.division_id ? 'Select…' : 'Pick a division first'}</option>
+            {sectionsForDivision.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          {form.division_id && sectionsForDivision.length === 0 && (
+            <p className="text-xs mt-1" style={{ color: '#b45309' }}>
+              No sections in this division — assign one on the Setup page.
             </p>
           )}
         </div>
       </div>
-
-      {(rings.length > 0 || divisions.length > 0) && (
-        <div className="flex gap-3">
-          {rings.length > 0 && (
-            <div className="flex-1">
-              <label className="text-sm text-gray-500">Ring</label>
-              <select name="ring_id" value={form.ring_id} onChange={handleChange}
-                className="w-full border rounded px-3 py-2">
-                <option value="">None</option>
-                {rings.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </div>
-          )}
-          {divisions.length > 0 && (
-            <div className="flex-1">
-              <label className="text-sm text-gray-500">Division</label>
-              <select name="division_id" value={form.division_id} onChange={handleChange}
-                className="w-full border rounded px-3 py-2">
-                <option value="">None</option>
-                {divisions.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-          )}
-        </div>
-      )}
 
       {(associations.length > 0 || availableShowTypes.length > 0) && (
       <div className="border-t pt-3 space-y-2" style={{ borderColor: '#e8d5b7' }}>
@@ -381,7 +389,11 @@ export default function EditClassCard({
                 style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
                 <div>
                   <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{a.show_type_code}</span>
-                  <span className="ml-2" style={{ color: '#2c1810' }}>{a.association_class_code}</span>
+                  {a.association_class_code ? (
+                    <span className="ml-2" style={{ color: '#2c1810' }}>{a.association_class_code}</span>
+                  ) : (
+                    <span className="ml-2 italic text-xs" style={{ color: '#8b7355' }}>no code</span>
+                  )}
                 </div>
                 {confirmDeleteAssocId === a.id ? (
                   <div className="flex items-center gap-2 shrink-0 ml-3">
@@ -433,7 +445,9 @@ export default function EditClassCard({
               </select>
             </div>
             <div className="flex-1 min-w-[140px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Class code</label>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+                Class code <span className="italic">(optional)</span>
+              </label>
               <input
                 value={newAssoc.association_class_code}
                 onChange={(e) => setNewAssoc((p) => ({ ...p, association_class_code: e.target.value }))}
@@ -460,16 +474,8 @@ export default function EditClassCard({
         <div className="flex gap-2 items-center">
           <button
             onClick={handleSave}
-            disabled={saving || !isDirty || feeInvalid}
-            title={
-              feeInvalid
-                ? 'Fix the entry fee before saving'
-                : !isDirty
-                ? 'No changes to save'
-                : saving
-                ? 'Saving, please wait…'
-                : undefined
-            }
+            disabled={saving || !isDirty}
+            title={!isDirty ? 'No changes to save' : saving ? 'Saving, please wait…' : undefined}
             className="bg-blue-600 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}

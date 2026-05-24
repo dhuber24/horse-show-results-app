@@ -113,9 +113,10 @@ export default async function ShowSetupPage({
         showId={id}
         items={sections}
         standardOptions={dedupedSections}
+        availableDivisions={divisions.map((d) => ({ id: d.id, name: d.name }))}
         title="Sections"
-        emptyHint="No sections configured. A Section is an age or skill bracket within a discipline (10 & Under, Walk-Trot, Amateur). Optional — leave empty if classes don't split by bracket."
-        pickerHint="Standard age/skill brackets. Pair these with divisions in the Schedule Builder to create classes like ‘10 & Under Showmanship’."
+        emptyHint="No sections configured. A Section is an age or skill bracket within a discipline (10 & Under, Walk-Trot, Amateur). After adding a section, assign it to one or more divisions so classes can use it."
+        pickerHint="Standard age/skill brackets. After adding, edit each section to choose which divisions it applies to."
       />
     </main>
   );

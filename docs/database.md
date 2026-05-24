@@ -67,6 +67,12 @@ Current migration files:
 | `053_venue_creator.sql` | Add `venues.created_by_user_id` so Show Managers can delete venues they created |
 | `054_class_entry_fee.sql` | Add `classes.entry_fee_cents` (default 0) to support the exhibitor self-registration fee summary; no payment is collected by the app |
 | `055_show_office_charge_and_nsba.sql` | Add `shows.office_charge_cents` (one-time per horse, default 0) and seed the `NSBA` show type so per-class NSBA sanction fees (`max($3, 6% × entry_fee)`) can be auto-computed at registration time from existing `class_associations` rows |
+| `056_user_email_case_insensitive.sql` | Make `users.email` case-insensitive at the unique-index level |
+| `057_entries_no_duplicates.sql` | Block duplicate (class_id, horse_id) entries via a unique constraint |
+| `058_relax_exhibitor_per_class.sql` | Allow the same exhibitor to enter a class on multiple horses where show policy permits |
+| `059_optional_association_class_code.sql` | Make `class_associations.association_class_code` optional |
+| `060_show_fees.sql` | Add `show_fees` table for non-entry fees (stall, drug, late, etc.) |
+| `061_division_sections.sql` | Nest Sections under Divisions via new `division_sections` join table; tighten `classes.{division_id, section_id}` to NOT NULL with a composite FK enforcing `(division_id, section_id)` membership; mirror `standard_division_sections`. Pre-existing classes with a NULL division or section are deleted; existing valid pairs are backfilled into the join. |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -231,9 +237,10 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `show_affiliations` | Secondary associations available for selected classes |
 | `rings` | Per-show arenas, each with `sort_order` |
 | `divisions` | Per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit when score_type is omitted. Legacy rows from before migration 048 are not auto-classified; secretaries may need to clean up names that are really sections. |
-| `sections` | Per-show **age/skill brackets** within a discipline (10 & Under, 11-13, Walk-Trot, Amateur). Optional. New in migration 048. |
-| `standard_rings`, `standard_divisions`, `standard_sections` | Curated lookup lists used by the setup picker. `show_type_id NULL` is the generic fallback set. `standard_divisions` carries `default_score_type` for each discipline. |
-| `classes` | Competition classes; ordered by `sort_order`. Nullable `division_id` (discipline) and `section_id` (bracket). `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event); set from `division.default_score_type` at create time when omitted. |
+| `sections` | Per-show **age/skill brackets** (10 & Under, 11-13, Walk-Trot, Amateur). Each section is linked to one or more divisions via `division_sections` (M2M, migration 061). A section with no division memberships can't be used on classes. |
+| `division_sections` | Join table on `(division_id, section_id)`. A composite FK on `classes(division_id, section_id)` references this table — pairing a class with an unregistered (div, sec) returns 422. Removing a section from a division that still has classes pairing them returns 409. |
+| `standard_rings`, `standard_divisions`, `standard_sections`, `standard_division_sections` | Curated lookup lists used by the setup picker. `show_type_id NULL` is the generic fallback set. `standard_divisions` carries `default_score_type` for each discipline; `standard_division_sections` mirrors the per-show membership join. |
+| `classes` | Competition classes; ordered by `sort_order`. `division_id` (discipline) and `section_id` (bracket) are **both required** (migration 061). The `(division_id, section_id)` pair must be a registered membership in `division_sections` — enforced by a composite FK. `score_type` is `placement` (judges rank), `pattern` (judges score numerically), or `time` (clocked event); set from `division.default_score_type` at create time when omitted. Bulk imports and section-less schedule-builder picks use the per-show "Unassigned" placeholder pair. |
 | `class_associations` | Per-class association codes |
 | `aqha_standard_classes` | AQHA class-code lookup used by the AQHA class picker and validation rules; seeded from the official 2026 AQHA Class Master Listing CSV |
 | `entries` | Exhibitor + horse in a class |
@@ -258,7 +265,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 ## Integrity Rules
 
 - Shows cascade to rings, divisions, sections, classes, show staff links, show entries, and side pots.
-- Classes cascade to entries, results, and side pot bundle rows. Deleting a section sets `classes.section_id` to `NULL` to preserve class history.
+- Classes cascade to entries, results, and side pot bundle rows. Deleting a section now returns 409 if any class still references it (FK is RESTRICT); deleting a section row also cascades its `division_sections` membership rows.
 - Horse deletion sets `entries.horse_id` to `NULL` to preserve history.
 - Results changes should write audit rows for `placement` classes; pattern/time classes recompute `place` from `raw_score` on every save and skip the audit (the score is the editorial decision, not the derived placing).
 - For `pattern` and `time` classes, `raw_score` is required on insert and update; the backend recomputes every result's `place` and `is_tie` flags after each change so equal scores share a place.

@@ -11,6 +11,8 @@ interface StandardClass {
   sort_order: number;
   source_year?: number | null;
   notes?: string | null;
+  auto_discipline?: string | null;
+  auto_score_type?: 'placement' | 'pattern' | 'time' | null;
 }
 
 export default function AQHAClassPicker({
@@ -118,6 +120,23 @@ export default function AQHAClassPicker({
 
   const allFilteredSelected = selectableFiltered.length > 0 && selectableFiltered.every((c) => selected.has(c.code));
 
+  // Routing preview: group selected classes by (division → bracket) so the
+  // secretary sees what divisions/sections this import will create or extend.
+  const routingPreview = useMemo(() => {
+    const grouped = new Map<string, Map<string, number>>();
+    let unrouted = 0;
+    for (const c of allClasses) {
+      if (!selected.has(c.code)) continue;
+      const div = c.auto_discipline || 'Unassigned';
+      const sec = c.division || 'Unassigned';
+      if (div === 'Unassigned') unrouted += 1;
+      const inner = grouped.get(div) ?? new Map<string, number>();
+      inner.set(sec, (inner.get(sec) ?? 0) + 1);
+      grouped.set(div, inner);
+    }
+    return { grouped, unrouted };
+  }, [allClasses, selected]);
+
   if (!open) {
     return (
       <button
@@ -188,7 +207,8 @@ export default function AQHAClassPicker({
                     </th>
                     <th className="px-2 py-2 text-left font-medium" style={{ color: '#5c3d1e' }}>Code</th>
                     <th className="px-2 py-2 text-left font-medium" style={{ color: '#5c3d1e' }}>Name</th>
-                    <th className="px-2 py-2 text-left font-medium hidden sm:table-cell" style={{ color: '#5c3d1e' }}>Division</th>
+                    <th className="px-2 py-2 text-left font-medium hidden sm:table-cell" style={{ color: '#5c3d1e' }}>Bracket</th>
+                    <th className="px-2 py-2 text-left font-medium hidden md:table-cell" style={{ color: '#5c3d1e' }}>Will create division</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -208,6 +228,13 @@ export default function AQHAClassPicker({
                         <td className="px-2 py-1.5 font-mono font-semibold" style={{ color: '#7c5c2e' }}>{c.code}</td>
                         <td className="px-2 py-1.5">{c.name}</td>
                         <td className="px-2 py-1.5 hidden sm:table-cell text-xs" style={{ color: '#8b7355' }}>{c.division}</td>
+                        <td className="px-2 py-1.5 hidden md:table-cell text-xs">
+                          {c.auto_discipline ? (
+                            <span style={{ color: '#3f6b2f' }}>{c.auto_discipline}</span>
+                          ) : (
+                            <span style={{ color: '#b45309' }}>Unassigned</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -215,6 +242,43 @@ export default function AQHAClassPicker({
               </table>
             )}
           </div>
+
+          {selected.size > 0 && (
+            <div
+              className="rounded border p-3 text-xs"
+              style={{ borderColor: '#c9a96e', background: '#faf6ef' }}
+            >
+              <p className="font-medium mb-2" style={{ color: '#5c3d1e' }}>
+                Will create or extend these divisions:
+              </p>
+              <ul className="space-y-1">
+                {[...routingPreview.grouped.entries()]
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([div, brackets]) => (
+                    <li key={div} className="flex items-start gap-2">
+                      <span
+                        className="font-medium"
+                        style={{ color: div === 'Unassigned' ? '#b45309' : '#3f6b2f' }}
+                      >
+                        {div}
+                      </span>
+                      <span style={{ color: '#8b7355' }}>
+                        ({[...brackets.entries()]
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([sec, n]) => `${sec} ×${n}`)
+                          .join(', ')})
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+              {routingPreview.unrouted > 0 && (
+                <p className="mt-2" style={{ color: '#b45309' }}>
+                  {routingPreview.unrouted} class{routingPreview.unrouted === 1 ? '' : 'es'} couldn&apos;t be auto-routed —
+                  they&apos;ll land in &quot;Unassigned&quot; and need a division pick after import.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-4 flex-wrap items-end">
             <div>
@@ -241,7 +305,8 @@ export default function AQHAClassPicker({
           </div>
 
           <p className="text-xs" style={{ color: '#8b7355' }}>
-            Classes are numbered automatically based on their position in the schedule.
+            Classes are numbered automatically. Each class is auto-routed into a division and section based on its
+            name and AQHA bracket; missing divisions/sections are created on the fly.
           </p>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

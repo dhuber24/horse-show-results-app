@@ -17,11 +17,20 @@ from models import (
     ShowType,
     Division,
     Section,
+    division_sections,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from rules.disciplines import classify_class_name
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
     BulkClassCreate,
+    BulkClassFromNamesCreate,
+    BulkClassFromNamesPreview,
+    BulkClassFromNamesPreviewRequest,
+    BulkClassRoutingGroup,
+    BulkClassRoutingItem,
+    BulkClassRoutingSection,
 )
 from routers.shows import _assert_show_access
 
@@ -33,6 +42,205 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession):
     if not show:
         raise HTTPException(404, "Show not found")
     return show
+
+
+UNASSIGNED_LABEL = "Unassigned"
+
+
+async def _create_classes_auto_routed(
+    show_id: UUID,
+    items: list[dict],
+    show_type_id: UUID | None,
+    class_date,
+    db: AsyncSession,
+) -> list[Class]:
+    """Create per-show classes auto-routed into divisions and sections.
+
+    items: each dict has ``name`` (required), ``bracket`` (optional string;
+    None / empty → "Unassigned" section), and ``association_code`` (optional
+    string; when set together with ``show_type_id`` a ClassAssociation row
+    is created on the new class).
+
+    Discipline (Division) comes from :func:`classify_class_name` against the
+    class name; bracket (Section) comes from ``item['bracket']``. Missing
+    divisions/sections are created on the fly. (div, sec) membership is
+    registered in ``division_sections``.
+
+    Caller is responsible for ``db.commit()`` and follow-up renumbering.
+    """
+    max_order_result = await db.execute(
+        select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
+    )
+    next_sort_order = max_order_result.scalar_one()
+
+    div_rows = await db.execute(select(Division).where(Division.show_id == show_id))
+    division_by_name: dict[str, Division] = {d.name: d for d in div_rows.scalars().all()}
+    sec_rows = await db.execute(select(Section).where(Section.show_id == show_id))
+    section_by_name: dict[str, Section] = {s.name: s for s in sec_rows.scalars().all()}
+
+    async def get_or_make_division(name: str, score_type: str) -> Division:
+        existing = division_by_name.get(name)
+        if existing is not None:
+            return existing
+        d = Division(show_id=show_id, name=name, sort_order=9000, default_score_type=score_type)
+        db.add(d)
+        await db.flush()
+        division_by_name[name] = d
+        return d
+
+    async def get_or_make_section(name: str) -> Section:
+        existing = section_by_name.get(name)
+        if existing is not None:
+            return existing
+        s = Section(show_id=show_id, name=name, sort_order=9000)
+        db.add(s)
+        await db.flush()
+        section_by_name[name] = s
+        return s
+
+    membership_seen: set[tuple[UUID, UUID]] = set()
+    created: list[Class] = []
+
+    for item in items:
+        next_sort_order += 1
+        name = item["name"]
+        classified = classify_class_name(name)
+        if classified is not None:
+            discipline_name, score_type = classified
+        else:
+            discipline_name, score_type = "Unassigned", "placement"
+        bracket_name = (item.get("bracket") or "").strip() or "Unassigned"
+
+        division = await get_or_make_division(discipline_name, score_type)
+        section = await get_or_make_section(bracket_name)
+
+        pair = (division.id, section.id)
+        if pair not in membership_seen:
+            await db.execute(
+                pg_insert(division_sections)
+                .values(division_id=division.id, section_id=section.id)
+                .on_conflict_do_nothing()
+            )
+            membership_seen.add(pair)
+
+        cls = Class(
+            show_id=show_id,
+            class_number=str(next_sort_order),
+            class_name=name,
+            class_date=class_date,
+            status="OPEN",
+            sort_order=next_sort_order,
+            division_id=division.id,
+            section_id=section.id,
+            score_type=score_type,
+        )
+        db.add(cls)
+        await db.flush()
+        assoc_code = item.get("association_code")
+        if assoc_code and show_type_id is not None:
+            db.add(ClassAssociation(
+                class_id=cls.id,
+                show_type_id=show_type_id,
+                association_class_code=assoc_code,
+            ))
+        created.append(cls)
+
+    return created
+
+
+def _route_class_name(name: str, bracket: str | None = None) -> dict:
+    classified = classify_class_name(name)
+    if classified is not None:
+        discipline_name, score_type = classified
+    else:
+        discipline_name, score_type = UNASSIGNED_LABEL, "placement"
+    section_name = (bracket or "").strip() or UNASSIGNED_LABEL
+    return {
+        "name": name.strip(),
+        "bracket": section_name,
+        "auto_discipline": classified[0] if classified else None,
+        "auto_score_type": score_type,
+        "routed_division": discipline_name,
+        "routed_section": section_name,
+        "is_unassigned": discipline_name == UNASSIGNED_LABEL,
+    }
+
+
+def _preview_routed_items(items: list[dict]) -> BulkClassFromNamesPreview:
+    preview_items = [
+        BulkClassRoutingItem(**_route_class_name(item["name"], item.get("bracket")))
+        for item in items
+    ]
+    group_counts: dict[str, dict[str, int]] = {}
+    for item in preview_items:
+        sections = group_counts.setdefault(item.routed_division, {})
+        sections[item.routed_section] = sections.get(item.routed_section, 0) + 1
+    groups = [
+        BulkClassRoutingGroup(
+            division=division,
+            sections=[
+                BulkClassRoutingSection(section=section, count=count)
+                for section, count in sorted(sections.items())
+            ],
+            count=sum(sections.values()),
+        )
+        for division, sections in sorted(group_counts.items())
+    ]
+    return BulkClassFromNamesPreview(
+        items=preview_items,
+        groups=groups,
+        unrouted_count=sum(1 for item in preview_items if item.is_unassigned),
+    )
+
+
+def _manual_name_items(body: BulkClassFromNamesPreviewRequest) -> list[dict]:
+    default_bracket = (body.default_bracket or "").strip()
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for item in body.classes:
+        name = item.name.strip()
+        bracket = (item.bracket or default_bracket or "").strip()
+        if not name:
+            continue
+        key = (name.casefold(), bracket.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"name": name, "bracket": bracket})
+    return out
+
+
+async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Division, Section]:
+    """Return (and lazily create) the "Unassigned" division + section pair for a show.
+
+    Used by class-creation paths that don't carry a division/section pick
+    (APHA/AQHA bulk import; schedule builder picks with no section). The
+    secretary reassigns these later in the Schedule Builder.
+    """
+    div_res = await db.execute(
+        select(Division).where(Division.show_id == show_id, Division.name == UNASSIGNED_LABEL)
+    )
+    division = div_res.scalar_one_or_none()
+    if division is None:
+        division = Division(show_id=show_id, name=UNASSIGNED_LABEL, sort_order=9999)
+        db.add(division)
+        await db.flush()
+
+    sec_res = await db.execute(
+        select(Section).where(Section.show_id == show_id, Section.name == UNASSIGNED_LABEL)
+    )
+    section = sec_res.scalar_one_or_none()
+    if section is None:
+        section = Section(show_id=show_id, name=UNASSIGNED_LABEL, sort_order=9999)
+        db.add(section)
+        await db.flush()
+
+    await db.execute(
+        pg_insert(division_sections)
+        .values(division_id=division.id, section_id=section.id)
+        .on_conflict_do_nothing()
+    )
+    return division, section
 
 
 async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
@@ -84,20 +292,28 @@ async def create_class(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
 
-    division: Division | None = None
-    if body.division_id is not None:
-        division = await db.get(Division, body.division_id)
-        if not division or division.show_id != show_id:
-            raise HTTPException(400, "Division does not belong to this show")
+    division = await db.get(Division, body.division_id)
+    if not division or division.show_id != show_id:
+        raise HTTPException(400, "Division does not belong to this show")
 
-    if body.section_id is not None:
-        section = await db.get(Section, body.section_id)
-        if not section or section.show_id != show_id:
-            raise HTTPException(400, "Section does not belong to this show")
+    section = await db.get(Section, body.section_id)
+    if not section or section.show_id != show_id:
+        raise HTTPException(400, "Section does not belong to this show")
 
-    score_type = body.score_type
-    if score_type is None:
-        score_type = division.default_score_type if division else "placement"
+    pair_res = await db.execute(
+        select(division_sections.c.division_id).where(
+            division_sections.c.division_id == body.division_id,
+            division_sections.c.section_id == body.section_id,
+        )
+    )
+    if pair_res.scalar_one_or_none() is None:
+        raise HTTPException(
+            422,
+            f"Section '{section.name}' is not part of division '{division.name}'. "
+            "Add it to the division on the Setup page first.",
+        )
+
+    score_type = body.score_type or division.default_score_type
 
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
@@ -125,6 +341,73 @@ async def create_class(
     await _renumber_classes(show_id, db)
     await db.refresh(class_)
     return class_
+
+
+@router.post("/bulk-from-names/preview", response_model=BulkClassFromNamesPreview)
+async def preview_bulk_classes_from_names(
+    show_id: UUID,
+    body: BulkClassFromNamesPreviewRequest,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    items = _manual_name_items(body)
+    if not items:
+        raise HTTPException(422, "At least one class name is required")
+    return _preview_routed_items(items)
+
+
+@router.post(
+    "/bulk-from-names",
+    response_model=list[ClassOut],
+    status_code=201,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def bulk_create_classes_from_names(
+    show_id: UUID,
+    body: BulkClassFromNamesCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
+    if body.class_date < show.start_date or body.class_date > show.end_date:
+        raise HTTPException(
+            400,
+            f"Class date must be between {show.start_date} and {show.end_date}",
+        )
+
+    items = _manual_name_items(body)
+    if not items:
+        raise HTTPException(422, "At least one class name is required")
+
+    created = await _create_classes_auto_routed(
+        show_id=show_id,
+        items=items,
+        show_type_id=None,
+        class_date=body.class_date,
+        db=db,
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "One or more class numbers already exist in this show")
+
+    await _renumber_classes(show_id, db)
+    created_ids = [cls.id for cls in created]
+    result = await db.execute(
+        select(Class)
+        .options(selectinload(Class.associations).selectinload(ClassAssociation.show_type))
+        .where(Class.id.in_(created_ids))
+        .order_by(Class.sort_order)
+    )
+    return result.scalars().all()
 
 
 @router.get("/{class_id}", response_model=ClassOut)
@@ -156,14 +439,36 @@ async def update_class(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
     update_fields = body.model_dump(exclude_unset=True)
-    if "section_id" in update_fields and update_fields["section_id"] is not None:
+    # Reject explicit nulls — both fields are NOT NULL at the DB level.
+    if update_fields.get("section_id", "unset") is None:
+        raise HTTPException(422, "section_id is required")
+    if update_fields.get("division_id", "unset") is None:
+        raise HTTPException(422, "division_id is required")
+    if "section_id" in update_fields:
         section = await db.get(Section, update_fields["section_id"])
         if not section or section.show_id != show_id:
             raise HTTPException(400, "Section does not belong to this show")
-    if "division_id" in update_fields and update_fields["division_id"] is not None:
+    if "division_id" in update_fields:
         division = await db.get(Division, update_fields["division_id"])
         if not division or division.show_id != show_id:
             raise HTTPException(400, "Division does not belong to this show")
+    # Validate the resulting (division_id, section_id) pair is a registered
+    # membership — defends in depth on top of the composite FK so we return
+    # a clean 422 instead of an IntegrityError.
+    new_div_id = update_fields.get("division_id", class_.division_id)
+    new_sec_id = update_fields.get("section_id", class_.section_id)
+    pair_res = await db.execute(
+        select(division_sections.c.division_id).where(
+            division_sections.c.division_id == new_div_id,
+            division_sections.c.section_id == new_sec_id,
+        )
+    )
+    if pair_res.scalar_one_or_none() is None:
+        raise HTTPException(
+            422,
+            "Selected section is not part of the selected division. "
+            "Add the membership on the Setup page first.",
+        )
     for k, v in update_fields.items():
         setattr(class_, k, v)
     try:
@@ -250,32 +555,19 @@ async def bulk_create_classes(
     if already_used:
         raise HTTPException(409, f"Already in this show: {', '.join(sorted(already_used))}")
 
-    max_order_result = await db.execute(
-        select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
+    routed_items = [
+        {"name": standard_map[item.code].name,
+         "bracket": standard_map[item.code].division,
+         "association_code": standard_map[item.code].code}
+        for item in body.classes
+    ]
+    created = await _create_classes_auto_routed(
+        show_id=show_id,
+        items=routed_items,
+        show_type_id=show.show_type_id,
+        class_date=body.class_date,
+        db=db,
     )
-    next_sort_order = max_order_result.scalar_one()
-
-    created = []
-    for item in body.classes:
-        next_sort_order += 1
-        sc = standard_map[item.code]
-        cls = Class(
-            show_id=show_id,
-            class_number=str(next_sort_order),
-            class_name=sc.name,
-            class_date=body.class_date,
-            status="OPEN",
-            sort_order=next_sort_order,
-        )
-        db.add(cls)
-        await db.flush()  # populate cls.id before creating association
-        assoc = ClassAssociation(
-            class_id=cls.id,
-            show_type_id=show.show_type_id,
-            association_class_code=sc.code,
-        )
-        db.add(assoc)
-        created.append(cls)
 
     try:
         await db.commit()

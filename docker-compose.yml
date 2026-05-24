@@ -25,6 +25,10 @@ services:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - AUTH_SECRET=${NEXTAUTH_SECRET}
+      # Windows bind mounts don't deliver fs events to the container, so the
+      # Next.js file watcher misses edits without polling.
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
     depends_on:
       backend:
         condition: service_healthy

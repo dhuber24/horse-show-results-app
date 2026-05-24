@@ -28,7 +28,7 @@ Placings entered by authorized show staff are final, with audit history for resu
 
 - AQHA - American Quarter Horse Association
 - APHA - American Paint Horse Association
-- WSCA - Western States Cutting Association
+- WSCA - Western Saddle Clubs Association
 - NSBA - National Snaffle Bit Association
 - ApHC - Appaloosa Horse Club
 - FQHR - Foundation Quarter Horse Registry

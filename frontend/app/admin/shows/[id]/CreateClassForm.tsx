@@ -8,7 +8,7 @@ type ScoreType = 'placement' | 'pattern' | 'time';
 
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; default_score_type: ScoreType; }
-interface Section { id: string; name: string; }
+interface Section { id: string; name: string; division_ids?: string[]; }
 
 const SCORE_TYPE_LABEL: Record<ScoreType, string> = {
   placement: 'Placement',
@@ -22,15 +22,7 @@ const EMPTY_FORM: {
   ring_id: string;
   division_id: string;
   section_id: string;
-  entry_fee: string;
-} = { class_name: '', class_date: '', ring_id: '', division_id: '', section_id: '', entry_fee: '' };
-
-function parseDollarsToCents(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === '') return 0;
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
-  return Math.round(parseFloat(trimmed) * 100);
-}
+} = { class_name: '', class_date: '', ring_id: '', division_id: '', section_id: '' };
 
 export default function CreateClassForm({
   showId, showStartDate, showEndDate, rings, divisions, sections,
@@ -54,8 +46,22 @@ export default function CreateClassForm({
     [divisions, form.division_id],
   );
 
+  const sectionsForDivision = useMemo(
+    () =>
+      form.division_id
+        ? sections.filter((s) => (s.division_ids ?? []).includes(form.division_id))
+        : [],
+    [sections, form.division_id],
+  );
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm((prev) => {
+      // Clearing the division also clears the section — sections are scoped
+      // to a division now and the prior pick may no longer be valid.
+      if (name === 'division_id') return { ...prev, division_id: value, section_id: '' };
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleCancel = () => {
@@ -69,9 +75,12 @@ export default function CreateClassForm({
       setError('Class name and date are required.');
       return;
     }
-    const feeCents = parseDollarsToCents(form.entry_fee);
-    if (feeCents === null) {
-      setError('Entry fee must be a dollar amount (e.g. 25 or 25.50).');
+    if (!form.division_id) {
+      setError('Pick a division.');
+      return;
+    }
+    if (!form.section_id) {
+      setError('Pick a section. (Add one on the Setup page and assign it to this division if none are listed.)');
       return;
     }
     setSaving(true);
@@ -85,9 +94,8 @@ export default function CreateClassForm({
         class_date: form.class_date,
         status: 'OPEN',
         ring_id: form.ring_id || null,
-        division_id: form.division_id || null,
-        section_id: form.section_id || null,
-        entry_fee_cents: feeCents,
+        division_id: form.division_id,
+        section_id: form.section_id,
       }),
     });
     setSaving(false);
@@ -143,49 +151,38 @@ export default function CreateClassForm({
         )}
       </div>
       <div className="flex gap-3">
-        <div className="flex-1 max-w-[200px]">
-          <label className="text-sm text-gray-500">Entry fee (USD)</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#8b7355' }}>$</span>
-            <input
-              name="entry_fee"
-              inputMode="decimal"
-              value={form.entry_fee}
-              onChange={handleChange}
-              placeholder="0.00"
-              className="w-full border rounded pl-6 pr-3 py-2"
-              title="Per-entry fee shown to exhibitors on the registration screen. The app does not collect payment."
-            />
-          </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Division (discipline) *</label>
+          <select name="division_id" value={form.division_id} onChange={handleChange}
+            className="w-full border rounded px-3 py-2">
+            <option value="">Select…</option>
+            {divisions.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex-1">
+          <label className="text-sm text-gray-500">Section (bracket) *</label>
+          <select
+            name="section_id"
+            value={form.section_id}
+            onChange={handleChange}
+            disabled={!form.division_id}
+            className="w-full border rounded px-3 py-2 disabled:bg-gray-100"
+            title={!form.division_id ? 'Pick a division first' : undefined}
+          >
+            <option value="">{form.division_id ? 'Select…' : 'Pick a division first'}</option>
+            {sectionsForDivision.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          {form.division_id && sectionsForDivision.length === 0 && (
+            <p className="text-xs mt-1" style={{ color: '#b45309' }}>
+              No sections assigned to this division. Add one on the Setup page.
+            </p>
+          )}
         </div>
       </div>
-
-      {(divisions.length > 0 || sections.length > 0) && (
-        <div className="flex gap-3">
-          {divisions.length > 0 && (
-            <div className="flex-1">
-              <label className="text-sm text-gray-500">Division (discipline)</label>
-              <select name="division_id" value={form.division_id} onChange={handleChange}
-                className="w-full border rounded px-3 py-2">
-                <option value="">None</option>
-                {divisions.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          {sections.length > 0 && (
-            <div className="flex-1">
-              <label className="text-sm text-gray-500">Section (bracket)</label>
-              <select name="section_id" value={form.section_id} onChange={handleChange}
-                className="w-full border rounded px-3 py-2">
-                <option value="">None</option>
-                {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-          )}
-        </div>
-      )}
       <p className="text-xs" style={{ color: '#8b7355' }}>
         Scoring is taken from the division’s default
         {selectedDivision ? (

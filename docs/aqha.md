@@ -78,7 +78,7 @@ Implemented AQHA data and code paths:
 - Class-code extraction: `scripts/extract_aqha_standard_classes_from_pdf.py`
 - Class-code import: `scripts/import_aqha_standard_classes.py`
 - Backend lookup: `GET /aqha-standard-classes/` and `GET /aqha-standard-classes/divisions`
-- Bulk class import: `POST /shows/{show_id}/classes/bulk` for AQHA shows
+- Bulk class import: `POST /shows/{show_id}/classes/bulk` for AQHA shows. Each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket): discipline comes from name-keyword classification in `backend/rules/disciplines.py`; section comes from the `aqha_standard_classes.division` column (which holds the bracket — Open/Amateur/Youth/EWD). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
 - Validation endpoint: `GET /shows/{show_id}/aqha-validation`
 - Frontend picker: `frontend/app/admin/shows/[id]/AQHAClassPicker.tsx`
 - Frontend validation proxy: `frontend/app/api/shows/[showId]/aqha-validation/route.ts`

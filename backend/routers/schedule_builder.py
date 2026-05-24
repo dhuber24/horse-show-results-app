@@ -13,16 +13,18 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from models import Class, Division, Ring, Section, Show
+from models import Class, Division, Ring, Section, Show, division_sections
 from schemas import (
     ClassOut,
     ScheduleBuilderBuild,
 )
 from routers.shows import _assert_show_access
+from routers.classes import _get_or_create_unassigned
 
 
 router = APIRouter(
@@ -93,6 +95,34 @@ async def build_schedule(
             if s.show_id != show_id:
                 raise HTTPException(400, f"Section {s.id} does not belong to this show")
 
+    # Auto-create memberships for any (division, section) pair selected here
+    # that isn't a registered membership yet. The Schedule Builder's matrix
+    # cell IS the user declaring "this section applies to this division", so
+    # treat the build as both intent and registration.
+    pair_intent = {
+        (p.division_id, sid) for p in body.picks for sid in p.section_ids
+    }
+    if pair_intent:
+        await db.execute(
+            pg_insert(division_sections)
+            .values([{"division_id": d, "section_id": s} for d, s in pair_intent])
+            .on_conflict_do_nothing()
+        )
+
+    # Picks with no sections use the per-show "Unassigned" section so we can
+    # satisfy the NOT NULL + composite FK without surfacing the constraint to
+    # the user. The Unassigned division is created on demand but unused here.
+    unassigned_section: Section | None = None
+    if any(not p.section_ids for p in body.picks):
+        _u_div, unassigned_section = await _get_or_create_unassigned(show_id, db)
+        # Register the membership so each picked division can use it.
+        for d in divisions.values():
+            await db.execute(
+                pg_insert(division_sections)
+                .values(division_id=d.id, section_id=unassigned_section.id)
+                .on_conflict_do_nothing()
+            )
+
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
@@ -102,20 +132,21 @@ async def build_schedule(
     for pick in body.picks:
         division = divisions[pick.division_id]
         score_type = pick.score_type or division.default_score_type
-        # Empty section_ids → one class with just the division name.
-        pick_sections: list[Section | None] = (
-            [sections[sid] for sid in pick.section_ids] if pick.section_ids else [None]
+        pick_sections: list[Section] = (
+            [sections[sid] for sid in pick.section_ids] if pick.section_ids else [unassigned_section]  # type: ignore[list-item]
         )
         for section in pick_sections:
             next_sort_order += 1
             class_name = (
-                f"{section.name} {division.name}" if section is not None else division.name
+                f"{section.name} {division.name}"
+                if section is not None and section.name != "Unassigned"
+                else division.name
             )
             cls = Class(
                 show_id=show_id,
                 ring_id=body.ring_id,
                 division_id=division.id,
-                section_id=section.id if section is not None else None,
+                section_id=section.id,
                 class_name=class_name,
                 class_number=str(next_sort_order),
                 class_date=body.class_date,

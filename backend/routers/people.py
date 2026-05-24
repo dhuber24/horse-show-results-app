@@ -25,6 +25,10 @@ from schemas import (
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR", "TRAINER"}
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
 def _display_name(first_name: str, last_name: str) -> str:
     return f"{first_name.strip()} {last_name.strip()}".strip()
 
@@ -70,11 +74,17 @@ async def list_users(
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     _validate_name_parts(body.first_name, body.last_name)
-    user = User(**body.model_dump())
+    data = body.model_dump()
+    data["email"] = _normalize_email(data["email"])
+    user = User(**data)
     db.add(user)
     await db.flush()
     await _ensure_role_profile(user, db)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "Email already registered")
     await db.refresh(user)
     return user
 
@@ -110,13 +120,14 @@ async def create_user_with_password(
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     _validate_name_parts(body.first_name, body.last_name)
 
-    existing = await db.execute(select(User).where(User.email == body.email))
+    email = _normalize_email(body.email)
+    existing = await db.execute(select(User).where(func.lower(User.email) == email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
     hashed = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
     user = User(
-        email=body.email,
+        email=email,
         first_name=body.first_name.strip(),
         last_name=body.last_name.strip(),
         role=body.role,
@@ -175,13 +186,16 @@ async def update_current_user(
         raise HTTPException(404, "User not found")
 
     # Email is the login identifier — require password confirmation to change it.
-    if body.email is not None and body.email != user.email:
+    new_email = _normalize_email(body.email) if body.email is not None else None
+    if new_email is not None and new_email != user.email.lower():
         if not body.current_password:
             raise HTTPException(400, "Confirm your password to change your email.")
         if not user.hashed_password or not bcrypt.checkpw(body.current_password.encode(), user.hashed_password.encode()):
             raise HTTPException(400, "Password is incorrect.")
 
     updates = body.model_dump(exclude_unset=True, exclude={'current_password'})
+    if "email" in updates and updates["email"] is not None:
+        updates["email"] = _normalize_email(updates["email"])
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
@@ -217,6 +231,8 @@ async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSess
     if not user:
         raise HTTPException(404, "User not found")
     updates = body.model_dump(exclude_unset=True)
+    if "email" in updates and updates["email"] is not None:
+        updates["email"] = _normalize_email(updates["email"])
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
@@ -740,9 +756,12 @@ exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 async def list_exhibitors(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    with_user: bool = Query(False, description="Only return exhibitors with a linked user account"),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Exhibitor).order_by(Exhibitor.full_name).offset(offset)
+    if with_user:
+        q = q.where(Exhibitor.user_id.is_not(None))
     if limit is not None:
         q = q.limit(limit)
     result = await db.execute(q)

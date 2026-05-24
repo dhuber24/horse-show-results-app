@@ -71,6 +71,8 @@ Frontend component:
 
 Bulk import from the APHA catalog only applies to APHA shows. AQHA shows use the parallel AQHA standard-class catalog and picker.
 
+On import, each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket). Discipline comes from name-keyword classification in `backend/rules/disciplines.py` — APHA codes don't encode discipline cleanly (e.g. code `R1` alone covers six different disciplines), but APHA class names are clean enough for 100% keyword coverage. Section comes from the `apha_standard_classes.division` column (which holds the bracket — Amateur/Youth/Novice/Open/etc.). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
+
 ## APHA Results Export
 
 Backend endpoint:

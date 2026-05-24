@@ -17,6 +17,7 @@ function formatClassDate(dateStr: string): string {
 interface ShowType { id: string; code: string; name: string; }
 interface Ring { id: string; name: string; }
 interface Division { id: string; name: string; }
+interface Section { id: string; name: string; division_ids?: string[]; }
 
 interface ClassItem {
   id: string;
@@ -29,6 +30,7 @@ interface ClassItem {
   sort_order: number | null;
   ring_id: string | null;
   division_id: string | null;
+  section_id: string | null;
   associations: any[];
 }
 
@@ -40,6 +42,7 @@ export default function ClassListWithReorder({
   showTypes,
   rings,
   divisions,
+  sections,
 }: {
   initialClasses: ClassItem[];
   showId: string;
@@ -48,6 +51,7 @@ export default function ClassListWithReorder({
   showTypes: ShowType[];
   rings: Ring[];
   divisions: Division[];
+  sections: Section[];
 }) {
   const router = useRouter();
   const [ordered, setOrdered] = useState<ClassItem[]>(initialClasses);
@@ -469,6 +473,7 @@ export default function ClassListWithReorder({
                       showTypes={showTypes}
                       rings={rings}
                       divisions={divisions}
+                      sections={sections}
                     />
                   </div>
                 </li>
@@ -515,6 +520,7 @@ export default function ClassListWithReorder({
                               showTypes={showTypes}
                               rings={rings}
                               divisions={divisions}
+                              sections={sections}
                             />
                           </div>
                           <div

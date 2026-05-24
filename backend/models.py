@@ -2,7 +2,8 @@ import uuid
 from datetime import date, datetime
 from sqlalchemy import (
     Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
-    TIMESTAMP, UniqueConstraint, CheckConstraint, Numeric, func, event
+    ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
+    Index, Numeric, func, event, text
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -80,6 +81,7 @@ class Show(Base):
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
     side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
+    fees = relationship("ShowFee", back_populates="show", cascade="all, delete", order_by="ShowFee.sort_order")
 
 
 class ShowAffiliation(Base):
@@ -105,6 +107,17 @@ class Ring(Base):
     classes = relationship("Class", back_populates="ring")
 
 
+division_sections = Table(
+    "division_sections",
+    Base.metadata,
+    Column("division_id", UUID(as_uuid=True),
+           ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True),
+    Column("section_id", UUID(as_uuid=True),
+           ForeignKey("sections.id", ondelete="CASCADE"), primary_key=True),
+    Column("sort_order", Integer, nullable=True),
+)
+
+
 class Division(Base):
     __tablename__ = "divisions"
 
@@ -116,10 +129,16 @@ class Division(Base):
 
     show = relationship("Show", back_populates="divisions")
     classes = relationship("Class", back_populates="division")
+    sections = relationship(
+        "Section",
+        secondary=division_sections,
+        back_populates="divisions",
+        order_by="Section.sort_order",
+    )
 
 
 class Section(Base):
-    """Per-show age/skill bracket within a Division (e.g. 10 & Under, Walk-Trot, Amateur)."""
+    """Per-show age/skill bracket, scoped to one or more Divisions via division_sections."""
     __tablename__ = "sections"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -131,6 +150,12 @@ class Section(Base):
 
     show = relationship("Show", back_populates="sections")
     classes = relationship("Class", back_populates="section")
+    divisions = relationship(
+        "Division",
+        secondary=division_sections,
+        back_populates="sections",
+        order_by="Division.sort_order",
+    )
 
 
 class StandardRing(Base):
@@ -141,6 +166,17 @@ class StandardRing(Base):
     sort_order = Column(Integer, nullable=False, default=0)
 
 
+standard_division_sections = Table(
+    "standard_division_sections",
+    Base.metadata,
+    Column("standard_division_id", UUID(as_uuid=True),
+           ForeignKey("standard_divisions.id", ondelete="CASCADE"), primary_key=True),
+    Column("standard_section_id", UUID(as_uuid=True),
+           ForeignKey("standard_sections.id", ondelete="CASCADE"), primary_key=True),
+    Column("sort_order", Integer, nullable=True),
+)
+
+
 class StandardDivision(Base):
     __tablename__ = "standard_divisions"
 
@@ -149,6 +185,12 @@ class StandardDivision(Base):
     name = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     default_score_type = Column(Text, nullable=False, server_default="placement")
+
+    sections = relationship(
+        "StandardSection",
+        secondary=standard_division_sections,
+        back_populates="divisions",
+    )
 
 
 class StandardSection(Base):
@@ -168,6 +210,12 @@ class StandardSection(Base):
         ),
     )
 
+    divisions = relationship(
+        "StandardDivision",
+        secondary=standard_division_sections,
+        back_populates="sections",
+    )
+
 
 class Class(Base):
     __tablename__ = "classes"
@@ -175,8 +223,8 @@ class Class(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     ring_id = Column(UUID(as_uuid=True), ForeignKey("rings.id"), nullable=True)
-    division_id = Column(UUID(as_uuid=True), ForeignKey("divisions.id"), nullable=True)
-    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id", ondelete="SET NULL"), nullable=True)
+    division_id = Column(UUID(as_uuid=True), ForeignKey("divisions.id"), nullable=False)
+    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id", ondelete="RESTRICT"), nullable=False)
     class_number = Column(Text, nullable=False)
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
@@ -199,6 +247,16 @@ class Class(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["division_id", "section_id"],
+            ["division_sections.division_id", "division_sections.section_id"],
+            name="fk_classes_division_section_pair",
+            onupdate="CASCADE",
+            ondelete="RESTRICT",
+        ),
+    )
     side_pot_classes = relationship(
         "SidePotClass", back_populates="class_", cascade="all, delete-orphan"
     )
@@ -210,7 +268,7 @@ class ClassAssociation(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
-    association_class_code = Column(Text, nullable=False)
+    association_class_code = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("class_id", "show_type_id"),)
@@ -573,7 +631,15 @@ class Entry(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("class_id", "exhibitor_id", "horse_id"),
+        # Exhibitor-per-class is enforced in application code (entries router
+        # + show registration router) because pattern classes allow multiples.
+        Index(
+            "entries_class_horse_uniq",
+            "class_id",
+            "horse_id",
+            unique=True,
+            postgresql_where=text("horse_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "apha_division IN ('OPEN','SOLID_PAINT_BRED','AMATEUR','NOVICE_AMATEUR','YOUTH','NOVICE_YOUTH')",
             name="ck_entries_apha_division",
@@ -620,6 +686,22 @@ class ResultAudit(Base):
 
     result = relationship("Result", back_populates="audits")
     changed_by_user = relationship("User", back_populates="audits")
+
+
+class ShowFee(Base):
+    __tablename__ = "show_fees"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    code = Column(Text, nullable=False)
+    label = Column(Text, nullable=False)
+    amount_cents = Column(Integer, nullable=False, server_default="0")
+    unit = Column(Text, nullable=False)
+    notes = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    show = relationship("Show", back_populates="fees")
 
 
 class ShowEntry(Base):

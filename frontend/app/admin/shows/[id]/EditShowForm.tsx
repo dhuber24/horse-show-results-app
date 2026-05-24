@@ -30,19 +30,7 @@ interface Show {
   aqha_approval_status: string;
   aqha_approval_submitted_at: string | null;
   aqha_approval_notes: string | null;
-  office_charge_cents: number;
   affiliations: ShowAffiliation[];
-}
-
-function centsToDollarsInput(cents: number): string {
-  return (cents / 100).toFixed(2);
-}
-
-function parseDollarsToCents(input: string): number | null {
-  const trimmed = input.trim();
-  if (trimmed === '') return 0;
-  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
-  return Math.round(parseFloat(trimmed) * 100);
 }
 
 interface ShowType {
@@ -75,7 +63,6 @@ export default function EditShowForm({
     aqha_approval_status: show.aqha_approval_status ?? 'NOT_SUBMITTED',
     aqha_approval_submitted_at: show.aqha_approval_submitted_at ?? '',
     aqha_approval_notes: show.aqha_approval_notes ?? '',
-    office_charge: centsToDollarsInput(show.office_charge_cents ?? 0),
   });
   const [affiliationIds, setAffiliationIds] = useState<Set<string>>(
     new Set(show.affiliations.map((a) => a.show_type_id)),
@@ -107,11 +94,6 @@ export default function EditShowForm({
       setError('Name, show type, start date, and end date are required.');
       return;
     }
-    const officeChargeCents = parseDollarsToCents(form.office_charge);
-    if (officeChargeCents === null) {
-      setError('Office charge must be a dollar amount (e.g. 75 or 75.00).');
-      return;
-    }
     setSaving(true);
     setError(null);
 
@@ -130,7 +112,6 @@ export default function EditShowForm({
           aqha_approval_status: form.aqha_approval_status,
           aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
           aqha_approval_notes: form.aqha_approval_notes || null,
-          office_charge_cents: officeChargeCents,
         }),
       }),
       fetch(`/api/shows/${show.id}/affiliations`, {
@@ -245,27 +226,6 @@ export default function EditShowForm({
           </div>
         </div>
       )}
-      <div className="border rounded p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-        <label className="text-sm font-medium" style={{ color: '#2c1810' }}>
-          Office charge per horse
-        </label>
-        <p className="text-xs" style={{ color: '#8b7355' }}>
-          One-time per-horse charge (office, drug testing, etc.) shown to exhibitors on the
-          registration screen. Leave at $0 if not charged. The app does not collect payment.
-        </p>
-        <div className="relative max-w-[200px]">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#8b7355' }}>$</span>
-          <input
-            name="office_charge"
-            inputMode="decimal"
-            value={form.office_charge}
-            onChange={handleChange}
-            placeholder="0.00"
-            className="w-full border rounded pl-6 pr-3 py-2"
-          />
-        </div>
-      </div>
-
       {affiliationOptions.length > 0 && (
         <div className="border rounded p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
           <label className="text-sm font-medium" style={{ color: '#2c1810' }}>

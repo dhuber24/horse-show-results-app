@@ -11,9 +11,12 @@ export type SetupItem = {
   sort_order: number | null;
   class_count: number;
   default_score_type?: ScoreType;
+  division_ids?: string[];
 };
 
 type StandardOption = { id: string; name: string; default_score_type?: ScoreType };
+
+type DivisionOption = { id: string; name: string };
 
 type Props = {
   kind: 'ring' | 'division' | 'section';
@@ -23,6 +26,9 @@ type Props = {
   title: string;
   emptyHint: string;
   pickerHint: string;
+  // Sections only: full division list so each section can be assigned to one
+  // or more divisions. Ignored for other kinds.
+  availableDivisions?: DivisionOption[];
 };
 
 const SCORE_TYPE_LABEL: Record<ScoreType, string> = {
@@ -51,6 +57,7 @@ export default function SetupListPanel({
   title,
   emptyHint,
   pickerHint,
+  availableDivisions = [],
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -59,6 +66,7 @@ export default function SetupListPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editScoreType, setEditScoreType] = useState<ScoreType>('placement');
+  const [editDivisionIds, setEditDivisionIds] = useState<Set<string>>(new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -67,6 +75,11 @@ export default function SetupListPanel({
 
   const [showPicker, setShowPicker] = useState(false);
   const [pickedNames, setPickedNames] = useState<Set<string>>(new Set());
+
+  const divisionNameById = useMemo(
+    () => new Map(availableDivisions.map((d) => [d.id, d.name])),
+    [availableDivisions],
+  );
 
   const collectionPath = `/api/shows/${showId}/${COLLECTION_SEGMENT[kind]}`;
   const itemPath = (id: string) => `${collectionPath}/${id}`;
@@ -139,6 +152,7 @@ export default function SetupListPanel({
     try {
       const body: Record<string, unknown> = { name };
       if (kind === 'division') body.default_score_type = editScoreType;
+      if (kind === 'section') body.division_ids = Array.from(editDivisionIds);
       const res = await fetch(itemPath(id), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -151,6 +165,7 @@ export default function SetupListPanel({
       }
       setEditingId(null);
       setEditName('');
+      setEditDivisionIds(new Set());
       router.refresh();
     } finally {
       setBusy(false);
@@ -266,10 +281,11 @@ export default function SetupListPanel({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && kind !== 'division') handleRename(item.id);
+                        if (e.key === 'Enter' && kind === 'ring') handleRename(item.id);
                         if (e.key === 'Escape') {
                           setEditingId(null);
                           setEditName('');
+                          setEditDivisionIds(new Set());
                         }
                       }}
                       className="border rounded px-2 py-1 text-sm"
@@ -298,23 +314,78 @@ export default function SetupListPanel({
                         ))}
                       </div>
                     )}
+                    {kind === 'section' && (
+                      <div className="text-xs">
+                        <p className="mb-1" style={{ color: '#5c3d1e' }}>
+                          In which divisions?
+                        </p>
+                        {availableDivisions.length === 0 ? (
+                          <p style={{ color: '#8b7355' }}>
+                            No divisions yet — add a division first.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-x-3 gap-y-1">
+                            {availableDivisions.map((d) => {
+                              const checked = editDivisionIds.has(d.id);
+                              return (
+                                <label
+                                  key={d.id}
+                                  className="flex items-center gap-1 cursor-pointer"
+                                  style={{ color: '#2c1810' }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      const next = new Set(editDivisionIds);
+                                      if (e.target.checked) next.add(d.id);
+                                      else next.delete(d.id);
+                                      setEditDivisionIds(next);
+                                    }}
+                                  />
+                                  <span>{d.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
-                  <>
-                    <span style={{ color: '#2c1810' }}>{item.name}</span>
-                    {kind === 'division' && item.default_score_type && (
-                      <span
-                        className="text-xs px-1.5 py-0.5 rounded"
-                        style={{ color: '#7c5c2e', background: '#fef3c7' }}
-                        title={`Default scoring: ${SCORE_TYPE_LABEL[item.default_score_type]}`}
-                      >
-                        {SCORE_TYPE_LABEL[item.default_score_type]}
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span style={{ color: '#2c1810' }}>{item.name}</span>
+                      {kind === 'division' && item.default_score_type && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ color: '#7c5c2e', background: '#fef3c7' }}
+                          title={`Default scoring: ${SCORE_TYPE_LABEL[item.default_score_type]}`}
+                        >
+                          {SCORE_TYPE_LABEL[item.default_score_type]}
+                        </span>
+                      )}
+                      <span className="text-xs" style={{ color: '#8b7355' }}>
+                        {item.class_count} class{item.class_count === 1 ? '' : 'es'}
                       </span>
+                    </div>
+                    {kind === 'section' && (
+                      <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                        {item.division_ids && item.division_ids.length > 0 ? (
+                          <>
+                            In:{' '}
+                            {item.division_ids
+                              .map((id) => divisionNameById.get(id) ?? '?')
+                              .join(', ')}
+                          </>
+                        ) : (
+                          <span style={{ color: '#b45309' }}>
+                            Not assigned to any division — classes can&apos;t use this yet.
+                          </span>
+                        )}
+                      </div>
                     )}
-                    <span className="text-xs" style={{ color: '#8b7355' }}>
-                      {item.class_count} class{item.class_count === 1 ? '' : 'es'}
-                    </span>
-                  </>
+                  </div>
                 )}
               </div>
 
@@ -332,6 +403,7 @@ export default function SetupListPanel({
                     onClick={() => {
                       setEditingId(null);
                       setEditName('');
+                      setEditDivisionIds(new Set());
                     }}
                     className="text-xs hover:underline"
                     style={{ color: '#8b7355' }}
@@ -366,6 +438,7 @@ export default function SetupListPanel({
                       setEditingId(item.id);
                       setEditName(item.name);
                       setEditScoreType(item.default_score_type ?? 'placement');
+                      setEditDivisionIds(new Set(item.division_ids ?? []));
                     }}
                     disabled={busy}
                     className="text-xs hover:underline disabled:opacity-50"

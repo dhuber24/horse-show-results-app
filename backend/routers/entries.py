@@ -157,6 +157,18 @@ async def create_entry(
             msg = "No valid Coggins on file for this horse" if not coggins_docs else "Coggins on file has expired"
             raise HTTPException(422, {"code": "COGGINS_EXPIRED", "message": msg})
 
+    # Pattern classes (showmanship/horsemanship/trail) can have the same
+    # exhibitor entered on multiple horses; rail classes cannot.
+    if class_.score_type != "pattern":
+        existing_exhibitor_entry = await db.execute(
+            select(Entry.id).where(
+                Entry.class_id == class_id,
+                Entry.exhibitor_id == body.exhibitor_id,
+            ).limit(1)
+        )
+        if existing_exhibitor_entry.scalar_one_or_none():
+            raise HTTPException(409, "This exhibitor is already entered in this class.")
+
     entry = Entry(class_id=class_id, **body.model_dump())
     entry.class_ = class_
     entry.horse = horse
@@ -173,9 +185,12 @@ async def create_entry(
     db.add(entry)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(409, "Entry already exists for this exhibitor/horse/class combination")
+        msg = str(exc.orig) if exc.orig is not None else ""
+        if "entries_class_horse_uniq" in msg:
+            raise HTTPException(409, "This horse is already entered in this class.")
+        raise HTTPException(409, "Entry conflicts with an existing entry in this class.")
     await db.refresh(entry)
     return entry
 

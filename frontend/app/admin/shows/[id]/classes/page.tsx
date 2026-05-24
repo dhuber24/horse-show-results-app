@@ -4,6 +4,7 @@ import CreateClassForm from '../CreateClassForm';
 import ClassListWithReorder from '../ClassListWithReorder';
 import APHAClassPicker from '../APHAClassPicker';
 import AQHAClassPicker from '../AQHAClassPicker';
+import BulkClassFromTextImporter from '../BulkClassFromTextImporter';
 import ScheduleBuilder from '../ScheduleBuilder';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
@@ -81,6 +82,12 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
           divisions={divisions}
           sections={sections}
         />
+        <BulkClassFromTextImporter
+          showId={id}
+          showStartDate={show.start_date}
+          showEndDate={show.end_date}
+          sections={sections}
+        />
         {isApha && (
           <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />
         )}
@@ -108,6 +115,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
             showTypes={relevantShowTypes}
             rings={rings}
             divisions={divisions}
+            sections={sections}
           />
         )}
       </section>
