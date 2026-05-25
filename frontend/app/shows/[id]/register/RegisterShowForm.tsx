@@ -266,16 +266,39 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
       >
         Pick a horse for each class you want to enter. The show secretary assigns your back number
         once the show begins. Fees shown are informational — payment is collected at the show.
-        {unavailableHorses.length > 0 && (
-          <div className="mt-2 pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
-            {unavailableHorses.length} horse{unavailableHorses.length === 1 ? ' is' : 's are'} unavailable until
-            required documents are added.{' '}
-            <Link href="/profile?tab=horses" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
-              Manage horse documents
-            </Link>
-          </div>
-        )}
       </div>
+
+      {unavailableHorses.length > 0 && (
+        <div
+          className="mt-3 rounded-lg border p-3 space-y-2"
+          style={{ borderColor: '#fca5a5', backgroundColor: '#fef2f2' }}
+        >
+          <p className="text-sm font-medium" style={{ color: '#991b1b' }}>
+            {unavailableHorses.length === 1 ? '1 horse is' : `${unavailableHorses.length} horses are`} not eligible to enter — resolve the issues below, then refresh this page.
+          </p>
+          <ul className="space-y-1.5">
+            {unavailableHorses.map((h) => {
+              const blockers = horseBlockers(h);
+              return (
+                <li key={h.id} className="flex items-center justify-between gap-3 text-sm">
+                  <span style={{ color: '#7f1d1d' }}>
+                    <span className="font-medium">{h.name}</span>
+                    {' — '}
+                    {blockers[0] ?? 'documents required'}
+                  </span>
+                  <Link
+                    href={`/profile/horses/${h.id}`}
+                    className="shrink-0 text-xs font-medium hover:underline"
+                    style={{ color: '#8b4513' }}
+                  >
+                    Manage documents →
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-6 space-y-6">
         {classesByDate.map(([dateStr, dayClasses]) => (

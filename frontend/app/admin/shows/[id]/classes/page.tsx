@@ -19,7 +19,9 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
     fetchSections(id),
   ]);
 
-  if (rings.length === 0 || divisions.length === 0) {
+  // OPEN shows can use the Standard Library picker which auto-creates divisions/sections,
+  // so skip the setup redirect for them even if rings/divisions are not yet configured.
+  if (show.show_type_code !== 'OPEN' && (rings.length === 0 || divisions.length === 0)) {
     const missing: string[] = [];
     if (rings.length === 0) missing.push('rings');
     if (divisions.length === 0) missing.push('divisions');
@@ -87,6 +89,7 @@ export default async function ShowClassesPage({ params }: { params: Promise<{ id
           showTypeId={show.show_type_id}
           showStartDate={show.start_date}
           showEndDate={show.end_date}
+          rings={rings}
         />
         {isApha && (
           <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />

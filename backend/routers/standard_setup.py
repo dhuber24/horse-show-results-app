@@ -6,12 +6,13 @@ the generic fallback used when no curated list exists for a given show
 type.
 """
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from uuid import UUID
 
 from database import get_db
-from models import StandardRing, StandardDivision, StandardSection
+from models import StandardRing, StandardDivision, StandardSection, standard_division_sections
 from schemas import StandardRingOut, StandardDivisionOut, StandardSectionOut
 
 router = APIRouter(prefix="/standard-setup", tags=["Standard Setup"])
@@ -64,3 +65,57 @@ async def list_standard_sections(
     stmt = stmt.order_by(StandardSection.sort_order, StandardSection.name)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+class StandardPairOut(BaseModel):
+    division_name: str
+    section_name: str
+    score_type: str
+
+
+@router.get("/pairs", response_model=list[StandardPairOut])
+async def list_standard_pairs(
+    show_type_id: UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return valid (division, section) pairs from standard_division_sections.
+
+    Only pairs whose division and section both match the requested show type
+    (or are the generic NULL fallback) are returned. The Standard Library picker
+    uses this instead of computing a full cartesian product, so invalid combos
+    like Walk-Trot Halter never appear.
+    """
+    sds = standard_division_sections
+    stmt = (
+        select(
+            StandardDivision.name.label("division_name"),
+            StandardDivision.default_score_type.label("score_type"),
+            StandardSection.name.label("section_name"),
+            StandardSection.sort_order.label("section_sort"),
+        )
+        .join(sds, StandardDivision.id == sds.c.standard_division_id)
+        .join(StandardSection, StandardSection.id == sds.c.standard_section_id)
+    )
+    if show_type_id is not None:
+        stmt = stmt.where(
+            or_(
+                StandardDivision.show_type_id == show_type_id,
+                StandardDivision.show_type_id.is_(None),
+            )
+        ).where(
+            or_(
+                StandardSection.show_type_id == show_type_id,
+                StandardSection.show_type_id.is_(None),
+            )
+        )
+    stmt = stmt.order_by(
+        StandardDivision.sort_order,
+        StandardDivision.name,
+        StandardSection.sort_order,
+        StandardSection.name,
+    )
+    result = await db.execute(stmt)
+    return [
+        StandardPairOut(division_name=row.division_name, section_name=row.section_name, score_type=row.score_type)
+        for row in result.all()
+    ]

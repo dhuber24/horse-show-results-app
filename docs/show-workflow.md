@@ -75,9 +75,9 @@ The Schedule Builder at `/admin/shows/[id]/classes` lays out a show as a **divis
 
 The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the click-pick equivalent of the AQHA/APHA pickers for any show type:
 
-- The picker loads `standard_divisions` and `standard_sections` for the show's primary show type (with the NULL-show-type generic fallback) and renders the cartesian product as a flat table — one row per `(discipline × bracket)` cell.
+- The picker loads valid standard `(division, section)` pairs from `GET /standard-setup/pairs`, backed by the `standard_division_sections` join table seeded in migrations 064-065. It no longer renders every possible cartesian product, so invalid combinations such as Walk-Trot Halter are filtered out before the secretary sees them.
 - The secretary filters by discipline / bracket / search, checks the cells they want, sees a routing-summary panel, and commits.
-- On commit, `POST /shows/{id}/classes/from-library` creates any missing per-show Division (with the discipline's `default_score_type`), Section, and `(division, section)` membership; then creates one class per pick named `"{Section} {Discipline}"` with the discipline's scoring type. The schedule is renumbered.
+- On commit, `POST /shows/{id}/classes/from-library` creates any missing per-show Division (with the discipline's `default_score_type`), Section, and `(division, section)` membership; then creates one class per pick named `"{Section} {Discipline}"` with the discipline's scoring type. The picker can assign all created classes to one selected ring, and the schedule is renumbered.
 - Each pick already carries division name + score type from `standard_divisions`, so this endpoint skips the name-keyword classifier used by the AQHA/APHA bulk imports.
 - Disciplines or brackets that don't appear in the standard library are added on the Setup page; they'll appear here the next time the picker opens.
 

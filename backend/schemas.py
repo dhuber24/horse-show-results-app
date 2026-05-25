@@ -1235,6 +1235,7 @@ class ClassFromLibraryPick(BaseModel):
 class ClassesFromLibraryCreate(BaseModel):
     class_date: date
     picks: list[ClassFromLibraryPick] = Field(min_length=1)
+    ring_id: Optional[UUID] = None
 
 
 class AssociationValidationIssue(BaseModel):

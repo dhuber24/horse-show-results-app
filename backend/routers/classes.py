@@ -48,6 +48,7 @@ async def _create_classes_auto_routed(
     show_type_id: UUID | None,
     class_date,
     db: AsyncSession,
+    ring_id: UUID | None = None,
 ) -> list[Class]:
     """Create per-show classes auto-routed into divisions and sections.
 
@@ -136,6 +137,7 @@ async def _create_classes_auto_routed(
             division_id=division.id,
             section_id=section.id,
             score_type=score_type,
+            ring_id=ring_id,
         )
         db.add(cls)
         await db.flush()
@@ -343,6 +345,7 @@ async def bulk_create_classes_from_library(
         show_type_id=None,
         class_date=body.class_date,
         db=db,
+        ring_id=body.ring_id,
     )
     try:
         await db.commit()

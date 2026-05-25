@@ -130,15 +130,20 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
 
 
 async def _exhibitor_horse_ids(exhibitor_id: UUID, db: AsyncSession) -> set[UUID]:
-    """All horses on this exhibitor's profile (owned, created, or linked)."""
-    from_owned = select(Horse.id).where(Horse.owner_exhibitor_id == exhibitor_id)
+    """Horses on this exhibitor's profile — matches the /my-horses endpoint (created or linked).
+
+    Intentionally excludes horses that only have owner_exhibitor_id set: those are
+    invisible to the exhibitor in their profile UI and cannot be managed there, so they
+    should not appear in the self-registration picker either. Use ExhibitorHorse to
+    explicitly grant an exhibitor access to a horse they didn't create.
+    """
     from_created = select(Horse.id).where(Horse.created_by_exhibitor_id == exhibitor_id)
     from_link = (
         select(Horse.id)
         .join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id)
         .where(ExhibitorHorse.exhibitor_id == exhibitor_id)
     )
-    combined = union(from_owned, from_created, from_link).subquery()
+    combined = union(from_created, from_link).subquery()
     result = await db.execute(select(combined.c.id))
     return {row[0] for row in result.all()}
 

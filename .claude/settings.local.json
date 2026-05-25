@@ -161,7 +161,13 @@
       "PowerShell($envFile = Resolve-Path \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\.env\"; Get-Content $envFile | ForEach-Object { if \\($_ -match \"^\\([^#][^=]+\\)=\\(.+\\)$\"\\) { [System.Environment]::SetEnvironmentVariable\\($matches[1], $matches[2]\\) } }; $psqlUrl = $env:DATABASE_URL -replace \"postgresql\\\\+asyncpg\", \"postgresql\"; docker run --rm postgres:16-alpine psql $psqlUrl -tAc \"SELECT code || '|' || name FROM aqha_standard_classes\" 2>&1 | Out-File -FilePath C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\aqha_names.txt -Encoding utf8; docker run --rm postgres:16-alpine psql $psqlUrl -tAc \"SELECT code || '|' || name FROM apha_standard_classes\" 2>&1 | Out-File -FilePath C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\apha_names.txt -Encoding utf8; \"AQHA: \" + \\(Get-Content C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\aqha_names.txt\\).Count + \" lines\"; \"APHA: \" + \\(Get-Content C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\apha_names.txt\\).Count + \" lines\")",
       "Bash(rm -f frontend/app/admin/shows/\\\\[id\\\\]/BulkClassFromTextImporter.tsx)",
       "Bash(rm -rf frontend/app/api/shows/\\\\[showId\\\\]/classes/bulk-from-names)",
-      "Bash(mkdir -p frontend/app/api/shows/\\\\[showId\\\\]/classes/from-library 2>&1)"
+      "Bash(mkdir -p frontend/app/api/shows/\\\\[showId\\\\]/classes/from-library 2>&1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 20)",
+      "Bash(xargs grep -l \"standard.setup\\\\|standard_setup\\\\|standard-setup\")",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 10)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 8)",
+      "Bash(py -m compileall backend/routers/standard_setup.py)",
+      "PowerShell(py -m compileall backend/routers/standard_setup.py 2>&1)"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates",

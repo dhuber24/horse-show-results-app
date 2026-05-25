@@ -94,7 +94,8 @@ export default function CreateShowForm({ venues, showTypes }: { venues: Venue[];
     }
 
     setSaving(false);
-    router.push(`/admin/shows/${show.id}`);
+    const dest = selectedShowType?.code === 'OPEN' ? 'classes' : 'setup';
+    router.push(`/admin/shows/${show.id}/${dest}`);
   };
 
   return (

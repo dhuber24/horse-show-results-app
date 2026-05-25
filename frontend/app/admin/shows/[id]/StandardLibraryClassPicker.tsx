@@ -6,20 +6,9 @@ import { getShowDates } from './showDateUtils';
 
 type ScoreType = 'placement' | 'pattern' | 'time';
 
-interface StandardDivision {
-  id: string;
-  name: string;
-  default_score_type: ScoreType;
-  sort_order: number;
-}
+interface Ring { id: string; name: string; }
 
-interface StandardSection {
-  id: string;
-  name: string;
-  sort_order: number;
-}
-
-// A virtual class row = the cartesian product (discipline × bracket).
+// A valid (discipline × bracket) combination from the standard library join table.
 interface Pair {
   divisionName: string;
   sectionName: string;
@@ -45,17 +34,18 @@ export default function StandardLibraryClassPicker({
   showTypeId,
   showStartDate,
   showEndDate,
+  rings,
 }: {
   showId: string;
   showTypeId: string;
   showStartDate: string;
   showEndDate: string;
+  rings: Ring[];
 }) {
   const router = useRouter();
   const showDates = useMemo(() => getShowDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
   const [open, setOpen] = useState(false);
-  const [divisions, setDivisions] = useState<StandardDivision[]>([]);
-  const [sections, setSections] = useState<StandardSection[]>([]);
+  const [pairs, setPairs] = useState<Pair[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [divisionFilter, setDivisionFilter] = useState('');
@@ -63,50 +53,40 @@ export default function StandardLibraryClassPicker({
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [classDate, setClassDate] = useState(showStartDate);
+  const [ringId, setRingId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!open || (divisions.length > 0 && sections.length > 0)) return;
+    if (!open || pairs.length > 0) return;
     setLoading(true);
-    const qs = `?show_type_id=${encodeURIComponent(showTypeId)}`;
-    Promise.all([
-      fetch(`/api/standard-setup/divisions${qs}`).then((r) => r.json()),
-      fetch(`/api/standard-setup/sections${qs}`).then((r) => r.json()),
-    ])
-      .then(([divs, secs]) => {
-        const dedup = <T extends { name: string }>(list: T[]): T[] => {
-          const seen = new Set<string>();
-          return (Array.isArray(list) ? list : []).filter((x) => {
-            const k = x.name.toLowerCase();
-            if (seen.has(k)) return false;
-            seen.add(k);
-            return true;
-          });
-        };
-        setDivisions(dedup(divs));
-        setSections(dedup(secs));
+    fetch(`/api/standard-setup/pairs?show_type_id=${encodeURIComponent(showTypeId)}`)
+      .then((r) => r.json())
+      .then((data: { division_name: string; section_name: string; score_type: string }[]) => {
+        setPairs(
+          (Array.isArray(data) ? data : []).map((p) => ({
+            divisionName: p.division_name,
+            sectionName: p.section_name,
+            scoreType: p.score_type as ScoreType,
+            label: `${p.section_name} ${p.division_name}`,
+            key: `${p.division_name}::${p.section_name}`,
+          })),
+        );
       })
       .catch(() => setError('Failed to load the standard discipline/bracket library.'))
       .finally(() => setLoading(false));
-  }, [open, showTypeId, divisions.length, sections.length]);
+  }, [open, showTypeId, pairs.length]);
 
-  const pairs: Pair[] = useMemo(() => {
-    const list: Pair[] = [];
-    for (const d of divisions) {
-      for (const s of sections) {
-        list.push({
-          divisionName: d.name,
-          sectionName: s.name,
-          scoreType: d.default_score_type,
-          label: `${s.name} ${d.name}`,
-          key: `${d.name}::${s.name}`,
-        });
-      }
-    }
-    return list;
-  }, [divisions, sections]);
+  // Derive unique division and section names for the filter dropdowns.
+  const divisionNames = useMemo(
+    () => [...new Set(pairs.map((p) => p.divisionName))],
+    [pairs],
+  );
+  const sectionNames = useMemo(
+    () => [...new Set(pairs.map((p) => p.sectionName))],
+    [pairs],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -172,7 +152,7 @@ export default function StandardLibraryClassPicker({
     const res = await fetch(`/api/shows/${showId}/classes/from-library`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ class_date: classDate, picks }),
+      body: JSON.stringify({ class_date: classDate, picks, ring_id: ringId || null }),
     });
     setSaving(false);
     if (res.ok) {
@@ -214,17 +194,18 @@ export default function StandardLibraryClassPicker({
 
       {loading && <p className="text-sm" style={{ color: '#8b7355' }}>Loading library…</p>}
 
-      {!loading && divisions.length === 0 && sections.length === 0 && (
+      {!loading && pairs.length === 0 && (
         <div className="rounded border p-3 text-sm" style={{ borderColor: '#e8d5b7', color: '#8b7355' }}>
-          The standard library is empty for this show type. Add disciplines and brackets on the
-          <a className="underline ml-1" href={`/admin/shows/${showId}/setup`} style={{ color: '#7c5c2e' }}>
+          No standard discipline/bracket combinations are defined for this show type.
+          Add disciplines and brackets on the{' '}
+          <a className="underline" href={`/admin/shows/${showId}/setup`} style={{ color: '#7c5c2e' }}>
             Setup page
           </a>{' '}
           to use the matrix above.
         </div>
       )}
 
-      {!loading && divisions.length > 0 && sections.length > 0 && (
+      {!loading && pairs.length > 0 && (
         <>
           <div className="flex gap-3 flex-wrap">
             <input
@@ -242,8 +223,8 @@ export default function StandardLibraryClassPicker({
               style={{ borderColor: '#d4b896' }}
             >
               <option value="">All disciplines</option>
-              {divisions.map((d) => (
-                <option key={d.id} value={d.name}>{d.name}</option>
+              {divisionNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
             <select
@@ -253,8 +234,8 @@ export default function StandardLibraryClassPicker({
               style={{ borderColor: '#d4b896' }}
             >
               <option value="">All brackets</option>
-              {sections.map((s) => (
-                <option key={s.id} value={s.name}>{s.name}</option>
+              {sectionNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
           </div>
@@ -350,6 +331,22 @@ export default function StandardLibraryClassPicker({
                 ))}
               </select>
             </div>
+            {rings.length > 0 && (
+              <div>
+                <label className="block text-xs mb-1" style={{ color: '#8b7355' }}>Ring</label>
+                <select
+                  value={ringId}
+                  onChange={(e) => setRingId(e.target.value)}
+                  className="border rounded px-3 py-1.5 text-sm"
+                  style={{ borderColor: '#d4b896' }}
+                >
+                  <option value="">No ring</option>
+                  {rings.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               onClick={handleAdd}
               disabled={saving || selected.size === 0}
