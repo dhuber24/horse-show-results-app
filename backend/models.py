@@ -29,6 +29,13 @@ horse_breeds = Table(
     Column("breed_id", UUID(as_uuid=True), ForeignKey("breeds.id", ondelete="CASCADE"), primary_key=True),
 )
 
+show_judge_affiliations = Table(
+    "show_judge_affiliations",
+    Base.metadata,
+    Column("judge_id", UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="CASCADE"), primary_key=True),
+    Column("show_type_id", UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class ShowType(Base):
     __tablename__ = "show_types"
@@ -90,6 +97,7 @@ class Show(Base):
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
     side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
     fees = relationship("ShowFee", back_populates="show", cascade="all, delete", order_by="ShowFee.sort_order")
+    judges = relationship("ShowJudge", back_populates="show", cascade="all, delete", order_by="ShowJudge.sort_order")
 
 
 class ShowAffiliation(Base):
@@ -222,6 +230,44 @@ class StandardSection(Base):
         "StandardDivision",
         secondary=standard_division_sections,
         back_populates="sections",
+    )
+
+
+class StandardClass(Base):
+    """Canonical per-show-type class catalog used by the Setup matrix picker.
+
+    Each row pairs a class to a (standard_division, standard_section) cell in
+    the standard library matrix. Picking a class in the UI creates the
+    per-show division/section/membership/class rows in one apply call.
+    """
+    __tablename__ = "standard_classes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    standard_division_id = Column(UUID(as_uuid=True), nullable=False)
+    standard_section_id = Column(UUID(as_uuid=True), nullable=False)
+    class_code = Column(Text, nullable=True)
+    class_name = Column(Text, nullable=False)
+    default_score_type = Column(Text, nullable=False, server_default="placement")
+    default_entry_fee_cents = Column(Integer, nullable=False, server_default="0")
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    source_year = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["standard_division_id", "standard_section_id"],
+            ["standard_division_sections.standard_division_id",
+             "standard_division_sections.standard_section_id"],
+            name="fk_standard_classes_division_section_pair",
+            onupdate="CASCADE",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "show_type_id", "class_code",
+            name="uq_standard_classes_type_code",
+            postgresql_nulls_not_distinct=True,
+        ),
     )
 
 
@@ -712,6 +758,22 @@ class ShowFee(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="fees")
+
+
+class ShowJudge(Base):
+    __tablename__ = "show_judges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False)
+    email = Column(Text, nullable=True)
+    phone = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    show = relationship("Show", back_populates="judges")
+    affiliations = relationship("ShowType", secondary=show_judge_affiliations, lazy="selectin")
 
 
 class ShowEntry(Base):

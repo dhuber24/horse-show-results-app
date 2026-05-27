@@ -260,6 +260,92 @@ class StandardSectionOut(BaseModel):
         from_attributes = True
 
 
+class StandardClassOut(BaseModel):
+    id: UUID
+    show_type_id: UUID
+    standard_division_id: UUID
+    standard_section_id: UUID
+    class_code: Optional[str] = None
+    class_name: str
+    default_score_type: ScoreType = "placement"
+    default_entry_fee_cents: int = 0
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+# ── Standard Setup catalog ─────────────────────────────────────────────────────
+
+class StandardCatalogDivision(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+    default_score_type: ScoreType = "placement"
+
+
+class StandardCatalogSection(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+
+
+class StandardCatalogCell(BaseModel):
+    """One (discipline × bracket) cell in the matrix. May contain >=1 classes."""
+    standard_division_id: UUID
+    standard_section_id: UUID
+    classes: list[StandardClassOut]
+
+
+class StandardCatalogOut(BaseModel):
+    """Everything the Setup matrix UI needs in a single payload."""
+    show_type_id: UUID
+    show_type_code: str
+    divisions: list[StandardCatalogDivision]
+    sections: list[StandardCatalogSection]
+    cells: list[StandardCatalogCell]
+
+
+# ── Setup apply (idempotent matrix-pick → per-show rows) ───────────────────────
+
+class SetupApplyRing(BaseModel):
+    """One ring to ensure exists on the show. If id is given, treat as existing."""
+    id: Optional[UUID] = None
+    name: str = Field(min_length=1, max_length=120)
+    sort_order: Optional[int] = None
+
+
+class SetupApplyPick(BaseModel):
+    """Pick a specific standard class (creates the class + div/sec/membership)
+    or pick a whole cell (creates div/sec/membership only, no class).
+    """
+    standard_class_id: Optional[UUID] = None
+    standard_division_id: Optional[UUID] = None
+    standard_section_id: Optional[UUID] = None
+
+    @model_validator(mode='after')
+    def _check_either(self):
+        if self.standard_class_id is None and (
+            self.standard_division_id is None or self.standard_section_id is None
+        ):
+            raise ValueError(
+                "Must provide standard_class_id OR both standard_division_id and standard_section_id"
+            )
+        return self
+
+
+class SetupApplyRequest(BaseModel):
+    rings: list[SetupApplyRing] = Field(default_factory=list)
+    picks: list[SetupApplyPick] = Field(default_factory=list)
+
+
+class SetupApplyResult(BaseModel):
+    created_ring_ids: list[UUID] = Field(default_factory=list)
+    created_division_ids: list[UUID] = Field(default_factory=list)
+    created_section_ids: list[UUID] = Field(default_factory=list)
+    created_class_ids: list[UUID] = Field(default_factory=list)
+
+
 # ── Classes ────────────────────────────────────────────────────────────────────
 
 class ClassCreate(BaseModel):
@@ -344,6 +430,7 @@ FeeUnit = Literal[
     'flat',
     'per_entry',
     'per_horse',
+    'per_judge',
     'per_class_per_horse',
     'per_night',
     'per_stall',
@@ -379,6 +466,50 @@ class ShowFeeOut(BaseModel):
     unit: FeeUnit
     notes: Optional[str] = None
     sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Show Judges ────────────────────────────────────────────────────────────────
+
+class ShowJudgeAffiliationOut(BaseModel):
+    id: UUID
+    code: str
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
+class ShowJudgeCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    affiliation_ids: list[UUID] = []
+    sort_order: int = 0
+
+
+class ShowJudgeUpdate(BaseModel):
+    first_name: Optional[str] = Field(default=None, max_length=100)
+    last_name: Optional[str] = Field(default=None, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    affiliation_ids: Optional[list[UUID]] = None
+    sort_order: Optional[int] = None
+
+
+class ShowJudgeOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    first_name: str
+    last_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    affiliations: list[ShowJudgeAffiliationOut] = []
+    sort_order: Optional[int] = None
     created_at: datetime
 
     class Config:
@@ -750,6 +881,14 @@ class HorseCreate(BaseModel):
 
 class HorseCreateWithRegistrations(HorseCreate):
     registrations: list[HorseRegistrationCreate] = Field(default_factory=list)
+    # Owner selection for exhibitor self-service: exactly one of these must apply.
+    # claim_ownership=True → caller is the owner.
+    # owner_exhibitor_id   → existing exhibitor (from HorseCreate parent).
+    # owner_first/last/email → look up or create a new owner record.
+    claim_ownership: bool = False
+    owner_first_name: Optional[str] = Field(default=None, max_length=100)
+    owner_last_name: Optional[str] = Field(default=None, max_length=100)
+    owner_email: Optional[EmailStr] = None
 
 class HorseUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)

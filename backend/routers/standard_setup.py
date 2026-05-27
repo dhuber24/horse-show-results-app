@@ -4,16 +4,28 @@ Exposes curated lists of standard ring names, discipline-style division
 names, and bracket-style section names. Rows with show_type_id NULL are
 the generic fallback used when no curated list exists for a given show
 type.
+
+The /catalog endpoint is the primary entry point for the new Matrix
+setup UI — it returns divisions, sections, and (division × section)
+cells with their standard classes in a single response.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from uuid import UUID
+from collections import defaultdict
 
 from database import get_db
-from models import StandardRing, StandardDivision, StandardSection, standard_division_sections
-from schemas import StandardRingOut, StandardDivisionOut, StandardSectionOut
+from models import (
+    StandardRing, StandardDivision, StandardSection, StandardClass,
+    ShowType, standard_division_sections,
+)
+from schemas import (
+    StandardRingOut, StandardDivisionOut, StandardSectionOut, StandardClassOut,
+    StandardCatalogOut, StandardCatalogDivision, StandardCatalogSection,
+    StandardCatalogCell,
+)
 
 router = APIRouter(prefix="/standard-setup", tags=["Standard Setup"])
 
@@ -119,3 +131,68 @@ async def list_standard_pairs(
         StandardPairOut(division_name=row.division_name, section_name=row.section_name, score_type=row.score_type)
         for row in result.all()
     ]
+
+
+@router.get("/catalog", response_model=StandardCatalogOut)
+async def get_standard_catalog(
+    show_type_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Single payload for the Matrix setup UI: divisions, sections, and
+    (div × sec) cells with their standard classes — scoped to one show type.
+
+    Generic NULL-show_type_id rows are intentionally excluded; per-show-type
+    seeding is the contract for the new Setup page. If a show type has no
+    standard library yet, the response will be empty and the UI should fall
+    back to "add custom" panels.
+    """
+    show_type = (await db.execute(
+        select(ShowType).where(ShowType.id == show_type_id)
+    )).scalar_one_or_none()
+    if show_type is None:
+        raise HTTPException(status_code=404, detail="show type not found")
+
+    div_rows = (await db.execute(
+        select(StandardDivision)
+        .where(StandardDivision.show_type_id == show_type_id)
+        .order_by(StandardDivision.sort_order, StandardDivision.name)
+    )).scalars().all()
+    sec_rows = (await db.execute(
+        select(StandardSection)
+        .where(StandardSection.show_type_id == show_type_id)
+        .order_by(StandardSection.sort_order, StandardSection.name)
+    )).scalars().all()
+    class_rows = (await db.execute(
+        select(StandardClass)
+        .where(StandardClass.show_type_id == show_type_id)
+        .order_by(StandardClass.sort_order, StandardClass.class_name)
+    )).scalars().all()
+
+    cells_map: dict[tuple[UUID, UUID], list[StandardClassOut]] = defaultdict(list)
+    for c in class_rows:
+        cells_map[(c.standard_division_id, c.standard_section_id)].append(
+            StandardClassOut.model_validate(c)
+        )
+
+    return StandardCatalogOut(
+        show_type_id=show_type_id,
+        show_type_code=show_type.code,
+        divisions=[
+            StandardCatalogDivision(
+                id=d.id, name=d.name, sort_order=d.sort_order,
+                default_score_type=d.default_score_type,
+            ) for d in div_rows
+        ],
+        sections=[
+            StandardCatalogSection(id=s.id, name=s.name, sort_order=s.sort_order)
+            for s in sec_rows
+        ],
+        cells=[
+            StandardCatalogCell(
+                standard_division_id=div_id,
+                standard_section_id=sec_id,
+                classes=classes,
+            )
+            for (div_id, sec_id), classes in cells_map.items()
+        ],
+    )
