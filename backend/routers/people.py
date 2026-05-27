@@ -786,6 +786,48 @@ class ExhibitorLink(BaseModel):
 
 exhibitors_router = APIRouter(prefix="/exhibitors", tags=["Exhibitors"])
 
+
+def _normalize_name(name: str) -> str:
+    """Collapse whitespace and lower-case for dedup key."""
+    return re.sub(r'\s+', ' ', (name or '').strip()).lower()
+
+
+def _dedup_exhibitors(rows: list) -> list:
+    """Deduplicate by normalized full_name, preferring user-linked records."""
+    seen: dict[str, object] = {}
+    for ex in rows:
+        key = _normalize_name(ex.full_name)
+        if not key:
+            continue
+        if key not in seen or (ex.user_id is not None and seen[key].user_id is None):  # type: ignore[union-attr]
+            seen[key] = ex
+    return sorted(seen.values(), key=lambda e: _normalize_name(e.full_name))  # type: ignore[arg-type]
+
+
+class ExhibitorBasic(BaseModel):
+    id: UUID
+    full_name: str
+
+    class Config:
+        from_attributes = True
+
+
+@exhibitors_router.get("/names", response_model=list[ExhibitorBasic])
+async def list_exhibitor_names(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Minimal name+id list for owner-selection dropdowns. Only returns exhibitors with a
+    linked user account — orphaned/test records without accounts are excluded. Use the
+    'Enter owner information' mode for owners who don't have an account."""
+    result = await db.execute(
+        select(Exhibitor)
+        .where(Exhibitor.user_id.is_not(None))
+        .order_by(Exhibitor.full_name)
+    )
+    return _dedup_exhibitors(list(result.scalars().all()))
+
+
 @exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_exhibitors(
     limit: Optional[int] = Query(None, ge=1, le=1000),
@@ -799,7 +841,8 @@ async def list_exhibitors(
     if limit is not None:
         q = q.limit(limit)
     result = await db.execute(q)
-    return result.scalars().all()
+    rows = list(result.scalars().all())
+    return _dedup_exhibitors(rows)
 
 @exhibitors_router.post("/", response_model=ExhibitorOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_exhibitor(body: ExhibitorCreateWithUser, db: AsyncSession = Depends(get_db)):
@@ -1049,9 +1092,48 @@ async def create_horse_for_exhibitor(
     if not result.scalar_one_or_none():
         raise HTTPException(403, "You can only create horses for your own profile")
 
-    # Reject any attempt to set a different owner — exhibitors may only register horses they own.
-    if body.owner_exhibitor_id is not None and body.owner_exhibitor_id != exhibitor_id:
-        raise HTTPException(403, "You cannot create a horse you do not own. Only the owner of the horse can register it.")
+    # Resolve owner from whichever mode was chosen.
+    resolved_owner_id: Optional[UUID] = None
+
+    if body.claim_ownership:
+        resolved_owner_id = exhibitor_id
+
+    elif body.owner_exhibitor_id is not None:
+        owner = await db.get(Exhibitor, body.owner_exhibitor_id)
+        if not owner:
+            raise HTTPException(400, "Selected owner not found")
+        resolved_owner_id = body.owner_exhibitor_id
+
+    elif body.owner_first_name and body.owner_last_name and body.owner_email:
+        # Find an existing user by email and use their exhibitor record,
+        # or create a new standalone exhibitor record for this owner.
+        email_lower = body.owner_email.lower().strip()
+        user_result = await db.execute(
+            select(User).where(func.lower(User.email) == email_lower)
+        )
+        existing_user = user_result.scalar_one_or_none()
+        if existing_user:
+            ex_result = await db.execute(
+                select(Exhibitor).where(Exhibitor.user_id == existing_user.id)
+            )
+            existing_ex = ex_result.scalar_one_or_none()
+            if existing_ex:
+                resolved_owner_id = existing_ex.id
+            else:
+                full_name = _display_name(body.owner_first_name, body.owner_last_name)
+                new_owner = Exhibitor(full_name=full_name, user_id=existing_user.id)
+                db.add(new_owner)
+                await db.flush()
+                resolved_owner_id = new_owner.id
+        else:
+            full_name = _display_name(body.owner_first_name, body.owner_last_name)
+            new_owner = Exhibitor(full_name=full_name)
+            db.add(new_owner)
+            await db.flush()
+            resolved_owner_id = new_owner.id
+
+    else:
+        raise HTTPException(400, "Specify an owner: claim ownership, select an existing owner, or enter owner details.")
 
     # Pre-validate every registration before inserting anything.
     seen_show_type_ids: set[UUID] = set()
@@ -1081,13 +1163,13 @@ async def create_horse_for_exhibitor(
                 f"If this is the same horse, contact your show secretary.",
             )
 
-    horse_data = body.model_dump(exclude={'owner_exhibitor_id', 'registrations'})
+    horse_data = body.model_dump(exclude={'owner_exhibitor_id', 'registrations', 'claim_ownership', 'owner_first_name', 'owner_last_name', 'owner_email'})
     breeds = await _pop_resolved_horse_breeds(horse_data, db)
     await _resolve_horse_trainer_fields(horse_data, db)
     horse = Horse(
         **horse_data,
         created_by_exhibitor_id=exhibitor_id,
-        owner_exhibitor_id=exhibitor_id,
+        owner_exhibitor_id=resolved_owner_id,
     )
     if breeds is not None:
         horse.breeds = breeds

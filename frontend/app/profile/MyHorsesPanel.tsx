@@ -33,8 +33,11 @@ interface Props {
   initialHorses: Horse[];
 }
 
+type OwnerMode = 'self' | 'existing' | 'new';
+
 const UNCERTIFIED_CODES = ['OPEN'];
 const emptyForm = { name: '', trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '', trainer_email: '', sex: '', foaling_date: '', breed_ids: [] as string[], color_id: '', is_solid_paint_bred: false };
+const emptyOwner = { mode: 'self' as OwnerMode, exhibitorId: '', firstName: '', lastName: '', email: '' };
 
 export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [horses, setHorses] = useState<Horse[]>(initialHorses);
@@ -46,6 +49,10 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [colors, setColors] = useState<HorseColor[]>([]);
   const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+
+  const [owner, setOwner] = useState(emptyOwner);
+  const [exhibitorList, setExhibitorList] = useState<{ id: string; full_name: string }[]>([]);
+  const [loadingExhibitors, setLoadingExhibitors] = useState(false);
 
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
   const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
@@ -70,6 +77,19 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleOwnerMode = async (mode: OwnerMode) => {
+    setOwner((prev) => ({ ...prev, mode }));
+    if (mode === 'existing' && exhibitorList.length === 0) {
+      setLoadingExhibitors(true);
+      try {
+        const res = await fetch('/api/exhibitors/names');
+        if (res.ok) setExhibitorList(await res.json());
+      } finally {
+        setLoadingExhibitors(false);
+      }
+    }
   };
 
   const handleAddReg = async () => {
@@ -109,6 +129,16 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
   const handleAdd = async () => {
     if (!form.name.trim()) { setError('Horse name is required.'); return; }
+    if (owner.mode === 'existing' && !owner.exhibitorId) {
+      setError('Select an existing owner from the list.');
+      return;
+    }
+    if (owner.mode === 'new') {
+      if (!owner.firstName.trim() || !owner.lastName.trim() || !owner.email.trim()) {
+        setError('Owner first name, last name, and email are all required.');
+        return;
+      }
+    }
     const hasOtherTrainer = !form.trainer_id && (
       form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
     );
@@ -122,7 +152,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     const body: Record<string, unknown> = {
       name: form.name.trim(),
       is_solid_paint_bred: form.is_solid_paint_bred,
-      owner_exhibitor_id: exhibitorId,
+      claim_ownership: owner.mode === 'self',
+      ...(owner.mode === 'existing' && { owner_exhibitor_id: owner.exhibitorId }),
+      ...(owner.mode === 'new' && {
+        owner_first_name: owner.firstName.trim(),
+        owner_last_name: owner.lastName.trim(),
+        owner_email: owner.email.trim(),
+      }),
       registrations: pendingRegs.map((r) => ({
         show_type_id: r.show_type_id,
         registration_number: r.registration_number,
@@ -154,6 +190,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     const created = await res.json();
     setHorses((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
     setForm(emptyForm);
+    setOwner(emptyOwner);
     setPendingRegs([]);
     setShowForm(false);
   };
@@ -483,6 +520,96 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
         <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
           <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Add a Horse</h3>
 
+          {/* Owner selection */}
+          <div className="space-y-2 pb-3 border-b" style={{ borderColor: '#e8d5b7' }}>
+            <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Who owns this horse? *</p>
+            <div className="space-y-2">
+              {/* Option 1 — I am the owner */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="ownerMode"
+                  checked={owner.mode === 'self'}
+                  onChange={() => handleOwnerMode('self')}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm" style={{ color: '#2c1810' }}>I own this horse</span>
+              </label>
+
+              {/* Option 2 — Existing owner in the system */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="ownerMode"
+                  checked={owner.mode === 'existing'}
+                  onChange={() => handleOwnerMode('existing')}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm" style={{ color: '#2c1810' }}>Owner is already in the system</span>
+              </label>
+              {owner.mode === 'existing' && (
+                <div className="ml-6">
+                  {loadingExhibitors ? (
+                    <p className="text-xs" style={{ color: '#8b7355' }}>Loading…</p>
+                  ) : (
+                    <select
+                      value={owner.exhibitorId}
+                      onChange={(e) => setOwner((p) => ({ ...p, exhibitorId: e.target.value }))}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                      style={{ borderColor: '#d4b896' }}
+                    >
+                      <option value="">Select owner…</option>
+                      {exhibitorList.map((ex) => (
+                        <option key={ex.id} value={ex.id}>{ex.full_name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* Option 3 — Enter owner details (new record) */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="ownerMode"
+                  checked={owner.mode === 'new'}
+                  onChange={() => handleOwnerMode('new')}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm" style={{ color: '#2c1810' }}>Enter owner information</span>
+              </label>
+              {owner.mode === 'new' && (
+                <div className="ml-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    placeholder="First name *"
+                    value={owner.firstName}
+                    onChange={(e) => setOwner((p) => ({ ...p, firstName: e.target.value }))}
+                    className="border rounded px-3 py-2 text-sm"
+                    style={{ borderColor: '#d4b896' }}
+                  />
+                  <input
+                    placeholder="Last name *"
+                    value={owner.lastName}
+                    onChange={(e) => setOwner((p) => ({ ...p, lastName: e.target.value }))}
+                    className="border rounded px-3 py-2 text-sm"
+                    style={{ borderColor: '#d4b896' }}
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email *"
+                    value={owner.email}
+                    onChange={(e) => setOwner((p) => ({ ...p, email: e.target.value }))}
+                    className="border rounded px-3 py-2 text-sm sm:col-span-2"
+                    style={{ borderColor: '#d4b896' }}
+                  />
+                  <p className="text-xs sm:col-span-2" style={{ color: '#8b7355' }}>
+                    If the owner has an account, their existing profile will be linked automatically.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Core fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
@@ -616,7 +743,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               {saving ? 'Saving...' : 'Save Horse'}
             </button>
             <button
-              onClick={() => { setShowForm(false); setForm(emptyForm); setPendingRegs([]); setError(null); setRegError(null); setNewReg({ show_type_id: '', registration_number: '' }); }}
+              onClick={() => { setShowForm(false); setForm(emptyForm); setOwner(emptyOwner); setPendingRegs([]); setError(null); setRegError(null); setNewReg({ show_type_id: '', registration_number: '' }); }}
               className="px-4 py-2 rounded text-sm border"
               style={{ borderColor: '#d4b896', color: '#8b7355' }}
             >
@@ -624,9 +751,6 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             </button>
           </div>
 
-          <p className="text-xs" style={{ color: '#a89070' }}>
-            <span className="font-medium">Note:</span> You can only register horses you own. If you don&apos;t own this horse, the registered owner needs to create the profile - you can then link it to your account using the &quot;Find an existing horse&quot; option.
-          </p>
         </div>
       )}
     </div>
