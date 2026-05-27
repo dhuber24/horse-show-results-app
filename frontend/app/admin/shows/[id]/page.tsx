@@ -15,14 +15,14 @@ const tiles = (showId: string) => [
   },
   {
     href: `/admin/shows/${showId}/setup`,
-    title: 'Rings & Divisions',
-    description: 'Configure arenas and class groupings for this show.',
+    title: 'Setup',
+    description: 'Configure rings and bulk-create divisions, sections, and classes from the standard library.',
     icon: '🎪',
   },
   {
     href: `/admin/shows/${showId}/classes`,
     title: 'Add / Modify Classes',
-    description: 'Create new classes and edit existing ones.',
+    description: 'Manage individual classes — edit details, reorder, delete.',
     icon: '📋',
   },
   {
@@ -40,14 +40,14 @@ const tiles = (showId: string) => [
   {
     href: `/admin/shows/${showId}/fees`,
     title: 'Fee Schedule',
-    description: 'Class entry fees, office charge, stalls, campsites, and more.',
+    description: 'Entry fees, office charge, boarding, and side pots.',
     icon: '💵',
   },
   {
-    href: `/admin/shows/${showId}/side-pots`,
-    title: 'Side Pots',
-    description: 'Create and manage divisional jackpots.',
-    icon: '💰',
+    href: `/admin/shows/${showId}/judges`,
+    title: 'Judges',
+    description: 'Add judges and their association affiliation.',
+    icon: '⚖️',
   },
 ];
 
