@@ -167,12 +167,25 @@
       "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 10)",
       "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 8)",
       "Bash(py -m compileall backend/routers/standard_setup.py)",
-      "PowerShell(py -m compileall backend/routers/standard_setup.py 2>&1)"
+      "PowerShell(py -m compileall backend/routers/standard_setup.py 2>&1)",
+      "PowerShell(py -m compileall backend/routers/people.py 2>&1)",
+      "PowerShell(python -m compileall backend/routers/people.py 2>&1)",
+      "PowerShell(head -80)",
+      "PowerShell(python -m compileall backend/schemas.py backend/routers/people.py 2>&1)",
+      "Bash(rm \"c:/Users/Home/projects/horse-show-results-app/frontend/app/admin/shows/[id]/fees/FeeScheduleEditor.tsx\")",
+      "Bash(awk -F',' 'NR>1 {print $3}' database/seeds/aqha_standard_classes.csv)",
+      "Bash(py scripts/generate_aqha_standard_library_seed.py)",
+      "PowerShell(py scripts/generate_aqha_standard_library_seed.py)",
+      "PowerShell(python --version; python3 --version; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source)",
+      "PowerShell(python scripts/generate_aqha_standard_library_seed.py)",
+      "Bash(rm \"frontend/app/admin/shows/[id]/setup/SetupListPanel.tsx\")"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates",
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[id]",
-      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\classes"
+      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\classes",
+      "c:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\admin\\shows\\[id]\\fees",
+      "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\admin\\shows\\[id]\\setup"
     ]
   }
 }
