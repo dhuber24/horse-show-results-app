@@ -308,7 +308,7 @@ class Class(Base):
             ["division_sections.division_id", "division_sections.section_id"],
             name="fk_classes_division_section_pair",
             onupdate="CASCADE",
-            ondelete="RESTRICT",
+            ondelete="CASCADE",
         ),
     )
     side_pot_classes = relationship(
