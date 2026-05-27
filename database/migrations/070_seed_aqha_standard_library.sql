@@ -12,7 +12,15 @@
 
 BEGIN;
 
--- ── 1. Clean slate for AQHA rows ─────────────────────────────────────────
+-- ── 1a. Ensure server-side UUID defaults on the seed targets ─────────────
+-- SQLAlchemy's create_all() can race ahead of migrations and create the
+-- tables without server defaults (only Python-side default=uuid.uuid4),
+-- which makes direct SQL INSERTs fail with NOT NULL violations on `id`.
+-- This is idempotent: ALTER ... SET DEFAULT is a no-op when already set.
+ALTER TABLE standard_sections ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE standard_classes  ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
+-- ── 1b. Clean slate for AQHA rows ────────────────────────────────────────
 DELETE FROM standard_classes
     WHERE show_type_id = (SELECT id FROM show_types WHERE code = 'AQHA');
 DELETE FROM standard_division_sections sds
@@ -25,8 +33,8 @@ DELETE FROM standard_sections
     WHERE show_type_id = (SELECT id FROM show_types WHERE code = 'AQHA');
 
 -- ── 2. AQHA standard_divisions (disciplines) ────────────────────────────
-INSERT INTO standard_divisions (show_type_id, name, sort_order, default_score_type)
-SELECT st.id, v.name, v.sort_order, v.score_type
+INSERT INTO standard_divisions (id, show_type_id, name, sort_order, default_score_type)
+SELECT gen_random_uuid(), st.id, v.name, v.sort_order, v.score_type
 FROM show_types st CROSS JOIN (VALUES
     ('Halter', 10, 'placement'),
     ('Halter — Group', 20, 'placement'),
@@ -82,8 +90,8 @@ FROM show_types st CROSS JOIN (VALUES
 WHERE st.code = 'AQHA';
 
 -- ── 3. AQHA standard_sections (brackets) ────────────────────────────────
-INSERT INTO standard_sections (show_type_id, name, sort_order)
-SELECT st.id, v.name, v.sort_order
+INSERT INTO standard_sections (id, show_type_id, name, sort_order)
+SELECT gen_random_uuid(), st.id, v.name, v.sort_order
 FROM show_types st CROSS JOIN (VALUES
     ('Open', 10),
     ('Select (50+)', 20),
@@ -313,9 +321,9 @@ WHERE st.code = 'AQHA';
 
 -- ── 5. AQHA standard_classes (one per CSV row that classified) ─────────
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -526,9 +534,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -739,9 +747,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -952,9 +960,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -1165,9 +1173,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -1378,9 +1386,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -1591,9 +1599,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id
@@ -1804,9 +1812,9 @@ WHERE st.code = 'AQHA'
 ON CONFLICT (show_type_id, class_code) DO NOTHING;
 
 INSERT INTO standard_classes (
-    show_type_id, standard_division_id, standard_section_id,
+    id, show_type_id, standard_division_id, standard_section_id,
     class_code, class_name, default_score_type, sort_order, source_year)
-SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
+SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year
 FROM show_types st
 JOIN standard_divisions d ON d.show_type_id = st.id
 JOIN standard_sections  s ON s.show_type_id = st.id

@@ -137,7 +137,15 @@ def main() -> None:
     out.append("")
     out.append("BEGIN;")
     out.append("")
-    out.append("-- ── 1. Clean slate for AQHA rows ─────────────────────────────────────────")
+    out.append("-- ── 1a. Ensure server-side UUID defaults on the seed targets ─────────────")
+    out.append("-- SQLAlchemy's create_all() can race ahead of migrations and create the")
+    out.append("-- tables without server defaults (only Python-side default=uuid.uuid4),")
+    out.append("-- which makes direct SQL INSERTs fail with NOT NULL violations on `id`.")
+    out.append("-- This is idempotent: ALTER ... SET DEFAULT is a no-op when already set.")
+    out.append("ALTER TABLE standard_sections ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    out.append("ALTER TABLE standard_classes  ALTER COLUMN id SET DEFAULT gen_random_uuid();")
+    out.append("")
+    out.append("-- ── 1b. Clean slate for AQHA rows ────────────────────────────────────────")
     out.append("DELETE FROM standard_classes")
     out.append("    WHERE show_type_id = (SELECT id FROM show_types WHERE code = 'AQHA');")
     out.append("DELETE FROM standard_division_sections sds")
@@ -151,8 +159,8 @@ def main() -> None:
     out.append("")
 
     out.append("-- ── 2. AQHA standard_divisions (disciplines) ────────────────────────────")
-    out.append("INSERT INTO standard_divisions (show_type_id, name, sort_order, default_score_type)")
-    out.append("SELECT st.id, v.name, v.sort_order, v.score_type")
+    out.append("INSERT INTO standard_divisions (id, show_type_id, name, sort_order, default_score_type)")
+    out.append("SELECT gen_random_uuid(), st.id, v.name, v.sort_order, v.score_type")
     out.append("FROM show_types st CROSS JOIN (VALUES")
     div_values = []
     for d, score_type in divisions.items():
@@ -163,8 +171,8 @@ def main() -> None:
     out.append("")
 
     out.append("-- ── 3. AQHA standard_sections (brackets) ────────────────────────────────")
-    out.append("INSERT INTO standard_sections (show_type_id, name, sort_order)")
-    out.append("SELECT st.id, v.name, v.sort_order")
+    out.append("INSERT INTO standard_sections (id, show_type_id, name, sort_order)")
+    out.append("SELECT gen_random_uuid(), st.id, v.name, v.sort_order")
     out.append("FROM show_types st CROSS JOIN (VALUES")
     sec_values = []
     for s in sorted_sections:
@@ -195,9 +203,9 @@ def main() -> None:
     for chunk_start in range(0, len(rows), CHUNK):
         chunk = rows[chunk_start:chunk_start + CHUNK]
         out.append("INSERT INTO standard_classes (")
-        out.append("    show_type_id, standard_division_id, standard_section_id,")
+        out.append("    id, show_type_id, standard_division_id, standard_section_id,")
         out.append("    class_code, class_name, default_score_type, sort_order, source_year)")
-        out.append("SELECT st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year")
+        out.append("SELECT gen_random_uuid(), st.id, d.id, s.id, v.code, v.cname, v.score_type, v.sort_order, v.source_year")
         out.append("FROM show_types st")
         out.append("JOIN standard_divisions d ON d.show_type_id = st.id")
         out.append("JOIN standard_sections  s ON s.show_type_id = st.id")
