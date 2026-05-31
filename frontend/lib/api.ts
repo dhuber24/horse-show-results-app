@@ -149,22 +149,31 @@ export async function fetchRings(showId: string) {
   return res.json();
 }
 
+export async function fetchDisciplines(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/disciplines/`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchDivisions(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}/divisions/`);
   if (!res.ok) return [];
   return res.json();
 }
 
-export async function fetchSections(showId: string) {
-  const res = await fetch(`${API_URL}/shows/${showId}/sections/`);
+export async function fetchStandardDisciplines(showTypeId?: string) {
+  const url = showTypeId
+    ? `${API_URL}/standard-setup/disciplines?show_type_id=${encodeURIComponent(showTypeId)}`
+    : `${API_URL}/standard-setup/disciplines`;
+  const res = await fetch(url);
   if (!res.ok) return [];
   return res.json();
 }
 
-export async function fetchStandardSections(showTypeId?: string) {
+export async function fetchStandardDivisions(showTypeId?: string) {
   const url = showTypeId
-    ? `${API_URL}/standard-setup/sections?show_type_id=${encodeURIComponent(showTypeId)}`
-    : `${API_URL}/standard-setup/sections`;
+    ? `${API_URL}/standard-setup/divisions?show_type_id=${encodeURIComponent(showTypeId)}`
+    : `${API_URL}/standard-setup/divisions`;
   const res = await fetch(url);
   if (!res.ok) return [];
   return res.json();

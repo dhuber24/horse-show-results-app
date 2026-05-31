@@ -6,6 +6,15 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 
 type User = { id: string; full_name: string; email: string; role: string };
 
+export type PendingInvite = {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: string;
+  expires_at: string;
+};
+
 type Props = {
   showId: string;
   currentUserRole: string;
@@ -13,9 +22,10 @@ type Props = {
   initialScorekeepers: User[];
   allUsers: User[];
   isAdmin: boolean;
+  initialPendingInvites?: PendingInvite[];
 };
 
-const emptyForm = { first_name: '', last_name: '', email: '', password: '' };
+const emptyInviteForm = { first_name: '', last_name: '', email: '' };
 
 export default function ShowStaffPanel({
   showId,
@@ -23,9 +33,11 @@ export default function ShowStaffPanel({
   initialScorekeepers,
   allUsers,
   isAdmin,
+  initialPendingInvites = [],
 }: Props) {
   const [admins, setAdmins] = useState<User[]>(initialAdmins);
   const [scorekeepers, setScorekeepers] = useState<User[]>(initialScorekeepers);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(initialPendingInvites);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,10 +46,11 @@ export default function ShowStaffPanel({
 
   const [showAddAdminForm, setShowAddAdminForm] = useState(false);
   const [showAssignForm, setShowAssignForm] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [createForm, setCreateForm] = useState(emptyForm);
-  const [createError, setCreateError] = useState('');
-  const [createSuccess, setCreateSuccess] = useState('');
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteForm, setInviteForm] = useState(emptyInviteForm);
+  const [inviteError, setInviteError] = useState('');
+  const [lastInviteUrl, setLastInviteUrl] = useState<{ name: string; url: string } | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const [selectedAdminId, setSelectedAdminId] = useState('');
   const [selectedKeeperId, setSelectedKeeperId] = useState('');
@@ -99,44 +112,72 @@ export default function ShowStaffPanel({
     } finally { setBusy(false); }
   }
 
-  async function createAndAssignScorekeeper(e: React.FormEvent) {
+  async function sendInvite(e: React.FormEvent) {
     e.preventDefault();
-    setCreateError('');
-    setCreateSuccess('');
+    setInviteError('');
     setBusy(true);
     try {
-      // Create the scorekeeper account
-      const createRes = await fetch('/api/users', {
+      const res = await fetch('/api/user-invites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...createForm,
-          first_name: createForm.first_name.trim(),
-          last_name: createForm.last_name.trim(),
-          email: createForm.email.trim(),
+          first_name: inviteForm.first_name.trim(),
+          last_name: inviteForm.last_name.trim(),
+          email: inviteForm.email.trim(),
           role: 'SCOREKEEPER',
+          show_id: showId,
         }),
       });
-      const newUser = await createRes.json();
-      if (!createRes.ok) { setCreateError(newUser.detail || 'Failed to create scorekeeper'); return; }
-
-      // Assign them to this show
-      const assignRes = await fetch(`/api/shows/${showId}/scorekeepers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: newUser.id }),
-      });
-      if (!assignRes.ok) {
-        const j = await assignRes.json();
-        setCreateError(j.detail || 'Created user but failed to assign to show');
+      const json = await res.json();
+      if (!res.ok) {
+        setInviteError(json?.detail || 'Failed to send invite.');
         return;
       }
+      const fullName = `${json.first_name} ${json.last_name}`;
+      setPendingInvites(prev => [
+        {
+          id: json.id,
+          email: json.email,
+          first_name: json.first_name,
+          last_name: json.last_name,
+          role: json.role,
+          expires_at: json.expires_at,
+        },
+        ...prev,
+      ]);
+      setLastInviteUrl({ name: fullName, url: json.accept_url });
+      setInviteForm(emptyInviteForm);
+      setShowInviteForm(false);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-      setScorekeepers(prev => [...prev, newUser]);
-      setCreateSuccess(`${newUser.full_name} created and assigned.`);
-      setCreateForm(emptyForm);
-      setShowCreateForm(false);
-    } finally { setBusy(false); }
+  async function cancelInvite(inviteId: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/user-invites/${inviteId}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => null);
+        setError(j?.detail || 'Failed to cancel invite.');
+        return;
+      }
+      setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyToClipboard(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(current => (current === key ? null : current)), 1500);
+    } catch {
+      // Clipboard API can fail in non-secure contexts; user can still
+      // select and copy the URL from the display field.
+    }
   }
 
   const inputClass = "border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1";
@@ -252,10 +293,77 @@ export default function ShowStaffPanel({
           />
         )}
 
-        {createSuccess && <p className="text-sm text-green-700 mb-3">{createSuccess}</p>}
+        {pendingInvites.length > 0 && (
+          <div
+            className="rounded border p-3 mb-3 space-y-2"
+            style={{ borderColor: '#e8d5b7', backgroundColor: '#fdf8eb' }}
+          >
+            <p className="text-xs font-medium" style={{ color: '#5c3d1e' }}>
+              Pending scorekeeper invites
+            </p>
+            <ul className="space-y-1">
+              {pendingInvites.map((inv) => (
+                <li
+                  key={inv.id}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  <span style={{ color: '#2c1810' }}>
+                    {inv.first_name} {inv.last_name}{' '}
+                    <span style={{ color: '#8b7355' }}>({inv.email})</span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => cancelInvite(inv.id)}
+                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                  >
+                    Cancel
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
-        {/* Assign / create — collapsed behind buttons */}
-        {!showAssignForm && !showCreateForm && (
+        {lastInviteUrl && (
+          <div
+            className="rounded border p-3 mb-3 space-y-2"
+            style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee' }}
+          >
+            <p className="text-sm" style={{ color: '#1f4e1f' }}>
+              Invite for <strong>{lastInviteUrl.name}</strong> created. Share this
+              link until email delivery is configured:
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={lastInviteUrl.url}
+                className="flex-1 border rounded px-2 py-1 text-xs font-mono"
+                style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <button
+                type="button"
+                onClick={() => copyToClipboard('last', lastInviteUrl.url)}
+                className="text-xs px-2 py-1 rounded border"
+                style={{ borderColor: '#7fa97f', color: '#1f4e1f', backgroundColor: '#fff' }}
+              >
+                {copiedKey === 'last' ? 'Copied!' : 'Copy'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLastInviteUrl(null)}
+                className="text-xs px-2 py-1 hover:underline"
+                style={{ color: '#1f4e1f' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Assign / invite — collapsed behind buttons */}
+        {!showAssignForm && !showInviteForm && (
           <div className="flex flex-wrap gap-3">
             {isAdmin && availableScorekeepers.length > 0 && (
               <button onClick={() => setShowAssignForm(true)}
@@ -263,9 +371,9 @@ export default function ShowStaffPanel({
                 + Assign existing scorekeeper
               </button>
             )}
-            <button onClick={() => setShowCreateForm(true)}
+            <button onClick={() => setShowInviteForm(true)}
               className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-              + Create new scorekeeper
+              + Invite a scorekeeper
             </button>
           </div>
         )}
@@ -292,46 +400,70 @@ export default function ShowStaffPanel({
           </div>
         )}
 
-        {/* Create new scorekeeper form */}
-        {showCreateForm && (
-          <form onSubmit={createAndAssignScorekeeper} className="mt-3 space-y-3">
-            <p className="text-sm font-medium" style={{ color: '#2c1810' }}>New Scorekeeper</p>
+        {/* Invite a scorekeeper — first/last/email only; backend issues a token */}
+        {showInviteForm && (
+          <form onSubmit={sendInvite} className="mt-3 space-y-3">
+            <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+              Invite a Scorekeeper
+            </p>
+            <p className="text-xs" style={{ color: '#8b7355' }}>
+              We&apos;ll generate an invite link. The scorekeeper opens the link,
+              picks a password, and lands ready to score this show.
+            </p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
-                <input required className={`${inputClass} w-full`} style={inputStyle}
-                  value={createForm.first_name}
-                  onChange={e => setCreateForm(f => ({ ...f, first_name: e.target.value }))} />
+                <input
+                  required
+                  className={`${inputClass} w-full`}
+                  style={inputStyle}
+                  value={inviteForm.first_name}
+                  onChange={e => setInviteForm(f => ({ ...f, first_name: e.target.value }))}
+                />
               </div>
               <div>
                 <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
-                <input required className={`${inputClass} w-full`} style={inputStyle}
-                  value={createForm.last_name}
-                  onChange={e => setCreateForm(f => ({ ...f, last_name: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Email</label>
-                <input required type="email" className={`${inputClass} w-full`} style={inputStyle}
-                  value={createForm.email}
-                  onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-              <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Password</label>
-                <input required type="password" className={`${inputClass} w-full`} style={inputStyle}
-                  placeholder="Min 8 characters"
-                  value={createForm.password}
-                  onChange={e => setCreateForm(f => ({ ...f, password: e.target.value }))} />
+                <input
+                  required
+                  className={`${inputClass} w-full`}
+                  style={inputStyle}
+                  value={inviteForm.last_name}
+                  onChange={e => setInviteForm(f => ({ ...f, last_name: e.target.value }))}
+                />
               </div>
             </div>
-            {createError && <p className="text-xs text-red-600">{createError}</p>}
+            <div>
+              <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+              <input
+                required
+                type="email"
+                className={`${inputClass} w-full`}
+                style={inputStyle}
+                value={inviteForm.email}
+                onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))}
+                autoComplete="off"
+              />
+            </div>
+            {inviteError && <p className="text-xs text-red-600">{inviteError}</p>}
             <div className="flex gap-2">
-              <button type="submit" disabled={busy}
+              <button
+                type="submit"
+                disabled={busy}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}>
-                {busy ? 'Creating…' : 'Create & Assign'}
+                style={{ backgroundColor: '#8b4513' }}
+              >
+                {busy ? 'Sending…' : 'Send invite'}
               </button>
-              <button type="button" onClick={() => { setShowCreateForm(false); setCreateForm(emptyForm); setCreateError(''); }}
-                className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowInviteForm(false);
+                  setInviteForm(emptyInviteForm);
+                  setInviteError('');
+                }}
+                className="px-3 py-1 rounded text-sm border"
+                style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+              >
                 Cancel
               </button>
             </div>

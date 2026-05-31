@@ -1,13 +1,12 @@
 """Read-only lookup endpoints for the show setup picker.
 
-Exposes curated lists of standard ring names, discipline-style division
-names, and bracket-style section names. Rows with show_type_id NULL are
-the generic fallback used when no curated list exists for a given show
-type.
+Exposes curated lists of standard ring names, disciplines (overarching riding
+styles), and divisions (age/skill brackets). Rows with show_type_id NULL are
+the generic fallback used when no curated list exists for a given show type.
 
-The /catalog endpoint is the primary entry point for the new Matrix
-setup UI — it returns divisions, sections, and (division × section)
-cells with their standard classes in a single response.
+The /catalog endpoint is the primary entry point for the matrix setup UI —
+it returns disciplines, divisions, and (discipline × division) cells with
+their standard classes in a single response.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -18,12 +17,12 @@ from collections import defaultdict
 
 from database import get_db
 from models import (
-    StandardRing, StandardDivision, StandardSection, StandardClass,
-    ShowType, standard_division_sections,
+    StandardRing, StandardDiscipline, StandardDivision, StandardClass,
+    ShowType, standard_discipline_divisions,
 )
 from schemas import (
-    StandardRingOut, StandardDivisionOut, StandardSectionOut, StandardClassOut,
-    StandardCatalogOut, StandardCatalogDivision, StandardCatalogSection,
+    StandardRingOut, StandardDisciplineOut, StandardDivisionOut, StandardClassOut,
+    StandardCatalogOut, StandardCatalogDiscipline, StandardCatalogDivision,
     StandardCatalogCell,
 )
 
@@ -38,15 +37,31 @@ async def list_standard_rings(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
+@router.get("/disciplines", response_model=list[StandardDisciplineOut])
+async def list_standard_disciplines(
+    show_type_id: UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return disciplines for the given show type, plus the generic fallback set."""
+    stmt = select(StandardDiscipline)
+    if show_type_id is not None:
+        stmt = stmt.where(
+            or_(
+                StandardDiscipline.show_type_id == show_type_id,
+                StandardDiscipline.show_type_id.is_(None),
+            )
+        )
+    stmt = stmt.order_by(StandardDiscipline.sort_order, StandardDiscipline.name)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
 @router.get("/divisions", response_model=list[StandardDivisionOut])
 async def list_standard_divisions(
     show_type_id: UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return divisions for the given show type, plus the generic fallback set.
-
-    The frontend can deduplicate by name or display them as one merged list.
-    """
+    """Return divisions for the given show type, plus the generic fallback set."""
     stmt = select(StandardDivision)
     if show_type_id is not None:
         stmt = stmt.where(
@@ -60,28 +75,9 @@ async def list_standard_divisions(
     return result.scalars().all()
 
 
-@router.get("/sections", response_model=list[StandardSectionOut])
-async def list_standard_sections(
-    show_type_id: UUID | None = Query(default=None),
-    db: AsyncSession = Depends(get_db),
-):
-    """Return sections for the given show type, plus the generic fallback set."""
-    stmt = select(StandardSection)
-    if show_type_id is not None:
-        stmt = stmt.where(
-            or_(
-                StandardSection.show_type_id == show_type_id,
-                StandardSection.show_type_id.is_(None),
-            )
-        )
-    stmt = stmt.order_by(StandardSection.sort_order, StandardSection.name)
-    result = await db.execute(stmt)
-    return result.scalars().all()
-
-
 class StandardPairOut(BaseModel):
+    discipline_name: str
     division_name: str
-    section_name: str
     score_type: str
 
 
@@ -90,45 +86,49 @@ async def list_standard_pairs(
     show_type_id: UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return valid (division, section) pairs from standard_division_sections.
+    """Return valid (discipline, division) pairs from standard_discipline_divisions.
 
-    Only pairs whose division and section both match the requested show type
-    (or are the generic NULL fallback) are returned. The Standard Library picker
-    uses this instead of computing a full cartesian product, so invalid combos
-    like Walk-Trot Halter never appear.
+    Only pairs whose discipline and division both match the requested show
+    type (or are the generic NULL fallback) are returned. The Standard Library
+    picker uses this instead of computing a full cartesian product, so
+    invalid combos like Walk-Trot Halter never appear.
     """
-    sds = standard_division_sections
+    sdd = standard_discipline_divisions
     stmt = (
         select(
+            StandardDiscipline.name.label("discipline_name"),
+            StandardDiscipline.default_score_type.label("score_type"),
             StandardDivision.name.label("division_name"),
-            StandardDivision.default_score_type.label("score_type"),
-            StandardSection.name.label("section_name"),
-            StandardSection.sort_order.label("section_sort"),
+            StandardDivision.sort_order.label("division_sort"),
         )
-        .join(sds, StandardDivision.id == sds.c.standard_division_id)
-        .join(StandardSection, StandardSection.id == sds.c.standard_section_id)
+        .join(sdd, StandardDiscipline.id == sdd.c.standard_discipline_id)
+        .join(StandardDivision, StandardDivision.id == sdd.c.standard_division_id)
     )
     if show_type_id is not None:
         stmt = stmt.where(
             or_(
-                StandardDivision.show_type_id == show_type_id,
-                StandardDivision.show_type_id.is_(None),
+                StandardDiscipline.show_type_id == show_type_id,
+                StandardDiscipline.show_type_id.is_(None),
             )
         ).where(
             or_(
-                StandardSection.show_type_id == show_type_id,
-                StandardSection.show_type_id.is_(None),
+                StandardDivision.show_type_id == show_type_id,
+                StandardDivision.show_type_id.is_(None),
             )
         )
     stmt = stmt.order_by(
+        StandardDiscipline.sort_order,
+        StandardDiscipline.name,
         StandardDivision.sort_order,
         StandardDivision.name,
-        StandardSection.sort_order,
-        StandardSection.name,
     )
     result = await db.execute(stmt)
     return [
-        StandardPairOut(division_name=row.division_name, section_name=row.section_name, score_type=row.score_type)
+        StandardPairOut(
+            discipline_name=row.discipline_name,
+            division_name=row.division_name,
+            score_type=row.score_type,
+        )
         for row in result.all()
     ]
 
@@ -138,13 +138,12 @@ async def get_standard_catalog(
     show_type_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Single payload for the Matrix setup UI: divisions, sections, and
-    (div × sec) cells with their standard classes — scoped to one show type.
+    """Single payload for the Matrix setup UI: disciplines, divisions, and
+    (disc × div) cells with their standard classes — scoped to one show type.
 
     Generic NULL-show_type_id rows are intentionally excluded; per-show-type
-    seeding is the contract for the new Setup page. If a show type has no
-    standard library yet, the response will be empty and the UI should fall
-    back to "add custom" panels.
+    seeding is the contract. If a show type has no standard library yet, the
+    response will be empty and the UI should fall back to "add custom" panels.
     """
     show_type = (await db.execute(
         select(ShowType).where(ShowType.id == show_type_id)
@@ -152,15 +151,15 @@ async def get_standard_catalog(
     if show_type is None:
         raise HTTPException(status_code=404, detail="show type not found")
 
+    disc_rows = (await db.execute(
+        select(StandardDiscipline)
+        .where(StandardDiscipline.show_type_id == show_type_id)
+        .order_by(StandardDiscipline.sort_order, StandardDiscipline.name)
+    )).scalars().all()
     div_rows = (await db.execute(
         select(StandardDivision)
         .where(StandardDivision.show_type_id == show_type_id)
         .order_by(StandardDivision.sort_order, StandardDivision.name)
-    )).scalars().all()
-    sec_rows = (await db.execute(
-        select(StandardSection)
-        .where(StandardSection.show_type_id == show_type_id)
-        .order_by(StandardSection.sort_order, StandardSection.name)
     )).scalars().all()
     class_rows = (await db.execute(
         select(StandardClass)
@@ -170,29 +169,29 @@ async def get_standard_catalog(
 
     cells_map: dict[tuple[UUID, UUID], list[StandardClassOut]] = defaultdict(list)
     for c in class_rows:
-        cells_map[(c.standard_division_id, c.standard_section_id)].append(
+        cells_map[(c.standard_discipline_id, c.standard_division_id)].append(
             StandardClassOut.model_validate(c)
         )
 
     return StandardCatalogOut(
         show_type_id=show_type_id,
         show_type_code=show_type.code,
-        divisions=[
-            StandardCatalogDivision(
+        disciplines=[
+            StandardCatalogDiscipline(
                 id=d.id, name=d.name, sort_order=d.sort_order,
                 default_score_type=d.default_score_type,
-            ) for d in div_rows
+            ) for d in disc_rows
         ],
-        sections=[
-            StandardCatalogSection(id=s.id, name=s.name, sort_order=s.sort_order)
-            for s in sec_rows
+        divisions=[
+            StandardCatalogDivision(id=d.id, name=d.name, sort_order=d.sort_order)
+            for d in div_rows
         ],
         cells=[
             StandardCatalogCell(
+                standard_discipline_id=disc_id,
                 standard_division_id=div_id,
-                standard_section_id=sec_id,
                 classes=classes,
             )
-            for (div_id, sec_id), classes in cells_map.items()
+            for (disc_id, div_id), classes in cells_map.items()
         ],
     )

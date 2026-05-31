@@ -3,20 +3,13 @@ import { auth } from '@/auth';
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
-import ShowStaffPanel from './ShowStaffPanel';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 const tiles = (showId: string) => [
   {
-    href: `/admin/shows/${showId}/edit`,
-    title: 'Edit Show Details',
-    description: 'Update name, venue, dates, and status.',
-    icon: '📝',
-  },
-  {
     href: `/admin/shows/${showId}/setup`,
     title: 'Setup',
-    description: 'Configure rings and bulk-create divisions, sections, and classes from the standard library.',
+    description: 'Show basics, judges, sanctioning, lodging, and fees — the five-step setup wizard.',
     icon: '🎪',
   },
   {
@@ -38,16 +31,10 @@ const tiles = (showId: string) => [
     icon: '🔢',
   },
   {
-    href: `/admin/shows/${showId}/fees`,
-    title: 'Fee Schedule',
-    description: 'Entry fees, office charge, boarding, and side pots.',
-    icon: '💵',
-  },
-  {
-    href: `/admin/shows/${showId}/judges`,
-    title: 'Judges',
-    description: 'Add judges and their association affiliation.',
-    icon: '⚖️',
+    href: `/admin/shows/${showId}/staff`,
+    title: 'Show Staff',
+    description: 'Manage Show Secretaries and Scorekeepers assigned to this show.',
+    icon: '👥',
   },
 ];
 
@@ -57,19 +44,6 @@ const scoringTile = (showId: string) => ({
   description: 'Enter placings for each class.',
   icon: '🏆',
 });
-
-type StaffUser = {
-  id: string;
-  full_name: string;
-  email: string;
-  role: string;
-};
-
-type ShowStaffData = {
-  admins: StaffUser[];
-  scorekeepers: StaffUser[];
-  allUsers: StaffUser[];
-};
 
 type AqhaValidationIssue = {
   severity: 'error' | 'warning';
@@ -86,21 +60,17 @@ type AqhaValidationData = {
   issues: AqhaValidationIssue[];
 };
 
-async function getShowStaff(showId: string, headers: Record<string, string>, isAdmin: boolean) {
-  const [adminsRes, keepersRes] = await Promise.all([
-    fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
-    fetch(`${API_URL}/shows/${showId}/scorekeepers`, { headers, cache: 'no-store' }),
-  ]);
-  let allUsers: any[] = [];
-  if (isAdmin) {
-    const allUsersRes = await fetch(`${API_URL}/users/`, { headers, cache: 'no-store' });
-    allUsers = allUsersRes.ok ? await allUsersRes.json() : [];
-  }
-  return {
-    admins: adminsRes.ok ? await adminsRes.json() : [],
-    scorekeepers: keepersRes.ok ? await keepersRes.json() : [],
-    allUsers,
-  };
+async function fetchScorekeeperNames(
+  showId: string,
+  headers: Record<string, string>,
+): Promise<string[]> {
+  const res = await fetch(`${API_URL}/shows/${showId}/scorekeepers`, {
+    headers,
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  const rows: { full_name: string }[] = await res.json();
+  return rows.map((r) => r.full_name);
 }
 
 async function getAqhaValidation(showId: string, headers: Record<string, string>) {
@@ -115,11 +85,11 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
   const session = await auth();
-  const user = session?.user as any;
+  const user = session?.user as { id?: string; role?: string } | undefined;
   const isAdmin = user?.role === 'ADMIN';
   const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
-  let staffData: ShowStaffData = { admins: [], scorekeepers: [], allUsers: [] };
+  let scorekeeperNames: string[] = [];
   let aqhaValidation: AqhaValidationData | null = null;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
@@ -127,9 +97,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'Content-Type': 'application/json',
       'X-API-Key': INTERNAL_API_KEY,
       'X-User-Id': user.id,
-      'X-User-Role': user.role,
+      'X-User-Role': user.role ?? '',
     };
-    staffData = await getShowStaff(id, headers, isAdmin);
+    scorekeeperNames = await fetchScorekeeperNames(id, headers);
     if (show.show_type_code === 'AQHA') {
       aqhaValidation = await getAqhaValidation(id, headers);
     }
@@ -166,9 +136,21 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
         </div>
         {(isAdmin || isShowAdmin) && (
           <p className="text-sm mt-2" style={{ color: '#8b7355' }}>
-            {staffData.scorekeepers.length > 0
-              ? <>Scorekeepers: {(staffData.scorekeepers as any[]).map((s: any) => s.full_name).join(' · ')}</>
-              : 'No scorekeepers assigned yet — add one below.'}
+            {scorekeeperNames.length > 0 ? (
+              <>Scorekeepers: {scorekeeperNames.join(' · ')}</>
+            ) : (
+              <>
+                No scorekeepers assigned yet —{' '}
+                <Link
+                  href={`/admin/shows/${id}/staff`}
+                  className="underline"
+                  style={{ color: '#8b4513' }}
+                >
+                  manage staff
+                </Link>
+                .
+              </>
+            )}
           </p>
         )}
       </div>
@@ -303,16 +285,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
         </div>
       )}
 
-      {(isAdmin || isShowAdmin) && (
-        <ShowStaffPanel
-          showId={id}
-          currentUserRole={user?.role ?? ''}
-          initialAdmins={staffData.admins}
-          initialScorekeepers={staffData.scorekeepers}
-          allUsers={staffData.allUsers}
-          isAdmin={isAdmin}
-        />
-      )}
     </main>
   );
 }

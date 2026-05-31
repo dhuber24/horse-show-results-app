@@ -1,25 +1,52 @@
-import Link from 'next/link';
 import { fetchShow, fetchVenues, fetchShowTypes } from '@/lib/api';
-import EditShowForm from '../EditShowForm';
-import Breadcrumbs from '@/components/Breadcrumbs';
+import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import EditShowForm, { type Secretary } from '../EditShowForm';
+import StepLayout from '../setup/_lib/StepLayout';
+import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
 
-export default async function EditShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
+  const headers = await getAuthHeaders();
+  if (!headers) return fallback;
+  const res = await fetch(url, { headers, cache: 'no-store' });
+  if (!res.ok) return fallback;
+  return res.json();
+}
+
+export default async function EditShowDetailsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
-  const [show, venues, showTypes] = await Promise.all([fetchShow(id), fetchVenues(), fetchShowTypes()]);
+  const show = await fetchShow(id);
+  const [venues, showTypes, secretaries, availableSecretaries, stepsInput] =
+    await Promise.all([
+      fetchVenues(),
+      fetchShowTypes(),
+      fetchAuthed<Secretary[]>(`${API_URL}/shows/${id}/admins`, []),
+      fetchAuthed<Secretary[]>(
+        `${API_URL}/users/by-role?role=SHOW_SECRETARY`,
+        [],
+      ),
+      fetchStepCounts(id, show.office_charge_cents ?? 0),
+    ]);
 
   return (
-    <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-      <div>
-        <Breadcrumbs crumbs={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'Shows', href: '/admin/shows' },
-          { label: show.name, href: `/admin/shows/${id}` },
-          { label: 'Edit Details' },
-        ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Show Details</h1>
-      </div>
-
-      <EditShowForm show={show} venues={venues} showTypes={showTypes} />
-    </main>
+    <StepLayout
+      showId={id}
+      showName={show.name}
+      current="basic"
+      title="Step 1: Basics"
+      subtitle="Name, dates, venue, show type, and Show Secretary."
+      stepsInput={stepsInput}
+    >
+      <EditShowForm
+        show={show}
+        venues={venues}
+        showTypes={showTypes}
+        initialSecretaries={secretaries}
+        availableSecretaries={availableSecretaries}
+      />
+    </StepLayout>
   );
 }

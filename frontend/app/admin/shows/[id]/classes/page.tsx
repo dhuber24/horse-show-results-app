@@ -1,127 +1,137 @@
-import { redirect } from 'next/navigation';
-import { fetchShow, fetchClasses, fetchShowTypes, fetchRings, fetchDivisions, fetchSections } from '@/lib/api';
-import CreateClassForm from '../CreateClassForm';
-import ClassListWithReorder from '../ClassListWithReorder';
-import APHAClassPicker from '../APHAClassPicker';
-import AQHAClassPicker from '../AQHAClassPicker';
-import ScheduleBuilder from '../ScheduleBuilder';
-import StandardLibraryClassPicker from '../StandardLibraryClassPicker';
+import Link from 'next/link';
+import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisions } from '@/lib/api';
+import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import ClassWizardClient, {
+  type DisciplineItem,
+  type DivisionItem,
+  type ClassItem,
+  type StandardItem,
+} from './_wizard/ClassWizardClient';
 
-export default async function ShowClassesPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const [show, classes, showTypes, rings, divisions, sections] = await Promise.all([
-    fetchShow(id),
-    fetchClasses(id),
-    fetchShowTypes(),
-    fetchRings(id),
-    fetchDivisions(id),
-    fetchSections(id),
-  ]);
+async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
+  const headers = await getAuthHeaders();
+  if (!headers) return fallback;
+  const res = await fetch(url, { headers, cache: 'no-store' });
+  if (!res.ok) return fallback;
+  return res.json();
+}
 
-  // OPEN shows can use the Standard Library picker which auto-creates divisions/sections,
-  // so skip the setup redirect for them even if rings/divisions are not yet configured.
-  if (show.show_type_code !== 'OPEN' && (rings.length === 0 || divisions.length === 0)) {
-    const missing: string[] = [];
-    if (rings.length === 0) missing.push('rings');
-    if (divisions.length === 0) missing.push('divisions');
-    redirect(`/admin/shows/${id}/setup?missing=${missing.join(',')}`);
+async function fetchStandardLibrary(
+  showTypes: { id: string; code: string }[],
+): Promise<{ disciplines: StandardItem[]; divisions: StandardItem[] }> {
+  // OPEN's class wizard pulls from the AQHA + APHA standard catalogs — the
+  // disciplines and divisions both associations use are a good starting
+  // point for an unaffiliated show, and the secretary can still add custom.
+  const breedCodes = ['AQHA', 'APHA'];
+  const breedIds = showTypes.filter((t) => breedCodes.includes(t.code)).map((t) => t.id);
+
+  const disciplineLists = await Promise.all(
+    breedIds.map((id) =>
+      fetchAuthed<StandardItem[]>(
+        `${API_URL}/standard-setup/disciplines?show_type_id=${encodeURIComponent(id)}`,
+        [],
+      ),
+    ),
+  );
+  const divisionLists = await Promise.all(
+    breedIds.map((id) =>
+      fetchAuthed<StandardItem[]>(
+        `${API_URL}/standard-setup/divisions?show_type_id=${encodeURIComponent(id)}`,
+        [],
+      ),
+    ),
+  );
+
+  function dedupe(lists: StandardItem[][]): StandardItem[] {
+    const seen = new Map<string, StandardItem>();
+    for (const list of lists) {
+      for (const item of list) {
+        const key = item.name.trim().toLowerCase();
+        if (key && !seen.has(key)) seen.set(key, item);
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  const isApha = show.show_type_code === 'APHA';
-  const isAqha = show.show_type_code === 'AQHA';
+  return {
+    disciplines: dedupe(disciplineLists),
+    divisions: dedupe(divisionLists),
+  };
+}
 
-  // Only expose show types that are relevant to this show (primary + affiliations)
-  const validShowTypeIds = new Set([
-    show.show_type_id,
-    ...(show.affiliations ?? []).map((a: any) => a.show_type_id),
+export default async function ShowClassesPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const show = await fetchShow(id);
+
+  if (show.show_type_code !== 'OPEN') {
+    return (
+      <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
+        <Breadcrumbs
+          crumbs={[
+            { label: 'Admin', href: '/admin' },
+            { label: 'Shows', href: '/admin/shows' },
+            { label: show.name, href: `/admin/shows/${id}` },
+            { label: 'Classes' },
+          ]}
+        />
+        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+          Classes
+        </h1>
+        <div
+          className="rounded border p-4 text-sm"
+          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
+        >
+          Class setup for {show.show_type_code ?? 'this show type'} is being rebuilt.
+          The new OPEN wizard ships first; per-association flows come next.
+        </div>
+        <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+          ← Back to show
+        </Link>
+      </main>
+    );
+  }
+
+  const [showTypes, disciplines, divisions, classes] = await Promise.all([
+    fetchShowTypes(),
+    fetchDisciplines(id),
+    fetchDivisions(id),
+    fetchClasses(id),
   ]);
-  const relevantShowTypes = showTypes.filter((st: any) => validShowTypeIds.has(st.id));
-
-  const existingAphaCodes = isApha
-    ? classes.flatMap((c: any) =>
-        (c.associations ?? [])
-          .filter((a: any) => a.show_type_code === 'APHA')
-          .map((a: any) => a.association_class_code)
-      )
-    : [];
-
-  const existingAqhaCodes = isAqha
-    ? classes.flatMap((c: any) =>
-        (c.associations ?? [])
-          .filter((a: any) => a.show_type_code === 'AQHA')
-          .map((a: any) => a.association_class_code)
-      )
-    : [];
+  const standardLibrary = await fetchStandardLibrary(showTypes);
 
   return (
-    <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-8">
+    <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Breadcrumbs crumbs={[
-          { label: 'Admin', href: '/admin' },
-          { label: 'Shows', href: '/admin/shows' },
-          { label: show.name, href: `/admin/shows/${id}` },
-          { label: 'Classes' },
-        ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Classes</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{show.name}</p>
+        <Breadcrumbs
+          crumbs={[
+            { label: 'Admin', href: '/admin' },
+            { label: 'Shows', href: '/admin/shows' },
+            { label: show.name, href: `/admin/shows/${id}` },
+            { label: 'Classes' },
+          ]}
+        />
+        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+          Class Setup
+        </h1>
+        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          {show.name} — three steps: pick disciplines, pick divisions, build classes.
+        </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <CreateClassForm
-          showId={id}
-          showStartDate={show.start_date}
-          showEndDate={show.end_date}
-          rings={rings}
-          divisions={divisions}
-          sections={sections}
-        />
-        <ScheduleBuilder
-          showId={id}
-          showStartDate={show.start_date}
-          showEndDate={show.end_date}
-          rings={rings}
-          divisions={divisions}
-          sections={sections}
-        />
-        <StandardLibraryClassPicker
-          showId={id}
-          showTypeId={show.show_type_id}
-          showStartDate={show.start_date}
-          showEndDate={show.end_date}
-          rings={rings}
-        />
-        {isApha && (
-          <APHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAphaCodes={existingAphaCodes} />
-        )}
-        {isAqha && (
-          <AQHAClassPicker showId={id} showStartDate={show.start_date} showEndDate={show.end_date} existingAqhaCodes={existingAqhaCodes} />
-        )}
-      </div>
-
-      <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>
-          Show Schedule
-          <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
-            ({classes.length})
-          </span>
-        </h2>
-        {classes.length === 0 ? (
-          <p style={{ color: '#8b7355' }}>No classes yet.</p>
-        ) : (
-          <ClassListWithReorder
-            key={classes.map((c: any) => c.id).join(',')}
-            initialClasses={classes}
-            showId={id}
-            showStartDate={show.start_date}
-            showEndDate={show.end_date}
-            showTypes={relevantShowTypes}
-            rings={rings}
-            divisions={divisions}
-            sections={sections}
-          />
-        )}
-      </section>
+      <ClassWizardClient
+        showId={id}
+        showStartDate={show.start_date}
+        initialDisciplines={disciplines as DisciplineItem[]}
+        initialDivisions={divisions as DivisionItem[]}
+        initialClasses={classes as ClassItem[]}
+        standardDisciplines={standardLibrary.disciplines}
+        standardDivisions={standardLibrary.divisions}
+      />
     </main>
   );
 }

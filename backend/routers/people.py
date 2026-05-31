@@ -71,6 +71,31 @@ async def list_users(
     result = await db.execute(q)
     return result.scalars().all()
 
+
+@users_router.get("/by-role", response_model=list[UserOut])
+async def list_users_by_role(
+    role: str = Query(..., min_length=1),
+    x_api_key: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approved users with a given role. Used by the show-setup wizard's
+    select-secretary / select-judge pickers, which need to be callable by
+    Show Managers as well as Admins."""
+    from dependencies import INTERNAL_API_KEY
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    if x_user_role not in ("ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY"):
+        raise HTTPException(403, "Insufficient permissions")
+    if role not in VALID_ROLES:
+        raise HTTPException(400, f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
+    result = await db.execute(
+        select(User)
+        .where(User.role == role, User.is_approved.is_(True))
+        .order_by(User.full_name)
+    )
+    return result.scalars().all()
+
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
 async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
     _validate_name_parts(body.first_name, body.last_name)
@@ -112,7 +137,9 @@ async def create_user_with_password(
         raise HTTPException(status_code=401, detail="Unauthorized")
     if x_user_role == "SHOW_SECRETARY" and body.role != "SCOREKEEPER":
         raise HTTPException(status_code=403, detail="Show Secretaries can only create Scorekeeper accounts")
-    if x_user_role not in ("ADMIN", "SHOW_SECRETARY"):
+    if x_user_role == "SHOW_MANAGER" and body.role != "SHOW_SECRETARY":
+        raise HTTPException(status_code=403, detail="Show Managers can only create Show Secretary accounts")
+    if x_user_role not in ("ADMIN", "SHOW_SECRETARY", "SHOW_MANAGER"):
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     if body.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")

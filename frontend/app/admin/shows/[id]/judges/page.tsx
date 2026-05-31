@@ -1,7 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import JudgesEditor from './JudgesEditor';
+import JudgesEditor, { type KnownJudge } from './JudgesEditor';
 
 async function fetchJudges(showId: string, headers: HeadersInit) {
   const res = await fetch(`${API_URL}/shows/${showId}/judges/`, { headers, cache: 'no-store' });
@@ -15,13 +15,20 @@ async function fetchShowTypes(headers: HeadersInit) {
   return res.json();
 }
 
+async function fetchKnownJudges(headers: HeadersInit): Promise<KnownJudge[]> {
+  const res = await fetch(`${API_URL}/judges/known`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export default async function JudgesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const headers = await getAuthHeaders();
-  const [show, judges, showTypes] = await Promise.all([
+  const [show, judges, showTypes, knownJudges] = await Promise.all([
     fetchShow(id),
     fetchJudges(id, headers || {}),
     fetchShowTypes(headers || {}),
+    fetchKnownJudges(headers || {}),
   ]);
 
   return (
@@ -39,7 +46,12 @@ export default async function JudgesPage({ params }: { params: Promise<{ id: str
         </p>
       </div>
 
-      <JudgesEditor showId={id} initialJudges={judges} showTypes={showTypes} />
+      <JudgesEditor
+        showId={id}
+        initialJudges={judges}
+        showTypes={showTypes}
+        knownJudges={knownJudges}
+      />
     </main>
   );
 }

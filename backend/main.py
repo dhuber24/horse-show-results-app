@@ -13,8 +13,8 @@ from dependencies import INTERNAL_API_KEY
 import models  # noqa: F401 — ensure all models are registered before create_all
 from routers.shows import router as shows_router
 from routers.rings import router as rings_router
+from routers.disciplines import router as disciplines_router
 from routers.divisions import router as divisions_router
-from routers.sections import router as sections_router
 from routers.classes import router as classes_router
 from routers.people import users_router, horses_router, exhibitors_router
 from routers.trainers import router as trainers_router
@@ -35,12 +35,19 @@ from routers.certifications import router as certifications_router
 from routers.apha_standard_classes import router as apha_standard_classes_router
 from routers.aqha_standard_classes import router as aqha_standard_classes_router
 from routers.standard_setup import router as standard_setup_router
-from routers.show_setup import router as show_setup_router
-from routers.schedule_builder import router as schedule_builder_router
 from routers.side_pots import router as side_pots_router
 from routers.show_registration import router as show_registration_router
 from routers.show_fees import router as show_fees_router
-from routers.show_judges import router as show_judges_router
+from routers.show_judges import (
+    router as show_judges_router,
+    known_judges_router,
+)
+from routers.sanctioning import (
+    registry_router as sanctioning_registry_router,
+    requests_router as sanctioning_requests_router,
+    show_router as show_sanctioning_router,
+)
+from routers.user_invites import router as user_invites_router
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +97,8 @@ app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(shows_router)
 app.include_router(rings_router)
+app.include_router(disciplines_router)
 app.include_router(divisions_router)
-app.include_router(sections_router)
 app.include_router(classes_router)
 app.include_router(users_router)
 app.include_router(horses_router)
@@ -112,12 +119,15 @@ app.include_router(certifications_router)
 app.include_router(apha_standard_classes_router)
 app.include_router(aqha_standard_classes_router)
 app.include_router(standard_setup_router)
-app.include_router(show_setup_router)
-app.include_router(schedule_builder_router)
 app.include_router(side_pots_router)
 app.include_router(show_registration_router)
 app.include_router(show_fees_router)
 app.include_router(show_judges_router)
+app.include_router(known_judges_router)
+app.include_router(sanctioning_registry_router)
+app.include_router(sanctioning_requests_router)
+app.include_router(show_sanctioning_router)
+app.include_router(user_invites_router)
 
 
 @app.get("/", tags=["Health"])

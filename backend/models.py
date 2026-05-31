@@ -80,6 +80,8 @@ class Show(Base):
     aqha_approval_submitted_at = Column(Date, nullable=True)
     aqha_approval_notes = Column(Text, nullable=True)
     office_charge_cents = Column(Integer, nullable=False, server_default="0")
+    office_charge_basis = Column(Text, nullable=False, server_default="per_back_number")
+    shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -88,8 +90,8 @@ class Show(Base):
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     affiliations = relationship("ShowAffiliation", back_populates="show", cascade="all, delete", lazy="selectin")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")
+    disciplines = relationship("Discipline", back_populates="show", cascade="all, delete")
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
-    sections = relationship("Section", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
@@ -98,6 +100,7 @@ class Show(Base):
     side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
     fees = relationship("ShowFee", back_populates="show", cascade="all, delete", order_by="ShowFee.sort_order")
     judges = relationship("ShowJudge", back_populates="show", cascade="all, delete", order_by="ShowJudge.sort_order")
+    sanctioning = relationship("ShowSanctioning", back_populates="show", cascade="all, delete", lazy="selectin")
 
 
 class ShowAffiliation(Base):
@@ -123,19 +126,21 @@ class Ring(Base):
     classes = relationship("Class", back_populates="ring")
 
 
-division_sections = Table(
-    "division_sections",
+discipline_divisions = Table(
+    "discipline_divisions",
     Base.metadata,
+    Column("discipline_id", UUID(as_uuid=True),
+           ForeignKey("disciplines.id", ondelete="CASCADE"), primary_key=True),
     Column("division_id", UUID(as_uuid=True),
            ForeignKey("divisions.id", ondelete="CASCADE"), primary_key=True),
-    Column("section_id", UUID(as_uuid=True),
-           ForeignKey("sections.id", ondelete="CASCADE"), primary_key=True),
     Column("sort_order", Integer, nullable=True),
 )
 
 
-class Division(Base):
-    __tablename__ = "divisions"
+class Discipline(Base):
+    """Per-show riding style (Western Pleasure, Hunter Under Saddle, Trail, ...).
+    Formerly known as Division before migration 074."""
+    __tablename__ = "disciplines"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
@@ -143,34 +148,36 @@ class Division(Base):
     sort_order = Column(Integer, nullable=True)
     default_score_type = Column(Text, nullable=False, server_default="placement")
 
-    show = relationship("Show", back_populates="divisions")
-    classes = relationship("Class", back_populates="division")
-    sections = relationship(
-        "Section",
-        secondary=division_sections,
-        back_populates="divisions",
-        order_by="Section.sort_order",
+    show = relationship("Show", back_populates="disciplines")
+    classes = relationship("Class", back_populates="discipline")
+    divisions = relationship(
+        "Division",
+        secondary=discipline_divisions,
+        back_populates="disciplines",
+        order_by="Division.sort_order",
     )
 
 
-class Section(Base):
-    """Per-show age/skill bracket, scoped to one or more Divisions via division_sections."""
-    __tablename__ = "sections"
+class Division(Base):
+    """Per-show age/skill bracket (Youth 14-18, Novice Amateur, Walk-Trot, ...),
+    scoped to one or more Disciplines via discipline_divisions. Formerly known
+    as Section before migration 074."""
+    __tablename__ = "divisions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     name = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=True)
 
-    __table_args__ = (UniqueConstraint("show_id", "name", name="uq_sections_show_name"),)
+    __table_args__ = (UniqueConstraint("show_id", "name", name="uq_divisions_show_name"),)
 
-    show = relationship("Show", back_populates="sections")
-    classes = relationship("Class", back_populates="section")
-    divisions = relationship(
-        "Division",
-        secondary=division_sections,
-        back_populates="sections",
-        order_by="Division.sort_order",
+    show = relationship("Show", back_populates="divisions")
+    classes = relationship("Class", back_populates="division")
+    disciplines = relationship(
+        "Discipline",
+        secondary=discipline_divisions,
+        back_populates="divisions",
+        order_by="Discipline.sort_order",
     )
 
 
@@ -182,19 +189,21 @@ class StandardRing(Base):
     sort_order = Column(Integer, nullable=False, default=0)
 
 
-standard_division_sections = Table(
-    "standard_division_sections",
+standard_discipline_divisions = Table(
+    "standard_discipline_divisions",
     Base.metadata,
+    Column("standard_discipline_id", UUID(as_uuid=True),
+           ForeignKey("standard_disciplines.id", ondelete="CASCADE"), primary_key=True),
     Column("standard_division_id", UUID(as_uuid=True),
            ForeignKey("standard_divisions.id", ondelete="CASCADE"), primary_key=True),
-    Column("standard_section_id", UUID(as_uuid=True),
-           ForeignKey("standard_sections.id", ondelete="CASCADE"), primary_key=True),
     Column("sort_order", Integer, nullable=True),
 )
 
 
-class StandardDivision(Base):
-    __tablename__ = "standard_divisions"
+class StandardDiscipline(Base):
+    """Curated discipline lookup used by setup pickers. Formerly StandardDivision
+    before migration 074."""
+    __tablename__ = "standard_disciplines"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True)
@@ -202,15 +211,17 @@ class StandardDivision(Base):
     sort_order = Column(Integer, nullable=False, default=0)
     default_score_type = Column(Text, nullable=False, server_default="placement")
 
-    sections = relationship(
-        "StandardSection",
-        secondary=standard_division_sections,
-        back_populates="divisions",
+    divisions = relationship(
+        "StandardDivision",
+        secondary=standard_discipline_divisions,
+        back_populates="disciplines",
     )
 
 
-class StandardSection(Base):
-    __tablename__ = "standard_sections"
+class StandardDivision(Base):
+    """Curated age/skill bracket lookup used by setup pickers. Formerly
+    StandardSection before migration 074."""
+    __tablename__ = "standard_divisions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True)
@@ -221,15 +232,15 @@ class StandardSection(Base):
         UniqueConstraint(
             "show_type_id",
             "name",
-            name="uq_standard_sections_type_name",
+            name="uq_standard_divisions_type_name",
             postgresql_nulls_not_distinct=True,
         ),
     )
 
-    divisions = relationship(
-        "StandardDivision",
-        secondary=standard_division_sections,
-        back_populates="sections",
+    disciplines = relationship(
+        "StandardDiscipline",
+        secondary=standard_discipline_divisions,
+        back_populates="divisions",
     )
 
 
@@ -244,8 +255,8 @@ class StandardClass(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    standard_discipline_id = Column(UUID(as_uuid=True), nullable=False)
     standard_division_id = Column(UUID(as_uuid=True), nullable=False)
-    standard_section_id = Column(UUID(as_uuid=True), nullable=False)
     class_code = Column(Text, nullable=True)
     class_name = Column(Text, nullable=False)
     default_score_type = Column(Text, nullable=False, server_default="placement")
@@ -256,10 +267,10 @@ class StandardClass(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["standard_division_id", "standard_section_id"],
-            ["standard_division_sections.standard_division_id",
-             "standard_division_sections.standard_section_id"],
-            name="fk_standard_classes_division_section_pair",
+            ["standard_discipline_id", "standard_division_id"],
+            ["standard_discipline_divisions.standard_discipline_id",
+             "standard_discipline_divisions.standard_division_id"],
+            name="fk_standard_classes_discipline_division_pair",
             onupdate="CASCADE",
             ondelete="RESTRICT",
         ),
@@ -277,8 +288,8 @@ class Class(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     ring_id = Column(UUID(as_uuid=True), ForeignKey("rings.id"), nullable=True)
-    division_id = Column(UUID(as_uuid=True), ForeignKey("divisions.id"), nullable=False)
-    section_id = Column(UUID(as_uuid=True), ForeignKey("sections.id", ondelete="RESTRICT"), nullable=False)
+    discipline_id = Column(UUID(as_uuid=True), ForeignKey("disciplines.id"), nullable=False)
+    division_id = Column(UUID(as_uuid=True), ForeignKey("divisions.id", ondelete="RESTRICT"), nullable=False)
     class_number = Column(Text, nullable=False)
     class_name = Column(Text, nullable=False)
     class_date = Column(Date, nullable=False)
@@ -289,8 +300,8 @@ class Class(Base):
 
     show = relationship("Show", back_populates="classes")
     ring = relationship("Ring", back_populates="classes")
+    discipline = relationship("Discipline", back_populates="classes")
     division = relationship("Division", back_populates="classes")
-    section = relationship("Section", back_populates="classes")
     sort_order = Column(Integer, nullable=True)
 
     entries = relationship("Entry", back_populates="class_", cascade="all, delete")
@@ -304,9 +315,9 @@ class Class(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["division_id", "section_id"],
-            ["division_sections.division_id", "division_sections.section_id"],
-            name="fk_classes_division_section_pair",
+            ["discipline_id", "division_id"],
+            ["discipline_divisions.discipline_id", "discipline_divisions.division_id"],
+            name="fk_classes_discipline_division_pair",
             onupdate="CASCADE",
             ondelete="CASCADE",
         ),
@@ -991,3 +1002,94 @@ class SidePotPayout(Base):
 
     side_pot = relationship("SidePot", back_populates="payouts")
     show_entry = relationship("ShowEntry", back_populates="side_pot_payouts")
+
+
+class SanctionedAssociation(Base):
+    """Sanctioning body distinct from breed `show_types` (NSBA, WSCA, ...)."""
+    __tablename__ = "sanctioned_associations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    code = Column(Text, nullable=False, unique=True)
+    name = Column(Text, nullable=False)
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class SanctionedAssociationRequest(Base):
+    """User-submitted request to add a new sanctioning body; admin reviews."""
+    __tablename__ = "sanctioned_association_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    requested_name = Column(Text, nullable=False)
+    requested_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True
+    )
+    status = Column(Text, nullable=False, server_default="pending")
+    approved_association_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("sanctioned_associations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    reviewed_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    notes = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
+    approved_association = relationship("SanctionedAssociation")
+
+
+class ShowSanctioning(Base):
+    """Per-show sanctioning enrollment + per-class fee the secretary collects."""
+    __tablename__ = "show_sanctioning"
+
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
+    )
+    sanctioned_association_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("sanctioned_associations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    per_class_fee_cents = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    show = relationship("Show", back_populates="sanctioning")
+    sanctioned_association = relationship("SanctionedAssociation", lazy="selectin")
+
+
+class UserInvite(Base):
+    """Email-invite tokens. Currently used by the Show Staff page to bring
+    Scorekeepers on board without a password set by the manager — the
+    invitee sets their own password via the public /invite/{token} page."""
+    __tablename__ = "user_invites"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    token = Column(Text, nullable=False, unique=True)
+    email = Column(Text, nullable=False)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False)
+    role = Column(Text, nullable=False)
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True
+    )
+    status = Column(Text, nullable=False, server_default="pending")
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    invited_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    accepted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    accepted_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    show = relationship("Show", foreign_keys=[show_id])
+    invited_by = relationship("User", foreign_keys=[invited_by_user_id])
+    accepted_user = relationship("User", foreign_keys=[accepted_user_id])

@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const url = showTypeId
     ? `${API_URL}/standard-setup/divisions?show_type_id=${encodeURIComponent(showTypeId)}`
     : `${API_URL}/standard-setup/divisions`;
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, { headers, cache: 'no-store' });
   const json = await res.json();
   return NextResponse.json(json, { status: res.status });
 }

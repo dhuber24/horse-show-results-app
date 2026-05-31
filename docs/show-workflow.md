@@ -32,30 +32,37 @@ Manual status changes are guarded in `backend/routers/shows.py` and surfaced thr
 
 Codex note: when changing show visibility, scorekeeper access, or result entry behavior, check both the status guards in `backend/routers/shows.py` / `backend/routers/results.py` and the frontend controls that hide or disable actions by status.
 
-## Show Manager Path
+## Show Setup Wizard
 
-1. Show Manager self-registers.
-2. Show Manager creates a `DRAFT` show directly at `/admin/shows/new`. `POST /shows/` auto-inserts a `show_managers` row linking the creator to the new show.
-3. Manager assigns Show Secretaries and Scorekeepers.
-4. Secretary/manager completes setup, classes, entries, and back numbers.
-5. Scorekeepers enter placings when the show is active.
+Show creation runs through a five-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`).
 
-## Direct Admin Or Secretary Path
+Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; the wizard's Step 1 secretary assignment writes to `show_secretaries`.
 
-1. Admin or Show Secretary creates a show directly.
-2. Show is edited while in `DRAFT`.
-3. Rings, divisions, and sections are configured at `/admin/shows/[id]/setup`. At least one ring, one division, and one section assigned to that division are required before a class can be created.
-4. Classes, entries, staff, and back numbers are configured.
-5. Show is published once it has a venue and at least one class.
-6. Results are entered manually and published immediately.
+| Step | Route | What it does |
+| --- | --- | --- |
+| 1. Basics | `/admin/shows/new` | Name, show type, dates, venue, Show Secretary. Secretary can be picked from `GET /users/by-role?role=SHOW_SECRETARY` or inline-created via `POST /users/with-password`. Show Managers may only inline-create `SHOW_SECRETARY` accounts (extended check in `routers/people.py`). |
+| 2. Judges | `/admin/shows/[id]/setup/judges` | Reuses `JudgesEditor` — list / add / edit `show_judges` rows. |
+| 3. Sanctioning | `/admin/shows/[id]/setup/sanctioning` | Pick zero or more `sanctioned_associations` (NSBA, WSCA, ...) and set a `per_class_fee_cents` for each. Wraps `PUT /shows/{id}/sanctioning` which replaces the full set. Users can also submit `POST /sanctioned-association-requests` if they need a new sanctioning body added — admin reviews via `POST /sanctioned-association-requests/{id}/review`. |
+| 4. Lodging & Boarding | `/admin/shows/[id]/setup/lodging` | Three structured slots written into `show_fees` with codes `stall` / `shavings` / `camping`, plus a `shows.shavings_ban_outside` policy bool. Camping uses a free-text notes field to capture "includes electric hookup" or similar. |
+| 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus three structured slots in `show_fees` with codes `standard_class` / `jackpot` / `futurity`. Sanctioning per-class fees are read-only here and link back to Step 3. |
+
+Sanctioning associations are distinct from breed `show_types` — see `docs/database.md`. The breed `show_type` is set once on the show row at creation and drives breed-specific rules; sanctioning is a per-show overlay that adds points eligibility (and an optional per-class fee) without changing the show's primary type.
+
+The old per-show Standard Library matrix picker (`MatrixSetupClient`, `POST /shows/{show_id}/setup/apply`) was removed when the wizard shipped. Per-show divisions, sections, division-section memberships, and classes are now created via the Classes page (`/admin/shows/[id]/classes`) — either manually or via the Schedule Builder / Standard Library quick-start documented below. The `/standard-setup/catalog` endpoint and the `standard_classes` / `standard_division_sections` tables remain in place and are still used by the Classes-page importers.
+
+## Show Status Lifecycle
+
+1. Wizard creates the show in `DRAFT`.
+2. Status moves to `PUBLISHED` once the show has a venue and at least one class (guarded in `backend/routers/shows.py`).
+3. `PUBLISHED → ACTIVE` happens when today's date is in range.
+4. `ACTIVE → COMPLETED` is an explicit transition after results are final.
 
 ## Rings, Divisions, and Sections Setup
 
-- A **Ring** is a physical arena.
+- A **Ring** is a physical arena. Rings are managed inline on the Classes / Schedule Builder pages.
 - A **Division** is a discipline (Halter, Western Pleasure, Trail, Barrels). Each division carries a `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit.
 - A **Section** is an age or skill bracket (10 & Under, 11-13, Walk-Trot, Amateur). Sections live independently in `sections` but are scoped to one or more divisions via the `division_sections` join (migration 061).
-- The setup page at `/admin/shows/[id]/setup` is the **Matrix picker** (migration 068+): a single screen showing rings as chips, then a Discipline × Bracket grid populated from `standard_classes` for the show's show type. Each cell shows the count of standard classes available for that pair; clicking a cell selects all classes in it, with a drawer to opt out of individual classes. A single **Apply picks** action creates per-show divisions, sections, division-section memberships, and classes — idempotent (rerunning skips existing rows). AQHA is fully seeded (~1589 classes from the 2026 Class Master Listing); APHA/NSBA/WSCA/ApHC are upcoming Phase 2/3 work.
-- Class records require **both** `division_id` and `section_id` (migration 061) and the `(division_id, section_id)` pair must be a row in `division_sections` — enforced by a composite FK. The class create/edit forms gate the section dropdown on the chosen division and only show sections that belong to it. The Classes page (`/admin/shows/[id]/classes`) redirects to setup until at least one ring and one division exist.
+- Class records require **both** `division_id` and `section_id` (migration 061) and the `(division_id, section_id)` pair must be a row in `division_sections` — enforced by a composite FK. The class create/edit forms gate the section dropdown on the chosen division and only show sections that belong to it. The Classes page (`/admin/shows/[id]/classes`) redirects until at least one ring and one division exist.
 - Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Removing a division from a section that still has classes pairing them also returns 409.
 - Demographic splits (Open / Amateur / Youth / SPB) for APHA are still tracked per entry via `entries.apha_division`, not at the section or division level. Sections are about age/skill brackets at the class level, not entry-level eligibility.
 

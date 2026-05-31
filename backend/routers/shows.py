@@ -58,6 +58,8 @@ def _serialize(show: Show) -> dict:
         "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
         "aqha_approval_notes": show.aqha_approval_notes,
         "office_charge_cents": show.office_charge_cents,
+        "office_charge_basis": show.office_charge_basis,
+        "shavings_ban_outside": show.shavings_ban_outside,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),

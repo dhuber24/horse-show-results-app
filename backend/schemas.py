@@ -90,6 +90,8 @@ class ShowUpdate(BaseModel):
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
     office_charge_cents: Optional[int] = Field(default=None, ge=0)
+    office_charge_basis: Optional[Literal["per_back_number", "per_horse"]] = None
+    shavings_ban_outside: Optional[bool] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -125,11 +127,131 @@ class ShowOut(BaseModel):
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = None
     office_charge_cents: int = 0
+    office_charge_basis: str = "per_back_number"
+    shavings_ban_outside: bool = False
     affiliations: list[ShowAffiliationOut] = []
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# ── Sanctioned Associations ────────────────────────────────────────────────────
+
+class SanctionedAssociationCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=200)
+    is_active: bool = True
+
+class SanctionedAssociationUpdate(BaseModel):
+    code: Optional[str] = Field(default=None, max_length=20)
+    name: Optional[str] = Field(default=None, max_length=200)
+    is_active: Optional[bool] = None
+
+class SanctionedAssociationOut(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class SanctionedAssociationRequestCreate(BaseModel):
+    requested_name: str = Field(min_length=1, max_length=200)
+    show_id: Optional[UUID] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+class SanctionedAssociationRequestReview(BaseModel):
+    action: Literal["approve", "reject"]
+    code: Optional[str] = Field(default=None, max_length=20)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def code_required_on_approve(self):
+        if self.action == "approve" and not (self.code and self.code.strip()):
+            raise ValueError("code is required to approve a request")
+        return self
+
+class SanctionedAssociationRequestOut(BaseModel):
+    id: UUID
+    requested_name: str
+    requested_by_user_id: Optional[UUID]
+    show_id: Optional[UUID]
+    status: str
+    approved_association_id: Optional[UUID]
+    reviewed_at: Optional[datetime]
+    reviewed_by_user_id: Optional[UUID]
+    notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ── Show Sanctioning ───────────────────────────────────────────────────────────
+
+class ShowSanctioningItem(BaseModel):
+    sanctioned_association_id: UUID
+    per_class_fee_cents: int = Field(ge=0)
+
+class ShowSanctioningReplace(BaseModel):
+    items: list[ShowSanctioningItem] = []
+
+class ShowSanctioningOut(BaseModel):
+    sanctioned_association_id: UUID
+    code: str
+    name: str
+    per_class_fee_cents: int
+
+    class Config:
+        from_attributes = True
+
+
+# ── User Invites ───────────────────────────────────────────────────────────────
+
+class UserInviteCreate(BaseModel):
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    role: Literal["SCOREKEEPER"] = "SCOREKEEPER"
+    show_id: Optional[UUID] = None
+
+class UserInviteOut(BaseModel):
+    id: UUID
+    email: str
+    first_name: str
+    last_name: str
+    role: str
+    show_id: Optional[UUID]
+    status: str
+    expires_at: datetime
+    invited_by_user_id: Optional[UUID]
+    created_at: datetime
+    accepted_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+class UserInviteCreateResult(UserInviteOut):
+    """Includes the accept URL so the issuer can share it manually until
+    SMTP email delivery is configured."""
+    accept_url: str
+    token: str
+
+class UserInviteByTokenOut(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    role: str
+    show_id: Optional[UUID]
+    show_name: Optional[str]
+    expires_at: datetime
+    status: str
+
+class UserInviteAcceptBody(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
 
 
 # ── Rings ──────────────────────────────────────────────────────────────────────
@@ -156,81 +278,83 @@ class RingBulkCreate(BaseModel):
     names: list[str] = Field(min_length=1)
 
 
-# ── Divisions ──────────────────────────────────────────────────────────────────
+# ── Disciplines ────────────────────────────────────────────────────────────────
+# A Discipline is the overarching riding style (Western Pleasure, Hunter Under
+# Saddle, Trail, ...). Formerly Division before migration 074.
 
 ScoreType = Literal["placement", "pattern", "time"]
 
-class DivisionCreate(BaseModel):
+class DisciplineCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     sort_order: Optional[int] = None
     default_score_type: ScoreType = "placement"
 
-class DivisionUpdate(BaseModel):
+class DisciplineUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     sort_order: Optional[int] = None
     default_score_type: Optional[ScoreType] = None
+
+class DisciplineOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    name: str
+    sort_order: Optional[int] = None
+    default_score_type: ScoreType = "placement"
+    class_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class DisciplineBulkCreate(BaseModel):
+    names: list[str] = Field(min_length=1)
+
+
+# ── Divisions ──────────────────────────────────────────────────────────────────
+# A Division is an age/skill bracket within a Discipline (e.g. "10 & Under",
+# "Walk-Trot", "Amateur"). Formerly Section before migration 074.
+
+class DivisionCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+    discipline_ids: list[UUID] = Field(default_factory=list)
+
+class DivisionUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    sort_order: Optional[int] = None
+    discipline_ids: Optional[list[UUID]] = None
 
 class DivisionOut(BaseModel):
     id: UUID
     show_id: UUID
     name: str
     sort_order: Optional[int] = None
-    default_score_type: ScoreType = "placement"
     class_count: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-
-class DivisionBulkCreate(BaseModel):
-    names: list[str] = Field(min_length=1)
-
-
-# ── Sections ───────────────────────────────────────────────────────────────────
-# A Section is an age/skill bracket within a Division (e.g. "10 & Under",
-# "Walk-Trot", "Amateur"). Optional — many classes have no Section.
-
-class SectionCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
-    sort_order: Optional[int] = None
-    division_ids: list[UUID] = Field(default_factory=list)
-
-class SectionUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    sort_order: Optional[int] = None
-    division_ids: Optional[list[UUID]] = None
-
-class SectionOut(BaseModel):
-    id: UUID
-    show_id: UUID
-    name: str
-    sort_order: Optional[int] = None
-    class_count: Optional[int] = None
-    division_ids: list[UUID] = Field(default_factory=list)
+    discipline_ids: list[UUID] = Field(default_factory=list)
 
     @model_validator(mode='before')
     @classmethod
-    def derive_division_ids(cls, v):
+    def derive_discipline_ids(cls, v):
         if isinstance(v, dict):
             return v
-        divisions = getattr(v, 'divisions', None)
+        disciplines = getattr(v, 'disciplines', None)
         return {
             'id': v.id,
             'show_id': v.show_id,
             'name': v.name,
             'sort_order': v.sort_order,
             'class_count': getattr(v, 'class_count', None),
-            'division_ids': [d.id for d in (divisions or [])],
+            'discipline_ids': [d.id for d in (disciplines or [])],
         }
 
     class Config:
         from_attributes = True
 
-class SectionBulkCreate(BaseModel):
+class DivisionBulkCreate(BaseModel):
     names: list[str] = Field(min_length=1)
-    division_ids: list[UUID] = Field(default_factory=list)
+    discipline_ids: list[UUID] = Field(default_factory=list)
 
 
-# ── Standard rings, divisions, sections (lookup) ──────────────────────────────
+# ── Standard rings, disciplines, divisions (lookup) ───────────────────────────
 
 class StandardRingOut(BaseModel):
     id: UUID
@@ -240,7 +364,7 @@ class StandardRingOut(BaseModel):
     class Config:
         from_attributes = True
 
-class StandardDivisionOut(BaseModel):
+class StandardDisciplineOut(BaseModel):
     id: UUID
     show_type_id: Optional[UUID] = None
     name: str
@@ -250,7 +374,7 @@ class StandardDivisionOut(BaseModel):
     class Config:
         from_attributes = True
 
-class StandardSectionOut(BaseModel):
+class StandardDivisionOut(BaseModel):
     id: UUID
     show_type_id: Optional[UUID] = None
     name: str
@@ -263,8 +387,8 @@ class StandardSectionOut(BaseModel):
 class StandardClassOut(BaseModel):
     id: UUID
     show_type_id: UUID
+    standard_discipline_id: UUID
     standard_division_id: UUID
-    standard_section_id: UUID
     class_code: Optional[str] = None
     class_name: str
     default_score_type: ScoreType = "placement"
@@ -277,23 +401,23 @@ class StandardClassOut(BaseModel):
 
 # ── Standard Setup catalog ─────────────────────────────────────────────────────
 
-class StandardCatalogDivision(BaseModel):
+class StandardCatalogDiscipline(BaseModel):
     id: UUID
     name: str
     sort_order: int
     default_score_type: ScoreType = "placement"
 
 
-class StandardCatalogSection(BaseModel):
+class StandardCatalogDivision(BaseModel):
     id: UUID
     name: str
     sort_order: int
 
 
 class StandardCatalogCell(BaseModel):
-    """One (discipline × bracket) cell in the matrix. May contain >=1 classes."""
+    """One (discipline × division) cell in the matrix. May contain >=1 classes."""
+    standard_discipline_id: UUID
     standard_division_id: UUID
-    standard_section_id: UUID
     classes: list[StandardClassOut]
 
 
@@ -301,8 +425,8 @@ class StandardCatalogOut(BaseModel):
     """Everything the Setup matrix UI needs in a single payload."""
     show_type_id: UUID
     show_type_code: str
+    disciplines: list[StandardCatalogDiscipline]
     divisions: list[StandardCatalogDivision]
-    sections: list[StandardCatalogSection]
     cells: list[StandardCatalogCell]
 
 
@@ -316,20 +440,20 @@ class SetupApplyRing(BaseModel):
 
 
 class SetupApplyPick(BaseModel):
-    """Pick a specific standard class (creates the class + div/sec/membership)
-    or pick a whole cell (creates div/sec/membership only, no class).
+    """Pick a specific standard class (creates the class + disc/div/membership)
+    or pick a whole cell (creates disc/div/membership only, no class).
     """
     standard_class_id: Optional[UUID] = None
+    standard_discipline_id: Optional[UUID] = None
     standard_division_id: Optional[UUID] = None
-    standard_section_id: Optional[UUID] = None
 
     @model_validator(mode='after')
     def _check_either(self):
         if self.standard_class_id is None and (
-            self.standard_division_id is None or self.standard_section_id is None
+            self.standard_discipline_id is None or self.standard_division_id is None
         ):
             raise ValueError(
-                "Must provide standard_class_id OR both standard_division_id and standard_section_id"
+                "Must provide standard_class_id OR both standard_discipline_id and standard_division_id"
             )
         return self
 
@@ -341,8 +465,8 @@ class SetupApplyRequest(BaseModel):
 
 class SetupApplyResult(BaseModel):
     created_ring_ids: list[UUID] = Field(default_factory=list)
+    created_discipline_ids: list[UUID] = Field(default_factory=list)
     created_division_ids: list[UUID] = Field(default_factory=list)
-    created_section_ids: list[UUID] = Field(default_factory=list)
     created_class_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -350,19 +474,19 @@ class SetupApplyResult(BaseModel):
 
 class ClassCreate(BaseModel):
     ring_id: Optional[UUID] = None
+    discipline_id: UUID
     division_id: UUID
-    section_id: UUID
     class_name: str = Field(min_length=1, max_length=200)
     class_date: date
     status: Literal["OPEN", "CLOSED"] = "OPEN"
-    # Omit to derive from division.default_score_type at creation time.
+    # Omit to derive from discipline.default_score_type at creation time.
     score_type: Optional[ScoreType] = None
     entry_fee_cents: int = Field(default=0, ge=0)
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
+    discipline_id: Optional[UUID] = None
     division_id: Optional[UUID] = None
-    section_id: Optional[UUID] = None
     class_name: Optional[str] = Field(default=None, max_length=200)
     class_date: Optional[date] = None
     status: Optional[Literal["OPEN", "CLOSED"]] = None
@@ -408,8 +532,8 @@ class ClassOut(BaseModel):
     id: UUID
     show_id: UUID
     ring_id: Optional[UUID]
+    discipline_id: UUID
     division_id: UUID
-    section_id: UUID
     class_number: str
     class_name: str
     class_date: date
@@ -1322,13 +1446,13 @@ class AqhaStandardClassOut(BaseModel):
 
 
 # ── Schedule Builder ───────────────────────────────────────────────────────────
-# Picks are (Division × Sections) matrix cells. Each pick creates one class per
-# selected section (or a single class if no sections are chosen). Score type
-# falls back to division.default_score_type when omitted.
+# Picks are (Discipline × Divisions) matrix cells. Each pick creates one class
+# per selected division (or a single class if no divisions are chosen). Score
+# type falls back to discipline.default_score_type when omitted.
 
 class ScheduleBuilderPick(BaseModel):
-    division_id: UUID
-    section_ids: list[UUID] = Field(default_factory=list)
+    discipline_id: UUID
+    division_ids: list[UUID] = Field(default_factory=list)
     score_type: Optional[ScoreType] = None
 
 
@@ -1361,13 +1485,13 @@ class BulkClassCreate(BaseModel):
 
 # ── Standard Library Class Picker ──────────────────────────────────────────────
 # Quick-start picker for any show type: cartesian product of selected disciplines
-# and brackets drawn from `standard_divisions` / `standard_sections`. The picker
-# already knows each pair's division name, bracket name, and intended scoring,
-# so the commit endpoint takes them verbatim — no name classification needed.
+# and divisions drawn from `standard_disciplines` / `standard_divisions`. The
+# picker already knows each pair's discipline name, division name, and intended
+# scoring, so the commit endpoint takes them verbatim — no name classification.
 
 class ClassFromLibraryPick(BaseModel):
+    discipline_name: str = Field(min_length=1, max_length=100)
     division_name: str = Field(min_length=1, max_length=100)
-    section_name: str = Field(min_length=1, max_length=100)
     default_score_type: ScoreType = "placement"
 
 

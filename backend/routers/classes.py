@@ -15,9 +15,9 @@ from models import (
     AphaStandardClass,
     AqhaStandardClass,
     ShowType,
+    Discipline,
     Division,
-    Section,
-    division_sections,
+    discipline_divisions,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.disciplines import classify_class_name
@@ -50,20 +50,20 @@ async def _create_classes_auto_routed(
     db: AsyncSession,
     ring_id: UUID | None = None,
 ) -> list[Class]:
-    """Create per-show classes auto-routed into divisions and sections.
+    """Create per-show classes auto-routed into disciplines and divisions.
 
     items: each dict has ``name`` (required), ``bracket`` (optional string;
-    None / empty → "Unassigned" section), and ``association_code`` (optional
+    None / empty → "Unassigned" division), and ``association_code`` (optional
     string; when set together with ``show_type_id`` a ClassAssociation row
     is created on the new class).
 
-    Discipline (Division) comes from :func:`classify_class_name` against the
-    class name, UNLESS the caller passes ``explicit_division`` on the item —
-    used by the standard-library picker, which already knows the division and
-    score type for each pick and doesn't need name-keyword inference. Bracket
-    (Section) always comes from ``item['bracket']``. Missing divisions /
-    sections are created on the fly; the (div, sec) membership is registered
-    in ``division_sections``.
+    Discipline comes from :func:`classify_class_name` against the class name,
+    UNLESS the caller passes ``explicit_discipline`` on the item — used by the
+    standard-library picker, which already knows the discipline and score
+    type for each pick and doesn't need name-keyword inference. Division
+    (bracket) always comes from ``item['bracket']``. Missing disciplines /
+    divisions are created on the fly; the (discipline, division) membership
+    is registered in ``discipline_divisions``.
 
     Caller is responsible for ``db.commit()`` and follow-up renumbering.
     """
@@ -72,30 +72,30 @@ async def _create_classes_auto_routed(
     )
     next_sort_order = max_order_result.scalar_one()
 
+    disc_rows = await db.execute(select(Discipline).where(Discipline.show_id == show_id))
+    discipline_by_name: dict[str, Discipline] = {d.name: d for d in disc_rows.scalars().all()}
     div_rows = await db.execute(select(Division).where(Division.show_id == show_id))
     division_by_name: dict[str, Division] = {d.name: d for d in div_rows.scalars().all()}
-    sec_rows = await db.execute(select(Section).where(Section.show_id == show_id))
-    section_by_name: dict[str, Section] = {s.name: s for s in sec_rows.scalars().all()}
 
-    async def get_or_make_division(name: str, score_type: str) -> Division:
+    async def get_or_make_discipline(name: str, score_type: str) -> Discipline:
+        existing = discipline_by_name.get(name)
+        if existing is not None:
+            return existing
+        d = Discipline(show_id=show_id, name=name, sort_order=9000, default_score_type=score_type)
+        db.add(d)
+        await db.flush()
+        discipline_by_name[name] = d
+        return d
+
+    async def get_or_make_division(name: str) -> Division:
         existing = division_by_name.get(name)
         if existing is not None:
             return existing
-        d = Division(show_id=show_id, name=name, sort_order=9000, default_score_type=score_type)
+        d = Division(show_id=show_id, name=name, sort_order=9000)
         db.add(d)
         await db.flush()
         division_by_name[name] = d
         return d
-
-    async def get_or_make_section(name: str) -> Section:
-        existing = section_by_name.get(name)
-        if existing is not None:
-            return existing
-        s = Section(show_id=show_id, name=name, sort_order=9000)
-        db.add(s)
-        await db.flush()
-        section_by_name[name] = s
-        return s
 
     membership_seen: set[tuple[UUID, UUID]] = set()
     created: list[Class] = []
@@ -103,9 +103,9 @@ async def _create_classes_auto_routed(
     for item in items:
         next_sort_order += 1
         name = item["name"]
-        explicit_division = item.get("explicit_division")
-        if explicit_division:
-            discipline_name = explicit_division
+        explicit_discipline = item.get("explicit_discipline")
+        if explicit_discipline:
+            discipline_name = explicit_discipline
             score_type = item.get("explicit_score_type") or "placement"
         else:
             classified = classify_class_name(name)
@@ -115,14 +115,14 @@ async def _create_classes_auto_routed(
                 discipline_name, score_type = "Unassigned", "placement"
         bracket_name = (item.get("bracket") or "").strip() or "Unassigned"
 
-        division = await get_or_make_division(discipline_name, score_type)
-        section = await get_or_make_section(bracket_name)
+        discipline = await get_or_make_discipline(discipline_name, score_type)
+        division = await get_or_make_division(bracket_name)
 
-        pair = (division.id, section.id)
+        pair = (discipline.id, division.id)
         if pair not in membership_seen:
             await db.execute(
-                pg_insert(division_sections)
-                .values(division_id=division.id, section_id=section.id)
+                pg_insert(discipline_divisions)
+                .values(discipline_id=discipline.id, division_id=division.id)
                 .on_conflict_do_nothing()
             )
             membership_seen.add(pair)
@@ -134,8 +134,8 @@ async def _create_classes_auto_routed(
             class_date=class_date,
             status="OPEN",
             sort_order=next_sort_order,
+            discipline_id=discipline.id,
             division_id=division.id,
-            section_id=section.id,
             score_type=score_type,
             ring_id=ring_id,
         )
@@ -153,13 +153,22 @@ async def _create_classes_auto_routed(
     return created
 
 
-async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Division, Section]:
-    """Return (and lazily create) the "Unassigned" division + section pair for a show.
+async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Discipline, Division]:
+    """Return (and lazily create) the "Unassigned" discipline + division pair for a show.
 
-    Used by class-creation paths that don't carry a division/section pick
-    (APHA/AQHA bulk import; schedule builder picks with no section). The
+    Used by class-creation paths that don't carry a discipline/division pick
+    (APHA/AQHA bulk import; schedule builder picks with no division). The
     secretary reassigns these later in the Schedule Builder.
     """
+    disc_res = await db.execute(
+        select(Discipline).where(Discipline.show_id == show_id, Discipline.name == UNASSIGNED_LABEL)
+    )
+    discipline = disc_res.scalar_one_or_none()
+    if discipline is None:
+        discipline = Discipline(show_id=show_id, name=UNASSIGNED_LABEL, sort_order=9999)
+        db.add(discipline)
+        await db.flush()
+
     div_res = await db.execute(
         select(Division).where(Division.show_id == show_id, Division.name == UNASSIGNED_LABEL)
     )
@@ -169,21 +178,12 @@ async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Di
         db.add(division)
         await db.flush()
 
-    sec_res = await db.execute(
-        select(Section).where(Section.show_id == show_id, Section.name == UNASSIGNED_LABEL)
-    )
-    section = sec_res.scalar_one_or_none()
-    if section is None:
-        section = Section(show_id=show_id, name=UNASSIGNED_LABEL, sort_order=9999)
-        db.add(section)
-        await db.flush()
-
     await db.execute(
-        pg_insert(division_sections)
-        .values(division_id=division.id, section_id=section.id)
+        pg_insert(discipline_divisions)
+        .values(discipline_id=discipline.id, division_id=division.id)
         .on_conflict_do_nothing()
     )
-    return division, section
+    return discipline, division
 
 
 async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
@@ -235,28 +235,28 @@ async def create_class(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
 
+    discipline = await db.get(Discipline, body.discipline_id)
+    if not discipline or discipline.show_id != show_id:
+        raise HTTPException(400, "Discipline does not belong to this show")
+
     division = await db.get(Division, body.division_id)
     if not division or division.show_id != show_id:
         raise HTTPException(400, "Division does not belong to this show")
 
-    section = await db.get(Section, body.section_id)
-    if not section or section.show_id != show_id:
-        raise HTTPException(400, "Section does not belong to this show")
-
     pair_res = await db.execute(
-        select(division_sections.c.division_id).where(
-            division_sections.c.division_id == body.division_id,
-            division_sections.c.section_id == body.section_id,
+        select(discipline_divisions.c.discipline_id).where(
+            discipline_divisions.c.discipline_id == body.discipline_id,
+            discipline_divisions.c.division_id == body.division_id,
         )
     )
     if pair_res.scalar_one_or_none() is None:
         raise HTTPException(
             422,
-            f"Section '{section.name}' is not part of division '{division.name}'. "
-            "Add it to the division on the Setup page first.",
+            f"Division '{division.name}' is not part of discipline '{discipline.name}'. "
+            "Add it to the discipline on the Setup page first.",
         )
 
-    score_type = body.score_type or division.default_score_type
+    score_type = body.score_type or discipline.default_score_type
 
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
@@ -267,8 +267,8 @@ async def create_class(
         sort_order=next_sort_order,
         class_number=str(next_sort_order),
         ring_id=body.ring_id,
+        discipline_id=body.discipline_id,
         division_id=body.division_id,
-        section_id=body.section_id,
         class_name=body.class_name,
         class_date=body.class_date,
         status=body.status,
@@ -300,13 +300,13 @@ async def bulk_create_classes_from_library(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Bulk-create classes from explicit (division, section) picks.
+    """Bulk-create classes from explicit (discipline, division) picks.
 
     The standard-library picker generates one pick per checked cell in the
-    discipline × bracket matrix and submits them here. Each pick carries the
-    discipline's `default_score_type` from `standard_divisions`, so we skip
-    name-keyword classification entirely. Missing per-show divisions /
-    sections / memberships are created on the fly.
+    discipline × division matrix and submits them here. Each pick carries the
+    discipline's `default_score_type` from `standard_disciplines`, so we skip
+    name-keyword classification entirely. Missing per-show disciplines /
+    divisions / memberships are created on the fly.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
@@ -316,24 +316,24 @@ async def bulk_create_classes_from_library(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
 
-    # Dedup picks on (division, section) so the same checkbox toggled twice
+    # Dedup picks on (discipline, division) so the same checkbox toggled twice
     # in the UI doesn't try to create the same class twice.
     seen: set[tuple[str, str]] = set()
     items: list[dict] = []
     for pick in body.picks:
+        disc_name = pick.discipline_name.strip()
         div_name = pick.division_name.strip()
-        sec_name = pick.section_name.strip()
-        if not div_name or not sec_name:
+        if not disc_name or not div_name:
             continue
-        key = (div_name.casefold(), sec_name.casefold())
+        key = (disc_name.casefold(), div_name.casefold())
         if key in seen:
             continue
         seen.add(key)
-        # Class name pattern matches Schedule Builder: "{Section} {Division}"
+        # Class name pattern: "{Division} {Discipline}" (e.g. "Youth 14-18 Western Pleasure")
         items.append({
-            "name": f"{sec_name} {div_name}",
-            "bracket": sec_name,
-            "explicit_division": div_name,
+            "name": f"{div_name} {disc_name}",
+            "bracket": div_name,
+            "explicit_discipline": disc_name,
             "explicit_score_type": pick.default_score_type,
         })
     if not items:
@@ -393,34 +393,34 @@ async def update_class(
             f"Class date must be between {show.start_date} and {show.end_date}",
         )
     update_fields = body.model_dump(exclude_unset=True)
-    # Reject explicit nulls — both fields are NOT NULL at the DB level.
-    if update_fields.get("section_id", "unset") is None:
-        raise HTTPException(422, "section_id is required")
+    # Reject explicit nulls — both FK fields are NOT NULL at the DB level.
     if update_fields.get("division_id", "unset") is None:
         raise HTTPException(422, "division_id is required")
-    if "section_id" in update_fields:
-        section = await db.get(Section, update_fields["section_id"])
-        if not section or section.show_id != show_id:
-            raise HTTPException(400, "Section does not belong to this show")
+    if update_fields.get("discipline_id", "unset") is None:
+        raise HTTPException(422, "discipline_id is required")
     if "division_id" in update_fields:
         division = await db.get(Division, update_fields["division_id"])
         if not division or division.show_id != show_id:
             raise HTTPException(400, "Division does not belong to this show")
-    # Validate the resulting (division_id, section_id) pair is a registered
+    if "discipline_id" in update_fields:
+        discipline = await db.get(Discipline, update_fields["discipline_id"])
+        if not discipline or discipline.show_id != show_id:
+            raise HTTPException(400, "Discipline does not belong to this show")
+    # Validate the resulting (discipline_id, division_id) pair is a registered
     # membership — defends in depth on top of the composite FK so we return
     # a clean 422 instead of an IntegrityError.
+    new_disc_id = update_fields.get("discipline_id", class_.discipline_id)
     new_div_id = update_fields.get("division_id", class_.division_id)
-    new_sec_id = update_fields.get("section_id", class_.section_id)
     pair_res = await db.execute(
-        select(division_sections.c.division_id).where(
-            division_sections.c.division_id == new_div_id,
-            division_sections.c.section_id == new_sec_id,
+        select(discipline_divisions.c.discipline_id).where(
+            discipline_divisions.c.discipline_id == new_disc_id,
+            discipline_divisions.c.division_id == new_div_id,
         )
     )
     if pair_res.scalar_one_or_none() is None:
         raise HTTPException(
             422,
-            "Selected section is not part of the selected division. "
+            "Selected division is not part of the selected discipline. "
             "Add the membership on the Setup page first.",
         )
     for k, v in update_fields.items():

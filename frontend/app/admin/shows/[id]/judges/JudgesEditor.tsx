@@ -26,10 +26,19 @@ interface Judge {
   sort_order: number | null;
 }
 
+export interface KnownJudge {
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  affiliation_ids: string[];
+}
+
 interface Props {
   showId: string;
   initialJudges: Judge[];
   showTypes: ShowType[];
+  knownJudges?: KnownJudge[];
 }
 
 const emptyForm = {
@@ -74,7 +83,12 @@ function AffiliationCheckboxes({
   );
 }
 
-export default function JudgesEditor({ showId, initialJudges, showTypes }: Props) {
+export default function JudgesEditor({
+  showId,
+  initialJudges,
+  showTypes,
+  knownJudges = [],
+}: Props) {
   const router = useRouter();
   // Filter OPEN — it has no particular affiliation meaning
   const affiliationOptions = showTypes.filter((st) => st.code !== 'OPEN');
@@ -87,6 +101,28 @@ export default function JudgesEditor({ showId, initialJudges, showTypes }: Props
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function applyKnownJudge(key: string) {
+    if (!key) return;
+    const [first, last, email] = key.split('|');
+    const match = knownJudges.find(
+      (k) =>
+        k.first_name.toLowerCase() === first &&
+        k.last_name.toLowerCase() === last &&
+        (k.email ?? '').toLowerCase() === email,
+    );
+    if (!match) return;
+    const validAffiliationIds = new Set(showTypes.map((t) => t.id));
+    setForm({
+      first_name: match.first_name,
+      last_name: match.last_name,
+      email: match.email ?? '',
+      phone: match.phone ?? '',
+      affiliation_ids: new Set(
+        match.affiliation_ids.filter((id) => validAffiliationIds.has(id)),
+      ),
+    });
+  }
 
   function resetAddForm() {
     setForm(emptyForm);
@@ -353,6 +389,36 @@ export default function JudgesEditor({ showId, initialJudges, showTypes }: Props
 
       {showAddForm && (
         <form onSubmit={handleAdd} className="mt-3 space-y-3">
+          {knownJudges.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium mb-1" style={{ color: '#5c3d1e' }}>
+                Pick a previously-entered judge (optional)
+              </label>
+              <select
+                defaultValue=""
+                onChange={(e) => {
+                  applyKnownJudge(e.target.value);
+                  e.currentTarget.value = '';
+                }}
+                className="w-full border rounded px-3 py-1.5 text-sm"
+                style={{ borderColor: '#d4b896' }}
+              >
+                <option value="">— Type a new judge below —</option>
+                {knownJudges.map((k) => {
+                  const key = `${k.first_name.toLowerCase()}|${k.last_name.toLowerCase()}|${(k.email ?? '').toLowerCase()}`;
+                  return (
+                    <option key={key} value={key}>
+                      {k.first_name} {k.last_name}
+                      {k.email ? ` (${k.email})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+                Picking pre-fills the form below. You can still edit any field before adding.
+              </p>
+            </div>
+          )}
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1" style={{ color: '#5c3d1e' }}>First Name *</label>

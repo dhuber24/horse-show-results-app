@@ -5,7 +5,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ sho
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId } = await params;
-  const res = await fetch(`${API_URL}/shows/${showId}/divisions/`, { headers });
+  const res = await fetch(`${API_URL}/shows/${showId}/divisions/`, { headers, cache: 'no-store' });
   const json = await res.json();
   return NextResponse.json(json, { status: res.status });
 }

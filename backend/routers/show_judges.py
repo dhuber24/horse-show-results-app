@@ -5,12 +5,79 @@ from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from database import get_db
-from dependencies import require_admin_or_show_admin
-from models import Show, ShowJudge, ShowType
+from dependencies import INTERNAL_API_KEY, require_admin_or_show_admin, safe_uuid
+from models import Show, ShowJudge, ShowType, ShowManager, ShowSecretary
 from routers.shows import _assert_show_access
 from schemas import ShowJudgeCreate, ShowJudgeOut, ShowJudgeUpdate
 
 router = APIRouter(prefix="/shows/{show_id}/judges", tags=["Show Judges"])
+
+# Separate top-level router for cross-show judge lookups (e.g. the wizard's
+# "pick an existing judge" dropdown). Lives in the same file because it's
+# the same domain as ShowJudge.
+known_judges_router = APIRouter(prefix="/judges", tags=["Show Judges"])
+
+
+@known_judges_router.get("/known")
+async def list_known_judges(
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deduplicated list of judges drawn from past shows, scoped to what the
+    caller can already see. Admin sees all; Show Manager / Show Secretary
+    see judges from shows they are assigned to."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    if x_user_role not in ("ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY"):
+        raise HTTPException(403, "Insufficient permissions")
+
+    if x_user_role == "ADMIN":
+        query = (
+            select(ShowJudge)
+            .options(selectinload(ShowJudge.affiliations))
+            .order_by(ShowJudge.last_name, ShowJudge.first_name)
+        )
+    elif x_user_role == "SHOW_MANAGER":
+        query = (
+            select(ShowJudge)
+            .join(ShowManager, ShowManager.show_id == ShowJudge.show_id)
+            .where(ShowManager.user_id == safe_uuid(x_user_id))
+            .options(selectinload(ShowJudge.affiliations))
+            .order_by(ShowJudge.last_name, ShowJudge.first_name)
+        )
+    else:
+        query = (
+            select(ShowJudge)
+            .join(ShowSecretary, ShowSecretary.show_id == ShowJudge.show_id)
+            .where(ShowSecretary.user_id == safe_uuid(x_user_id))
+            .options(selectinload(ShowJudge.affiliations))
+            .order_by(ShowJudge.last_name, ShowJudge.first_name)
+        )
+
+    rows = (await db.execute(query)).scalars().all()
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict] = []
+    for j in rows:
+        key = (
+            (j.first_name or "").strip().lower(),
+            (j.last_name or "").strip().lower(),
+            (j.email or "").strip().lower(),
+        )
+        if not key[0] or not key[1] or key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "first_name": j.first_name,
+                "last_name": j.last_name,
+                "email": j.email,
+                "phone": j.phone,
+                "affiliation_ids": [str(a.id) for a in (j.affiliations or [])],
+            }
+        )
+    return out
 
 
 def _serialize(j: ShowJudge) -> dict:
