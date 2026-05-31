@@ -58,6 +58,7 @@ type Step = 1 | 2 | 3;
 export default function ClassWizardClient({
   showId,
   showStartDate,
+  showEndDate,
   initialDisciplines,
   initialDivisions,
   initialClasses,
@@ -66,6 +67,7 @@ export default function ClassWizardClient({
 }: {
   showId: string;
   showStartDate: string;
+  showEndDate: string;
   initialDisciplines: DisciplineItem[];
   initialDivisions: DivisionItem[];
   initialClasses: ClassItem[];
@@ -149,6 +151,7 @@ export default function ClassWizardClient({
         <ClassesStep
           showId={showId}
           showStartDate={showStartDate}
+          showEndDate={showEndDate}
           disciplines={disciplines}
           divisions={divisions}
           classes={classes}
@@ -667,9 +670,14 @@ function DivisionStep({
 
 // ── Step 3: Classes ────────────────────────────────────────────────────────────
 
+function cellKey(disciplineId: string, divisionId: string): string {
+  return `${disciplineId}::${divisionId}`;
+}
+
 function ClassesStep({
   showId,
   showStartDate,
+  showEndDate,
   disciplines,
   divisions,
   classes,
@@ -682,6 +690,7 @@ function ClassesStep({
 }: {
   showId: string;
   showStartDate: string;
+  showEndDate: string;
   disciplines: DisciplineItem[];
   divisions: DivisionItem[];
   classes: ClassItem[];
@@ -692,9 +701,8 @@ function ClassesStep({
   onBack: () => void;
   onDone: () => void;
 }) {
-  const [showForm, setShowForm] = useState(false);
-  const [disciplineId, setDisciplineId] = useState('');
-  const [divisionId, setDivisionId] = useState('');
+  const [classDate, setClassDate] = useState(showStartDate);
+  const [pending, setPending] = useState<Set<string>>(new Set());
 
   const disciplineById = useMemo(
     () => new Map(disciplines.map((d) => [d.id, d])),
@@ -705,6 +713,34 @@ function ClassesStep({
     [divisions],
   );
 
+  // Existing-class (discipline, division) pairs scoped to the selected date.
+  // Cells in that set are disabled in the matrix so the secretary can't
+  // queue a duplicate for that day.
+  const takenForDate = useMemo(
+    () =>
+      new Set(
+        classes
+          .filter((c) => c.class_date === classDate)
+          .map((c) => cellKey(c.discipline_id, c.division_id)),
+      ),
+    [classes, classDate],
+  );
+
+  // For the existing-classes display, group by date so a multi-day show
+  // doesn't blob into one undifferentiated list.
+  const classesByDate = useMemo(() => {
+    const byDate = new Map<string, ClassItem[]>();
+    for (const c of classes) {
+      const arr = byDate.get(c.class_date) ?? [];
+      arr.push(c);
+      byDate.set(c.class_date, arr);
+    }
+    for (const arr of byDate.values()) {
+      arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    }
+    return Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [classes]);
+
   async function refreshClasses() {
     const res = await fetch(`/api/shows/${showId}/classes`, { cache: 'no-store' });
     if (res.ok) {
@@ -713,37 +749,59 @@ function ClassesStep({
     }
   }
 
-  async function addClass() {
+  function toggleCell(disciplineId: string, divisionId: string) {
+    const k = cellKey(disciplineId, divisionId);
+    if (takenForDate.has(k)) return;
+    setPending((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
+  function changeDate(d: string) {
+    setClassDate(d);
+    // Pairs already-taken depend on the date, so clear the basket on date
+    // change. Keeping it would silently drop "taken" picks at submit time.
+    setPending(new Set());
+  }
+
+  async function addAll() {
+    if (pending.size === 0) return;
     setError(null);
-    if (!disciplineId || !divisionId) {
-      setError('Pick both a discipline and a division.');
-      return;
-    }
-    const disc = disciplineById.get(disciplineId);
-    const div = divisionById.get(divisionId);
-    if (!disc || !div) return;
-    const className = `${div.name} ${disc.name}`;
     setBusy(true);
+    let createdAny = false;
     try {
-      const res = await fetch(`/api/shows/${showId}/classes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discipline_id: disciplineId,
-          division_id: divisionId,
-          class_name: className,
-          class_date: showStartDate,
-          status: 'OPEN',
-        }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(json?.detail || 'Failed to create class.');
-        return;
+      // Sequential so the backend's per-create renumber doesn't race with
+      // itself. The basket is small (handful of picks) so this is fine.
+      for (const k of Array.from(pending)) {
+        const [discId, divId] = k.split('::');
+        const disc = disciplineById.get(discId);
+        const div = divisionById.get(divId);
+        if (!disc || !div) continue;
+        const className = `${div.name} ${disc.name}`;
+        const res = await fetch(`/api/shows/${showId}/classes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            discipline_id: discId,
+            division_id: divId,
+            class_name: className,
+            class_date: classDate,
+            status: 'OPEN',
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          setError(j?.detail || `Failed to create "${className}".`);
+          if (createdAny) await refreshClasses();
+          return;
+        }
+        createdAny = true;
       }
       await refreshClasses();
-      setDisciplineId('');
-      setDivisionId('');
+      setPending(new Set());
     } finally {
       setBusy(false);
     }
@@ -767,6 +825,8 @@ function ClassesStep({
     }
   }
 
+  const noBuildingBlocks = disciplines.length === 0 || divisions.length === 0;
+
   return (
     <section
       className="p-4 rounded-lg border space-y-4"
@@ -777,128 +837,234 @@ function ClassesStep({
           Step 3: Classes
         </h2>
         <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-          Each class is constructed as <strong>#{'{auto-number}'}: {'{Division}'} {'{Discipline}'}</strong>{' '}
-          — e.g. <em>#102: Youth 14–18 Western Pleasure</em>.
+          Pick a date, then check each (Discipline × Division) cell you want to
+          turn into a class. Selected pairs collect into a batch — click{' '}
+          <strong>Add</strong> once you&apos;ve picked them all. Each class is named{' '}
+          <em>&quot;{`{Division} {Discipline}`}&quot;</em> and auto-numbered.
         </p>
       </div>
 
+      {/* ── Existing classes ──────────────────────────────────────────── */}
       {classes.length === 0 ? (
         <p className="text-sm" style={{ color: COLORS.muted }}>
           No classes yet.
         </p>
       ) : (
-        <ul className="space-y-1">
-          {classes.map((c) => (
-            <li
-              key={c.id}
-              className="flex items-center justify-between gap-2 text-sm border-b py-1"
-              style={{ borderColor: COLORS.borderSoft }}
-            >
-              <span style={{ color: COLORS.text }}>
-                <span className="font-mono mr-2" style={{ color: '#8b4513' }}>
-                  #{c.class_number}
-                </span>
-                {c.class_name}
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => removeClass(c.id)}
-                className="text-xs text-red-600 hover:underline disabled:opacity-50"
+        <div className="space-y-3">
+          {classesByDate.map(([date, dayClasses]) => (
+            <div key={date}>
+              <p
+                className="text-xs font-medium mb-1"
+                style={{ color: COLORS.muted }}
               >
-                Delete
-              </button>
-            </li>
+                {date} — {dayClasses.length} class
+                {dayClasses.length === 1 ? '' : 'es'}
+              </p>
+              <ul className="space-y-1">
+                {dayClasses.map((c) => (
+                  <li
+                    key={c.id}
+                    className="flex items-center justify-between gap-2 text-sm border-b py-1"
+                    style={{ borderColor: COLORS.borderSoft }}
+                  >
+                    <span style={{ color: COLORS.text }}>
+                      <span className="font-mono mr-2" style={{ color: '#8b4513' }}>
+                        #{c.class_number}
+                      </span>
+                      {c.class_name}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => removeClass(c.id)}
+                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
-      {showForm ? (
-        <div
-          className="rounded border p-3 space-y-3"
-          style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
-        >
-          <div className="grid sm:grid-cols-2 gap-3">
-            <label className="block">
-              <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                Discipline
-              </span>
-              <select
-                value={disciplineId}
-                onChange={(e) => setDisciplineId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: COLORS.border }}
-              >
-                <option value="">Select a discipline…</option>
-                {disciplines.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                Division
-              </span>
-              <select
-                value={divisionId}
-                onChange={(e) => setDivisionId(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: COLORS.border }}
-              >
-                <option value="">Select a division…</option>
-                {divisions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {disciplineId && divisionId && (
-            <p className="text-xs" style={{ color: COLORS.muted }}>
-              Will create:{' '}
-              <span style={{ color: COLORS.text, fontWeight: 600 }}>
-                #{classes.length + 1}: {divisionById.get(divisionId)?.name}{' '}
-                {disciplineById.get(disciplineId)?.name}
-              </span>
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setShowForm(false);
-                setDisciplineId('');
-                setDivisionId('');
-              }}
-              className="text-sm rounded px-3 py-2 border"
-              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={addClass}
-              disabled={busy || !disciplineId || !divisionId}
-              className="text-sm rounded px-3 py-2 disabled:opacity-50"
-              style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-            >
-              {busy ? 'Adding…' : 'Add class'}
-            </button>
-          </div>
+      {/* ── Builder ───────────────────────────────────────────────────── */}
+      <div
+        className="rounded border p-3 space-y-3"
+        style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
+      >
+        <div className="flex items-end gap-3 flex-wrap">
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Class date
+            </span>
+            <input
+              type="date"
+              value={classDate}
+              min={showStartDate}
+              max={showEndDate}
+              onChange={(e) => changeDate(e.target.value)}
+              className="border rounded px-3 py-2 text-sm"
+              style={{ borderColor: COLORS.border }}
+            />
+          </label>
+          <p className="text-xs" style={{ color: COLORS.muted }}>
+            Show runs {showStartDate} → {showEndDate}. Cells marked{' '}
+            <span style={{ color: COLORS.warn, fontWeight: 600 }}>exists</span> are
+            already a class on the selected date.
+          </p>
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowForm(true)}
-          className="text-sm hover:underline"
-          style={{ color: '#8b4513' }}
-        >
-          + Add class
-        </button>
-      )}
+
+        {noBuildingBlocks ? (
+          <p className="text-sm" style={{ color: COLORS.muted }}>
+            Add at least one discipline and one division in the previous steps
+            to build classes here.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th
+                    className="sticky left-0 z-10 text-left font-semibold pr-3 pb-2 border-b"
+                    style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft, color: COLORS.text }}
+                  >
+                    Discipline ╲ Division
+                  </th>
+                  {divisions.map((div) => (
+                    <th
+                      key={div.id}
+                      className="font-medium text-xs px-2 pb-2 border-b text-center"
+                      style={{ borderColor: COLORS.border, color: COLORS.warn, minWidth: '5rem' }}
+                      title={div.name}
+                    >
+                      {div.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {disciplines.map((disc) => (
+                  <tr key={disc.id}>
+                    <th
+                      className="sticky left-0 z-10 text-left font-normal pr-3 py-1.5 border-b"
+                      style={{
+                        borderColor: COLORS.borderSoft,
+                        backgroundColor: COLORS.warnSoft,
+                        color: COLORS.text,
+                      }}
+                      scope="row"
+                    >
+                      {disc.name}
+                    </th>
+                    {divisions.map((div) => {
+                      const k = cellKey(disc.id, div.id);
+                      const taken = takenForDate.has(k);
+                      const picked = pending.has(k);
+                      const title = taken
+                        ? `Already on the schedule for ${classDate}`
+                        : picked
+                          ? `Selected: ${div.name} ${disc.name}`
+                          : `Add ${div.name} ${disc.name}`;
+                      return (
+                        <td
+                          key={div.id}
+                          className="text-center border-b p-0.5"
+                          style={{ borderColor: COLORS.borderSoft }}
+                        >
+                          <button
+                            type="button"
+                            disabled={taken}
+                            onClick={() => toggleCell(disc.id, div.id)}
+                            title={title}
+                            aria-label={title}
+                            className="w-full text-xs font-medium rounded px-2 py-1"
+                            style={{
+                              backgroundColor: taken
+                                ? '#e8e0d0'
+                                : picked
+                                  ? COLORS.highlight
+                                  : '#fff',
+                              color: taken
+                                ? COLORS.muted
+                                : picked
+                                  ? COLORS.warn
+                                  : COLORS.text,
+                              border: picked
+                                ? `1px solid ${COLORS.warn}`
+                                : `1px solid ${COLORS.border}`,
+                              cursor: taken ? 'not-allowed' : 'pointer',
+                              minWidth: '3.5rem',
+                            }}
+                          >
+                            {taken ? 'exists' : picked ? '✓' : '+'}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {pending.size > 0 && (
+          <div className="space-y-2 pt-2 border-t" style={{ borderColor: COLORS.border }}>
+            <p className="text-xs font-medium" style={{ color: COLORS.warn }}>
+              Selected for {classDate} — {pending.size} class
+              {pending.size === 1 ? '' : 'es'}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {Array.from(pending).map((k) => {
+                const [discId, divId] = k.split('::');
+                const disc = disciplineById.get(discId);
+                const div = divisionById.get(divId);
+                if (!disc || !div) return null;
+                return (
+                  <span
+                    key={k}
+                    className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
+                    style={{
+                      borderColor: COLORS.warn,
+                      backgroundColor: COLORS.highlight,
+                      color: COLORS.warn,
+                    }}
+                  >
+                    {div.name} {disc.name}
+                    <button
+                      type="button"
+                      onClick={() => toggleCell(discId, divId)}
+                      aria-label={`Remove ${div.name} ${disc.name}`}
+                      className="text-xs leading-none"
+                      style={{ color: COLORS.muted }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end pt-1">
+          <button
+            type="button"
+            onClick={addAll}
+            disabled={busy || pending.size === 0}
+            className="text-sm rounded px-4 py-2 disabled:opacity-50"
+            style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+          >
+            {busy
+              ? 'Adding…'
+              : pending.size === 0
+                ? 'Add'
+                : `Add ${pending.size} class${pending.size === 1 ? '' : 'es'}`}
+          </button>
+        </div>
+      </div>
 
       <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>
         <button

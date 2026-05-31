@@ -126,6 +126,7 @@ export default async function ShowClassesPage({
       <ClassWizardClient
         showId={id}
         showStartDate={show.start_date}
+        showEndDate={show.end_date}
         initialDisciplines={disciplines as DisciplineItem[]}
         initialDivisions={divisions as DivisionItem[]}
         initialClasses={classes as ClassItem[]}
