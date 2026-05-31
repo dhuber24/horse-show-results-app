@@ -49,7 +49,24 @@ if (-not $Message -or $Message.Trim() -eq "") {
     throw "Commit message cannot be empty."
 }
 
-Run-Git -GitArgs @("commit", "-m", $Message)
+# Stream the message through a UTF-8 (no BOM) tempfile and `git commit -F`.
+# PowerShell 5.1's `& git @args` splits multi-line strings on newlines when
+# passing them to a native exe, which broke `-m "$Message"` for any commit
+# with a body. Writing to a file with the explicit UTF8Encoding($false)
+# constructor also dodges the PS 5.1 `Out-File -Encoding utf8` BOM, so the
+# commit subject doesn't end up with a leading U+FEFF.
+$tmpMsg = New-TemporaryFile
+try {
+    [System.IO.File]::WriteAllText(
+        $tmpMsg.FullName,
+        $Message,
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+    Run-Git -GitArgs @("commit", "-F", $tmpMsg.FullName)
+} finally {
+    Remove-Item $tmpMsg.FullName -Force -ErrorAction SilentlyContinue
+}
+
 Run-Git -GitArgs @("push", "origin", "main")
 
 Write-Host "Done. Changes committed and pushed to origin/main."
