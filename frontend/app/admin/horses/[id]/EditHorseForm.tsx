@@ -43,6 +43,15 @@ interface Props {
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
+function SectionHeader({ title, open, onToggle }: { title: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} className="flex items-center justify-between w-full text-left">
+      <h2 className="font-semibold" style={{ color: '#2c1810' }}>{title}</h2>
+      <span className="text-sm select-none font-bold" style={{ color: '#8b7355' }}>{open ? '−' : '+'}</span>
+    </button>
+  );
+}
+
 export default function EditHorseForm({ horse, breeds, colors, exhibitors, showTypes, registrations: initialRegs, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -69,10 +78,17 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [regError, setRegError] = useState<string | null>(null);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
+  const [newRiderId, setNewRiderId] = useState('');
+  const [addingRider, setAddingRider] = useState(false);
+  const [riderError, setRiderError] = useState<string | null>(null);
+  const [confirmRemoveRiderId, setConfirmRemoveRiderId] = useState<string | null>(null);
+  const [open, setOpen] = useState({ details: true, riders: true, registrations: true, documents: true });
 
   useEffect(() => {
     fetch(`/api/horses/${horse.id}/riders`).then((r) => r.json()).then(setRiders).catch(() => {});
   }, [horse.id]);
+
+  const toggle = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -171,130 +187,235 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     if (res.ok) setRegistrations((prev) => prev.filter((r) => r.id !== regId));
   };
 
+  const handleAddRider = async () => {
+    if (!newRiderId) { setRiderError('Select an exhibitor.'); return; }
+    setAddingRider(true);
+    setRiderError(null);
+    const res = await fetch(`/api/horses/${horse.id}/riders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exhibitor_id: newRiderId }),
+    });
+    setAddingRider(false);
+    if (res.ok) {
+      const created = await res.json();
+      setRiders((prev) => [...prev, created]);
+      setNewRiderId('');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setRiderError(err.detail ?? 'Failed to add rider.');
+    }
+  };
+
+  const handleRemoveRider = async (exhibitorId: string) => {
+    const res = await fetch(`/api/horses/${horse.id}/riders/${exhibitorId}`, { method: 'DELETE' });
+    if (res.ok) setRiders((prev) => prev.filter((r) => r.exhibitor_id !== exhibitorId));
+  };
+
   const usedShowTypeIds = new Set(registrations.map((r) => r.show_type_id));
   const availableShowTypes = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id));
-  const displayAge = form.foaling_date ? Math.max(0, new Date().getFullYear() - new Date(form.foaling_date).getFullYear()) : horse.age;
+
+  // Parse year directly from the ISO string to avoid the JS UTC-to-local timezone shift
+  // that moves Jan 1 dates to Dec 31 of the prior year for users west of UTC.
+  const birthYear = form.foaling_date ? parseInt(form.foaling_date.split('-')[0], 10) : null;
+  const displayAge = birthYear !== null ? Math.max(0, new Date().getFullYear() - birthYear) : horse.age;
+
+  // Owner is always surfaced as a rider. Prepend them if the backend riders list omits them
+  // (e.g. when they haven't entered any classes yet).
+  const ownerExhibitor = form.owner_exhibitor_id
+    ? exhibitors.find((e) => e.id === form.owner_exhibitor_id) ?? null
+    : null;
+  const displayRiders: Rider[] = (() => {
+    if (!ownerExhibitor) return riders;
+    if (riders.some((r) => r.exhibitor_id === ownerExhibitor.id)) return riders;
+    return [{ exhibitor_id: ownerExhibitor.id, full_name: ownerExhibitor.full_name }, ...riders];
+  })();
 
   return (
     <div className="space-y-6">
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
-            <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
-            <select name="owner_exhibitor_id" value={form.owner_exhibitor_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- No owner linked -</option>
-              {exhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-            </select>
-            {!form.owner_exhibitor_id && horse.owner_name && (
-              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
-                Legacy owner on file: {horse.owner_name}
-              </p>
+        <SectionHeader title="Horse Details" open={open.details} onToggle={() => toggle('details')} />
+        {open.details && (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
+                <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>
+                <select name="owner_exhibitor_id" value={form.owner_exhibitor_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+                  <option value="">- No owner linked -</option>
+                  {exhibitors.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
+                {!form.owner_exhibitor_id && horse.owner_name && (
+                  <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                    Legacy owner on file: {horse.owner_name}
+                  </p>
+                )}
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+                <TrainerSelect
+                  trainerId={form.trainer_id || null}
+                  trainerName={form.trainer_name || null}
+                  trainerFirstName={form.trainer_first_name || null}
+                  trainerLastName={form.trainer_last_name || null}
+                  trainerEmail={form.trainer_email || null}
+                  trainers={trainers}
+                  onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
+                    ...prev,
+                    trainer_id: trainerId ?? '',
+                    trainer_name: trainerName ?? '',
+                    trainer_first_name: trainerFirstName ?? '',
+                    trainer_last_name: trainerLastName ?? '',
+                    trainer_email: trainerEmail ?? '',
+                  }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
+                <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
+                  <option value="">- Not specified -</option>
+                  <option value="Mare">Mare</option>
+                  <option value="Gelding">Gelding</option>
+                  <option value="Stallion">Stallion</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
+                  Foaling Date
+                  {displayAge !== null && displayAge !== undefined && (
+                    <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Show Age: {displayAge})</span>
+                  )}
+                </label>
+                <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
+              </div>
+              <div className="sm:col-span-2">
+                <BreedCheckboxGroup
+                  breeds={breeds}
+                  selectedIds={form.breed_ids}
+                  onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
+                />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
+                <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+                  <option value="">- Not specified -</option>
+                  {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            </div>
+            {error && <p className="text-red-600 text-sm">{error}</p>}
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
+              <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">Delete Horse</button>
+            </div>
+            {confirmDelete && <ConfirmDialog title="Delete Horse" message={`Delete ${form.name}? This cannot be undone.`} confirmLabel="Yes, delete" destructive confirming={deleting} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)} />}
+          </>
+        )}
+      </div>
+
+      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+        <SectionHeader title="Riders" open={open.riders} onToggle={() => toggle('riders')} />
+        {open.riders && (
+          <>
+            {displayRiders.length === 0
+              ? <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p>
+              : (
+                <ul className="space-y-2">
+                  {displayRiders.map((r) => {
+                    const isOwnerRow = ownerExhibitor && r.exhibitor_id === ownerExhibitor.id;
+                    return (
+                      <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>
+                        <span>{r.full_name}</span>
+                        <div className="flex items-center gap-2">
+                          {isOwnerRow && (
+                            <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Owner</span>
+                          )}
+                          {!isOwnerRow && (
+                            <>
+                              <button onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)} className="text-xs text-red-600 hover:text-red-800">Remove</button>
+                              {confirmRemoveRiderId === r.exhibitor_id && (
+                                <ConfirmDialog
+                                  title="Remove Rider"
+                                  message={`Remove ${r.full_name} as a rider?`}
+                                  confirmLabel="Yes, remove"
+                                  destructive
+                                  onConfirm={() => { handleRemoveRider(r.exhibitor_id); setConfirmRemoveRiderId(null); }}
+                                  onCancel={() => setConfirmRemoveRiderId(null)}
+                                />
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            }
+            {(() => {
+              const riderIds = new Set(displayRiders.map((r) => r.exhibitor_id));
+              const available = exhibitors.filter((e) => !riderIds.has(e.id));
+              if (available.length === 0) return null;
+              return (
+                <div className="flex flex-wrap gap-2 items-end pt-1">
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
+                    <select value={newRiderId} onChange={(e) => setNewRiderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                      <option value="">Select exhibitor...</option>
+                      {available.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={handleAddRider} disabled={addingRider} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingRider ? 'Adding...' : 'Add'}</button>
+                </div>
+              );
+            })()}
+            {riderError && <p className="text-red-600 text-sm">{riderError}</p>}
+          </>
+        )}
+      </div>
+
+      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+        <SectionHeader title="Association Registration Numbers" open={open.registrations} onToggle={() => toggle('registrations')} />
+        {open.registrations && (
+          <>
+            {registrations.length > 0 ? (
+              <ul className="space-y-2">
+                {registrations.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+                    <div><span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span><span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span></div>
+                    <button onClick={() => setConfirmDeleteRegId(r.id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
+                    {confirmDeleteRegId === r.id && <ConfirmDialog title="Remove Registration" message={`Remove ${r.show_type_code} registration? This cannot be undone.`} confirmLabel="Yes, remove" destructive onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }} onCancel={() => setConfirmDeleteRegId(null)} />}
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>}
+            {availableShowTypes.length > 0 && (
+              <div className="flex flex-wrap gap-2 items-end pt-1">
+                <div className="flex-1 min-w-[160px]">
+                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
+                  <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
+                    <option value="">Select...</option>
+                    {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1 min-w-[160px]">
+                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
+                  <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
+                </div>
+                <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingReg ? 'Adding...' : 'Add'}</button>
+              </div>
             )}
-          </div>
-          <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
-            <TrainerSelect
-              trainerId={form.trainer_id || null}
-              trainerName={form.trainer_name || null}
-              trainerFirstName={form.trainer_first_name || null}
-              trainerLastName={form.trainer_last_name || null}
-              trainerEmail={form.trainer_email || null}
-              trainers={trainers}
-              onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
-                ...prev,
-                trainer_id: trainerId ?? '',
-                trainer_name: trainerName ?? '',
-                trainer_first_name: trainerFirstName ?? '',
-                trainer_last_name: trainerLastName ?? '',
-                trainer_email: trainerEmail ?? '',
-              }))}
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
-            <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- Not specified -</option>
-              <option value="Mare">Mare</option>
-              <option value="Gelding">Gelding</option>
-              <option value="Stallion">Stallion</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Foaling Date {displayAge !== null && displayAge !== undefined && <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>}</label>
-            <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
-          </div>
-          <div className="sm:col-span-2">
-            <BreedCheckboxGroup
-              breeds={breeds}
-              selectedIds={form.breed_ids}
-              onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))}
-            />
-          </div>
-          <div>
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
-            <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
-              <option value="">- Not specified -</option>
-              {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        </div>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <div className="flex items-center justify-between pt-1">
-          <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{saving ? 'Saving...' : 'Save Changes'}</button>
-          <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-600 hover:text-red-800">Delete Horse</button>
-        </div>
-        {confirmDelete && <ConfirmDialog title="Delete Horse" message={`Delete ${form.name}? This cannot be undone.`} confirmLabel="Yes, delete" destructive confirming={deleting} onConfirm={handleDelete} onCancel={() => setConfirmDelete(false)} />}
-      </div>
-
-      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Riders</h2>
-        {riders.length === 0 ? <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p> : (
-          <ul className="space-y-2">
-            {riders.map((r) => <li key={r.exhibitor_id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>{r.full_name}</li>)}
-          </ul>
+            {regError && <p className="text-red-600 text-sm">{regError}</p>}
+          </>
         )}
       </div>
 
       <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Association Registration Numbers</h2>
-        {registrations.length > 0 ? (
-          <ul className="space-y-2">
-            {registrations.map((r) => (
-              <li key={r.id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                <div><span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span><span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span></div>
-                <button onClick={() => setConfirmDeleteRegId(r.id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
-                {confirmDeleteRegId === r.id && <ConfirmDialog title="Remove Registration" message={`Remove ${r.show_type_code} registration? This cannot be undone.`} confirmLabel="Yes, remove" destructive onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }} onCancel={() => setConfirmDeleteRegId(null)} />}
-              </li>
-            ))}
-          </ul>
-        ) : <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>}
-        {availableShowTypes.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-end pt-1">
-            <div className="flex-1 min-w-[160px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-              <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
-                <option value="">Select...</option>
-                {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
-              </select>
-            </div>
-            <div className="flex-1 min-w-[160px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
-              <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
-            </div>
-            <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingReg ? 'Adding...' : 'Add'}</button>
-          </div>
-        )}
-        {regError && <p className="text-red-600 text-sm">{regError}</p>}
-      </div>
-
-      <div className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Health & Registration Documents</h2>
-        <HorseDocuments horseId={horse.id} />
+        <SectionHeader title="Health & Registration Documents" open={open.documents} onToggle={() => toggle('documents')} />
+        {open.documents && <HorseDocuments horseId={horse.id} />}
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS }
 interface Props {
   showId: string;
   classes: any[];
-  horses: any[];
   exhibitors: any[];
   isAphaShow: boolean;
 }
@@ -23,7 +22,7 @@ function formatBackendDetail(detail: any, fallback: string) {
   return detail?.message ?? fallback;
 }
 
-export default function CreateEntryForm({ showId, classes, horses, exhibitors, isAphaShow }: Props) {
+export default function CreateEntryForm({ showId, classes, exhibitors, isAphaShow }: Props) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState({
@@ -35,15 +34,31 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
     relationship_to_owner: '',
     is_disqualified: false,
   });
+  const [exhibitorHorses, setExhibitorHorses] = useState<any[]>([]);
+  const [horsesLoading, setHorsesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cogginsWarning, setCogginsWarning] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    if (name === 'exhibitor_id') {
+      setForm((prev) => ({ ...prev, exhibitor_id: value, horse_id: '' }));
+      setExhibitorHorses([]);
+      if (value) {
+        setHorsesLoading(true);
+        fetch(`/api/exhibitors/${value}/my-horses`)
+          .then((r) => r.json())
+          .then((data) => setExhibitorHorses(Array.isArray(data) ? data : []))
+          .catch(() => setExhibitorHorses([]))
+          .finally(() => setHorsesLoading(false));
+      }
+      return;
+    }
+    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const selectedHorse = horses.find((h) => h.id === form.horse_id);
+  const selectedHorse = exhibitorHorses.find((h) => h.id === form.horse_id);
   const showSpbWarning =
     isAphaShow &&
     form.apha_division === 'OPEN' &&
@@ -141,10 +156,24 @@ export default function CreateEntryForm({ showId, classes, horses, exhibitors, i
             <option key={r.id} value={r.id}>{r.full_name}</option>
           ))}
         </select>
-        <select name="horse_id" value={form.horse_id} onChange={handleChange}
-          className="flex-1 border rounded px-3 py-2">
-          <option value="">Select horse *</option>
-          {horses.map((h) => (
+        <select
+          name="horse_id"
+          value={form.horse_id}
+          onChange={handleChange}
+          disabled={!form.exhibitor_id || horsesLoading}
+          className="flex-1 border rounded px-3 py-2 disabled:opacity-50"
+          title={!form.exhibitor_id ? 'Select an exhibitor first' : undefined}
+        >
+          <option value="">
+            {!form.exhibitor_id
+              ? 'Select exhibitor first'
+              : horsesLoading
+              ? 'Loading horses…'
+              : exhibitorHorses.length === 0
+              ? 'No horses on profile'
+              : 'Select horse *'}
+          </option>
+          {exhibitorHorses.map((h) => (
             <option key={h.id} value={h.id}>{h.name}{h.is_solid_paint_bred ? ' (SPB)' : ''}</option>
           ))}
         </select>

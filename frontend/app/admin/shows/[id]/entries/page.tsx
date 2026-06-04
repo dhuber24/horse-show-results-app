@@ -69,7 +69,7 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       </div>
 
       <section>
-        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={selectableExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
+        <CreateEntryForm showId={id} classes={classes} exhibitors={selectableExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
 
       <section className="space-y-4">

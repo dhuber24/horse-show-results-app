@@ -2,6 +2,27 @@
 
 ## June 2026
 
+### Horse Edit Forms: Collapsible Sections, Rider Management, and Entry Form Per-Exhibitor Horse Loading
+
+Improvements to the horse editing experience for both admin and exhibitor profiles, plus a UX fix in the admin entry creation form.
+
+**Admin horse edit (`frontend/app/admin/horses/[id]/EditHorseForm.tsx`)**
+- Added collapsible sections (Horse Details, Riders, Registrations, Documents) via a `SectionHeader` toggle component.
+- Added full rider management: admins can add/remove secondary riders from the horse's rider list; the owner is always prepended to the display list if absent from the backend response.
+- Fixed timezone-sensitive age display: foaling date year is now parsed directly from the ISO string to prevent UTC→local shift from moving Jan 1 dates to Dec 31 of the prior year.
+
+**Profile horse edit (`frontend/app/profile/horses/[id]/EditMyHorseForm.tsx`)**
+- Same collapsible-section treatment and rider management as the admin form.
+- Added `/api/exhibitors/names` fetch to populate the rider-add dropdown.
+- Added `owner_exhibitor_id` / `owner_exhibitor_name` to the Horse interface; owner is prepended to `displayRiders` when absent.
+- Same foaling-date timezone fix as the admin form.
+
+**Admin entry creation (`frontend/app/admin/shows/[id]/CreateEntryForm.tsx`, `entries/page.tsx`)**
+- Removed the global `horses` prop (previously loaded every horse in the system at page render).
+- Horse dropdown now loads lazily per selected exhibitor via `GET /api/exhibitors/{id}/my-horses`; picker is disabled with a contextual placeholder until an exhibitor is chosen.
+
+---
+
 ### OPEN Class Wizard + Entries Screen Refinements
 
 Follow-up polish on the rebuilt OPEN class-setup wizard and the show Entries screen.
