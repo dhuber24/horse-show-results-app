@@ -1,5 +1,26 @@
 # Codebase Improvements
 
+## June 2026
+
+### OPEN Class Wizard + Entries Screen Refinements
+
+Follow-up polish on the rebuilt OPEN class-setup wizard and the show Entries screen.
+
+**Class setup wizard (`frontend/app/admin/shows/[id]/classes/_wizard/ClassWizardClient.tsx`)**
+- Step 3 class list is now drag-and-drop reorderable per day (via `@hello-pangea/dnd`); dropping persists the full ordered id list to `POST /shows/{id}/classes/reorder`, which renumbers globally by `(class_date, sort_order, class_number)`. Re-added the `frontend/app/api/shows/[showId]/classes/reorder` proxy that the show-admin rebuild had dropped.
+- Step 1/2 standard-library options are clickable pill toggles instead of checkboxes.
+- The Step 3 matrix is transposed: Divisions are rows, Disciplines are columns.
+- Clicking a `+` cell now creates the class immediately (serialized add queue) — the basket and separate "Add" button are gone.
+
+**Class creation membership (`backend/routers/classes.py`)**
+- `create_class` now upserts the `(discipline_id, division_id)` row into `discipline_divisions` on demand instead of rejecting an unregistered pair with 422. Creating a class is itself the statement that the division is offered under that discipline, and the matrix builder intentionally offers every combination. Bulk/import paths are unchanged.
+
+**Entries screen (`frontend/app/admin/shows/[id]/entries/`)**
+- "Entries by Class" is now grouped under date headings.
+- The Add Entry exhibitor dropdown only lists exhibitors with a linked user account; the full list is still used to resolve names on existing entries. Orphaned/accountless test exhibitor records were purged from the database (no entries, show-entries, or horses referenced them).
+
+---
+
 ## May 2026
 
 ### Side Pots and Score-Driven Placings

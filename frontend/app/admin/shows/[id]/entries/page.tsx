@@ -24,6 +24,12 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
   const horsesById = new Map<string, any>(horses.map((h: any) => [h.id, h]));
   const exhibitorsById = new Map<string, any>(allExhibitors.map((e: any) => [e.id, e]));
 
+  // The Add Entry dropdown only offers exhibitors with a linked user account —
+  // this filters out orphaned/test records (no account) that are no longer
+  // active. The full list above is still used to resolve names for existing
+  // entries, so historical accountless entries keep their display name.
+  const selectableExhibitors = allExhibitors.filter((e: any) => e.user_id);
+
   const entriesByClass = await Promise.all(
     classes.map(async (cls: any) => {
       const raw = await fetchEntries(id, cls.id).catch(() => []);
@@ -63,7 +69,7 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       </div>
 
       <section>
-        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={allExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
+        <CreateEntryForm showId={id} classes={classes} horses={horses} exhibitors={selectableExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
 
       <section className="space-y-4">

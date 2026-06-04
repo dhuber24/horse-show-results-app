@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 
 export type StandardItem = {
   id: string;
@@ -123,6 +124,7 @@ export default function ClassWizardClient({
           busy={busy}
           setBusy={setBusy}
           setError={setError}
+          onRefreshed={(rows) => setDisciplines(rows)}
           onSaved={(rows) => {
             setDisciplines(rows);
             setStep(2);
@@ -140,6 +142,7 @@ export default function ClassWizardClient({
           setBusy={setBusy}
           setError={setError}
           onBack={() => setStep(1)}
+          onRefreshed={(rows) => setDivisions(rows)}
           onSaved={(rows) => {
             setDivisions(rows);
             setStep(3);
@@ -231,6 +234,7 @@ function DisciplineStep({
   busy,
   setBusy,
   setError,
+  onRefreshed,
   onSaved,
 }: {
   showId: string;
@@ -239,6 +243,7 @@ function DisciplineStep({
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
+  onRefreshed: (rows: DisciplineItem[]) => void;
   onSaved: (rows: DisciplineItem[]) => void;
 }) {
   const existingNames = useMemo(
@@ -334,10 +339,36 @@ function DisciplineStep({
             {existing.map((d) => (
               <span
                 key={d.id}
-                className="text-xs rounded px-2 py-1 border"
+                className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
                 style={{ borderColor: '#bcd9c0', backgroundColor: '#f3faf3', color: COLORS.done }}
               >
                 ✓ {d.name}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      const res = await fetch(`/api/shows/${showId}/disciplines/${d.id}`, { method: 'DELETE' });
+                      if (!res.ok && res.status !== 204) {
+                        const j = await res.json().catch(() => null);
+                        setError(j?.detail || 'Failed to remove discipline.');
+                        return;
+                      }
+                      const listRes = await fetch(`/api/shows/${showId}/disciplines`, { cache: 'no-store' });
+                      onRefreshed(await listRes.json());
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  aria-label={`Remove ${d.name}`}
+                  title={d.class_count ? `Cannot remove — ${d.class_count} class${d.class_count === 1 ? '' : 'es'} use this discipline` : `Remove ${d.name}`}
+                  className="text-xs leading-none disabled:opacity-50"
+                  style={{ color: COLORS.muted }}
+                >
+                  ×
+                </button>
               </span>
             ))}
           </div>
@@ -348,27 +379,37 @@ function DisciplineStep({
         <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
           Standard library (AQHA / APHA shared)
         </p>
+        <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
+          Click an item to add it to the show; click again to remove it.
+        </p>
         {available.length === 0 ? (
           <p className="text-xs" style={{ color: COLORS.muted }}>
             All standard disciplines have already been added. Use custom below for
             anything else.
           </p>
         ) : (
-          <div className="grid sm:grid-cols-2 gap-1">
-            {available.map((opt) => (
-              <label
-                key={opt.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-                style={{ color: COLORS.text }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checkedStandard.has(opt.name)}
-                  onChange={() => toggle(opt.name)}
-                />
-                {opt.name}
-              </label>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            {available.map((opt) => {
+              const selected = checkedStandard.has(opt.name);
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => toggle(opt.name)}
+                  aria-pressed={selected}
+                  className="text-sm rounded px-3 py-1.5 border"
+                  style={{
+                    borderColor: selected ? COLORS.warn : COLORS.border,
+                    backgroundColor: selected ? COLORS.highlight : '#fff',
+                    color: selected ? COLORS.warn : COLORS.text,
+                    fontWeight: selected ? 600 : 400,
+                  }}
+                >
+                  {selected ? '✓ ' : '+ '}
+                  {opt.name}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -448,6 +489,7 @@ function DivisionStep({
   setBusy,
   setError,
   onBack,
+  onRefreshed,
   onSaved,
 }: {
   showId: string;
@@ -458,6 +500,7 @@ function DivisionStep({
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
   onBack: () => void;
+  onRefreshed: (rows: DivisionItem[]) => void;
   onSaved: (rows: DivisionItem[]) => void;
 }) {
   const existingNames = useMemo(
@@ -557,10 +600,36 @@ function DivisionStep({
             {existing.map((d) => (
               <span
                 key={d.id}
-                className="text-xs rounded px-2 py-1 border"
+                className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
                 style={{ borderColor: '#bcd9c0', backgroundColor: '#f3faf3', color: COLORS.done }}
               >
                 ✓ {d.name}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError(null);
+                    try {
+                      const res = await fetch(`/api/shows/${showId}/divisions/${d.id}`, { method: 'DELETE' });
+                      if (!res.ok && res.status !== 204) {
+                        const j = await res.json().catch(() => null);
+                        setError(j?.detail || 'Failed to remove division.');
+                        return;
+                      }
+                      const listRes = await fetch(`/api/shows/${showId}/divisions`, { cache: 'no-store' });
+                      onRefreshed(await listRes.json());
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  aria-label={`Remove ${d.name}`}
+                  title={d.class_count ? `Cannot remove — ${d.class_count} class${d.class_count === 1 ? '' : 'es'} use this division` : `Remove ${d.name}`}
+                  className="text-xs leading-none disabled:opacity-50"
+                  style={{ color: COLORS.muted }}
+                >
+                  ×
+                </button>
               </span>
             ))}
           </div>
@@ -571,27 +640,37 @@ function DivisionStep({
         <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
           Standard library (AQHA / APHA shared)
         </p>
+        <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
+          Click an item to add it to the show; click again to remove it.
+        </p>
         {available.length === 0 ? (
           <p className="text-xs" style={{ color: COLORS.muted }}>
             All standard divisions have already been added. Use custom below for
             anything else.
           </p>
         ) : (
-          <div className="grid sm:grid-cols-2 gap-1">
-            {available.map((opt) => (
-              <label
-                key={opt.id}
-                className="flex items-center gap-2 text-sm cursor-pointer"
-                style={{ color: COLORS.text }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checkedStandard.has(opt.name)}
-                  onChange={() => toggle(opt.name)}
-                />
-                {opt.name}
-              </label>
-            ))}
+          <div className="flex flex-wrap gap-2">
+            {available.map((opt) => {
+              const selected = checkedStandard.has(opt.name);
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => toggle(opt.name)}
+                  aria-pressed={selected}
+                  className="text-sm rounded px-3 py-1.5 border"
+                  style={{
+                    borderColor: selected ? COLORS.warn : COLORS.border,
+                    backgroundColor: selected ? COLORS.highlight : '#fff',
+                    color: selected ? COLORS.warn : COLORS.text,
+                    fontWeight: selected ? 600 : 400,
+                  }}
+                >
+                  {selected ? '✓ ' : '+ '}
+                  {opt.name}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -674,6 +753,17 @@ function cellKey(disciplineId: string, divisionId: string): string {
   return `${disciplineId}::${divisionId}`;
 }
 
+function enumerateDates(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const cur = new Date(start + 'T00:00:00');
+  const last = new Date(end + 'T00:00:00');
+  while (cur <= last) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
 function ClassesStep({
   showId,
   showStartDate,
@@ -702,7 +792,17 @@ function ClassesStep({
   onDone: () => void;
 }) {
   const [classDate, setClassDate] = useState(showStartDate);
-  const [pending, setPending] = useState<Set<string>>(new Set());
+  // Date-qualified cell keys (`${classDate}::${disciplineId}::${divisionId}`)
+  // for picks that have been clicked but whose create hasn't reconciled into
+  // `classes` yet — drives the in-flight "…" marker on the matrix.
+  const [queuedKeys, setQueuedKeys] = useState<Set<string>>(new Set());
+  const [savingOrder, setSavingOrder] = useState(false);
+
+  // Serialize class creates: clicking "+" enqueues a job and a single drainer
+  // POSTs them one at a time, so the backend's per-create renumber can't race
+  // with itself when the secretary clicks several cells quickly.
+  const queueRef = useRef<{ disciplineId: string; divisionId: string; classDate: string }[]>([]);
+  const processingRef = useRef(false);
 
   const disciplineById = useMemo(
     () => new Map(disciplines.map((d) => [d.id, d])),
@@ -749,61 +849,119 @@ function ClassesStep({
     }
   }
 
-  function toggleCell(disciplineId: string, divisionId: string) {
-    const k = cellKey(disciplineId, divisionId);
-    if (takenForDate.has(k)) return;
-    setPending((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+  // Drag-and-drop reorder, scoped to a single day. Reordering one day reshuffles
+  // the global class-number sequence (numbers run 1..N across the whole show,
+  // ordered by date then position), so we persist the full ordered id list.
+  async function handleDragEnd(result: DropResult) {
+    const { source, destination } = result;
+    if (!destination) return;
+    // Days are independent Droppables — ignore cross-day drops.
+    if (destination.droppableId !== source.droppableId) return;
+    if (destination.index === source.index) return;
+
+    const date = source.droppableId;
+    const reordered: ClassItem[] = [];
+    for (const [d, dayClasses] of classesByDate) {
+      if (d === date) {
+        const arr = [...dayClasses];
+        const [moved] = arr.splice(source.index, 1);
+        arr.splice(destination.index, 0, moved);
+        reordered.push(...arr);
+      } else {
+        reordered.push(...dayClasses);
+      }
+    }
+
+    // Optimistically renumber to match the new global position so the list
+    // doesn't flash stale numbers while the save is in flight.
+    const renumbered = reordered.map((c, i) => ({
+      ...c,
+      sort_order: i + 1,
+      class_number: String(i + 1),
+    }));
+    onChanged(renumbered);
+
+    setError(null);
+    setSavingOrder(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class_ids: renumbered.map((c) => c.id) }),
+      });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => null);
+        setError(j?.detail || 'Failed to save the new order.');
+        await refreshClasses();
+      }
+    } finally {
+      setSavingOrder(false);
+    }
   }
 
   function changeDate(d: string) {
     setClassDate(d);
-    // Pairs already-taken depend on the date, so clear the basket on date
-    // change. Keeping it would silently drop "taken" picks at submit time.
-    setPending(new Set());
   }
 
-  async function addAll() {
-    if (pending.size === 0) return;
+  // Clicking a "+" cell adds that class immediately — no separate confirm step.
+  function addCell(disciplineId: string, divisionId: string) {
+    const k = cellKey(disciplineId, divisionId);
+    const dk = `${classDate}::${k}`;
+    if (takenForDate.has(k) || queuedKeys.has(dk)) return;
+    setQueuedKeys((prev) => new Set(prev).add(dk));
+    queueRef.current.push({ disciplineId, divisionId, classDate });
+    void drainQueue();
+  }
+
+  async function drainQueue() {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setError(null);
-    setBusy(true);
-    let createdAny = false;
+    const processed: string[] = [];
     try {
-      // Sequential so the backend's per-create renumber doesn't race with
-      // itself. The basket is small (handful of picks) so this is fine.
-      for (const k of Array.from(pending)) {
-        const [discId, divId] = k.split('::');
-        const disc = disciplineById.get(discId);
-        const div = divisionById.get(divId);
-        if (!disc || !div) continue;
-        const className = `${div.name} ${disc.name}`;
-        const res = await fetch(`/api/shows/${showId}/classes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            discipline_id: discId,
-            division_id: divId,
-            class_name: className,
-            class_date: classDate,
-            status: 'OPEN',
-          }),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => null);
-          setError(j?.detail || `Failed to create "${className}".`);
-          if (createdAny) await refreshClasses();
-          return;
+      while (queueRef.current.length > 0) {
+        const job = queueRef.current.shift()!;
+        const dk = `${job.classDate}::${cellKey(job.disciplineId, job.divisionId)}`;
+        const disc = disciplineById.get(job.disciplineId);
+        const div = divisionById.get(job.divisionId);
+        if (!disc || !div) {
+          processed.push(dk);
+          continue;
         }
-        createdAny = true;
+        const className = `${div.name} ${disc.name}`;
+        try {
+          const res = await fetch(`/api/shows/${showId}/classes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              discipline_id: job.disciplineId,
+              division_id: job.divisionId,
+              class_name: className,
+              class_date: job.classDate,
+              status: 'OPEN',
+            }),
+          });
+          if (!res.ok) {
+            const j = await res.json().catch(() => null);
+            setError(j?.detail || `Failed to create "${className}".`);
+          }
+        } catch {
+          setError(`Failed to create "${className}".`);
+        } finally {
+          processed.push(dk);
+        }
       }
-      await refreshClasses();
-      setPending(new Set());
     } finally {
-      setBusy(false);
+      processingRef.current = false;
+      await refreshClasses();
+      // Drop only the markers this drainer handled. Successful cells are now
+      // "taken" via `classes`; failed cells fall back to "+" so they retry.
+      // A concurrent drainer keeps its own in-flight markers untouched.
+      setQueuedKeys((prev) => {
+        const next = new Set(prev);
+        for (const dk of processed) next.delete(dk);
+        return next;
+      });
     }
   }
 
@@ -837,9 +995,8 @@ function ClassesStep({
           Step 3: Classes
         </h2>
         <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-          Pick a date, then check each (Discipline × Division) cell you want to
-          turn into a class. Selected pairs collect into a batch — click{' '}
-          <strong>Add</strong> once you&apos;ve picked them all. Each class is named{' '}
+          Pick a date, then click each (Division × Discipline) cell to add it as
+          a class right away. Each class is named{' '}
           <em>&quot;{`{Division} {Discipline}`}&quot;</em> and auto-numbered.
         </p>
       </div>
@@ -850,43 +1007,80 @@ function ClassesStep({
           No classes yet.
         </p>
       ) : (
-        <div className="space-y-3">
-          {classesByDate.map(([date, dayClasses]) => (
-            <div key={date}>
-              <p
-                className="text-xs font-medium mb-1"
-                style={{ color: COLORS.muted }}
-              >
-                {date} — {dayClasses.length} class
-                {dayClasses.length === 1 ? '' : 'es'}
-              </p>
-              <ul className="space-y-1">
-                {dayClasses.map((c) => (
-                  <li
-                    key={c.id}
-                    className="flex items-center justify-between gap-2 text-sm border-b py-1"
-                    style={{ borderColor: COLORS.borderSoft }}
-                  >
-                    <span style={{ color: COLORS.text }}>
-                      <span className="font-mono mr-2" style={{ color: '#8b4513' }}>
-                        #{c.class_number}
-                      </span>
-                      {c.class_name}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => removeClass(c.id)}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div className="space-y-3">
+            {classesByDate.map(([date, dayClasses]) => (
+              <div key={date}>
+                <p
+                  className="text-xs font-medium mb-1 flex items-center gap-2"
+                  style={{ color: COLORS.muted }}
+                >
+                  {date} — {dayClasses.length} class
+                  {dayClasses.length === 1 ? '' : 'es'}
+                  {dayClasses.length > 1 && (
+                    <span style={{ color: COLORS.border }}>· drag to reorder</span>
+                  )}
+                  {savingOrder && (
+                    <span style={{ color: COLORS.done }}>· saving…</span>
+                  )}
+                </p>
+                <Droppable droppableId={date}>
+                  {(dropProvided) => (
+                    <ul
+                      ref={dropProvided.innerRef}
+                      {...dropProvided.droppableProps}
+                      className="space-y-1"
                     >
-                      Delete
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+                      {dayClasses.map((c, index) => (
+                        <Draggable key={c.id} draggableId={c.id} index={index}>
+                          {(dragProvided, snapshot) => (
+                            <li
+                              ref={dragProvided.innerRef}
+                              {...dragProvided.draggableProps}
+                              className="flex items-center justify-between gap-2 text-sm border-b py-1"
+                              style={{
+                                borderColor: COLORS.borderSoft,
+                                backgroundColor: snapshot.isDragging
+                                  ? COLORS.highlight
+                                  : 'transparent',
+                                ...dragProvided.draggableProps.style,
+                              }}
+                            >
+                              <span className="flex items-center gap-2 min-w-0" style={{ color: COLORS.text }}>
+                                <span
+                                  {...dragProvided.dragHandleProps}
+                                  className="cursor-grab active:cursor-grabbing select-none shrink-0"
+                                  title="Drag to reorder"
+                                  aria-label="Drag to reorder"
+                                  style={{ color: COLORS.border }}
+                                >
+                                  ⠿
+                                </span>
+                                <span className="font-mono shrink-0" style={{ color: '#8b4513' }}>
+                                  #{c.class_number}
+                                </span>
+                                <span className="truncate">{c.class_name}</span>
+                              </span>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => removeClass(c.id)}
+                                className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                              >
+                                Delete
+                              </button>
+                            </li>
+                          )}
+                        </Draggable>
+                      ))}
+                      {dropProvided.placeholder}
+                    </ul>
+                  )}
+                </Droppable>
+              </div>
+            ))}
+          </div>
+        </DragDropContext>
       )}
 
       {/* ── Builder ───────────────────────────────────────────────────── */}
@@ -899,19 +1093,20 @@ function ClassesStep({
             <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
               Class date
             </span>
-            <input
-              type="date"
+            <select
               value={classDate}
-              min={showStartDate}
-              max={showEndDate}
               onChange={(e) => changeDate(e.target.value)}
               className="border rounded px-3 py-2 text-sm"
               style={{ borderColor: COLORS.border }}
-            />
+            >
+              {enumerateDates(showStartDate, showEndDate).map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
           </label>
           <p className="text-xs" style={{ color: COLORS.muted }}>
-            Show runs {showStartDate} → {showEndDate}. Cells marked{' '}
-            <span style={{ color: COLORS.warn, fontWeight: 600 }}>exists</span> are
+            Cells marked{' '}
+            <span style={{ color: COLORS.muted, fontWeight: 600 }}>✓</span> are
             already a class on the selected date.
           </p>
         </div>
@@ -930,23 +1125,23 @@ function ClassesStep({
                     className="sticky left-0 z-10 text-left font-semibold pr-3 pb-2 border-b"
                     style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft, color: COLORS.text }}
                   >
-                    Discipline ╲ Division
+                    Division ╲ Discipline
                   </th>
-                  {divisions.map((div) => (
+                  {disciplines.map((disc) => (
                     <th
-                      key={div.id}
+                      key={disc.id}
                       className="font-medium text-xs px-2 pb-2 border-b text-center"
                       style={{ borderColor: COLORS.border, color: COLORS.warn, minWidth: '5rem' }}
-                      title={div.name}
+                      title={disc.name}
                     >
-                      {div.name}
+                      {disc.name}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {disciplines.map((disc) => (
-                  <tr key={disc.id}>
+                {divisions.map((div) => (
+                  <tr key={div.id}>
                     <th
                       className="sticky left-0 z-10 text-left font-normal pr-3 py-1.5 border-b"
                       style={{
@@ -956,49 +1151,50 @@ function ClassesStep({
                       }}
                       scope="row"
                     >
-                      {disc.name}
+                      {div.name}
                     </th>
-                    {divisions.map((div) => {
+                    {disciplines.map((disc) => {
                       const k = cellKey(disc.id, div.id);
                       const taken = takenForDate.has(k);
-                      const picked = pending.has(k);
+                      const queued = queuedKeys.has(`${classDate}::${k}`);
+                      const disabled = taken || queued;
                       const title = taken
                         ? `Already on the schedule for ${classDate}`
-                        : picked
-                          ? `Selected: ${div.name} ${disc.name}`
+                        : queued
+                          ? `Adding ${div.name} ${disc.name}…`
                           : `Add ${div.name} ${disc.name}`;
                       return (
                         <td
-                          key={div.id}
+                          key={disc.id}
                           className="text-center border-b p-0.5"
                           style={{ borderColor: COLORS.borderSoft }}
                         >
                           <button
                             type="button"
-                            disabled={taken}
-                            onClick={() => toggleCell(disc.id, div.id)}
+                            disabled={disabled}
+                            onClick={() => addCell(disc.id, div.id)}
                             title={title}
                             aria-label={title}
                             className="w-full text-xs font-medium rounded px-2 py-1"
                             style={{
                               backgroundColor: taken
                                 ? '#e8e0d0'
-                                : picked
+                                : queued
                                   ? COLORS.highlight
                                   : '#fff',
                               color: taken
                                 ? COLORS.muted
-                                : picked
+                                : queued
                                   ? COLORS.warn
                                   : COLORS.text,
-                              border: picked
+                              border: queued
                                 ? `1px solid ${COLORS.warn}`
                                 : `1px solid ${COLORS.border}`,
-                              cursor: taken ? 'not-allowed' : 'pointer',
+                              cursor: disabled ? 'not-allowed' : 'pointer',
                               minWidth: '3.5rem',
                             }}
                           >
-                            {taken ? 'exists' : picked ? '✓' : '+'}
+                            {taken ? '✓' : queued ? '…' : '+'}
                           </button>
                         </td>
                       );
@@ -1010,60 +1206,11 @@ function ClassesStep({
           </div>
         )}
 
-        {pending.size > 0 && (
-          <div className="space-y-2 pt-2 border-t" style={{ borderColor: COLORS.border }}>
-            <p className="text-xs font-medium" style={{ color: COLORS.warn }}>
-              Selected for {classDate} — {pending.size} class
-              {pending.size === 1 ? '' : 'es'}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {Array.from(pending).map((k) => {
-                const [discId, divId] = k.split('::');
-                const disc = disciplineById.get(discId);
-                const div = divisionById.get(divId);
-                if (!disc || !div) return null;
-                return (
-                  <span
-                    key={k}
-                    className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
-                    style={{
-                      borderColor: COLORS.warn,
-                      backgroundColor: COLORS.highlight,
-                      color: COLORS.warn,
-                    }}
-                  >
-                    {div.name} {disc.name}
-                    <button
-                      type="button"
-                      onClick={() => toggleCell(discId, divId)}
-                      aria-label={`Remove ${div.name} ${disc.name}`}
-                      className="text-xs leading-none"
-                      style={{ color: COLORS.muted }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-          </div>
+        {queuedKeys.size > 0 && (
+          <p className="text-xs font-medium pt-1" style={{ color: COLORS.warn }}>
+            Adding {queuedKeys.size} class{queuedKeys.size === 1 ? '' : 'es'}…
+          </p>
         )}
-
-        <div className="flex justify-end pt-1">
-          <button
-            type="button"
-            onClick={addAll}
-            disabled={busy || pending.size === 0}
-            className="text-sm rounded px-4 py-2 disabled:opacity-50"
-            style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-          >
-            {busy
-              ? 'Adding…'
-              : pending.size === 0
-                ? 'Add'
-                : `Add ${pending.size} class${pending.size === 1 ? '' : 'es'}`}
-          </button>
-        </div>
       </div>
 
       <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>

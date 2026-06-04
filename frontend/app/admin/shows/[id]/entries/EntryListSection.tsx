@@ -21,8 +21,22 @@ interface Entry {
 }
 
 interface ClassGroup {
-  cls: { id: string; class_number?: string; class_name?: string; name?: string; score_type?: string };
+  cls: { id: string; class_number?: string; class_name?: string; name?: string; score_type?: string; class_date?: string };
   entries: Entry[];
+}
+
+function formatDateHeading(d: string | undefined): string {
+  if (!d) return 'Unscheduled';
+  // Parse as local midnight so a plain YYYY-MM-DD doesn't shift a day in
+  // negative-offset timezones (new Date('2026-06-02') is parsed as UTC).
+  const dt = new Date(`${d}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 interface Props {
@@ -151,6 +165,20 @@ export default function EntryListSection({ showId, entriesByClass }: Props) {
     });
   }, [groups, normalizedQuery, isFiltering]);
 
+  // Group the visible classes by their date for date-separated headers.
+  // groups arrive in (class_date, sort_order, class_number) order from the
+  // backend, so consecutive same-date entries cluster naturally.
+  const visibleByDate = useMemo(() => {
+    const out: { date: string | undefined; items: typeof visibleGroups }[] = [];
+    for (const v of visibleGroups) {
+      const d = v.group.cls.class_date;
+      const last = out[out.length - 1];
+      if (last && last.date === d) last.items.push(v);
+      else out.push({ date: d, items: [v] });
+    }
+    return out;
+  }, [visibleGroups]);
+
   const totalEntries = useMemo(
     () => groups.reduce((sum, g) => sum + g.entries.length, 0),
     [groups]
@@ -226,8 +254,21 @@ export default function EntryListSection({ showId, entriesByClass }: Props) {
       )}
 
       {visibleGroups.length === 0 ? null : (
-        <div className="space-y-2">
-          {visibleGroups.map(({ group: { cls, entries: allEntries }, matchedEntries }) => {
+        <div className="space-y-5">
+          {visibleByDate.map(({ date, items }) => (
+            <div key={date ?? 'unscheduled'} className="space-y-2">
+              <div
+                className="flex items-baseline gap-2 pb-1 border-b"
+                style={{ borderColor: '#d4b896' }}
+              >
+                <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: '#8b4513' }}>
+                  {formatDateHeading(date)}
+                </h3>
+                <span className="text-xs" style={{ color: '#8b7355' }}>
+                  {items.length} class{items.length === 1 ? '' : 'es'}
+                </span>
+              </div>
+              {items.map(({ group: { cls, entries: allEntries }, matchedEntries }) => {
             const isOpen = isFiltering || expanded.has(cls.id);
             const countByExhibitor = matchedEntries.reduce<Record<string, number>>((acc, e) => {
               acc[e.exhibitor_id] = (acc[e.exhibitor_id] ?? 0) + 1;
@@ -288,7 +329,9 @@ export default function EntryListSection({ showId, entriesByClass }: Props) {
                 )}
               </div>
             );
-          })}
+              })}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -243,18 +243,18 @@ async def create_class(
     if not division or division.show_id != show_id:
         raise HTTPException(400, "Division does not belong to this show")
 
-    pair_res = await db.execute(
-        select(discipline_divisions.c.discipline_id).where(
-            discipline_divisions.c.discipline_id == body.discipline_id,
-            discipline_divisions.c.division_id == body.division_id,
-        )
+    # Register the (discipline, division) membership on demand. Creating a
+    # class is itself the statement that this division is offered under this
+    # discipline, so we upsert the pair instead of rejecting it — the matrix
+    # builder intentionally offers every combination, and a pair may not yet
+    # have a membership row if either side was added outside the Step-2 flow.
+    # The composite FK on classes(discipline_id, division_id) requires the row
+    # to exist before the insert.
+    await db.execute(
+        pg_insert(discipline_divisions)
+        .values(discipline_id=body.discipline_id, division_id=body.division_id)
+        .on_conflict_do_nothing()
     )
-    if pair_res.scalar_one_or_none() is None:
-        raise HTTPException(
-            422,
-            f"Division '{division.name}' is not part of discipline '{discipline.name}'. "
-            "Add it to the discipline on the Setup page first.",
-        )
 
     score_type = body.score_type or discipline.default_score_type
 
