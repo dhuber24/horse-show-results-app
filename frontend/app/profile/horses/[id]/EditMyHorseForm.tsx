@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
+import SectionHeader from '@/components/SectionHeader';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -39,14 +40,6 @@ const UNCERTIFIED_CODES = ['OPEN'];
 
 interface ExhibitorName { id: string; full_name: string; }
 
-function SectionHeader({ title, open, onToggle }: { title: string; open: boolean; onToggle: () => void }) {
-  return (
-    <button type="button" onClick={onToggle} className="flex items-center justify-between w-full text-left">
-      <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>{title}</h2>
-      <span className="text-sm select-none font-bold" style={{ color: '#8b7355' }}>{open ? '−' : '+'}</span>
-    </button>
-  );
-}
 
 export default function EditMyHorseForm({ horse, registrations: initialRegs, isOwner }: Props) {
   const router = useRouter();

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import SectionHeader from '@/components/SectionHeader';
 
 export interface TrainerProfile {
   id: string;
@@ -37,20 +38,40 @@ const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as con
 const labelStyle = { color: '#5a3e2b' } as const;
 const sectionStyle = { backgroundColor: '#ffffff', borderColor: '#d4b896' } as const;
 
+function filterPhone(raw: string): string {
+  const cleaned = raw.replace(/[^\d\s\-\(\)\+\.]/g, '');
+  let digits = 0;
+  let out = '';
+  for (const ch of cleaned) {
+    if (/\d/.test(ch)) {
+      if (digits >= 10) continue;
+      digits++;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+function isValidUrl(v: string) { return /^https?:\/\/.+/.test(v); }
+
 function Field({
   label,
   hint,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  error?: string | null;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <label className="block text-sm font-medium mb-1" style={labelStyle}>{label}</label>
       {children}
-      {hint && <p className="text-xs mt-1" style={{ color: '#8b7355' }}>{hint}</p>}
+      {error && <p className="text-xs mt-1 text-red-600">{error}</p>}
+      {!error && hint && <p className="text-xs mt-1" style={{ color: '#8b7355' }}>{hint}</p>}
     </div>
   );
 }
@@ -95,6 +116,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
   });
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState({ account: true, public: true, compliance: true, insurance: true });
+  const toggle = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
   const [photoBust, setPhotoBust] = useState(0);
   const [hasHeadshot, setHasHeadshot] = useState(trainer?.has_headshot ?? false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -108,6 +131,18 @@ export default function TrainerProfileForm({ trainer }: Props) {
   useEffect(() => {
     setHasHeadshot(trainer?.has_headshot ?? false);
   }, [trainer?.has_headshot]);
+
+  const publicRequirementsMet =
+    !form.is_public ||
+    (form.first_name.trim() && form.last_name.trim() && form.business_name.trim() &&
+      (form.public_email.trim() || form.public_phone.trim()));
+
+  const fieldErrors = {
+    private_email: form.private_email && !isValidEmail(form.private_email) ? 'Enter a valid email address' : null,
+    public_email: form.public_email && !isValidEmail(form.public_email) ? 'Enter a valid email address' : null,
+    website: form.website && !isValidUrl(form.website) ? 'Must start with https:// or http://' : null,
+  };
+  const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   if (!trainer) {
     return (
@@ -210,48 +245,47 @@ export default function TrainerProfileForm({ trainer }: Props) {
   return (
     <div className="space-y-6">
       {/* ── Account & private contact ─────────────────────────────────────── */}
-      <section className="rounded-lg border p-5" style={sectionStyle}>
-        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Account &amp; Private Contact</h3>
-        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
-          Used for your account and admin/office contact. Not shown on your public profile or in ads.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="First Name">
-            <input value={form.first_name} onChange={(e) => update('first_name', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Last Name">
-            <input value={form.last_name} onChange={(e) => update('last_name', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Private Email (login)">
-            <input type="email" value={form.private_email} onChange={(e) => update('private_email', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Private Phone">
-            <input type="tel" value={form.private_phone} onChange={(e) => update('private_phone', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          {form.private_email !== originalPrivateEmail && (
-            <Field label="Current Password" hint="Required to change your private email">
-              <input
-                type="password"
-                value={form.current_password}
-                onChange={(e) => update('current_password', e.target.value)}
-                className={inputClass}
-                style={inputStyle}
-              />
-            </Field>
-          )}
-        </div>
-      </section>
+      <div className="rounded-lg border p-5" style={sectionStyle}>
+        <SectionHeader title="Account &amp; Private Contact" open={open.account} onToggle={() => toggle('account')} />
+        {open.account && (
+          <>
+            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+              Used for your account and admin/office contact. Not shown on your public profile or in ads.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="First Name">
+                <input value={form.first_name} onChange={(e) => update('first_name', e.target.value)} maxLength={50} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Last Name">
+                <input value={form.last_name} onChange={(e) => update('last_name', e.target.value)} maxLength={50} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Private Email (login)" error={fieldErrors.private_email}>
+                <input type="email" value={form.private_email} onChange={(e) => update('private_email', e.target.value)} maxLength={200} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Private Phone" hint="Up to 10 digits, e.g. (555) 867-5309">
+                <input type="tel" value={form.private_phone} onChange={(e) => update('private_phone', filterPhone(e.target.value))} className={inputClass} style={inputStyle} />
+              </Field>
+              {form.private_email !== originalPrivateEmail && (
+                <Field label="Current Password" hint="Required to change your private email">
+                  <input
+                    type="password"
+                    value={form.current_password}
+                    onChange={(e) => update('current_password', e.target.value)}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </Field>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ── Public / ad-facing profile ────────────────────────────────────── */}
-      <section className="rounded-lg border p-5" style={sectionStyle}>
-        <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
-            <h3 className="font-semibold" style={{ color: '#2c1810' }}>Public Profile</h3>
-            <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
-              Shown to exhibitors browsing trainers and, in the future, on ad surfaces. Turn off &ldquo;Show my profile publicly&rdquo; to hide everything below.
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-sm shrink-0" style={{ color: '#2c1810' }}>
+      <div className="rounded-lg border p-5" style={sectionStyle}>
+        <div className="flex items-center justify-between gap-3">
+          <SectionHeader title="Public Profile" open={open.public} onToggle={() => toggle('public')} />
+          <label className="flex items-center gap-2 text-sm shrink-0 ml-4" style={{ color: '#2c1810' }}>
             <input
               type="checkbox"
               checked={form.is_public}
@@ -260,149 +294,168 @@ export default function TrainerProfileForm({ trainer }: Props) {
             Show publicly
           </label>
         </div>
+        {form.is_public && !publicRequirementsMet && (
+          <p className="text-xs mt-2 text-red-600">
+            Public profiles require first name, last name, business/barn name, and at least a public phone or email.
+          </p>
+        )}
+        {open.public && (
+          <>
+            <p className="text-xs mt-2 mb-4" style={{ color: '#8b7355' }}>
+              Shown to exhibitors browsing trainers and, in the future, on ad surfaces.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Business / Barn Name">
+                <input value={form.business_name} onChange={(e) => update('business_name', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Website" error={fieldErrors.website} hint={!fieldErrors.website ? 'https://example.com' : undefined}>
+                <input type="url" placeholder="https://" value={form.website} onChange={(e) => update('website', e.target.value)} maxLength={200} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="City">
+                <input value={form.city} onChange={(e) => update('city', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="State / Province">
+                <input value={form.state} onChange={(e) => update('state', e.target.value)} maxLength={50} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Country" hint="2-letter code, e.g. US">
+                <input value={form.country} onChange={(e) => update('country', e.target.value)} maxLength={2} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Public Phone" hint="Up to 10 digits, e.g. (555) 867-5309">
+                <input type="tel" value={form.public_phone} onChange={(e) => update('public_phone', filterPhone(e.target.value))} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Public Email" error={fieldErrors.public_email}>
+                <input type="email" value={form.public_email} onChange={(e) => update('public_email', e.target.value)} maxLength={200} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Facebook" hint="Profile URL or @handle">
+                <input value={form.social_facebook} onChange={(e) => update('social_facebook', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="Instagram" hint="@handle or profile URL">
+                <input value={form.social_instagram} onChange={(e) => update('social_instagram', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
+              </Field>
+              <Field label="TikTok" hint="@handle or profile URL">
+                <input value={form.social_tiktok} onChange={(e) => update('social_tiktok', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
+              </Field>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Business / Barn Name">
-            <input value={form.business_name} onChange={(e) => update('business_name', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Website">
-            <input type="url" placeholder="https://" value={form.website} onChange={(e) => update('website', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="City">
-            <input value={form.city} onChange={(e) => update('city', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="State / Province">
-            <input value={form.state} onChange={(e) => update('state', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Country">
-            <input value={form.country} onChange={(e) => update('country', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Public Phone">
-            <input type="tel" value={form.public_phone} onChange={(e) => update('public_phone', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Public Email">
-            <input type="email" value={form.public_email} onChange={(e) => update('public_email', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Facebook" hint="Profile URL or handle">
-            <input value={form.social_facebook} onChange={(e) => update('social_facebook', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="Instagram" hint="@handle or profile URL">
-            <input value={form.social_instagram} onChange={(e) => update('social_instagram', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-          <Field label="TikTok" hint="@handle or profile URL">
-            <input value={form.social_tiktok} onChange={(e) => update('social_tiktok', e.target.value)} className={inputClass} style={inputStyle} />
-          </Field>
-        </div>
-
-        <div className="mt-4">
-          <Field label="Bio" hint="2000 characters max. Disciplines, experience, philosophy, etc.">
-            <textarea
-              value={form.bio}
-              onChange={(e) => update('bio', e.target.value)}
-              rows={5}
-              maxLength={2000}
-              className={inputClass}
-              style={inputStyle}
-            />
-          </Field>
-        </div>
-
-        <div className="mt-5 border-t pt-5" style={{ borderColor: '#f0e4d0' }}>
-          <h4 className="text-sm font-medium mb-2" style={{ color: '#2c1810' }}>Headshot</h4>
-          <div className="flex items-start gap-4 flex-wrap">
-            <div
-              className="w-28 h-28 rounded-full border flex items-center justify-center overflow-hidden shrink-0"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
-            >
-              {hasHeadshot ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={photoBust}
-                  src={`/api/trainers/me/photo?v=${photoBust}`}
-                  alt="Trainer headshot"
-                  className="w-full h-full object-cover"
+            <div className="mt-4">
+              <Field label="Bio" hint="2000 characters max. Disciplines, experience, philosophy, etc.">
+                <textarea
+                  value={form.bio}
+                  onChange={(e) => update('bio', e.target.value)}
+                  rows={5}
+                  maxLength={2000}
+                  className={inputClass}
+                  style={inputStyle}
                 />
-              ) : (
-                <span className="text-xs" style={{ color: '#8b7355' }}>No photo</span>
-              )}
+              </Field>
             </div>
-            <div className="space-y-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handlePhotoUpload(f);
-                }}
-                className="text-sm"
-              />
-              <p className="text-xs" style={{ color: '#8b7355' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
-              {hasHeadshot && (
-                <button
-                  type="button"
-                  onClick={handlePhotoDelete}
-                  className="text-xs text-red-600 hover:underline"
+
+            <div className="mt-5 border-t pt-5" style={{ borderColor: '#f0e4d0' }}>
+              <h4 className="text-sm font-medium mb-2" style={{ color: '#2c1810' }}>Headshot</h4>
+              <div className="flex items-start gap-4 flex-wrap">
+                <div
+                  className="w-28 h-28 rounded-full border flex items-center justify-center overflow-hidden shrink-0"
+                  style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
                 >
-                  Remove headshot
-                </button>
-              )}
-              {uploadingPhoto && <p className="text-xs" style={{ color: '#8b7355' }}>Uploading...</p>}
-              {photoError && <p className="text-xs text-red-600">{photoError}</p>}
+                  {hasHeadshot ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={photoBust}
+                      src={`/api/trainers/me/photo?v=${photoBust}`}
+                      alt="Trainer headshot"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs" style={{ color: '#8b7355' }}>No photo</span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handlePhotoUpload(f);
+                    }}
+                    className="text-sm"
+                  />
+                  <p className="text-xs" style={{ color: '#8b7355' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
+                  {hasHeadshot && (
+                    <button
+                      type="button"
+                      onClick={handlePhotoDelete}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Remove headshot
+                    </button>
+                  )}
+                  {uploadingPhoto && <p className="text-xs" style={{ color: '#8b7355' }}>Uploading...</p>}
+                  {photoError && <p className="text-xs text-red-600">{photoError}</p>}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </>
+        )}
+      </div>
 
       {/* ── Compliance ────────────────────────────────────────────────────── */}
-      <section className="rounded-lg border p-5" style={sectionStyle}>
-        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Compliance</h3>
-        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
-          Visible to you and to show management. The dates themselves are not shown publicly — only a current/expired badge.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field
-            label="SafeSport Training Completed"
-            hint={safesportCurrent ? 'Current (valid 1 year from completion)' : form.safesport_completed_at ? 'Expired — renew to restore current status' : 'Not on file'}
-          >
-            <input
-              type="date"
-              value={form.safesport_completed_at}
-              onChange={(e) => update('safesport_completed_at', e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-            />
-          </Field>
-          <Field
-            label="Background Check Expires"
-            hint={backgroundCurrent ? 'Current' : form.background_check_expires_at ? 'Expired — submit a new check' : 'Not on file'}
-          >
-            <input
-              type="date"
-              value={form.background_check_expires_at}
-              onChange={(e) => update('background_check_expires_at', e.target.value)}
-              className={inputClass}
-              style={inputStyle}
-            />
-          </Field>
-        </div>
-      </section>
+      <div className="rounded-lg border p-5" style={sectionStyle}>
+        <SectionHeader title="Compliance" open={open.compliance} onToggle={() => toggle('compliance')} />
+        {open.compliance && (
+          <>
+            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+              Visible to you and to show management. The dates themselves are not shown publicly — only a current/expired badge.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field
+                label="SafeSport Training Completed"
+                hint={safesportCurrent ? 'Current (valid 1 year from completion)' : form.safesport_completed_at ? 'Expired — renew to restore current status' : 'Not on file'}
+              >
+                <input
+                  type="date"
+                  value={form.safesport_completed_at}
+                  onChange={(e) => update('safesport_completed_at', e.target.value)}
+                  className={inputClass}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field
+                label="Background Check Expires"
+                hint={backgroundCurrent ? 'Current' : form.background_check_expires_at ? 'Expired — submit a new check' : 'Not on file'}
+              >
+                <input
+                  type="date"
+                  value={form.background_check_expires_at}
+                  onChange={(e) => update('background_check_expires_at', e.target.value)}
+                  className={inputClass}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ── Insurance ─────────────────────────────────────────────────────── */}
-      <section className="rounded-lg border p-5" style={sectionStyle}>
-        <h3 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Liability Insurance</h3>
-        <p className="text-xs mb-4" style={{ color: '#8b7355' }}>
-          Many shows require commercial equine liability coverage. This is self-attested; carrier/policy details and certificate upload will be added later.
-        </p>
-        <label className="flex items-center gap-2 text-sm" style={{ color: '#2c1810' }}>
-          <input
-            type="checkbox"
-            checked={form.has_liability_insurance}
-            onChange={(e) => update('has_liability_insurance', e.target.checked)}
-          />
-          I carry commercial equine liability insurance
-        </label>
-      </section>
+      <div className="rounded-lg border p-5" style={sectionStyle}>
+        <SectionHeader title="Liability Insurance" open={open.insurance} onToggle={() => toggle('insurance')} />
+        {open.insurance && (
+          <>
+            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+              Many shows require commercial equine liability coverage. This is self-attested; carrier/policy details and certificate upload will be added later.
+            </p>
+            <label className="flex items-center gap-2 text-sm" style={{ color: '#2c1810' }}>
+              <input
+                type="checkbox"
+                checked={form.has_liability_insurance}
+                onChange={(e) => update('has_liability_insurance', e.target.checked)}
+              />
+              I carry commercial equine liability insurance
+            </label>
+          </>
+        )}
+      </div>
 
       {message && (
         <p className={`text-sm ${message.type === 'success' ? 'text-green-700' : 'text-red-600'}`}>
@@ -412,7 +465,14 @@ export default function TrainerProfileForm({ trainer }: Props) {
 
       <button
         onClick={handleSave}
-        disabled={saving}
+        disabled={saving || !publicRequirementsMet || hasFieldErrors}
+        title={
+          !publicRequirementsMet
+            ? 'Public profiles require first name, last name, business/barn name, and at least a public phone or email'
+            : hasFieldErrors
+            ? 'Fix the highlighted field errors before saving'
+            : undefined
+        }
         className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
         style={{ backgroundColor: '#8b4513' }}
       >

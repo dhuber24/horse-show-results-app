@@ -6,6 +6,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import HorseDocuments from '@/components/HorseDocuments';
 import TrainerSelect from '@/components/TrainerSelect';
+import SectionHeader from '@/components/SectionHeader';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
@@ -43,14 +44,6 @@ interface Props {
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
-function SectionHeader({ title, open, onToggle }: { title: string; open: boolean; onToggle: () => void }) {
-  return (
-    <button type="button" onClick={onToggle} className="flex items-center justify-between w-full text-left">
-      <h2 className="font-semibold" style={{ color: '#2c1810' }}>{title}</h2>
-      <span className="text-sm select-none font-bold" style={{ color: '#8b7355' }}>{open ? '−' : '+'}</span>
-    </button>
-  );
-}
 
 export default function EditHorseForm({ horse, breeds, colors, exhibitors, showTypes, registrations: initialRegs, trainers }: Props) {
   const router = useRouter();
