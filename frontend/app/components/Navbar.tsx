@@ -30,6 +30,13 @@ export default async function Navbar() {
                 My Entries
               </Link>
             )}
+            {['GATE_STEWARD', 'ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY'].includes(session.user?.role ?? '') && (
+              <Link href="/gate"
+                className="text-sm px-3 py-2 rounded font-medium transition"
+                style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
+                Gate
+              </Link>
+            )}
             {session.user?.role === 'SCOREKEEPER' && (
               <Link href="/scorekeeper"
                 className="text-sm px-3 py-2 rounded font-medium transition"

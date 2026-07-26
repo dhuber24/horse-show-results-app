@@ -16,6 +16,16 @@ export default auth((req) => {
     }
   }
 
+  // Protect gate steward routes
+  if (pathname === '/gate' || pathname.startsWith('/gate/')) {
+    if (!session) {
+      return NextResponse.redirect(new URL('/login', req.url));
+    }
+    if (!['GATE_STEWARD', 'ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY'].includes(role)) {
+      return NextResponse.redirect(new URL('/', req.url));
+    }
+  }
+
   // Protect scorekeeper routes
   if (pathname.includes('/scorekeeper')) {
     if (!session) {
@@ -30,5 +40,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/admin/:path*', '/shows/:path*/scorekeeper'],
+  matcher: ['/admin/:path*', '/shows/:path*/scorekeeper', '/gate', '/gate/:path*'],
 };

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -50,6 +51,11 @@ export default function LoginForm() {
           onChange={handleChange}
           className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
           style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+        <div className="text-right mt-1">
+          <Link href="/forgot-password" className="text-xs hover:underline" style={{ color: '#8b4513' }}>
+            Forgot your password?
+          </Link>
+        </div>
       </div>
       {error && (
         <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>

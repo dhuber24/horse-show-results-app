@@ -95,6 +95,7 @@ class Show(Base):
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
     show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
+    show_gate_stewards = relationship("ShowGateSteward", back_populates="show", cascade="all, delete")
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
     side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
@@ -296,6 +297,7 @@ class Class(Base):
     status = Column(Text, nullable=False, default="OPEN")
     score_type = Column(Text, nullable=False, server_default="placement")
     entry_fee_cents = Column(Integer, nullable=False, server_default="0")
+    gate_status = Column(Text, nullable=False, server_default="pending")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -361,6 +363,7 @@ class User(Base):
     exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
+    gate_steward_shows = relationship("ShowGateSteward", back_populates="user", cascade="all, delete")
     manager_shows = relationship("ShowManager", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
@@ -407,6 +410,20 @@ class ShowScorekeeper(Base):
 
     show = relationship("Show", back_populates="show_scorekeepers")
     user = relationship("User", back_populates="scorekeeper_shows")
+
+
+class ShowGateSteward(Base):
+    __tablename__ = "show_gate_stewards"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "user_id"),)
+
+    show = relationship("Show", back_populates="show_gate_stewards")
+    user = relationship("User", back_populates="gate_steward_shows")
 
 
 class Breed(Base):
@@ -695,6 +712,8 @@ class Entry(Base):
     apha_division = Column(Text, nullable=True)
     relationship_to_owner = Column(Text, nullable=True)
     is_disqualified = Column(Boolean, nullable=False, server_default="false")
+    gate_order = Column(Integer, nullable=True)
+    gate_checked_in = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (

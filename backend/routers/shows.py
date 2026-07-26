@@ -18,6 +18,7 @@ from models import (
     ShowAffiliation,
     ShowSecretary,
     ShowScorekeeper,
+    ShowGateSteward,
     ShowManager,
     Entry,
     Class,
@@ -116,6 +117,15 @@ async def list_shows(
             .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
             .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
             .where(ShowScorekeeper.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
+            .order_by(Show.start_date)
+        )
+    elif is_authenticated and x_user_role == "GATE_STEWARD" and x_user_id:
+        # Gate stewards see their assigned shows, but not DRAFTs
+        query = (
+            select(Show)
+            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
+            .join(ShowGateSteward, ShowGateSteward.show_id == Show.id)
+            .where(ShowGateSteward.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
     else:

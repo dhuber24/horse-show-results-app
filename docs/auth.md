@@ -53,6 +53,7 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 | `SHOW_MANAGER` | Requests and manages hosted shows; can assign show secretaries and scorekeepers |
 | `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration |
 | `SCOREKEEPER` | Enters placings for assigned shows |
+| `GATE_STEWARD` | Runs the warm-up side of the in-gate for assigned shows: per-class order-of-go, exhibitor check-in at the gate, and class gate progression (pending → ready → in progress → done). Admins, Show Managers, and Show Secretaries can also perform gate functions |
 | `EXHIBITOR` | Views own entries/results and manages profile/horses |
 | `TRAINER` | Manages a linked trainer registry profile used on horse records |
 
@@ -92,6 +93,7 @@ Show-scoped write access is usually checked with join tables:
 
 - `show_secretaries`
 - `show_managers`
+- `show_gate_stewards`
 - `show_scorekeepers`
 
 ## Sharp Edges

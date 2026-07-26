@@ -48,6 +48,7 @@ from routers.sanctioning import (
     show_router as show_sanctioning_router,
 )
 from routers.user_invites import router as user_invites_router
+from routers.gate import router as gate_router
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,7 @@ app.include_router(sanctioning_registry_router)
 app.include_router(sanctioning_requests_router)
 app.include_router(show_sanctioning_router)
 app.include_router(user_invites_router)
+app.include_router(gate_router)
 
 
 @app.get("/", tags=["Health"])

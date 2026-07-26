@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 export default function ChangePasswordForm() {
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -43,8 +44,28 @@ export default function ChangePasswordForm() {
     }
     setSuccess(true);
     setForm({ current_password: '', new_password: '', confirm_password: '' });
+    setOpen(false);
     setTimeout(() => setSuccess(false), 4000);
   };
+
+  if (!open) {
+    return (
+      <div className="space-y-3">
+        {success && (
+          <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+            Password changed successfully.
+          </p>
+        )}
+        <button
+          onClick={() => setOpen(true)}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition"
+          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        >
+          Change Password
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -76,14 +97,28 @@ export default function ChangePasswordForm() {
           {error}
         </p>
       )}
-      <button
-        onClick={handleSubmit}
-        disabled={loading}
-        className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
-      >
-        {loading ? 'Changing...' : 'Change Password'}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        >
+          {loading ? 'Changing...' : 'Save New Password'}
+        </button>
+        <button
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+            setForm({ current_password: '', new_password: '', confirm_password: '' });
+          }}
+          disabled={loading}
+          className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
+          style={{ color: '#8b7355' }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

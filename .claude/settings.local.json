@@ -228,7 +228,17 @@
       "PowerShell(powershell -ExecutionPolicy Bypass -File database/migrate.ps1 2>&1 | Select-Object -Last 30)",
       "PowerShell(python -m compileall \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\backend\\\\models.py\" 2>&1)",
       "PowerShell(python -m compileall \"C:\\\\Users\\\\Home\\\\projects\\\\horse-show-results-app\\\\backend\\\\schemas.py\" 2>&1)",
-      "Bash(python -c \"import sys; sys.path.insert\\(0, 'backend'\\); from routers import disciplines, divisions; print\\('OK'\\)\")"
+      "Bash(python -c \"import sys; sys.path.insert\\(0, 'backend'\\); from routers import disciplines, divisions; print\\('OK'\\)\")",
+      "PowerShell($cargo = \\(Get-Command cargo -ErrorAction SilentlyContinue\\); \"cargo: $\\($cargo.Source\\)\"; $scoop = \\(Get-Command scoop -ErrorAction SilentlyContinue\\); \"scoop: $\\($scoop.Source\\)\"; try { wsl --status } catch { \"wsl: not available\" })",
+      "PowerShell($cargo = Get-Command cargo -ErrorAction SilentlyContinue; if \\($cargo\\) { \"cargo: $\\($cargo.Source\\)\" } else { \"cargo: NOT installed\" }; $scoop = Get-Command scoop -ErrorAction SilentlyContinue; if \\($scoop\\) { \"scoop: $\\($scoop.Source\\)\" } else { \"scoop: NOT installed\" }; try { $d = wsl --list --quiet; \"wsl distros: $d\" } catch { \"wsl: error\" })",
+      "WebFetch(domain:github.com)",
+      "Bash(wsl -d Ubuntu -- bash -lc 'curl -fsSL https://rtk-ai.app/install.sh | sh')",
+      "Bash(wsl -d Ubuntu -- bash -lc 'curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh')",
+      "Bash(wsl -d Ubuntu -- bash -lc 'grep -q \".local/bin\" ~/.bashrc || echo '\\\\''export PATH=\"$HOME/.local/bin:$PATH\"'\\\\'' >> ~/.bashrc; export PATH=\"$HOME/.local/bin:$PATH\"; rtk --version; echo \"---PATH-OK---\"')",
+      "Bash(wsl -d Ubuntu -- bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; echo \"WHICH:\"; which -a rtk; echo \"---FILE:\"; file ~/.local/bin/rtk; echo \"---HELP:\"; rtk --help 2>&1 | head -40')",
+      "Bash(wsl -d Ubuntu -- bash -lc 'type rtk 2>&1; echo \"===ALIAS===\"; alias rtk 2>&1; echo \"===BASHRC rtk lines===\"; grep -n rtk ~/.bashrc 2>&1; echo \"===PROFILE rtk lines===\"; grep -n rtk ~/.profile ~/.bash_aliases 2>&1; echo \"===DIRECT BINARY===\"; \"$HOME/.local/bin/rtk\" --version 2>&1 | head -5')",
+      "Bash(wsl -d Ubuntu --cd /root -- /root/.local/bin/rtk --version)",
+      "Bash(wsl -d Ubuntu -- bash -lc 'export PATH=\"$HOME/.local/bin:$PATH\"; rtk init --help 2>&1 | cat -v')"
     ],
     "additionalDirectories": [
       "C:\\Users\\Home\\projects\\horse-show-results-app\\frontend\\app\\api\\shows\\[showId]\\schedule-builder\\templates",

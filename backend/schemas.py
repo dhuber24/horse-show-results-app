@@ -215,7 +215,7 @@ class UserInviteCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    role: Literal["SCOREKEEPER"] = "SCOREKEEPER"
+    role: Literal["SCOREKEEPER", "GATE_STEWARD"] = "SCOREKEEPER"
     show_id: Optional[UUID] = None
 
 class UserInviteOut(BaseModel):
@@ -540,6 +540,7 @@ class ClassOut(BaseModel):
     status: str
     score_type: str = "placement"
     entry_fee_cents: int = 0
+    gate_status: str = "pending"
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -1209,10 +1210,43 @@ class EntryOut(BaseModel):
     apha_division: Optional[str] = None
     relationship_to_owner: Optional[str] = None
     is_disqualified: bool = False
+    gate_order: Optional[int] = None
+    gate_checked_in: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# ── Gate management ────────────────────────────────────────────────────────────
+
+class GateEntryOut(BaseModel):
+    id: UUID
+    back_number: Optional[int]
+    exhibitor_name: str
+    horse_name: Optional[str]
+    is_disqualified: bool
+    gate_order: Optional[int]
+    gate_checked_in: bool
+
+
+class GateOrderBody(BaseModel):
+    entry_ids: list[UUID] = Field(min_length=1)
+
+
+class GateCheckInBody(BaseModel):
+    checked_in: bool
+
+
+class GateCheckInResult(BaseModel):
+    entry: GateEntryOut
+    # Check-in can flip the class between pending and ready server-side, so
+    # the response carries the class's current gate status for the UI.
+    class_gate_status: str
+
+
+class GateClassStatusBody(BaseModel):
+    gate_status: Literal["pending", "ready", "in_progress", "done"]
 
 
 # ── Results ────────────────────────────────────────────────────────────────────

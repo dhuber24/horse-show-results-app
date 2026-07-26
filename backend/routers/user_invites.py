@@ -31,7 +31,7 @@ from dependencies import (
     require_api_key,
     safe_uuid,
 )
-from models import Show, ShowManager, ShowScorekeeper, ShowSecretary, User, UserInvite
+from models import Show, ShowGateSteward, ShowManager, ShowScorekeeper, ShowSecretary, User, UserInvite
 from schemas import (
     UserInviteAcceptBody,
     UserInviteByTokenOut,
@@ -43,7 +43,7 @@ from schemas import (
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
 
 INVITE_TTL_DAYS = 14
-ROLE_ALLOWED = {"SCOREKEEPER"}
+ROLE_ALLOWED = {"SCOREKEEPER", "GATE_STEWARD"}
 
 
 def _public_app_url() -> str:
@@ -103,8 +103,8 @@ async def create_invite(
 ):
     if body.role not in ROLE_ALLOWED:
         raise HTTPException(400, f"Invite role must be one of: {', '.join(sorted(ROLE_ALLOWED))}")
-    if body.role == "SCOREKEEPER" and body.show_id is None:
-        raise HTTPException(400, "show_id is required for scorekeeper invites")
+    if body.role in ("SCOREKEEPER", "GATE_STEWARD") and body.show_id is None:
+        raise HTTPException(400, "show_id is required for staff invites")
 
     if body.show_id is not None:
         if not await db.get(Show, body.show_id):
@@ -131,7 +131,7 @@ async def create_invite(
     if existing_user.scalar_one_or_none():
         raise HTTPException(
             409,
-            "A user with this email already exists. Use 'Assign existing scorekeeper' instead.",
+            "A user with this email already exists. Assign them from the existing-user list instead.",
         )
 
     invite = UserInvite(
@@ -287,9 +287,12 @@ async def accept_invite(
     db.add(user)
     await db.flush()
 
-    if invite.role == "SCOREKEEPER" and invite.show_id is not None:
-        # Auto-assign as scorekeeper for the issuing show.
-        db.add(ShowScorekeeper(show_id=invite.show_id, user_id=user.id))
+    if invite.show_id is not None:
+        # Auto-assign to the issuing show.
+        if invite.role == "SCOREKEEPER":
+            db.add(ShowScorekeeper(show_id=invite.show_id, user_id=user.id))
+        elif invite.role == "GATE_STEWARD":
+            db.add(ShowGateSteward(show_id=invite.show_id, user_id=user.id))
 
     invite.status = "accepted"
     invite.accepted_at = _now()

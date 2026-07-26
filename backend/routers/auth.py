@@ -24,6 +24,12 @@ class UserVerify(BaseModel):
     password: str
 
 
+class PasswordResetWithOldPassword(BaseModel):
+    email: EmailStr
+    current_password: str
+    new_password: str
+
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
@@ -111,6 +117,31 @@ async def verify_user(request: Request, body: UserVerify, db: AsyncSession = Dep
         "full_name": user.full_name,
         "role": user.role,
     }
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password_with_old_password(
+    request: Request, body: PasswordResetWithOldPassword, db: AsyncSession = Depends(get_db)
+):
+    """Unauthenticated "forgot password" flow: proves identity with the
+    current password rather than a mailed token, since email delivery
+    isn't wired up yet. Same eventual guarantee as /users/me/password —
+    only someone who already knows the current password can change it."""
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters")
+    email = normalize_email(body.email)
+    result = await db.execute(select(User).where(func.lower(User.email) == email))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.hashed_password:
+        raise HTTPException(401, "Invalid email or current password")
+    if not verify_password(body.current_password, user.hashed_password):
+        raise HTTPException(401, "Invalid email or current password")
+
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return {"detail": "Password updated"}
 
 
 @router.post("/register")

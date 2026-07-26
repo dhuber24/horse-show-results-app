@@ -19,12 +19,14 @@ async function fetchStaff(
 ): Promise<{
   admins: StaffUser[];
   scorekeepers: StaffUser[];
+  gateStewards: StaffUser[];
   allUsers: StaffUser[];
   pendingInvites: PendingInvite[];
 }> {
-  const [adminsRes, keepersRes, invitesRes] = await Promise.all([
+  const [adminsRes, keepersRes, stewardsRes, invitesRes] = await Promise.all([
     fetch(`${API_URL}/shows/${showId}/admins`, { headers, cache: 'no-store' }),
     fetch(`${API_URL}/shows/${showId}/scorekeepers`, { headers, cache: 'no-store' }),
+    fetch(`${API_URL}/shows/${showId}/gate-stewards`, { headers, cache: 'no-store' }),
     fetch(`${API_URL}/user-invites/by-show/${showId}`, { headers, cache: 'no-store' }),
   ]);
   let allUsers: StaffUser[] = [];
@@ -35,6 +37,7 @@ async function fetchStaff(
   return {
     admins: adminsRes.ok ? await adminsRes.json() : [],
     scorekeepers: keepersRes.ok ? await keepersRes.json() : [],
+    gateStewards: stewardsRes.ok ? await stewardsRes.json() : [],
     allUsers,
     pendingInvites: invitesRes.ok ? await invitesRes.json() : [],
   };
@@ -79,7 +82,7 @@ export default async function ShowStaffPage({
           Show Staff
         </h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          {show.name} — manage Show Secretaries and Scorekeepers.
+          {show.name} — manage Show Secretaries, Scorekeepers, and Gate Stewards.
         </p>
       </div>
 
@@ -88,6 +91,7 @@ export default async function ShowStaffPage({
         currentUserRole={role}
         initialAdmins={staff.admins}
         initialScorekeepers={staff.scorekeepers}
+        initialGateStewards={staff.gateStewards}
         allUsers={staff.allUsers}
         isAdmin={isAdmin}
         initialPendingInvites={staff.pendingInvites}

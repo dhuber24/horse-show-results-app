@@ -11,6 +11,7 @@ from models import (
     Class,
     Show,
     Result,
+    Ring,
     ClassAssociation,
     AphaStandardClass,
     AqhaStandardClass,
@@ -41,6 +42,25 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession):
 
 UNASSIGNED_LABEL = "Unassigned"
 
+DEFAULT_RING_NAME = "Ring 1"
+
+
+async def _get_or_create_default_ring(show_id: UUID, db: AsyncSession) -> UUID:
+    """Every class needs a ring. When the caller doesn't pick one, fall back
+    to the show's first ring, creating a default "Ring 1" for shows that have
+    no rings set up yet. Caller is responsible for db.commit()."""
+    result = await db.execute(
+        select(Ring)
+        .where(Ring.show_id == show_id)
+        .order_by(Ring.sort_order.nulls_last(), Ring.name)
+    )
+    ring = result.scalars().first()
+    if ring is None:
+        ring = Ring(show_id=show_id, name=DEFAULT_RING_NAME, sort_order=1)
+        db.add(ring)
+        await db.flush()
+    return ring.id
+
 
 async def _create_classes_auto_routed(
     show_id: UUID,
@@ -67,6 +87,9 @@ async def _create_classes_auto_routed(
 
     Caller is responsible for ``db.commit()`` and follow-up renumbering.
     """
+    if ring_id is None:
+        ring_id = await _get_or_create_default_ring(show_id, db)
+
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
@@ -262,11 +285,12 @@ async def create_class(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
     next_sort_order = max_order_result.scalar_one() + 1
+    ring_id = body.ring_id or await _get_or_create_default_ring(show_id, db)
     class_ = Class(
         show_id=show_id,
         sort_order=next_sort_order,
         class_number=str(next_sort_order),
-        ring_id=body.ring_id,
+        ring_id=ring_id,
         discipline_id=body.discipline_id,
         division_id=body.division_id,
         class_name=body.class_name,

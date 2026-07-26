@@ -22,7 +22,7 @@ from schemas import (
     ExhibitorRegistrationCreate, ExhibitorRegistrationOut,
 )
 
-VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "EXHIBITOR", "TRAINER"}
+VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "GATE_STEWARD", "EXHIBITOR", "TRAINER"}
 
 
 def _normalize_email(email: str) -> str:

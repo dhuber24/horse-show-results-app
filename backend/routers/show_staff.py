@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from dependencies import require_admin, safe_uuid, INTERNAL_API_KEY
-from models import Show, User, ShowSecretary, ShowScorekeeper, ShowManager
+from models import Show, User, ShowSecretary, ShowScorekeeper, ShowManager, ShowGateSteward
 from schemas import UserOut
 
 router = APIRouter(tags=["Show Staff"])
@@ -212,5 +212,79 @@ async def remove_show_scorekeeper(
     entry = row.scalar_one_or_none()
     if not entry:
         raise HTTPException(404, "Scorekeeper assignment not found")
+    await db.delete(entry)
+    await db.commit()
+
+
+# ── Show Gate Stewards ─────────────────────────────────────────────────────────
+
+@router.get("/shows/{show_id}/gate-stewards", response_model=list[UserOut])
+async def list_show_gate_stewards(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    await _get_show_or_404(show_id, db)
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
+    result = await db.execute(
+        select(User)
+        .join(ShowGateSteward, ShowGateSteward.user_id == User.id)
+        .where(ShowGateSteward.show_id == show_id)
+        .order_by(User.full_name)
+    )
+    return result.scalars().all()
+
+
+@router.post("/shows/{show_id}/gate-stewards", response_model=UserOut, status_code=201)
+async def add_show_gate_steward(
+    show_id: UUID,
+    body: UserAssignBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    await _get_show_or_404(show_id, db)
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
+
+    user = await _get_user_or_404(body.user_id, db)
+    if user.role != "GATE_STEWARD":
+        raise HTTPException(400, "User must have GATE_STEWARD role")
+
+    already = await db.execute(
+        select(ShowGateSteward).where(ShowGateSteward.show_id == show_id, ShowGateSteward.user_id == user.id)
+    )
+    if already.scalar_one_or_none():
+        raise HTTPException(409, "Gate steward already assigned to this show")
+
+    db.add(ShowGateSteward(show_id=show_id, user_id=user.id))
+    await db.commit()
+    return user
+
+
+@router.delete("/shows/{show_id}/gate-stewards/{user_id}", status_code=204)
+async def remove_show_gate_steward(
+    show_id: UUID,
+    user_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
+    row = await db.execute(
+        select(ShowGateSteward).where(ShowGateSteward.show_id == show_id, ShowGateSteward.user_id == user_id)
+    )
+    entry = row.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(404, "Gate steward assignment not found")
     await db.delete(entry)
     await db.commit()
