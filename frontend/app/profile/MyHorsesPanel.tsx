@@ -120,6 +120,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       ? horses.filter((h) => {
           const haystack = [
             h.name,
+            h.barn_name,
             h.sire_name,
             h.dam_name,
             h.breed_names?.join(' ') ?? h.breed_name,
@@ -287,7 +288,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter by name, sire, dam, or registration #"
+            placeholder="Filter by name, barn name, sire, dam, or registration #"
             className="flex-1 min-w-[200px] border rounded px-3 py-2 text-sm"
             style={{ borderColor: '#d4b896' }}
           />
@@ -344,6 +345,9 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 <div className="space-y-1.5">
                   <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
                     {horse.name}
+                    {horse.barn_name && (
+                      <span className="font-normal" style={{ color: '#8b7355' }}>&ldquo;{horse.barn_name}&rdquo;</span>
+                    )}
                     {horse.sex && (
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
                         {horse.sex}

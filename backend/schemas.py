@@ -1027,7 +1027,9 @@ class TrainerDocumentOut(BaseModel):
 # ── Horses ─────────────────────────────────────────────────────────────────────
 
 class HorseCreate(BaseModel):
+    # name is the registered (association) name; barn_name is the optional call name.
     name: str = Field(min_length=1, max_length=200)
+    barn_name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
@@ -1057,6 +1059,7 @@ class HorseCreateWithRegistrations(HorseCreate):
 
 class HorseUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
+    barn_name: Optional[str] = Field(default=None, max_length=200)
     owner_exhibitor_id: Optional[UUID] = None
     trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = Field(default=None, max_length=200)
@@ -1089,6 +1092,7 @@ def _horse_out_data(v) -> dict:
     data = {
         'id': v.id,
         'name': v.name,
+        'barn_name': getattr(v, 'barn_name', None),
         'owner_exhibitor_id': v.owner_exhibitor_id,
         'owner_exhibitor_name': owner_exhibitor.full_name if owner_exhibitor else None,
         'created_by_exhibitor_id': getattr(v, 'created_by_exhibitor_id', None),
@@ -1117,6 +1121,7 @@ def _horse_out_data(v) -> dict:
 class HorseOut(BaseModel):
     id: UUID
     name: str
+    barn_name: Optional[str] = None
     owner_exhibitor_id: Optional[UUID] = None
     owner_exhibitor_name: Optional[str] = None
     created_by_exhibitor_id: Optional[UUID] = None

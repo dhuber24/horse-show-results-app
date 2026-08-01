@@ -57,7 +57,8 @@ const HEALTH_DOC_OPTIONS = DOC_TYPES.filter((t) => HEALTH_DOC_TYPES.includes(t.v
 const emptyDocDraft = { document_type: '', issue_date: '', expiry_date: '' };
 
 const emptyForm = {
-  name: '', trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '',
+  name: '', barn_name: '',
+  trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '',
   trainer_email: '', sex: '', sire_name: '', dam_name: '', foaling_date: '',
   breed_ids: [] as string[], color_id: '', is_solid_paint_bred: false,
 };
@@ -187,7 +188,7 @@ export default function AddHorseWizard({
         return "Owner first name, last name, and email are all required for a horse you don't own.";
       }
     }
-    if (key === 'horse' && !form.name.trim()) return 'Horse name is required.';
+    if (key === 'horse' && !form.name.trim()) return 'Registered name is required.';
     if (key === 'trainer') {
       const hasOtherTrainer = !form.trainer_id && (
         form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
@@ -395,6 +396,7 @@ export default function AddHorseWizard({
       trainer_email: form.trainer_email.trim() || null,
       breed_ids: form.breed_ids,
     };
+    if (form.barn_name.trim()) body.barn_name = form.barn_name.trim();
     if (form.sex) body.sex = form.sex;
     if (form.sire_name.trim()) body.sire_name = form.sire_name.trim();
     if (form.dam_name.trim()) body.dam_name = form.dam_name.trim();
@@ -566,12 +568,19 @@ export default function AddHorseWizard({
       {step.key === 'horse' && (
         <div className="space-y-3">
           <p className="text-xs" style={{ color: '#8b7355' }}>
-            Only the name is required — everything else can be added later from the horse&rsquo;s own page.
+            Only the registered name is required — everything else can be added later from the horse&rsquo;s own page.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="col-span-full">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Horse name *</label>
-              <input name="name" placeholder="Registered or barn name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registered name *</label>
+              <input name="name" placeholder="Name on the association papers" maxLength={200} value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                This is what the horse is entered and published under.
+              </p>
+            </div>
+            <div className="col-span-full">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Barn name</label>
+              <input name="barn_name" placeholder="Stable or call name" maxLength={200} value={form.barn_name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
             </div>
             <div>
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Sex</label>
@@ -824,7 +833,8 @@ export default function AddHorseWizard({
           </p>
           <div className="rounded border divide-y px-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#ffffff' }}>
             <ReviewRow label="Owner" value={ownerSummary} />
-            <ReviewRow label="Name" value={form.name.trim()} />
+            <ReviewRow label="Registered Name" value={form.name.trim()} />
+            <ReviewRow label="Barn Name" value={form.barn_name.trim()} skipped={!form.barn_name.trim()} />
             <ReviewRow label="Sex" value={form.sex} skipped={!form.sex} />
             <ReviewRow label="Foaling Date" value={form.foaling_date} skipped={!form.foaling_date} />
             <ReviewRow label="Sire" value={form.sire_name.trim()} skipped={!form.sire_name.trim()} />

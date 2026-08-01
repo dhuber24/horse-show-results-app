@@ -20,7 +20,10 @@ interface ExhibitorName { id: string; full_name: string; }
 
 interface Horse {
   id: string;
+  /** Registered (association) name — required. */
   name: string;
+  /** Optional stable/call name. */
+  barn_name: string | null;
   owner_exhibitor_id: string | null;
   owner_exhibitor_name: string | null;
   owner_name: string | null;
@@ -128,6 +131,7 @@ export default function EditMyHorseForm({
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
+    barn_name: horse.barn_name ?? '',
     trainer_id: horse.trainer_id ?? '',
     trainer_name: horse.trainer_name ?? '',
     trainer_first_name: '',
@@ -196,7 +200,7 @@ export default function EditMyHorseForm({
 
   const handleSave = async (origin: SaveOrigin) => {
     setSaveOrigin(origin);
-    if (!form.name.trim()) { setError('Horse name is required.'); return; }
+    if (!form.name.trim()) { setError('Registered name is required.'); return; }
     const hasOtherTrainer = !form.trainer_id && (
       form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
     );
@@ -212,6 +216,7 @@ export default function EditMyHorseForm({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: form.name.trim(),
+        barn_name: form.barn_name.trim() || null,
         trainer_id: form.trainer_id || null,
         trainer_name: form.trainer_name.trim() || null,
         trainer_first_name: form.trainer_first_name.trim() || null,
@@ -378,8 +383,15 @@ export default function EditMyHorseForm({
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
-                <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" />
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Registered Name *</label>
+                <input name="name" value={form.name} onChange={handleChange} maxLength={200} className="w-full border rounded px-3 py-2" />
+                <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                  What the horse is entered and published under.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Barn Name</label>
+                <input name="barn_name" value={form.barn_name} onChange={handleChange} maxLength={200} placeholder="Stable or call name" className="w-full border rounded px-3 py-2" />
               </div>
               <div>
                 <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
@@ -436,6 +448,7 @@ export default function EditMyHorseForm({
           </>
         ) : (
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <ReadOnlyField label="Barn Name" value={form.barn_name} />
             <ReadOnlyField label="Sex" value={form.sex} />
             <ReadOnlyField
               label="Foaling Date"

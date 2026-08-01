@@ -36,7 +36,10 @@ export interface HorseDocumentBrief {
 
 export interface MyHorse {
   id: string;
+  /** Registered (association) name — required. */
   name: string;
+  /** Optional stable/call name. */
+  barn_name?: string | null;
   sex: string | null;
   age: number | null;
   breed_name: string | null;

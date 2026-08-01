@@ -2,6 +2,23 @@
 
 ## August 2026
 
+### Registered Name vs Barn Name
+
+`horses.name` has always been the name a horse is entered and published under — for a registered horse, its association name. The add-a-horse form muddied that by prompting for "Registered or barn name", so some rows hold a stable call name instead, and there was nowhere to record the other one.
+
+**Migration 081 (`081_horse_barn_name.sql`)**
+- New nullable `horses.barn_name`. `COMMENT`s on both columns pin down which is which.
+- **Not** a rename of `horses.name` to `registered_name`. That column is referenced across entries, results, the public schedule, search and exports; the rename would buy nothing beyond the label the UI already shows, and would touch far more surface than the change is worth.
+- Nullable free text, matching `owner_name` / `trainer_name` / `sire_name` — plenty of horses have no barn name worth recording.
+
+**Backend**
+- `barn_name` added to `HorseCreate`, `HorseUpdate`, `HorseOut`, and the shared `_horse_out_data` projection. No router changes were needed: create builds `Horse(**horse_data)` and update applies `model_dump(exclude_unset=True)`, so the field flows through both paths on its own.
+
+**Frontend**
+- Wizard step 2 now asks for **Registered name \*** (with "This is what the horse is entered and published under") and an optional **Barn name**; the validation message reads "Registered name is required." Review lists both, barn name marked *Skipped* when blank.
+- Same split on the horse page's Details tab, including the read-only non-owner view.
+- Horse card and horse-page heading render `Registered Name "Barn Name"`, and the My Horses filter matches on either.
+
 ### Add a Horse: Wizard on Its Own Page
 
 The add-a-horse form asked for everything at once in a single tall panel appended to the bottom of the My Horses list, and the only way to reach the horse fields in "I ride this horse" mode was through a search sub-flow nested inside that same panel. It is now a five-step wizard on a dedicated route, `/profile/horses/new`.

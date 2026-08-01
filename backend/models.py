@@ -586,7 +586,10 @@ class Horse(Base):
     __tablename__ = "horses"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # The registered (association) name — what the horse is entered and published
+    # under. barn_name is the optional stable/call name (migration 081).
     name = Column(Text, nullable=False)
+    barn_name = Column(Text, nullable=True)
     owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     created_by_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     owner_name = Column(Text, nullable=True)

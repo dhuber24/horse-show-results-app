@@ -100,7 +100,7 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
 - `users`: login accounts and roles. First/last name are the editable source of truth; `full_name` is a derived display compatibility field.
 - `exhibitors`: person/profile records, optionally linked to users.
-- `horses`: horse records with owner/trainer text, free-text `sire_name`/`dam_name` pedigree (migration 079), breed/color, registrations, documents, and APHA SPB flag. Owner + sire + dam are the program columns shown on the public class schedule and the admin entry list.
+- `horses`: horse records with owner/trainer text, free-text `sire_name`/`dam_name` pedigree (migration 079), breed/color, registrations, documents, and APHA SPB flag. `name` is the **registered (association) name** and is required — it is what the horse is entered and published under; `barn_name` is the optional stable/call name (migration 081). Owner + sire + dam are the program columns shown on the public class schedule and the admin entry list.
 - `exhibitor_registrations`: exhibitor membership numbers per association.
 - `backend/rules`: association-specific validation hooks; AQHA currently enforces the first practical validation slice.
 - `users.aqha_management_workshop_completed_at`: AQHA show-management workshop date used to validate assigned managers/secretaries.

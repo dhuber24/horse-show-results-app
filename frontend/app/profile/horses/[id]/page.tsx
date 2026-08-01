@@ -61,7 +61,12 @@ export default async function ExhibitorHorsePage({
         <Link href="/profile?tab=horses" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
           {'<- Back to My Horses'}
         </Link>
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>{horse.name}</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+          {horse.name}
+          {horse.barn_name && (
+            <span className="ml-2 text-lg font-normal" style={{ color: '#8b7355' }}>&ldquo;{horse.barn_name}&rdquo;</span>
+          )}
+        </h1>
         {!isOwner && (
           <p className="text-sm mt-2 px-3 py-2 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
             View only - only the registered owner can modify this horse.
