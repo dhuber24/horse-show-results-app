@@ -65,10 +65,11 @@ export interface LookupMatch {
   owner_name: string | null;
 }
 
-/** Result of the fuzzy name / registration-number search. */
+/** Result of the fuzzy name / barn-name / registration-number search. */
 export interface SearchMatch {
   horse_id: string;
   horse_name: string;
+  barn_name?: string | null;
   owner_name: string | null;
   sex: string | null;
   breed_name: string | null;
@@ -128,7 +129,12 @@ export function SearchResultList({
         return (
           <li key={match.horse_id} className="flex flex-wrap items-center justify-between gap-2 p-3" style={{ borderColor: '#f0e4d0' }}>
             <div className="min-w-0">
-              <p className="text-sm font-medium" style={{ color: '#2c1810' }}>{match.horse_name}</p>
+              <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+                {match.horse_name}
+                {match.barn_name && (
+                  <span className="font-normal ml-1.5" style={{ color: '#8b7355' }}>&ldquo;{match.barn_name}&rdquo;</span>
+                )}
+              </p>
               {detail.length > 0 && (
                 <p className="text-xs" style={{ color: '#8b7355' }}>{detail.join(' · ')}</p>
               )}

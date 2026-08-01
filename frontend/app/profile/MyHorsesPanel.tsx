@@ -283,7 +283,10 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
         )}
       </div>
 
-      {horses.length >= FILTER_THRESHOLD && (
+      {/* The `|| filter` keeps the box mounted while a filter is active: removing
+          horses can drop the list under the threshold, and hiding the input then
+          would strand the list filtered with no way to clear it. */}
+      {(horses.length >= FILTER_THRESHOLD || filter) && (
         <div className="flex flex-wrap gap-2 items-center">
           <input
             value={filter}
@@ -318,7 +321,12 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           </div>
         )
       ) : visibleHorses.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No horses match &ldquo;{filter}&rdquo;.</p>
+        <p className="text-sm flex flex-wrap items-center gap-2" style={{ color: '#8b7355' }}>
+          <span>No horses match &ldquo;{filter}&rdquo;.</span>
+          <button onClick={() => setFilter('')} className="text-xs font-medium hover:underline" style={{ color: '#8b4513' }}>
+            Clear filter
+          </button>
+        </p>
       ) : (
         <ul className="space-y-3">
           {visibleHorses.map((horse) => {

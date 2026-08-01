@@ -2,6 +2,18 @@
 
 ## August 2026
 
+### Horse Panel Loose Ends
+
+Three follow-ups from the horse-panel work.
+
+**Duplicate-registration check no longer fails open.** `/horses/registrations/lookup` answers `200` = already on file, `404` = clear. Both callers (`AddHorseWizard` and the horse page's `EditMyHorseForm`) branched on `res.ok` alone, so a 500, a 401, or a dropped connection read as "no duplicate" and the number was accepted — and with no `try/catch`, a network throw became an unhandled rejection and the button silently did nothing. Both now treat only `404` as clear and surface a retry message otherwise.
+
+**My Horses filter can no longer strand the list.** The filter box rendered only at `horses.length >= 4`, but the `filter` string survived removals: filter four horses down to two matches, remove both, and the input vanished while the filter stayed applied — leaving "No horses match" with no way to clear it. The box now also renders whenever a filter is set, and the empty-result message carries a **Clear filter** button.
+
+**`barn_name` reaches the surfaces that identify a horse.** Added to the admin horse form, and to `/horses/search` — matched in the query and returned on `HorseSearchMatch`, because a barn name is frequently the only name a rider knows a horse by. Search results render `Registered Name "Barn Name"`.
+
+Deliberately **not** added to the public class schedule or published results: those are the official program, where the registered name is the record. The gate screen (`GateEntryOut.horse_name`) is also unchanged for now, though barn name would plausibly help at the in-gate.
+
 ### Registered Name vs Barn Name
 
 `horses.name` has always been the name a horse is entered and published under — for a registered horse, its association name. The add-a-horse form muddied that by prompting for "Registered or barn name", so some rows hold a stable call name instead, and there was nowhere to record the other one.

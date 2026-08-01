@@ -294,9 +294,17 @@ export default function AddHorseWizard({
     const trimmed = newReg.registration_number.trim();
     const st = associations.find((s) => s.id === newReg.association_id)!;
 
-    // Check whether this number is already on file for a different horse.
+    // The lookup answers 200 = already on file for some horse, 404 = clear.
+    // Anything else means the check never ran, so refuse rather than fail open
+    // and silently accept a number that may belong to another horse.
     const qs = new URLSearchParams({ association_id: newReg.association_id, registration_number: trimmed });
-    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    let lookupRes: Response;
+    try {
+      lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    } catch {
+      setRegError('Could not check whether that number is already on file. Check your connection and try again.');
+      return;
+    }
     if (lookupRes.ok) {
       const existing = await lookupRes.json();
       const ownerLabel = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
@@ -304,6 +312,10 @@ export default function AddHorseWizard({
         `${st.code} #${trimmed} is already on file for horse "${existing.horse_name}"${ownerLabel}. ` +
         `If this is the same horse, contact your show secretary.`
       );
+      return;
+    }
+    if (lookupRes.status !== 404) {
+      setRegError('Could not check whether that number is already on file. Try again in a moment.');
       return;
     }
 

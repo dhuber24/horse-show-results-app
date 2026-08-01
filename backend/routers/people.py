@@ -540,9 +540,11 @@ async def search_horses_by_name(
     limit: int = Query(10, ge=1, le=25),
     db: AsyncSession = Depends(get_db),
 ):
-    """Find horses already in the system by name or registration number, so an
-    exhibitor can link one to their profile without knowing the exact association
-    number. Returns the same minimal identifying info as the registration lookup."""
+    """Find horses already in the system by registered name, barn name, or
+    registration number, so an exhibitor can link one to their profile without
+    knowing the exact association number. Barn name is matched because that is
+    frequently the only name a rider knows the horse by. Returns the same minimal
+    identifying info as the registration lookup."""
     term = q.strip()
     if len(term) < 2:
         raise HTTPException(400, "Enter at least 2 characters to search")
@@ -556,7 +558,11 @@ async def search_horses_by_name(
             selectinload(Horse.registrations).selectinload(HorseRegistration.association),
         )
         .outerjoin(HorseRegistration, HorseRegistration.horse_id == Horse.id)
-        .where(or_(Horse.name.ilike(pattern), HorseRegistration.registration_number.ilike(pattern)))
+        .where(or_(
+            Horse.name.ilike(pattern),
+            Horse.barn_name.ilike(pattern),
+            HorseRegistration.registration_number.ilike(pattern),
+        ))
         .order_by(Horse.name)
         .distinct()
         .limit(limit)
@@ -566,6 +572,7 @@ async def search_horses_by_name(
         HorseSearchMatch(
             horse_id=h.id,
             horse_name=h.name,
+            barn_name=h.barn_name,
             owner_name=h.owner_exhibitor.full_name if h.owner_exhibitor else h.owner_name,
             sex=h.sex,
             breed_name=', '.join(b.name for b in h.breeds) or (h.breed.name if h.breed else None),

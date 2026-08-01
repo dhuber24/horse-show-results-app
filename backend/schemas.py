@@ -1209,6 +1209,7 @@ class HorseSearchMatch(BaseModel):
     to link a horse that is already in the system."""
     horse_id: UUID
     horse_name: str
+    barn_name: Optional[str] = None
     owner_name: Optional[str] = None
     sex: Optional[str] = None
     breed_name: Optional[str] = None

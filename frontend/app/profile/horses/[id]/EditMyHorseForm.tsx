@@ -250,8 +250,18 @@ export default function EditMyHorseForm({
     setAddingReg(true);
     setRegError(null);
 
+    // The lookup answers 200 = already on file for some horse, 404 = clear.
+    // Anything else means the check never ran, so refuse rather than fail open
+    // and silently accept a number that may belong to another horse.
     const qs = new URLSearchParams({ association_id: newReg.association_id, registration_number: trimmed });
-    const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    let lookupRes: Response;
+    try {
+      lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
+    } catch {
+      setRegError('Could not check whether that number is already on file. Check your connection and try again.');
+      setAddingReg(false);
+      return;
+    }
     if (lookupRes.ok) {
       const existing = await lookupRes.json();
       if (existing.horse_id && existing.horse_id !== horse.id) {
@@ -264,6 +274,10 @@ export default function EditMyHorseForm({
         setAddingReg(false);
         return;
       }
+    } else if (lookupRes.status !== 404) {
+      setRegError('Could not check whether that number is already on file. Try again in a moment.');
+      setAddingReg(false);
+      return;
     }
 
     const res = await fetch(`/api/horses/${horse.id}/registrations`, {
