@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from uuid import UUID
 from datetime import date
 from typing import Optional
@@ -24,6 +24,7 @@ from models import (
     Class,
     Horse,
     Exhibitor,
+    Result,
     ShowEntry,
     HorseRegistration,
     ShowType,
@@ -175,6 +176,139 @@ async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
     if not show:
         raise HTTPException(404, "Show not found")
     return _serialize(show)
+
+
+@router.get("/{show_id}/results-index")
+async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Lightweight per-class participant index that powers the public Results
+    search. For every placed result in a non-DRAFT class, returns the placing
+    plus the exhibitor/horse names and back number, grouped by class id, so the
+    Results page can filter classes by horse, exhibitor, back number, place, or
+    class number/name without one round trip per class.
+
+    Public, mirroring the other read endpoints backing the Results page.
+    """
+    if not await db.get(Show, show_id):
+        raise HTTPException(404, "Show not found")
+
+    rows = await db.execute(
+        select(
+            Class.id,
+            Result.place,
+            Result.is_tie,
+            Entry.back_number,
+            ShowEntry.back_number,
+            Exhibitor.full_name,
+            Horse.name,
+        )
+        .join(Result, Result.class_id == Class.id)
+        .join(Entry, Entry.id == Result.entry_id)
+        .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
+        .outerjoin(Horse, Horse.id == Entry.horse_id)
+        .outerjoin(
+            ShowEntry,
+            (ShowEntry.show_id == show_id)
+            & (ShowEntry.exhibitor_id == Entry.exhibitor_id),
+        )
+        .where(Class.show_id == show_id, Class.status != "DRAFT")
+        .order_by(Result.place)
+    )
+
+    by_class: dict[str, list[dict]] = {}
+    for class_id, place, is_tie, entry_bn, show_bn, exhibitor_name, horse_name in rows:
+        by_class.setdefault(str(class_id), []).append(
+            {
+                "place": place,
+                "is_tie": bool(is_tie),
+                "back_number": show_bn if show_bn is not None else entry_bn,
+                "exhibitor_name": exhibitor_name,
+                "horse_name": horse_name,
+            }
+        )
+    return by_class
+
+
+@router.get("/{show_id}/program-index")
+async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Per-class program listing for the whole show, grouped by class id — the
+    columns a printed show program carries (back number, horse, owner, sire,
+    dam, exhibitor).
+
+    This backs both halves of the public schedule: expanding a class, and
+    searching the show by horse, exhibitor, owner, or pedigree. Fetching it once
+    beats one round trip per class, matching the results-index that powers the
+    Results page.
+
+    Owner display follows the horse record's own precedence — a linked owner
+    exhibitor wins over the free-text owner_name fallback. Withdrawn entries and
+    DRAFT classes are excluded. Public, like the other read endpoints behind the
+    spectator pages.
+    """
+    if not await db.get(Show, show_id):
+        raise HTTPException(404, "Show not found")
+
+    owner = aliased(Exhibitor)
+    rows = await db.execute(
+        select(
+            Class.id,
+            Entry.id,
+            Entry.back_number,
+            ShowEntry.back_number,
+            Entry.is_disqualified,
+            Entry.gate_order,
+            Exhibitor.full_name,
+            Horse.name,
+            Horse.owner_name,
+            Horse.sire_name,
+            Horse.dam_name,
+            owner.full_name,
+        )
+        .join(Entry, Entry.class_id == Class.id)
+        .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
+        .outerjoin(Horse, Horse.id == Entry.horse_id)
+        .outerjoin(owner, owner.id == Horse.owner_exhibitor_id)
+        .outerjoin(
+            ShowEntry,
+            (ShowEntry.show_id == show_id)
+            & (ShowEntry.exhibitor_id == Entry.exhibitor_id),
+        )
+        .where(
+            Class.show_id == show_id,
+            Class.status != "DRAFT",
+            Entry.status != "WITHDRAWN",
+        )
+        .order_by(Entry.gate_order.nullslast(), Entry.back_number.nullslast())
+    )
+
+    by_class: dict[str, list[dict]] = {}
+    for (
+        class_id,
+        entry_id,
+        entry_bn,
+        show_bn,
+        is_disqualified,
+        gate_order,
+        exhibitor_name,
+        horse_name,
+        horse_owner_name,
+        sire_name,
+        dam_name,
+        owner_full_name,
+    ) in rows:
+        by_class.setdefault(str(class_id), []).append(
+            {
+                "id": str(entry_id),
+                "back_number": show_bn if show_bn is not None else entry_bn,
+                "exhibitor_name": exhibitor_name,
+                "horse_name": horse_name,
+                "owner_name": owner_full_name or horse_owner_name,
+                "sire_name": sire_name,
+                "dam_name": dam_name,
+                "is_disqualified": bool(is_disqualified),
+                "gate_order": gate_order,
+            }
+        )
+    return by_class
 
 
 async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_user_role: str, db: AsyncSession):

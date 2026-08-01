@@ -25,7 +25,7 @@ export async function fetchStepCounts(
 ): Promise<WizardStepsInput> {
   const [judges, sanctioning, fees] = await Promise.all([
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
-    getJson<{ sanctioned_association_id: string }[]>(
+    getJson<{ association_id: string }[]>(
       `${API_URL}/shows/${showId}/sanctioning/`,
       [],
     ),

@@ -11,7 +11,7 @@ export type AssociationOption = {
 };
 
 export type ShowSanctioningRow = {
-  sanctioned_association_id: string;
+  association_id: string;
   code: string;
   name: string;
   per_class_fee_cents: number;
@@ -43,10 +43,10 @@ export default function SanctioningClient({
   // Pre-existing fees stay intact when toggling — we only flip membership
   // here. Per-class fee amounts are entered on Step 5 Fees.
   const initialFeeByAssoc: Record<string, number> = {};
-  for (const c of current) initialFeeByAssoc[c.sanctioned_association_id] = c.per_class_fee_cents;
+  for (const c of current) initialFeeByAssoc[c.association_id] = c.per_class_fee_cents;
 
   const [pickedIds, setPickedIds] = useState<Set<string>>(
-    () => new Set(current.map((c) => c.sanctioned_association_id)),
+    () => new Set(current.map((c) => c.association_id)),
   );
 
   const [requestName, setRequestName] = useState('');
@@ -72,7 +72,7 @@ export default function SanctioningClient({
     setBusy(true);
     try {
       const items = Array.from(pickedIds).map((id) => ({
-        sanctioned_association_id: id,
+        association_id: id,
         per_class_fee_cents: initialFeeByAssoc[id] ?? 0,
       }));
       const res = await fetch(`/api/shows/${showId}/sanctioning`, {

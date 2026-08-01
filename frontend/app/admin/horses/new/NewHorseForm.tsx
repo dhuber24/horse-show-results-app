@@ -4,26 +4,26 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
+import AssociationSelect, { AssociationTypeBadge, AssociationType } from '@/components/AssociationSelect';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
-interface ShowType { id: string; code: string; name: string; }
+interface Association { id: string; code: string; name: string; association_type: AssociationType; }
 interface Trainer { id: string; name: string; }
-interface PendingReg { show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
+interface PendingReg { association_id: string; association_code: string; association_name: string; association_type: AssociationType; registration_number: string; }
 interface PendingRider { exhibitor_id: string; full_name: string; }
 
 interface Props {
   breeds: Breed[];
   colors: HorseColor[];
   exhibitors: Exhibitor[];
-  showTypes: ShowType[];
+  associations: Association[];
   trainers: Trainer[];
 }
 
-const UNCERTIFIED_CODES = ['OPEN'];
 
-export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, trainers }: Props) {
+export default function NewHorseForm({ breeds, colors, exhibitors, associations, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: '',
@@ -34,13 +34,15 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
     trainer_last_name: '',
     trainer_email: '',
     sex: '',
+    sire_name: '',
+    dam_name: '',
     foaling_date: '',
     breed_ids: [] as string[],
     color_id: '',
     is_solid_paint_bred: false,
   });
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
-  const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
+  const [newReg, setNewReg] = useState({ association_id: '', registration_number: '' });
   const [pendingRiders, setPendingRiders] = useState<PendingRider[]>([]);
   const [newRiderId, setNewRiderId] = useState('');
   const [saving, setSaving] = useState(false);
@@ -52,14 +54,14 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
   };
 
   const handleAddReg = async () => {
-    if (!newReg.show_type_id || !newReg.registration_number.trim()) {
+    if (!newReg.association_id || !newReg.registration_number.trim()) {
       setRegError('Select an association and enter a registration number.');
       return;
     }
     const trimmed = newReg.registration_number.trim();
-    const st = showTypes.find((s) => s.id === newReg.show_type_id)!;
+    const st = associations.find((s) => s.id === newReg.association_id)!;
 
-    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const qs = new URLSearchParams({ association_id: newReg.association_id, registration_number: trimmed });
     const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
     if (lookupRes.ok) {
       const existing = await lookupRes.json();
@@ -69,17 +71,18 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
     }
 
     setPendingRegs((prev) => [...prev, {
-      show_type_id: newReg.show_type_id,
-      show_type_code: st.code,
-      show_type_name: st.name,
+      association_id: newReg.association_id,
+      association_code: st.code,
+      association_name: st.name,
+      association_type: st.association_type,
       registration_number: trimmed,
     }]);
-    setNewReg({ show_type_id: '', registration_number: '' });
+    setNewReg({ association_id: '', registration_number: '' });
     setRegError(null);
   };
 
-  const handleRemoveReg = (show_type_id: string) => {
-    setPendingRegs((prev) => prev.filter((r) => r.show_type_id !== show_type_id));
+  const handleRemoveReg = (association_id: string) => {
+    setPendingRegs((prev) => prev.filter((r) => r.association_id !== association_id));
   };
 
   const handleAddRider = () => {
@@ -116,6 +119,8 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
     if (form.sex) body.sex = form.sex;
+    if (form.sire_name.trim()) body.sire_name = form.sire_name.trim();
+    if (form.dam_name.trim()) body.dam_name = form.dam_name.trim();
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     body.breed_ids = form.breed_ids;
     if (form.color_id) body.color_id = form.color_id;
@@ -140,11 +145,11 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
       const regRes = await fetch(`/api/horses/${horse.id}/registrations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_type_id: reg.show_type_id, registration_number: reg.registration_number }),
+        body: JSON.stringify({ association_id: reg.association_id, registration_number: reg.registration_number }),
       });
       if (!regRes.ok) {
         const err = await regRes.json().catch(() => ({}));
-        regFailures.push(`${reg.show_type_code} #${reg.registration_number}: ${err.detail ?? 'failed to add'}`);
+        regFailures.push(`${reg.association_code} #${reg.registration_number}: ${err.detail ?? 'failed to add'}`);
       }
     }
 
@@ -166,9 +171,9 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
     router.push(`/admin/horses/${horse.id}`);
   };
 
-  const usedShowTypeIds = new Set(pendingRegs.map((r) => r.show_type_id));
-  const availableShowTypes = showTypes.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
+  const usedAssociationIds = new Set(pendingRegs.map((r) => r.association_id));
+  const availableAssociations = associations.filter(
+    (a) => !usedAssociationIds.has(a.id)
   );
 
   const pendingRiderIds = new Set(pendingRiders.map((r) => r.exhibitor_id));
@@ -228,6 +233,14 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
               {displayAge !== null && <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Age: {displayAge})</span>}
             </label>
             <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sire</label>
+            <input name="sire_name" value={form.sire_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Dam</label>
+            <input name="dam_name" value={form.dam_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
           </div>
           <div className="sm:col-span-2">
             <BreedCheckboxGroup
@@ -291,30 +304,32 @@ export default function NewHorseForm({ breeds, colors, exhibitors, showTypes, tr
         {pendingRegs.length > 0 ? (
           <ul className="space-y-2">
             {pendingRegs.map((r) => (
-              <li key={r.show_type_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+              <li key={r.association_id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
                 <div>
-                  <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span>
+                  <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.association_code}</span>
                   <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
-                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.show_type_name}</span>
+                  <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.association_name}</span>
+                  <span className="ml-2"><AssociationTypeBadge type={r.association_type} /></span>
                 </div>
-                <button onClick={() => handleRemoveReg(r.show_type_id)} className="text-xs text-red-600 hover:text-red-800 ml-4">Remove</button>
+                <button onClick={() => handleRemoveReg(r.association_id)} className="text-xs text-red-600 hover:text-red-800 ml-4">Remove</button>
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm" style={{ color: '#8b7355' }}>No registrations added yet.</p>
         )}
-        {availableShowTypes.length > 0 && (
+        {availableAssociations.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[160px]">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-              <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
-                <option value="">Select...</option>
-                {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
-              </select>
+              <AssociationSelect
+                associations={availableAssociations}
+                value={newReg.association_id}
+                onChange={(association_id) => setNewReg((p) => ({ ...p, association_id }))}
+              />
             </div>
             <div className="flex-1 min-w-[160px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration / Member #</label>
               <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
             </div>
             <button onClick={handleAddReg} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>Add</button>

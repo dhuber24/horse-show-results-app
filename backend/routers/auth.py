@@ -11,7 +11,7 @@ import bcrypt
 import logging
 
 from database import get_db
-from models import User, Exhibitor, ShowSecretaryCertification, ShowType, Trainer
+from models import User, Exhibitor, ShowSecretaryCertification, Association, Trainer
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -38,7 +38,7 @@ class UserRegister(BaseModel):
 
 
 class SecretaryCertificationIn(BaseModel):
-    show_type_id: UUID
+    association_id: UUID
     secretary_id_number: Optional[str] = None
 
 
@@ -194,9 +194,9 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
         raise HTTPException(409, "Email already registered")
 
     for cert in body.certifications:
-        st = await db.get(ShowType, cert.show_type_id)
-        if not st:
-            raise HTTPException(400, f"Unknown show type: {cert.show_type_id}")
+        assoc = await db.get(Association, cert.association_id)
+        if not assoc:
+            raise HTTPException(400, f"Unknown association: {cert.association_id}")
 
     user = User(
         email=email,
@@ -211,7 +211,7 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
     for cert in body.certifications:
         db.add(ShowSecretaryCertification(
             user_id=user.id,
-            show_type_id=cert.show_type_id,
+            association_id=cert.association_id,
             secretary_id_number=cert.secretary_id_number,
         ))
 

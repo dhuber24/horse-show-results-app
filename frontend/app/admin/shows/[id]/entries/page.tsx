@@ -35,11 +35,19 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       const raw = await fetchEntries(id, cls.id).catch(() => []);
       return {
         cls,
-        entries: raw.map((e: any) => ({
-          ...e,
-          horse_name: horsesById.get(e.horse_id)?.name,
-          exhibitor_name: exhibitorsById.get(e.exhibitor_id)?.full_name,
-        })),
+        entries: raw.map((e: any) => {
+          const horse = horsesById.get(e.horse_id);
+          return {
+            ...e,
+            horse_name: horse?.name,
+            // A linked owner exhibitor wins over the free-text fallback, the
+            // same precedence the public program listing uses.
+            owner_name: horse?.owner_exhibitor_name ?? horse?.owner_name ?? null,
+            sire_name: horse?.sire_name ?? null,
+            dam_name: horse?.dam_name ?? null,
+            exhibitor_name: exhibitorsById.get(e.exhibitor_id)?.full_name,
+          };
+        }),
       };
     })
   );

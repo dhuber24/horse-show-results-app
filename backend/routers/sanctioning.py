@@ -9,7 +9,7 @@ from typing import Optional
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, safe_uuid
 from models import (
-    SanctionedAssociation,
+    Association,
     SanctionedAssociationRequest,
     ShowSanctioning,
     Show,
@@ -40,9 +40,14 @@ async def list_sanctioned_associations(
     db: AsyncSession = Depends(get_db),
 ):
     await require_authenticated(x_api_key=x_api_key, x_user_id=x_user_id)
-    query = select(SanctionedAssociation).order_by(SanctionedAssociation.name)
+    # Clubs are the sanctioning bodies; breed registries are not shows' sanctioners.
+    query = (
+        select(Association)
+        .where(Association.association_type == 'club')
+        .order_by(Association.name)
+    )
     if not include_inactive:
-        query = query.where(SanctionedAssociation.is_active.is_(True))
+        query = query.where(Association.is_active.is_(True))
     rows = (await db.execute(query)).scalars().all()
     return rows
 
@@ -59,11 +64,13 @@ async def create_sanctioned_association(
 ):
     code = body.code.strip().upper()
     existing = await db.execute(
-        select(SanctionedAssociation).where(SanctionedAssociation.code == code)
+        select(Association).where(Association.code == code)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(409, "A sanctioned association with that code already exists")
-    row = SanctionedAssociation(code=code, name=body.name.strip(), is_active=body.is_active)
+        raise HTTPException(409, "An association with that code already exists")
+    row = Association(
+        code=code, name=body.name.strip(), association_type='club', is_active=body.is_active
+    )
     db.add(row)
     await db.commit()
     await db.refresh(row)
@@ -80,8 +87,8 @@ async def update_sanctioned_association(
     body: SanctionedAssociationUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    row = await db.get(SanctionedAssociation, association_id)
-    if not row:
+    row = await db.get(Association, association_id)
+    if not row or row.association_type != 'club':
         raise HTTPException(404, "Sanctioned association not found")
     data = body.model_dump(exclude_unset=True)
     if "code" in data and data["code"]:
@@ -165,13 +172,15 @@ async def review_request(
     if body.action == "approve":
         code = body.code.strip().upper()
         existing = await db.execute(
-            select(SanctionedAssociation).where(SanctionedAssociation.code == code)
+            select(Association).where(Association.code == code)
         )
         existing_row = existing.scalar_one_or_none()
         if existing_row:
             assoc = existing_row
         else:
-            assoc = SanctionedAssociation(code=code, name=row.requested_name, is_active=True)
+            assoc = Association(
+                code=code, name=row.requested_name, association_type='club', is_active=True
+            )
             db.add(assoc)
             await db.flush()
         row.status = "approved"
@@ -194,9 +203,9 @@ show_router = APIRouter(prefix="/shows/{show_id}/sanctioning", tags=["Show Sanct
 
 def _serialize_show_sanctioning(row: ShowSanctioning) -> dict:
     return {
-        "sanctioned_association_id": row.sanctioned_association_id,
-        "code": row.sanctioned_association.code if row.sanctioned_association else "",
-        "name": row.sanctioned_association.name if row.sanctioned_association else "",
+        "association_id": row.association_id,
+        "code": row.association.code if row.association else "",
+        "name": row.association.name if row.association else "",
         "per_class_fee_cents": row.per_class_fee_cents,
     }
 
@@ -215,7 +224,7 @@ async def get_show_sanctioning(
     result = await db.execute(
         select(ShowSanctioning)
         .where(ShowSanctioning.show_id == show_id)
-        .options(selectinload(ShowSanctioning.sanctioned_association))
+        .options(selectinload(ShowSanctioning.association))
     )
     return [_serialize_show_sanctioning(r) for r in result.scalars().all()]
 
@@ -239,11 +248,12 @@ async def replace_show_sanctioning(
 
     # Validate referenced associations exist and are active
     if body.items:
-        ids = [item.sanctioned_association_id for item in body.items]
+        ids = [item.association_id for item in body.items]
         existing = await db.execute(
-            select(SanctionedAssociation.id).where(
-                SanctionedAssociation.id.in_(ids),
-                SanctionedAssociation.is_active.is_(True),
+            select(Association.id).where(
+                Association.id.in_(ids),
+                Association.association_type == 'club',
+                Association.is_active.is_(True),
             )
         )
         valid_ids = {r[0] for r in existing.all()}
@@ -251,7 +261,7 @@ async def replace_show_sanctioning(
         if invalid:
             raise HTTPException(
                 422,
-                f"Unknown or inactive sanctioned associations: {', '.join(invalid)}",
+                f"Unknown or inactive club associations: {', '.join(invalid)}",
             )
 
     # Replace: delete then re-insert
@@ -260,7 +270,7 @@ async def replace_show_sanctioning(
         db.add(
             ShowSanctioning(
                 show_id=show_id,
-                sanctioned_association_id=item.sanctioned_association_id,
+                association_id=item.association_id,
                 per_class_fee_cents=item.per_class_fee_cents,
             )
         )
@@ -269,6 +279,6 @@ async def replace_show_sanctioning(
     result = await db.execute(
         select(ShowSanctioning)
         .where(ShowSanctioning.show_id == show_id)
-        .options(selectinload(ShowSanctioning.sanctioned_association))
+        .options(selectinload(ShowSanctioning.association))
     )
     return [_serialize_show_sanctioning(r) for r in result.scalars().all()]

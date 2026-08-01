@@ -53,6 +53,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
   const [error, setError] = useState('');
   const [showProceedPrompt, setShowProceedPrompt] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [confirmingSkip, setConfirmingSkip] = useState(false);
   const [ringConflict, setRingConflict] = useState<{ id: string; number: string; name: string } | null>(null);
 
   // The gate screen is scoped to a single show day: today when the show is
@@ -120,6 +121,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
   useEffect(() => {
     if (selectedClassId) loadEntries(selectedClassId);
     setConfirmingReset(false);
+    setConfirmingSkip(false);
   }, [selectedClassId, loadEntries]);
 
   // Drag-and-drop reorder with optimistic update and auto-save on drop,
@@ -288,6 +290,17 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
     }
   }
 
+  // Skip an empty class: a class with no entries can never reach "ready"
+  // (which needs at least one checked-in exhibitor), so it would otherwise
+  // block the ring forever. Marking it done clears it and advances the ring.
+  async function skipClass() {
+    if (!selectedClassId) return;
+    if (await setClassStatus(selectedClassId, 'done')) {
+      setConfirmingSkip(false);
+      proceedToNextClass();
+    }
+  }
+
   function proceedToNextClass() {
     setShowProceedPrompt(false);
     const upNext = dayClasses.find(
@@ -314,6 +327,23 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
           confirming={busy}
           onConfirm={finishPreviousAndStart}
           onCancel={() => setRingConflict(null)}
+        />
+      )}
+
+      {confirmingSkip && selectedClass && (
+        <ConfirmDialog
+          title="Skip this class?"
+          message={
+            `#${selectedClass.class_number} ${selectedClass.class_name} has no entries at the gate. ` +
+            `Skip it and mark it done?` +
+            (upNextAfterSelected
+              ? ` You'll move on to #${upNextAfterSelected.class_number} ${upNextAfterSelected.class_name}.`
+              : '')
+          }
+          confirmLabel="Skip class"
+          confirming={busy}
+          onConfirm={skipClass}
+          onCancel={() => setConfirmingSkip(false)}
         />
       )}
 
@@ -370,6 +400,25 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
               {upNextAfterSelected &&
                 ` · Up next: #${upNextAfterSelected.class_number} ${upNextAfterSelected.class_name}`}
             </p>
+
+            {!loading && entries.length === 0 && selectedClass.gate_status !== 'done' && (
+              <div
+                className="rounded border p-3 mb-3 flex items-center justify-between gap-2 flex-wrap"
+                style={{ borderColor: '#e0c99a', backgroundColor: '#fdf7e8' }}
+              >
+                <p className="text-sm" style={{ color: '#8a6106' }}>
+                  This class has no entries at the gate. Skip it to move on to the next class.
+                </p>
+                <button
+                  onClick={() => setConfirmingSkip(true)}
+                  disabled={busy}
+                  className="text-sm px-3 py-1 rounded text-white disabled:opacity-50 shrink-0"
+                  style={{ backgroundColor: '#8a6106' }}
+                >
+                  Skip class
+                </button>
+              </div>
+            )}
 
             {selectedClass.gate_status === 'ready' && (
               <div

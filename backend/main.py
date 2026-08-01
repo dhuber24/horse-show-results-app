@@ -42,6 +42,7 @@ from routers.show_judges import (
     router as show_judges_router,
     known_judges_router,
 )
+from routers.associations import router as associations_router
 from routers.sanctioning import (
     registry_router as sanctioning_registry_router,
     requests_router as sanctioning_requests_router,
@@ -115,6 +116,7 @@ app.include_router(results_router)
 app.include_router(backnumbers_router)
 app.include_router(venues_router)
 app.include_router(show_types_router)
+app.include_router(associations_router)
 app.include_router(show_staff_router)
 app.include_router(certifications_router)
 app.include_router(apha_standard_classes_router)

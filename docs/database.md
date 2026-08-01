@@ -88,6 +88,8 @@ Current migration files:
 | `076_gate_class_progression.sql` | Gate progression moves to the class level: `classes.gate_status` (`pending`/`done`; the current and on-deck classes are derived from show order) and `entries.gate_checked_in` bool replace `entries.gate_status` from 075 (dropped, never used in production). |
 | `077_gate_ready_in_progress.sql` | Widen `classes.gate_status` to `pending`/`ready`/`in_progress`/`done`. `ready` is set automatically by the check-in endpoint when every exhibitor has checked in (and reverts to `pending` on undo); `in_progress` is set explicitly by the steward when the first exhibitor enters the ring. |
 | `078_default_ring_backfill.sql` | Every class gets a ring: creates a "Ring 1" for shows that have ring-less classes and no rings, then assigns every ring-less class its show's first ring. Class-creation endpoints now apply the same default; the gate enforces one in-progress class per ring. `classes.ring_id` stays nullable at the schema level. |
+| `079_horse_pedigree.sql` | Add nullable free-text `horses.sire_name` and `horses.dam_name` so the class schedule and admin entry list can carry the owner/sire/dam columns a printed show program prints. |
+| `080_associations_registry.sql` | **Concept split: affiliation vs show configuration.** New `associations` registry (`code`, `name`, `association_type` = `breed` or `club`, `is_active`). `show_types` had been doing two unrelated jobs — "what kind of show is this?" and "which body is this horse/person registered with?" — which forced club bodies (NSBA, WSCA) to masquerade as show types, and duplicated them again in `sanctioned_associations`. Every table storing a membership/registration number repoints from `show_types` to `associations`: `horse_registrations`, `exhibitor_registrations`, `trainer_registrations`, `exhibitor_documents`, `show_secretary_certifications` (all `show_type_id` -> `association_id`, unique constraints renamed to match). `sanctioned_associations` is folded in and dropped: `show_sanctioning.sanctioned_association_id` -> `association_id` referencing `associations`, same for `sanctioned_association_requests.approved_association_id`. NSBA/WSCA are deleted from `show_types` — they are clubs, not show types, so an NSBA-approved show is now an OPEN (or breed) show carrying NSBA club sanctioning. There is deliberately no `associations` row for OPEN: "Open" is the absence of a breed association, not a body anyone holds a membership with. |
 
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
@@ -133,11 +135,11 @@ Mirrors `exhibitor_registrations` with extra credential fields:
 
 - `id` UUID primary key
 - `trainer_id` UUID NOT NULL FK -> `trainers.id` (`ON DELETE CASCADE`)
-- `show_type_id` UUID NOT NULL FK -> `show_types.id` (`ON DELETE CASCADE`)
+- `association_id` UUID NOT NULL FK -> `associations.id` (`ON DELETE CASCADE`) — was `show_type_id` -> `show_types.id` before migration 080
 - `member_number` TEXT NOT NULL
 - `status` TEXT NOT NULL default `'general'`, CHECK `('professional','non_pro','general')` — captures AQHA Professional Horseman / NRHA Pro / Non Pro distinction
 - `expires_at` DATE nullable
-- UNIQUE `(trainer_id, show_type_id)`
+- UNIQUE `(trainer_id, association_id)`
 
 ### New table: `trainer_documents` (migration 049)
 
@@ -246,7 +248,8 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 
 | Entity | Notes |
 | --- | --- |
-| `show_types` | Association catalog, currently AQHA, APHA, WSCA, NSBA, ApHC, FQHR, OPEN |
+| `associations` | **Affiliation registry** (migration 080) — bodies a horse or person is registered/enrolled with, typed `breed` (AQHA, APHA, ApHC, FQHR) or `club` (NSBA, WSCA). Everything storing a membership/registration number points here, and it is also the source for per-show club sanctioning. No OPEN row: Open means no breed association. |
+| `show_types` | **Show configuration** — what kind of show is being put on, which drives eligibility and the standard class catalogs. Currently AQHA, APHA, ApHC, FQHR, OPEN. Distinct from `associations`: an AQHA *show* and an AQHA *registration* are different facts, so the same code legitimately appears in both lists. Clubs are not show types. |
 | `venues` | Show locations. `created_by_user_id` (added in migration 053) tracks the creator so Show Managers can delete venues they created. |
 | `shows` | Event shell with primary show type, venue, dates, status |
 | `show_affiliations` | Secondary associations available for selected classes |

@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 
-interface ShowType { id: string; code: string; name: string; }
+interface Association { id: string; code: string; name: string; }
 interface Registration {
   id: string;
-  show_type_id: string;
-  show_type_code: string;
-  show_type_name: string;
+  association_id: string;
+  association_code: string;
+  association_name: string;
   member_number: string;
 }
 interface Certificate {
@@ -16,7 +16,7 @@ interface Certificate {
   original_filename: string;
   issue_date: string | null;
   expiry_date: string | null;
-  show_type_id: string | null;
+  association_id: string | null;
 }
 
 interface Props {
@@ -61,15 +61,15 @@ export default function ExhibitorRegistrations({
   onCertificateDeleted,
 }: Props) {
   const [regs, setRegs] = useState<Registration[]>(initialRegistrations ?? []);
-  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
-  const [newReg, setNewReg] = useState({ show_type_id: '', member_number: '' });
+  const [associations, setAssociations] = useState<Association[]>([]);
+  const [newReg, setNewReg] = useState({ association_id: '', member_number: '' });
   const [saving, setSaving] = useState(false);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
   const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Per-registration certificate upload state
-  const [uploadOpenFor, setUploadOpenFor] = useState<string | null>(null); // show_type_id
+  const [uploadOpenFor, setUploadOpenFor] = useState<string | null>(null); // association_id
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDates, setUploadDates] = useState({ issue_date: '', expiry_date: '' });
   const [uploading, setUploading] = useState(false);
@@ -78,16 +78,16 @@ export default function ExhibitorRegistrations({
   const [deletingCertId, setDeletingCertId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
+    fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
-  const usedShowTypeIds = new Set(regs.map((r) => r.show_type_id));
-  const availableShowTypes = showTypes.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
+  const usedAssociationIds = new Set(regs.map((r) => r.association_id));
+  const availableAssociations = associations.filter(
+    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedAssociationIds.has(st.id)
   );
 
   const handleAddReg = async () => {
-    if (!newReg.show_type_id || !newReg.member_number.trim()) {
+    if (!newReg.association_id || !newReg.member_number.trim()) {
       setError('Select an association and enter a membership ID.');
       return;
     }
@@ -96,13 +96,13 @@ export default function ExhibitorRegistrations({
     const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ show_type_id: newReg.show_type_id, member_number: newReg.member_number.trim() }),
+      body: JSON.stringify({ association_id: newReg.association_id, member_number: newReg.member_number.trim() }),
     });
     setSaving(false);
     if (res.ok) {
       const created = await res.json();
       setRegs((prev) => [...prev, created]);
-      setNewReg({ show_type_id: '', member_number: '' });
+      setNewReg({ association_id: '', member_number: '' });
     } else {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to save membership ID.');
@@ -119,8 +119,8 @@ export default function ExhibitorRegistrations({
     setConfirmDeleteRegId(null);
   };
 
-  const openUpload = (showTypeId: string) => {
-    setUploadOpenFor(showTypeId);
+  const openUpload = (associationId: string) => {
+    setUploadOpenFor(associationId);
     setUploadFile(null);
     setUploadDates({ issue_date: '', expiry_date: '' });
     setUploadError(null);
@@ -133,7 +133,7 @@ export default function ExhibitorRegistrations({
     const fd = new FormData();
     fd.append('file', uploadFile);
     fd.append('document_type', 'MEMBERSHIP_CARD');
-    fd.append('show_type_id', reg.show_type_id);
+    fd.append('association_id', reg.association_id);
     if (uploadDates.issue_date) fd.append('issue_date', uploadDates.issue_date);
     if (uploadDates.expiry_date) fd.append('expiry_date', uploadDates.expiry_date);
     const res = await fetch(`/api/exhibitors/${exhibitorId}/documents`, { method: 'POST', body: fd });
@@ -166,10 +166,10 @@ export default function ExhibitorRegistrations({
         <ul className="space-y-3">
           {regs.map((reg) => {
             const cert = certificates.find(
-              (d) => d.show_type_id === reg.show_type_id && d.document_type === 'MEMBERSHIP_CARD'
+              (d) => d.association_id === reg.association_id && d.document_type === 'MEMBERSHIP_CARD'
             ) ?? null;
             const status = cert ? certStatus(cert.expiry_date) : null;
-            const isUploadOpen = uploadOpenFor === reg.show_type_id;
+            const isUploadOpen = uploadOpenFor === reg.association_id;
 
             return (
               <li key={reg.id} className="rounded-lg border p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
@@ -177,10 +177,10 @@ export default function ExhibitorRegistrations({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <span className="font-mono text-sm font-semibold mr-2" style={{ color: '#8b4513' }}>
-                      {reg.show_type_code}
+                      {reg.association_code}
                     </span>
                     <span className="text-sm" style={{ color: '#2c1810' }}>{reg.member_number}</span>
-                    <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.show_type_name})</span>
+                    <span className="text-xs ml-2" style={{ color: '#8b7355' }}>({reg.association_name})</span>
                   </div>
                   {confirmDeleteRegId === reg.id ? (
                     <span className="flex items-center gap-2 shrink-0">
@@ -231,7 +231,7 @@ export default function ExhibitorRegistrations({
                       </div>
                     </div>
                   ) : isUploadOpen ? null : (
-                    <button onClick={() => openUpload(reg.show_type_id)}
+                    <button onClick={() => openUpload(reg.association_id)}
                       className="text-xs font-medium hover:underline" style={{ color: '#8b4513' }}>
                       + Attach certificate
                     </button>
@@ -291,14 +291,14 @@ export default function ExhibitorRegistrations({
         </ul>
       )}
 
-      {availableShowTypes.length > 0 && (
+      {availableAssociations.length > 0 && (
         <div className="flex flex-wrap gap-2 items-end pt-1">
           <div className="flex-1 min-w-[140px]">
-            <select value={newReg.show_type_id}
-              onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
+            <select value={newReg.association_id}
+              onChange={(e) => setNewReg((p) => ({ ...p, association_id: e.target.value }))}
               className="w-full border rounded px-3 py-2 text-sm">
               <option value="">Association…</option>
-              {availableShowTypes.map((st) => (
+              {availableAssociations.map((st) => (
                 <option key={st.id} value={st.id}>{st.code} — {st.name}</option>
               ))}
             </select>
@@ -317,7 +317,7 @@ export default function ExhibitorRegistrations({
         </div>
       )}
 
-      {availableShowTypes.length === 0 && regs.length > 0 && (
+      {availableAssociations.length === 0 && regs.length > 0 && (
         <p className="text-xs" style={{ color: '#8b7355' }}>All associations have a membership ID on file.</p>
       )}
 

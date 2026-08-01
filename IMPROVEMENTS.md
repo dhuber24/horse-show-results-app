@@ -1,5 +1,60 @@
 # Codebase Improvements
 
+## July 2026
+
+### Associations Split from Show Types (Breed vs Club)
+
+`show_types` had been doing two unrelated jobs: describing **what kind of show is being put on** (drives eligibility and the standard class catalogs) and recording **which body a horse or person is registered with**. Conflating them forced club bodies (NSBA, WSCA) to masquerade as show types so their membership numbers had somewhere to live — and they were then duplicated *again* in `sanctioned_associations` for per-show sanctioning fees.
+
+**Migration 080 (`080_associations_registry.sql`)**
+- New `associations` registry: `code`, `name`, `association_type` (`breed` | `club`), `is_active`.
+- Seeded `breed` from the non-club show types (AQHA, APHA, ApHC, FQHR) and `club` from `sanctioned_associations` (NSBA, WSCA).
+- Repointed every affiliation FK from `show_types` to `associations`: `horse_registrations`, `exhibitor_registrations`, `trainer_registrations`, `exhibitor_documents`, `show_secretary_certifications`, with unique constraints renamed to match.
+- Folded `sanctioned_associations` in and dropped it; `show_sanctioning` and `sanctioned_association_requests` now reference `associations`, so "this show is NSBA-sanctioned" and "this rider is an NSBA member" point at one record.
+- Deleted NSBA/WSCA from `show_types`. An NSBA-approved show is now an OPEN (or breed) show carrying NSBA club sanctioning.
+- No `associations` row for OPEN: "Open" is the absence of a breed association, not a body anyone holds a membership with. This also made the `UNCERTIFIED_CODES = ['OPEN']` guards scattered through the association pickers dead code, and they were removed.
+- Dry-run first (migration piped with `COMMIT` swapped for `ROLLBACK`) to verify the backfill before committing.
+
+**Backend**
+- `models.Association` added with the concept boundary documented on both it and `ShowType`.
+- New `/associations` router (`?type=breed|club`); the existing `/sanctioned-associations` endpoints now serve the club slice of the same registry so the setup wizard keeps working.
+- Registration/document/certification schemas renamed `show_type_*` → `association_*` and gained `association_type` so clients can group.
+- **Behaviour fix caught during the split:** `_class_is_nsba()` in `show_registration.py` tested `show.show_type.code == "NSBA"`. With NSBA no longer a show type that check was silently dead, which would have zeroed NSBA sanction fees. It now reads club sanctioning off the show, and `_load_published_show_or_403` eager-loads `Show.sanctioning` to support it.
+
+**Frontend**
+- New `/api/associations` route handler and `fetchAssociations()` helper.
+- Horse registration UI splits the kinds: `MyHorsesPanel`'s add form has separate **Breed Registrations** and **Club Memberships** sections (`Reg #` vs `Member #`); the three edit forms use a new shared `components/AssociationSelect.tsx` rendering `<optgroup>`s plus an `AssociationTypeBadge` per row.
+- Horse-card registration chips are colour-coded by type and sorted breed-first.
+- Exhibitor membership, trainer affiliation, secretary-certification, and show-sanctioning surfaces were repointed to the new registry (field renames only — their flat lists are unchanged).
+
+### Exhibitor Profile: My Horses Revamp
+
+Rebuilt the `My Horses` tab so an exhibitor can tell at a glance whether each horse is actually ready to be entered, and can find a horse already in the system without knowing its registration number.
+
+**Backend (`backend/schemas.py`, `backend/routers/people.py`)**
+- Extracted the `HorseOut` ORM→dict projection into a shared `_horse_out_data()` helper so subclasses can extend it without duplicating the derivation logic.
+- Added `MyHorseOut(HorseOut)` carrying `registrations` (association code + number) and `documents` (type, label, issue/expiry dates). `GET /exhibitors/{id}/my-horses` and the created/linked horse POSTs now return it.
+- `_my_horse_options` eager-loads registrations (with `show_type`) and documents. The document load uses `load_only(document_type, issue_date, expiry_date)` deliberately — `horse_documents.file_data` holds the file bytes and must never be pulled into a list response.
+- `_my_horse_out()` blanks `documents` for horses the caller does not own, matching the owner-only access rule already enforced on the horse-documents endpoints.
+- Added `GET /horses/search?q=` (authenticated): case-insensitive match on horse name **or** registration number, returning name, owner, sex, breed, and registration chips. Declared before `/horses/{horse_id}` so the static segment wins.
+
+**Frontend (`frontend/app/profile/MyHorsesPanel.tsx`, `frontend/app/api/horses/search/route.ts`)**
+- Replaced the flat list rows with per-horse cards: badges (sex / SPB / Owner·Created·Linked), breed · color · age, sire/dam pedigree, owner + trainer, registration chips, and readiness flags.
+- Readiness flags surface what blocks an entry: missing association registration, no Coggins on file, and documents expired or expiring within 45 days. Only the newest document per type is evaluated, so a replaced Coggins does not raise a false alarm.
+- Actions moved to a dedicated footer row so cards stay aligned no matter how many flags a horse has.
+- "Find an existing horse" gained a **by horse name** mode alongside the existing registration-number lookup; horses already on the profile are labeled rather than offered again, and both modes fall back to "Create new profile" carrying over what was typed.
+- Added a filter box (name, sire, dam, registration #) and Name/Recently-added sort, shown once the exhibitor has 4+ horses; plus a horse count, persistent Add/Find buttons, and a real empty state.
+- `ProfileTabs` now imports the exported `MyHorse` type instead of keeping a duplicate local interface that could drift.
+
+**Add-a-Horse ownership question reworked**
+- Replaced the three-option owner picker (own it / pick an existing owner from a dropdown / type owner details) with a two-option question: **"I own this horse"** or **"I ride this horse, but do not own it"**.
+- Owning goes straight to the horse-detail fields, unchanged.
+- Riding gates the form behind a search: horse-detail fields and Save stay hidden until the exhibitor either selects a match from `/api/horses/search` (linked via `/linked-horses`) or clicks "Not in the app?", which then requires owner first/last/email plus the horse details. This is the point of the change — a rider can no longer create a duplicate record for a horse that is already on file without looking first.
+- The dropped "owner is already in the system" picker needed no replacement: the backend's `owner_email` path already resolves to an existing exhibitor when the email matches a user, and creates a standalone owner record otherwise. It also removes a `/api/exhibitors/names` fetch that pulled every exhibitor in the system into the form.
+- Extracted `SearchResultList` so the standalone find-a-horse panel and the ride-mode search render identically.
+
+---
+
 ## June 2026
 
 ### Horse Edit Forms: Collapsible Sections, Rider Management, and Entry Form Per-Exhibitor Horse Loading

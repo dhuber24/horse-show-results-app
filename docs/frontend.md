@@ -22,6 +22,8 @@ Authenticated browser actions should call a Next route handler. The route handle
 
 Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a non-JSON error.
 
+Public spectator screens skip route handlers entirely: they are server components that call the unauthenticated helpers in `frontend/lib/api.ts` directly, so signed-out visitors are never a special case. Where such a page needs client-side interactivity over a lot of rows — searching, filtering, starring — fetch the whole set once on the server with an index endpoint (`fetchResultsIndex`, `fetchProgramIndex`) and hand it to a client component, rather than making the browser fetch per row.
+
 ## UI Patterns
 
 - Admin pages use `frontend/components/Breadcrumbs.tsx`.
@@ -29,12 +31,19 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 - Disabled buttons should include a `title` explaining why they are disabled.
 - Keep admin and operational screens dense, scannable, and predictable.
 - Avoid adding new uses of `ConfirmDialog`; the current convention is inline confirmation.
+- Spectator-only preferences (starred classes on the schedule) persist in `localStorage`, not the database — these screens are used signed-out. Key them per show (`hsr:fav-classes:{showId}`), read them in an effect after mount so SSR and first client render agree, and guard the write-back so the empty pre-hydration state cannot clobber what is stored.
 
 ## Important Routes
 
 | Route | Purpose |
 | --- | --- |
-| `/` | Public show list |
+| `/` | Public home: Active Shows entry button + upcoming show list |
+| `/shows/active` | Public list of `ACTIVE`-status shows |
+| `/shows/[id]/live` | Public active-show hub: buttons for Schedule, Results, Leaderboard, Details |
+| `/shows/[id]/schedule` | Public class schedule: day tabs, per-ring grouping, live gate badges, per-class expandable program listing (back #, horse, owner, sire, dam, exhibitor), whole-show search across classes *and* entries (horse, exhibitor, owner, sire, dam, back #), and per-device starred classes |
+| `/shows/[id]/results` | Public results index (posted vs awaiting) |
+| `/shows/[id]/leaderboard` | Public high-point standings (placeholder — scoring model pending) |
+| `/shows/[id]/details` | Public show details: venue, dates, associations, policies |
 | `/shows/[id]` | Public show detail and scorekeeper class links |
 | `/shows/[id]/classes/[classId]` | Public class results |
 | `/shows/[id]/classes/[classId]/scorekeeper` | Scorekeeper placing form |
@@ -48,6 +57,9 @@ Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a no
 | `/api/exhibitors/[id]/created-horses` | Horses created by exhibitor |
 | `/api/exhibitors/[id]/linked-horses` | Non-owner horse links for exhibitor |
 | `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list |
+| `/api/associations` | Affiliation registry (breed registries + club bodies); `?type=breed\|club` filters |
+| `/api/horses/search` | Horse name / registration-number search used to link an existing horse |
+| `/api/horses/registrations/lookup` | Exact association + registration-number horse lookup |
 | `/api/trainers` | Trainer list/create proxy |
 | `/api/trainers/[id]` | Trainer update/delete proxy |
 | `/api/trainers/me` | Current trainer profile proxy |
@@ -86,6 +98,26 @@ npm run build
 - `/profile` now separates `Account`, `Memberships`, and `My Horses` into tabs via `ProfileTabs`.
 - `EditAccountForm` manages user identity plus exhibitor contact/emergency/youth fields.
 - `MyHorsesPanel` supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
+- `MyHorsesPanel` renders one card per horse showing sex/SPB/role badges, breed · color · age, sire/dam pedigree, owner and trainer, association registration chips, and **readiness flags**. Flags call out what would block an entry: no association registration, no Coggins on file, and documents that are expired or expiring within 45 days. Only the newest document of each type is evaluated, so a superseded Coggins does not raise a false alarm. Actions sit in their own footer row so cards stay aligned regardless of flag count.
+- Readiness flags are driven by `registrations` and `documents` on `MyHorseOut` (backed by `GET /exhibitors/{id}/my-horses`). The backend only populates `documents` for horses the caller owns, matching the owner-only access rule on the horse-documents endpoints, so linked horses show registration flags only.
+- "Find an existing horse" searches **by horse name or registration number** (`/api/horses/search`) or by exact association + number (`/api/horses/registrations/lookup`). Results the exhibitor already has are labeled instead of offering a duplicate link. Either search falls back to "Create new profile", carrying the typed name or registration number into the add form.
+- The Add-a-Horse form opens with a two-way ownership question — **"I own this horse"** or **"I ride this horse, but do not own it"**. Owning shows the horse-detail fields immediately. Riding requires searching the app for the horse and its owner first; the detail fields and Save stay hidden until the exhibitor either selects a match (which links it via `/linked-horses`) or explicitly says the horse isn't in the app, which then requires owner first/last/email alongside the horse details. Search-first is what keeps riders from creating duplicate records for horses that are already on file.
+- Owner details entered in ride mode go to `POST /exhibitors/{id}/created-horses` as `owner_first_name` / `owner_last_name` / `owner_email` with `claim_ownership: false`. The backend links to an existing exhibitor when the email matches a user and otherwise creates a standalone owner record, so the removed "owner is already in the system" picker is still covered. The horse lands on the rider's profile via `created_by_exhibitor_id` and shows the `Created` badge, not `Owner`.
+- A filter box and Name/Recently-added sort appear once the exhibitor has 4+ horses.
+
+## Associations vs Show Types
+
+Two different lists that are easy to confuse (see migration 080):
+
+- **`/api/associations`** — bodies a horse or person is affiliated with, typed `breed` (AQHA, APHA, ApHC, FQHR) or `club` (NSBA, WSCA). Use this for anything storing a registration or membership number: horse registrations, exhibitor memberships, trainer affiliations, secretary certifications, association-tagged documents.
+- **`/api/show-types`** — show configuration (which kind of show, which standard class catalog). Use this for show creation/setup, the class matrix, and class codes. Clubs are not show types; a club attaches to a show as *sanctioning*.
+
+The same code can appear in both (an AQHA show and an AQHA registration are different facts). `OPEN` exists only as a show type — it means "no breed association", so it is never in the associations list, and the old `UNCERTIFIED_CODES = ['OPEN']` filters that guarded association pickers were removed as dead code.
+
+Horse registration UI splits the two kinds:
+- `MyHorsesPanel`'s add form renders two labelled sections, **Breed Registrations** and **Club Memberships**, each with its own picker and number field (`Reg #` vs `Member #`).
+- The edit forms (`EditMyHorseForm`, admin `EditHorseForm` / `NewHorseForm`) use the shared `components/AssociationSelect.tsx`, which renders `<optgroup>`s for Breed Registries / Clubs, plus `AssociationTypeBadge` on each saved row.
+- Registration chips on horse cards are colour-coded by type and sorted breed-first, since the breed number is the horse's primary identity at a show.
 - `ExhibitorMembershipPanel` composes registrations and document-certificate management in one surface.
 - `ExhibitorDocuments` supports association-tagged membership cards via nullable `show_type_id`.
 - `ExhibitorRegistrations` remains the association membership number editor.

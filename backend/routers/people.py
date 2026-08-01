@@ -1,9 +1,9 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, union, func
+from sqlalchemy import select, union, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, load_only
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr
@@ -12,10 +12,10 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, ExhibitorRegistration, Trainer
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association
 from schemas import (
     UserCreate, UserOut,
-    HorseCreate, HorseCreateWithRegistrations, HorseUpdate, HorseOut,
+    HorseCreate, HorseCreateWithRegistrations, HorseUpdate, HorseOut, MyHorseOut, HorseSearchMatch,
     HorseRegistrationCreate, HorseRegistrationOut,
     HorseRiderOut, HorseRiderCreate,
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
@@ -355,6 +355,26 @@ _horse_options = [
     selectinload(Horse.trainer),
 ]
 
+# Adds what MyHorseOut needs. The document load_only is deliberate: HorseDocument
+# carries the file bytes, and this list must never drag them into memory.
+_my_horse_options = _horse_options + [
+    selectinload(Horse.registrations).selectinload(HorseRegistration.association),
+    selectinload(Horse.documents).load_only(
+        HorseDocument.document_type,
+        HorseDocument.issue_date,
+        HorseDocument.expiry_date,
+    ),
+]
+
+
+def _my_horse_out(horse: Horse, exhibitor_id: UUID) -> MyHorseOut:
+    """Serialize for the profile horse list. Document status is owner-only, matching
+    the access rule on the horse documents endpoints."""
+    out = MyHorseOut.model_validate(horse)
+    if horse.owner_exhibitor_id != exhibitor_id:
+        out.documents = []
+    return out
+
 
 def _digits_only(value: Optional[str]) -> str:
     if not value:
@@ -484,7 +504,7 @@ async def list_horses(
 
 @horses_router.get("/registrations/lookup", dependencies=[Depends(require_authenticated)])
 async def lookup_horse_registration(
-    show_type_id: UUID,
+    association_id: UUID,
     registration_number: str,
     db: AsyncSession = Depends(get_db),
 ):
@@ -498,7 +518,7 @@ async def lookup_horse_registration(
         select(HorseRegistration, Horse)
         .join(Horse, Horse.id == HorseRegistration.horse_id)
         .where(
-            HorseRegistration.show_type_id == show_type_id,
+            HorseRegistration.association_id == association_id,
             HorseRegistration.registration_number == number,
         )
         .limit(1)
@@ -512,6 +532,55 @@ async def lookup_horse_registration(
         "horse_name": horse.name,
         "owner_name": horse.owner_name,
     }
+
+
+@horses_router.get("/search", response_model=list[HorseSearchMatch], dependencies=[Depends(require_authenticated)])
+async def search_horses_by_name(
+    q: str = Query(min_length=2, max_length=100),
+    limit: int = Query(10, ge=1, le=25),
+    db: AsyncSession = Depends(get_db),
+):
+    """Find horses already in the system by name or registration number, so an
+    exhibitor can link one to their profile without knowing the exact association
+    number. Returns the same minimal identifying info as the registration lookup."""
+    term = q.strip()
+    if len(term) < 2:
+        raise HTTPException(400, "Enter at least 2 characters to search")
+    pattern = f"%{term}%"
+    result = await db.execute(
+        select(Horse)
+        .options(
+            selectinload(Horse.breeds),
+            selectinload(Horse.breed),
+            selectinload(Horse.owner_exhibitor),
+            selectinload(Horse.registrations).selectinload(HorseRegistration.association),
+        )
+        .outerjoin(HorseRegistration, HorseRegistration.horse_id == Horse.id)
+        .where(or_(Horse.name.ilike(pattern), HorseRegistration.registration_number.ilike(pattern)))
+        .order_by(Horse.name)
+        .distinct()
+        .limit(limit)
+    )
+    horses = result.scalars().unique().all()
+    return [
+        HorseSearchMatch(
+            horse_id=h.id,
+            horse_name=h.name,
+            owner_name=h.owner_exhibitor.full_name if h.owner_exhibitor else h.owner_name,
+            sex=h.sex,
+            breed_name=', '.join(b.name for b in h.breeds) or (h.breed.name if h.breed else None),
+            registrations=[
+                {
+                    "association_id": r.association_id,
+                    "association_code": r.association.code if r.association else "",
+                    "association_type": r.association.association_type if r.association else "breed",
+                    "registration_number": r.registration_number,
+                }
+                for r in h.registrations
+            ],
+        )
+        for h in horses
+    ]
 
 
 @horses_router.post("/", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -612,7 +681,7 @@ async def delete_horse(horse_id: UUID, db: AsyncSession = Depends(get_db)):
 async def list_horse_registrations(horse_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(HorseRegistration)
-        .options(selectinload(HorseRegistration.show_type))
+        .options(selectinload(HorseRegistration.association))
         .where(HorseRegistration.horse_id == horse_id)
         .order_by(HorseRegistration.created_at)
     )
@@ -620,7 +689,7 @@ async def list_horse_registrations(horse_id: UUID, db: AsyncSession = Depends(ge
 
 
 async def _registration_conflict_message(
-    show_type_id: UUID,
+    association_id: UUID,
     registration_number: str,
     horse_id: UUID,
     db: AsyncSession,
@@ -632,7 +701,7 @@ async def _registration_conflict_message(
         select(Horse)
         .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
         .where(
-            HorseRegistration.show_type_id == show_type_id,
+            HorseRegistration.association_id == association_id,
             HorseRegistration.registration_number == registration_number.strip(),
         )
         .limit(1)
@@ -668,7 +737,7 @@ async def create_horse_registration(
         select(HorseRegistration, Horse)
         .join(Horse, Horse.id == HorseRegistration.horse_id)
         .where(
-            HorseRegistration.show_type_id == body.show_type_id,
+            HorseRegistration.association_id == body.association_id,
             HorseRegistration.registration_number == number,
         )
         .limit(1)
@@ -686,11 +755,11 @@ async def create_horse_registration(
         # Same horse already has this exact registration
         raise HTTPException(409, "This horse already has that registration")
 
-    # Per-horse uniqueness on (horse_id, show_type_id) — one number per horse per association
+    # Per-horse uniqueness on (horse_id, association_id) — one number per horse per association
     same_assoc_q = await db.execute(
         select(HorseRegistration).where(
             HorseRegistration.horse_id == horse_id,
-            HorseRegistration.show_type_id == body.show_type_id,
+            HorseRegistration.association_id == body.association_id,
         )
     )
     if same_assoc_q.scalar_one_or_none():
@@ -698,7 +767,7 @@ async def create_horse_registration(
 
     reg = HorseRegistration(
         horse_id=horse_id,
-        show_type_id=body.show_type_id,
+        association_id=body.association_id,
         registration_number=number,
     )
     db.add(reg)
@@ -708,12 +777,12 @@ async def create_horse_registration(
         # Race-condition safety net (concurrent insert won the application check)
         await db.rollback()
         msg = await _registration_conflict_message(
-            body.show_type_id, body.registration_number, horse_id, db
+            body.association_id, body.registration_number, horse_id, db
         )
         raise HTTPException(409, msg)
     result = await db.execute(
         select(HorseRegistration)
-        .options(selectinload(HorseRegistration.show_type))
+        .options(selectinload(HorseRegistration.association))
         .where(HorseRegistration.id == reg.id)
     )
     return result.scalar_one()
@@ -1028,7 +1097,7 @@ async def remove_created_horse_from_profile(
     await db.commit()
 
 
-@exhibitors_router.get("/{exhibitor_id}/my-horses", response_model=list[HorseOut])
+@exhibitors_router.get("/{exhibitor_id}/my-horses", response_model=list[MyHorseOut])
 async def get_exhibitor_my_horses(
     exhibitor_id: UUID,
     user_id: str = Depends(require_authenticated),
@@ -1039,16 +1108,16 @@ async def get_exhibitor_my_horses(
     from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)
     combined = union(from_creator, from_link).subquery()
     result = await db.execute(
-        select(Horse).options(*_horse_options).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
+        select(Horse).options(*_my_horse_options).where(Horse.id.in_(select(combined.c.id))).order_by(Horse.name)
     )
-    return result.scalars().all()
+    return [_my_horse_out(h, exhibitor_id) for h in result.scalars().all()]
 
 
 class LinkedHorseAttach(BaseModel):
     horse_id: UUID
 
 
-@exhibitors_router.post("/{exhibitor_id}/linked-horses", response_model=HorseOut, status_code=201)
+@exhibitors_router.post("/{exhibitor_id}/linked-horses", response_model=MyHorseOut, status_code=201)
 async def link_existing_horse_to_self(
     exhibitor_id: UUID,
     body: LinkedHorseAttach,
@@ -1071,8 +1140,8 @@ async def link_existing_horse_to_self(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "This horse is already on your profile")
-    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == body.horse_id))
-    return result.scalar_one()
+    result = await db.execute(select(Horse).options(*_my_horse_options).where(Horse.id == body.horse_id))
+    return _my_horse_out(result.scalar_one(), exhibitor_id)
 
 
 @exhibitors_router.delete("/{exhibitor_id}/linked-horses/{horse_id}", status_code=204)
@@ -1102,7 +1171,7 @@ async def unlink_horse_from_self(
     await db.commit()
 
 
-@exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=HorseOut, status_code=201)
+@exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=MyHorseOut, status_code=201)
 async def create_horse_for_exhibitor(
     exhibitor_id: UUID,
     body: HorseCreateWithRegistrations,
@@ -1163,20 +1232,20 @@ async def create_horse_for_exhibitor(
         raise HTTPException(400, "Specify an owner: claim ownership, select an existing owner, or enter owner details.")
 
     # Pre-validate every registration before inserting anything.
-    seen_show_type_ids: set[UUID] = set()
+    seen_association_ids: set[UUID] = set()
     for reg in body.registrations:
         number = reg.registration_number.strip()
         if not number:
             raise HTTPException(400, "Registration number cannot be empty")
-        if reg.show_type_id in seen_show_type_ids:
+        if reg.association_id in seen_association_ids:
             raise HTTPException(409, "Each association can only have one registration number")
-        seen_show_type_ids.add(reg.show_type_id)
+        seen_association_ids.add(reg.association_id)
 
         conflict = await db.execute(
             select(Horse)
             .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
             .where(
-                HorseRegistration.show_type_id == reg.show_type_id,
+                HorseRegistration.association_id == reg.association_id,
                 HorseRegistration.registration_number == number,
             )
             .limit(1)
@@ -1206,7 +1275,7 @@ async def create_horse_for_exhibitor(
     for reg in body.registrations:
         db.add(HorseRegistration(
             horse_id=horse.id,
-            show_type_id=reg.show_type_id,
+            association_id=reg.association_id,
             registration_number=reg.registration_number.strip(),
         ))
 
@@ -1219,8 +1288,8 @@ async def create_horse_for_exhibitor(
             "One of the registrations conflicts with an existing record. Please verify and try again.",
         )
 
-    result = await db.execute(select(Horse).options(*_horse_options).where(Horse.id == horse.id))
-    return result.scalar_one()
+    result = await db.execute(select(Horse).options(*_my_horse_options).where(Horse.id == horse.id))
+    return _my_horse_out(result.scalar_one(), exhibitor_id)
 
 
 @exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -1275,9 +1344,10 @@ async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db
 def _exhibitor_reg_out(reg: ExhibitorRegistration) -> ExhibitorRegistrationOut:
     return ExhibitorRegistrationOut(
         id=reg.id,
-        show_type_id=reg.show_type_id,
-        show_type_code=reg.show_type.code,
-        show_type_name=reg.show_type.name,
+        association_id=reg.association_id,
+        association_code=reg.association.code,
+        association_name=reg.association.name,
+        association_type=reg.association.association_type,
         member_number=reg.member_number,
     )
 
@@ -1293,7 +1363,7 @@ async def list_exhibitor_registrations(exhibitor_id: UUID, db: AsyncSession = De
     result = await db.execute(
         select(ExhibitorRegistration)
         .where(ExhibitorRegistration.exhibitor_id == exhibitor_id)
-        .options(selectinload(ExhibitorRegistration.show_type))
+        .options(selectinload(ExhibitorRegistration.association))
         .order_by(ExhibitorRegistration.created_at)
     )
     return [_exhibitor_reg_out(r) for r in result.scalars().all()]
@@ -1310,7 +1380,7 @@ async def add_exhibitor_registration(
     await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
     reg = ExhibitorRegistration(
         exhibitor_id=exhibitor_id,
-        show_type_id=body.show_type_id,
+        association_id=body.association_id,
         member_number=body.member_number.strip(),
     )
     db.add(reg)
@@ -1323,7 +1393,7 @@ async def add_exhibitor_registration(
     result = await db.execute(
         select(ExhibitorRegistration)
         .where(ExhibitorRegistration.id == reg.id)
-        .options(selectinload(ExhibitorRegistration.show_type))
+        .options(selectinload(ExhibitorRegistration.association))
     )
     return _exhibitor_reg_out(result.scalar_one())
 

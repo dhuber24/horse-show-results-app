@@ -11,13 +11,13 @@ interface Document {
   file_size: number;
   issue_date: string | null;
   expiry_date: string | null;
-  show_type_id: string | null;
-  show_type_code: string | null;
-  show_type_name: string | null;
+  association_id: string | null;
+  association_code: string | null;
+  association_name: string | null;
   created_at: string;
 }
 
-interface ShowType { id: string; code: string; name: string; }
+interface Association { id: string; code: string; name: string; }
 
 interface Props {
   exhibitorId: string;
@@ -79,7 +79,7 @@ function formatSize(bytes: number) {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-const emptyUpload = { document_type: '', issue_date: '', expiry_date: '', show_type_id: '' };
+const emptyUpload = { document_type: '', issue_date: '', expiry_date: '', association_id: '' };
 
 export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDocumentsChange }: Props) {
   const [docs, setDocs] = useState<Document[]>(initialDocuments ?? []);
@@ -93,7 +93,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [taggingId, setTaggingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+  const [associations, setAssociations] = useState<Association[]>([]);
 
   const updateDocs = (next: Document[]) => {
     setDocs(next);
@@ -101,7 +101,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
   };
 
   useEffect(() => {
-    fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
+    fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -114,12 +114,12 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exhibitorId, initialDocuments]);
 
-  const associationOptions = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code));
+  const associationOptions = associations.filter((st) => !UNCERTIFIED_CODES.includes(st.code));
   const showTypeNeeded = ASSOCIATION_LINKED_TYPES.has(form.document_type);
 
   const canUpload = (uploadForm: typeof form, uploadFile: File | null) => {
     if (!uploadFile || !uploadForm.document_type) return false;
-    if (ASSOCIATION_LINKED_TYPES.has(uploadForm.document_type) && !uploadForm.show_type_id) return false;
+    if (ASSOCIATION_LINKED_TYPES.has(uploadForm.document_type) && !uploadForm.association_id) return false;
     return true;
   };
 
@@ -134,7 +134,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
     fd.append('document_type', uploadForm.document_type);
     if (uploadForm.issue_date) fd.append('issue_date', uploadForm.issue_date);
     if (uploadForm.expiry_date) fd.append('expiry_date', uploadForm.expiry_date);
-    if (uploadForm.show_type_id) fd.append('show_type_id', uploadForm.show_type_id);
+    if (uploadForm.association_id) fd.append('association_id', uploadForm.association_id);
 
     const res = await fetch(`/api/exhibitors/${exhibitorId}/documents`, { method: 'POST', body: fd });
     setUploading(false);
@@ -156,14 +156,14 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
     await handleUpload(nextForm, nextFile);
   };
 
-  const handleTagAssociation = async (docId: string, showTypeId: string) => {
+  const handleTagAssociation = async (docId: string, associationId: string) => {
     setTaggingId(docId);
     const res = await fetch(`/api/exhibitors/${exhibitorId}/documents/${docId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: showTypeId
-        ? JSON.stringify({ show_type_id: showTypeId })
-        : JSON.stringify({ clear_show_type: true }),
+      body: associationId
+        ? JSON.stringify({ association_id: associationId })
+        : JSON.stringify({ clear_association: true }),
     });
     setTaggingId(null);
     if (res.ok) {
@@ -219,9 +219,9 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                         {typeLabel}
                       </span>
                     )}
-                    {doc.show_type_code && (
+                    {doc.association_code && (
                       <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0e4d0', color: '#8b4513' }}>
-                        {doc.show_type_code}
+                        {doc.association_code}
                       </span>
                     )}
                     <span className="text-sm font-medium truncate" style={{ color: '#2c1810' }}>
@@ -234,7 +234,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                     {doc.expiry_date && <span>Expires: {formatDate(doc.expiry_date)}</span>}
                     <span>{formatSize(doc.file_size)}</span>
                   </div>
-                  {wantsAssociation && !doc.show_type_id && associationOptions.length > 0 && (
+                  {wantsAssociation && !doc.association_id && associationOptions.length > 0 && (
                     <div className="mt-2 flex items-center gap-2">
                       <label className="text-xs" style={{ color: '#8b4513' }}>Tag association:</label>
                       <select
@@ -305,7 +305,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                   const nextForm = {
                     ...form,
                     document_type: e.target.value,
-                    show_type_id: ASSOCIATION_LINKED_TYPES.has(e.target.value) ? form.show_type_id : '',
+                    association_id: ASSOCIATION_LINKED_TYPES.has(e.target.value) ? form.association_id : '',
                   };
                   setForm(nextForm);
                   await maybeAutoUpload(nextForm, file);
@@ -320,9 +320,9 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
               <div className="sm:col-span-2">
                 <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association *</label>
                 <select
-                  value={form.show_type_id}
+                  value={form.association_id}
                   onChange={async (e) => {
-                    const nextForm = { ...form, show_type_id: e.target.value };
+                    const nextForm = { ...form, association_id: e.target.value };
                     setForm(nextForm);
                     await maybeAutoUpload(nextForm, file);
                   }}

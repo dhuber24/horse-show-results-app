@@ -24,6 +24,18 @@ export async function fetchResults(showId: string, classId: string) {
   return res.json();
 }
 
+export async function fetchResultsIndex(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/results-index`);
+  if (!res.ok) return {} as Record<string, unknown[]>;
+  return res.json();
+}
+
+export async function fetchProgramIndex(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/program-index`);
+  if (!res.ok) return {} as Record<string, unknown[]>;
+  return res.json();
+}
+
 export async function fetchHorse(horseId: string, headers?: HeadersInit) {
   const res = await fetch(`${API_URL}/horses/${horseId}`, headers ? { headers } : {});
   if (!res.ok) throw new Error('Failed to fetch horse');
@@ -85,6 +97,21 @@ export async function fetchVenue(venueId: string) {
 export async function fetchShowTypes() {
   const res = await fetch(`${API_URL}/show-types/`);
   if (!res.ok) throw new Error('Failed to fetch show types');
+  return res.json();
+}
+
+/**
+ * The registry of bodies a horse or person can be affiliated with (breed
+ * registries and club bodies). Distinct from show types, which are show
+ * configuration. Pass `type` to fetch only 'breed' or only 'club'.
+ */
+export async function fetchAssociations(
+  headers?: HeadersInit,
+  type?: 'breed' | 'club',
+) {
+  const qs = type ? `?type=${type}` : '';
+  const res = await fetch(`${API_URL}/associations/${qs}`, headers ? { headers } : {});
+  if (!res.ok) throw new Error('Failed to fetch associations');
   return res.json();
 }
 

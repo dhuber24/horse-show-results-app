@@ -9,7 +9,7 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_authenticated, safe_uuid
-from models import Horse, ShowType, Trainer, TrainerDocument, TrainerRegistration, User
+from models import Association, Horse, Trainer, TrainerDocument, TrainerRegistration, User
 from schemas import (
     HorseOut,
     TrainerCreate,
@@ -36,7 +36,7 @@ _horse_options = [
 _trainer_full_options = [
     selectinload(Trainer.user),
     selectinload(Trainer.documents),
-    selectinload(Trainer.registrations).selectinload(TrainerRegistration.show_type),
+    selectinload(Trainer.registrations).selectinload(TrainerRegistration.association),
 ]
 
 
@@ -312,13 +312,13 @@ async def unlink_horse_from_my_trainer_profile(
 # ── Trainer professional affiliations ──────────────────────────────────────────
 
 
-async def _resolve_show_type(show_type_id: UUID, db: AsyncSession) -> ShowType:
-    show_type = await db.get(ShowType, show_type_id)
-    if not show_type:
+async def _resolve_association(association_id: UUID, db: AsyncSession) -> Association:
+    association = await db.get(Association, association_id)
+    if not association:
         raise HTTPException(400, "Unknown association")
-    if show_type.code == "OPEN":
-        raise HTTPException(400, "OPEN is not a credentialing association")
-    return show_type
+    if not association.is_active:
+        raise HTTPException(400, "That association is no longer active")
+    return association
 
 
 async def _load_registration(
@@ -326,7 +326,7 @@ async def _load_registration(
 ) -> TrainerRegistration:
     result = await db.execute(
         select(TrainerRegistration)
-        .options(selectinload(TrainerRegistration.show_type))
+        .options(selectinload(TrainerRegistration.association))
         .where(
             TrainerRegistration.id == registration_id,
             TrainerRegistration.trainer_id == trainer_id,
@@ -343,7 +343,7 @@ async def _list_registrations(
 ) -> list[TrainerRegistration]:
     result = await db.execute(
         select(TrainerRegistration)
-        .options(selectinload(TrainerRegistration.show_type))
+        .options(selectinload(TrainerRegistration.association))
         .where(TrainerRegistration.trainer_id == trainer_id)
         .order_by(TrainerRegistration.created_at)
     )
@@ -353,10 +353,10 @@ async def _list_registrations(
 async def _create_registration(
     trainer_id: UUID, body: TrainerRegistrationCreate, db: AsyncSession
 ) -> TrainerRegistration:
-    await _resolve_show_type(body.show_type_id, db)
+    await _resolve_association(body.association_id, db)
     registration = TrainerRegistration(
         trainer_id=trainer_id,
-        show_type_id=body.show_type_id,
+        association_id=body.association_id,
         member_number=body.member_number.strip(),
         status=body.status,
         expires_at=body.expires_at,
@@ -383,7 +383,7 @@ async def _update_registration(
     elif "expires_at" in updates:
         registration.expires_at = updates["expires_at"]
     await db.commit()
-    await db.refresh(registration, attribute_names=["show_type"])
+    await db.refresh(registration, attribute_names=["association"])
     return registration
 
 

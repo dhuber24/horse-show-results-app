@@ -16,6 +16,9 @@ interface Entry {
   is_disqualified: boolean;
   horse_name?: string;
   horse?: { name: string };
+  owner_name?: string | null;
+  sire_name?: string | null;
+  dam_name?: string | null;
   exhibitor_name?: string;
   exhibitor?: { full_name: string };
 }
@@ -50,6 +53,9 @@ function entryHaystack(e: Entry): string {
     e.exhibitor_name ?? e.exhibitor?.full_name ?? '',
     e.back_number != null ? `#${e.back_number} ${e.back_number}` : '',
     e.apha_division ?? '',
+    e.owner_name ?? '',
+    e.sire_name ?? '',
+    e.dam_name ?? '',
   ].join(' ').toLowerCase();
 }
 
@@ -89,53 +95,55 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
   };
 
   return (
-    <li className="flex items-center justify-between text-sm py-1 gap-2">
-      <span style={{ color: '#2c1810' }}>
-        {entry.back_number != null && (
-          <span className="font-mono mr-2" style={{ color: '#8b4513' }}>#{entry.back_number}</span>
-        )}
-        {horseName}
-        <span style={{ color: '#8b7355' }}> — </span>
-        {exhibitorName}
+    <tr className="border-t align-top" style={{ borderColor: '#f0e6d6' }}>
+      <td className="py-1.5 pr-3 font-mono whitespace-nowrap" style={{ color: '#8b4513' }}>
+        {entry.back_number != null ? `#${entry.back_number}` : '—'}
         {entry.is_disqualified && (
-          <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">DQ</span>
+          <span className="ml-1.5 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">DQ</span>
         )}
+      </td>
+      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{horseName}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{entry.owner_name || '—'}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.sire_name || '—'}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.dam_name || '—'}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
+        {exhibitorName}
         {entry.apha_division && (
-          <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#e8d5b7', color: '#5c3d1e' }}>
+          <span className="ml-2 text-xs px-1.5 py-0.5 rounded whitespace-nowrap" style={{ backgroundColor: '#e8d5b7', color: '#5c3d1e' }}>
             {entry.apha_division.replace(/_/g, ' ')}
           </span>
         )}
         {exhibitorEntryCount > 1 && (
           <span
-            className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800"
+            className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 whitespace-nowrap"
             title={`This exhibitor has ${exhibitorEntryCount} entries in this class`}
           >
             ⚠ {exhibitorEntryCount} horses
           </span>
         )}
-      </span>
-      <span className="flex items-center gap-2 shrink-0">
-        {error && <span className="text-xs text-red-600">{error}</span>}
+      </td>
+      <td className="py-1.5 text-right whitespace-nowrap">
+        {error && <span className="text-xs text-red-600 mr-2">{error}</span>}
         <button
           onClick={() => setConfirmDelete(true)}
           className="text-xs hover:underline text-red-600"
         >
           Remove
         </button>
-      </span>
 
-      {confirmDelete && (
-        <ConfirmDialog
-          title="Remove Entry"
-          message={`Remove ${exhibitorName}'s entry for ${horseName}? This cannot be undone.`}
-          confirmLabel="Yes, remove"
-          destructive
-          confirming={deleting}
-          onConfirm={handleDelete}
-          onCancel={() => setConfirmDelete(false)}
-        />
-      )}
-    </li>
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Remove Entry"
+            message={`Remove ${exhibitorName}'s entry for ${horseName}? This cannot be undone.`}
+            confirmLabel="Yes, remove"
+            destructive
+            confirming={deleting}
+            onConfirm={handleDelete}
+            onCancel={() => setConfirmDelete(false)}
+          />
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -313,17 +321,32 @@ export default function EntryListSection({ showId, entriesByClass }: Props) {
                     {matchedEntries.length === 0 ? (
                       <p className="text-sm" style={{ color: '#8b7355' }}>No entries yet.</p>
                     ) : (
-                      <ul className="space-y-1">
-                        {matchedEntries.map(entry => (
-                          <EntryRow
-                            key={entry.id}
-                            entry={entry}
-                            showId={showId}
-                            exhibitorEntryCount={countByExhibitor[entry.exhibitor_id] ?? 1}
-                            onDeleted={id => handleDeleted(cls.id, id)}
-                          />
-                        ))}
-                      </ul>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="text-xs uppercase tracking-wide" style={{ color: '#8b4513' }}>
+                              <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Back #</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Horse</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Owner</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Sire</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Dam</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Exhibitor</th>
+                              <th className="pb-1"><span className="sr-only">Actions</span></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {matchedEntries.map(entry => (
+                              <EntryRow
+                                key={entry.id}
+                                entry={entry}
+                                showId={showId}
+                                exhibitorEntryCount={countByExhibitor[entry.exhibitor_id] ?? 1}
+                                onDeleted={id => handleDeleted(cls.id, id)}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 )}

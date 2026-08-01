@@ -83,7 +83,8 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 ## Core Data Concepts
 
 - `shows`: event shell with venue, dates, primary association, status, optional APHA show number, AQHA approval metadata, `office_charge_cents` + `office_charge_basis` (`per_back_number` default, or `per_horse`), and `shavings_ban_outside` policy bool. Office charge and the policy bool surface on the exhibitor self-registration screen.
-- `sanctioned_associations`: sanctioning bodies (NSBA, WSCA, ...) distinct from breed `show_types` and managed in a separate registry. Per-show overlay set in setup Step 3 via `show_sanctioning(show_id, sanctioned_association_id, per_class_fee_cents)`. Admins manage the registry; non-admin wizard users may submit `sanctioned_association_requests` for admin review.
+- `associations`: **the registry of bodies a horse or person is affiliated with**, typed `breed` (AQHA, APHA, ApHC, FQHR) or `club` (NSBA, WSCA) — migration 080. Everything that stores a registration or membership number points here: `horse_registrations`, `exhibitor_registrations`, `trainer_registrations`, `exhibitor_documents`, `show_secretary_certifications`. This is **not** the same concept as `show_types`: a show type is show configuration ("what kind of show is this?"), while an association is a property of the horse or person ("this horse is registered with AQHA"). The same code appears in both lists on purpose. There is no `associations` row for OPEN — Open means *no* breed association.
+- `show_sanctioning`: per-show club sanctioning overlay set in setup Step 3 — `show_sanctioning(show_id, association_id, per_class_fee_cents)` referencing club rows in `associations`. Admins manage the registry; non-admin wizard users may submit `sanctioned_association_requests` for admin review. Show setup asks for a breed association (or Open) as the show type, then optional club sanctioning.
 - `disciplines`: per-show **riding styles** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that new classes inherit when score_type is omitted. Renamed from `divisions` in migration 074.
 - `divisions`: per-show **age/skill brackets** (10 & Under, Walk-Trot, Amateur, Youth 14-18). Each division belongs to one or more disciplines via `discipline_divisions` (M2M). A division with no discipline memberships is unusable on classes. Renamed from `sections` in migration 074.
 - `discipline_divisions`: join table on `(discipline_id, division_id)`. A `(discipline_id, division_id)` pair on a class must exist as a row here — enforced by a Postgres composite FK on `classes`. The single-class create endpoint (`POST /shows/{id}/classes`) upserts the membership on demand, so any valid in-show pair is accepted; the update path still 422s on an unregistered pair.
@@ -99,7 +100,7 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
 - `users`: login accounts and roles. First/last name are the editable source of truth; `full_name` is a derived display compatibility field.
 - `exhibitors`: person/profile records, optionally linked to users.
-- `horses`: horse records with owner/trainer text, breed/color, registrations, documents, and APHA SPB flag.
+- `horses`: horse records with owner/trainer text, free-text `sire_name`/`dam_name` pedigree (migration 079), breed/color, registrations, documents, and APHA SPB flag. Owner + sire + dam are the program columns shown on the public class schedule and the admin entry list.
 - `exhibitor_registrations`: exhibitor membership numbers per association.
 - `backend/rules`: association-specific validation hooks; AQHA currently enforces the first practical validation slice.
 - `users.aqha_management_workshop_completed_at`: AQHA show-management workshop date used to validate assigned managers/secretaries.
@@ -177,7 +178,8 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 - Do not create an `EXHIBITOR` user without also creating the linked `exhibitors` row.
 - Do not create a `TRAINER` user without also creating or linking the matching `trainers` row.
 - `cert_org_users.Org` uses a capital `O`.
-- `OPEN` is an unaffiliated show type and is excluded from certification and registration-number UI.
+- `OPEN` is an unaffiliated **show type** only. Since migration 080 it has no `associations` row at all, so it can no longer leak into certification or registration-number pickers — the old `UNCERTIFIED_CODES = ['OPEN']` guards were removed as dead code. Do not re-add OPEN to `associations`.
+- Do not reach for `show_types` when you mean an affiliation. Registration/membership numbers belong to `associations` (breed or club); `show_types` is show configuration. Clubs (NSBA, WSCA) are deliberately **not** show types — an NSBA-approved show is an OPEN or breed show carrying NSBA sanctioning via `show_sanctioning`.
 - Horse age is derived, not stored.
 - Deleting a horse preserves entry history by setting `entries.horse_id` to `NULL`.
 - The repo has historical duplicate migration numbering around `024_*`; preserve filenames and ordering behavior.

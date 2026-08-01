@@ -10,6 +10,7 @@ from dependencies import require_admin, require_admin_or_show_admin
 from models import (
     Class,
     Show,
+    Entry,
     Result,
     Ring,
     ClassAssociation,
@@ -230,14 +231,47 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .correlate(Class)
         .scalar_subquery()
     )
+    entry_subq = (
+        select(func.count(Entry.id))
+        .where(Entry.class_id == Class.id, Entry.status != "WITHDRAWN")
+        .correlate(Class)
+        .scalar_subquery()
+    )
     result = await db.execute(
-        select(Class, placed_subq.label("placed_count"))
+        select(
+            Class,
+            placed_subq.label("placed_count"),
+            entry_subq.label("entry_count"),
+            Ring.name.label("ring_name"),
+            Ring.sort_order.label("ring_sort_order"),
+            Discipline.name.label("discipline_name"),
+            Division.name.label("division_name"),
+        )
+        .outerjoin(Ring, Ring.id == Class.ring_id)
+        .outerjoin(Discipline, Discipline.id == Class.discipline_id)
+        .outerjoin(Division, Division.id == Class.division_id)
         .where(Class.show_id == show_id)
         .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
     )
     return [
-        {**ClassOut.model_validate(cls).model_dump(), "placed_count": placed_count}
-        for cls, placed_count in result.all()
+        {
+            **ClassOut.model_validate(cls).model_dump(),
+            "placed_count": placed_count,
+            "entry_count": entry_count,
+            "ring_name": ring_name,
+            "ring_sort_order": ring_sort_order,
+            "discipline_name": discipline_name,
+            "division_name": division_name,
+        }
+        for (
+            cls,
+            placed_count,
+            entry_count,
+            ring_name,
+            ring_sort_order,
+            discipline_name,
+            division_name,
+        ) in result.all()
     ]
 
 

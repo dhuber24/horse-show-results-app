@@ -37,7 +37,41 @@ show_judge_affiliations = Table(
 )
 
 
+class Association(Base):
+    """A sanctioning/registry body a horse or person can be affiliated with.
+
+    Distinct from `ShowType`, which is show *configuration* ("what kind of show
+    is this?"). An association is a property of the horse or person ("this horse
+    is registered with AQHA", "this rider is an NSBA member"). The same body can
+    legitimately appear in both concepts — an AQHA show and an AQHA registration
+    are different facts.
+
+    `association_type` splits the registry two ways:
+      - 'breed' — breed registries (AQHA, APHA, ApHC, FQHR)
+      - 'club'  — club/sanctioning bodies (NSBA, WSCA)
+
+    There is deliberately no row for OPEN: "Open" is the absence of a breed
+    association, not a body anyone holds a membership with.
+    """
+    __tablename__ = "associations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    code = Column(Text, nullable=False, unique=True)
+    name = Column(Text, nullable=False)
+    association_type = Column(
+        Text,
+        CheckConstraint("association_type IN ('breed', 'club')"),
+        nullable=False,
+    )
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class ShowType(Base):
+    """Show configuration: what kind of show is being put on, which drives
+    eligibility and the standard class catalogs. Breed-based types plus OPEN.
+    Club bodies are NOT show types — an NSBA-sanctioned open show is an OPEN
+    show carrying NSBA club sanctioning (see `ShowSanctioning`)."""
     __tablename__ = "show_types"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -509,7 +543,7 @@ class TrainerRegistration(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
     member_number = Column(Text, nullable=False)
     status = Column(
         Text,
@@ -520,10 +554,12 @@ class TrainerRegistration(Base):
     expires_at = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("trainer_id", "show_type_id"),)
+    __table_args__ = (
+        UniqueConstraint("trainer_id", "association_id", name="uq_trainer_registrations_trainer_association"),
+    )
 
     trainer = relationship("Trainer", back_populates="registrations")
-    show_type = relationship("ShowType")
+    association = relationship("Association")
 
 
 class TrainerDocument(Base):
@@ -556,6 +592,8 @@ class Horse(Base):
     owner_name = Column(Text, nullable=True)
     trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="SET NULL"), nullable=True)
     trainer_name = Column(Text, nullable=True)
+    sire_name = Column(Text, nullable=True)
+    dam_name = Column(Text, nullable=True)
     foaling_date = Column(Date, nullable=True)
     sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
     breed_id = Column(UUID(as_uuid=True), ForeignKey("breeds.id"), nullable=True)
@@ -624,14 +662,16 @@ class ExhibitorRegistration(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
     member_number = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("exhibitor_id", "show_type_id"),)
+    __table_args__ = (
+        UniqueConstraint("exhibitor_id", "association_id", name="uq_exhibitor_registrations_exhibitor_association"),
+    )
 
     exhibitor = relationship("Exhibitor", back_populates="registrations")
-    show_type = relationship("ShowType")
+    association = relationship("Association")
 
 
 class HorseRegistration(Base):
@@ -639,17 +679,17 @@ class HorseRegistration(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
     registration_number = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
-        UniqueConstraint("horse_id", "show_type_id"),
-        UniqueConstraint("show_type_id", "registration_number", name="uq_horse_registrations_show_type_number"),
+        UniqueConstraint("horse_id", "association_id", name="uq_horse_registrations_horse_association"),
+        UniqueConstraint("association_id", "registration_number", name="uq_horse_registrations_association_number"),
     )
 
     horse = relationship("Horse", back_populates="registrations")
-    show_type = relationship("ShowType")
+    association = relationship("Association")
 
 
 class HorseDocument(Base):
@@ -691,12 +731,12 @@ class ExhibitorDocument(Base):
     file_size = Column(Integer, nullable=False)
     issue_date = Column(Date, nullable=True)
     expiry_date = Column(Date, nullable=True)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="SET NULL"), nullable=True)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="SET NULL"), nullable=True)
     uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     exhibitor = relationship("Exhibitor", back_populates="documents")
-    show_type = relationship("ShowType")
+    association = relationship("Association")
     uploaded_by = relationship("User")
 
 
@@ -835,14 +875,16 @@ class ShowSecretaryCertification(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
     secretary_id_number = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (UniqueConstraint("user_id", "show_type_id"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "association_id", name="uq_secretary_certifications_user_association"),
+    )
 
     user = relationship("User", back_populates="secretary_certifications")
-    show_type = relationship("ShowType")
+    association = relationship("Association")
 
 
 class CertOrgUser(Base):
@@ -1023,17 +1065,6 @@ class SidePotPayout(Base):
     show_entry = relationship("ShowEntry", back_populates="side_pot_payouts")
 
 
-class SanctionedAssociation(Base):
-    """Sanctioning body distinct from breed `show_types` (NSBA, WSCA, ...)."""
-    __tablename__ = "sanctioned_associations"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    code = Column(Text, nullable=False, unique=True)
-    name = Column(Text, nullable=False)
-    is_active = Column(Boolean, nullable=False, server_default="true")
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-
-
 class SanctionedAssociationRequest(Base):
     """User-submitted request to add a new sanctioning body; admin reviews."""
     __tablename__ = "sanctioned_association_requests"
@@ -1049,7 +1080,7 @@ class SanctionedAssociationRequest(Base):
     status = Column(Text, nullable=False, server_default="pending")
     approved_association_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("sanctioned_associations.id", ondelete="SET NULL"),
+        ForeignKey("associations.id", ondelete="SET NULL"),
         nullable=True,
     )
     reviewed_at = Column(TIMESTAMP(timezone=True), nullable=True)
@@ -1061,26 +1092,29 @@ class SanctionedAssociationRequest(Base):
 
     requested_by = relationship("User", foreign_keys=[requested_by_user_id])
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
-    approved_association = relationship("SanctionedAssociation")
+    approved_association = relationship("Association")
 
 
 class ShowSanctioning(Base):
-    """Per-show sanctioning enrollment + per-class fee the secretary collects."""
+    """Per-show club sanctioning enrollment + per-class fee the secretary collects.
+
+    Points at the shared `associations` registry (club rows), so "this show is
+    NSBA-sanctioned" and "this rider is an NSBA member" reference the same body."""
     __tablename__ = "show_sanctioning"
 
     show_id = Column(
         UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
     )
-    sanctioned_association_id = Column(
+    association_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("sanctioned_associations.id", ondelete="CASCADE"),
+        ForeignKey("associations.id", ondelete="CASCADE"),
         primary_key=True,
     )
     per_class_fee_cents = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="sanctioning")
-    sanctioned_association = relationship("SanctionedAssociation", lazy="selectin")
+    association = relationship("Association", lazy="selectin")
 
 
 class UserInvite(Base):

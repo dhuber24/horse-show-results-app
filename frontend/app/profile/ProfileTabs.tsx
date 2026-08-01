@@ -3,22 +3,17 @@
 import { useState } from 'react';
 import EditAccountForm from './EditAccountForm';
 import ChangePasswordForm from './ChangePasswordForm';
-import MyHorsesPanel from './MyHorsesPanel';
+import MyHorsesPanel, { MyHorse } from './MyHorsesPanel';
 import TrainerHorsesPanel from './TrainerHorsesPanel';
 import TrainerProfileForm, { TrainerProfile } from './TrainerProfileForm';
 import TrainerAffiliationsPanel from '@/components/TrainerAffiliationsPanel';
 import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
 
 interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
-interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; member_number: string; }
+interface Registration { id: string; association_id: string; association_code: string; association_name: string; member_number: string; }
 interface Document {
   id: string; document_type: string; original_filename: string;
-  issue_date: string | null; expiry_date: string | null; show_type_id: string | null;
-}
-interface Horse {
-  id: string; name: string; sex: string | null; age: number | null; breed_name: string | null;
-  color_name: string | null; is_solid_paint_bred: boolean; owner_exhibitor_id: string | null;
-  created_by_exhibitor_id: string | null;
+  issue_date: string | null; expiry_date: string | null; association_id: string | null;
 }
 interface TrainerHorse {
   id: string; name: string; sex: string | null; age: number | null; breed_name: string | null;
@@ -39,9 +34,9 @@ interface Exhibitor {
 }
 interface TrainerAffiliation {
   id: string;
-  show_type_id: string;
-  show_type_code: string;
-  show_type_name: string;
+  association_id: string;
+  association_code: string;
+  association_name: string;
   member_number: string;
   status: 'professional' | 'non_pro' | 'general';
   expires_at: string | null;
@@ -55,7 +50,7 @@ interface Props {
   exhibitor: Exhibitor | null;
   initialRegistrations: Registration[];
   initialDocuments: Document[];
-  initialHorses: Horse[];
+  initialHorses: MyHorse[];
   trainerProfile: TrainerProfile | null;
   trainerHorses: TrainerHorse[];
   trainerAffiliations: TrainerAffiliation[];

@@ -28,6 +28,38 @@ class ShowTypeOut(BaseModel):
         from_attributes = True
 
 
+# ── Associations ───────────────────────────────────────────────────────────────
+# The registry of bodies a horse or person can be affiliated with. Distinct from
+# ShowType, which is show configuration. See models.Association.
+
+AssociationType = Literal["breed", "club"]
+
+
+class AssociationCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=200)
+    association_type: AssociationType
+    is_active: bool = True
+
+
+class AssociationUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    association_type: Optional[AssociationType] = None
+    is_active: Optional[bool] = None
+
+
+class AssociationOut(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    association_type: AssociationType
+    is_active: bool
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ── Venues ─────────────────────────────────────────────────────────────────────
 
 class VenueCreate(BaseModel):
@@ -193,14 +225,14 @@ class SanctionedAssociationRequestOut(BaseModel):
 # ── Show Sanctioning ───────────────────────────────────────────────────────────
 
 class ShowSanctioningItem(BaseModel):
-    sanctioned_association_id: UUID
+    association_id: UUID
     per_class_fee_cents: int = Field(ge=0)
 
 class ShowSanctioningReplace(BaseModel):
     items: list[ShowSanctioningItem] = []
 
 class ShowSanctioningOut(BaseModel):
-    sanctioned_association_id: UUID
+    association_id: UUID
     code: str
     name: str
     per_class_fee_cents: int
@@ -695,9 +727,10 @@ class ExhibitorDocumentOut(BaseModel):
     file_size: int
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    show_type_id: Optional[UUID] = None
-    show_type_code: Optional[str] = None
-    show_type_name: Optional[str] = None
+    association_id: Optional[UUID] = None
+    association_code: Optional[str] = None
+    association_name: Optional[str] = None
+    association_type: Optional[AssociationType] = None
     uploaded_by_user_id: Optional[UUID] = None
     created_at: datetime
 
@@ -706,7 +739,7 @@ class ExhibitorDocumentOut(BaseModel):
     def add_label(cls, v):
         if isinstance(v, dict):
             return v
-        st = getattr(v, 'show_type', None)
+        assoc = getattr(v, 'association', None)
         return {
             'id': v.id,
             'exhibitor_id': v.exhibitor_id,
@@ -717,9 +750,10 @@ class ExhibitorDocumentOut(BaseModel):
             'file_size': v.file_size,
             'issue_date': v.issue_date,
             'expiry_date': v.expiry_date,
-            'show_type_id': v.show_type_id,
-            'show_type_code': st.code if st else None,
-            'show_type_name': st.name if st else None,
+            'association_id': v.association_id,
+            'association_code': assoc.code if assoc else None,
+            'association_name': assoc.name if assoc else None,
+            'association_type': assoc.association_type if assoc else None,
             'uploaded_by_user_id': v.uploaded_by_user_id,
             'created_at': v.created_at,
         }
@@ -729,10 +763,10 @@ class ExhibitorDocumentOut(BaseModel):
 
 
 class ExhibitorDocumentUpdate(BaseModel):
-    show_type_id: Optional[UUID] = None
+    association_id: Optional[UUID] = None
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    clear_show_type: bool = False
+    clear_association: bool = False
     clear_issue_date: bool = False
     clear_expiry_date: bool = False
 
@@ -816,30 +850,32 @@ class HorseColorOut(BaseModel):
 # ── Horse Registrations ─────────────────────────────────────────────────────────
 
 class HorseRegistrationCreate(BaseModel):
-    show_type_id: UUID
+    association_id: UUID
     registration_number: str = Field(min_length=1, max_length=100)
 
 class HorseRegistrationOut(BaseModel):
     id: UUID
     horse_id: UUID
-    show_type_id: UUID
-    show_type_code: Optional[str] = None
-    show_type_name: Optional[str] = None
+    association_id: UUID
+    association_code: Optional[str] = None
+    association_name: Optional[str] = None
+    association_type: Optional[AssociationType] = None
     registration_number: str
     created_at: datetime
 
     @model_validator(mode='before')
     @classmethod
-    def extract_show_type(cls, v):
+    def extract_association(cls, v):
         if isinstance(v, dict):
             return v
-        show_type = getattr(v, 'show_type', None)
+        association = getattr(v, 'association', None)
         return {
             'id': v.id,
             'horse_id': v.horse_id,
-            'show_type_id': v.show_type_id,
-            'show_type_code': show_type.code if show_type else None,
-            'show_type_name': show_type.name if show_type else None,
+            'association_id': v.association_id,
+            'association_code': association.code if association else None,
+            'association_name': association.name if association else None,
+            'association_type': association.association_type if association else None,
             'registration_number': v.registration_number,
             'created_at': v.created_at,
         }
@@ -930,7 +966,7 @@ class TrainerOut(BaseModel):
 
 
 class TrainerRegistrationCreate(BaseModel):
-    show_type_id: UUID
+    association_id: UUID
     member_number: str = Field(min_length=1, max_length=100)
     status: Literal["professional", "non_pro", "general"] = "general"
     expires_at: Optional[date] = None
@@ -946,9 +982,10 @@ class TrainerRegistrationUpdate(BaseModel):
 class TrainerRegistrationOut(BaseModel):
     id: UUID
     trainer_id: UUID
-    show_type_id: UUID
-    show_type_code: str
-    show_type_name: str
+    association_id: UUID
+    association_code: str
+    association_name: str
+    association_type: Optional[AssociationType] = None
     member_number: str
     status: Literal["professional", "non_pro", "general"]
     expires_at: Optional[date] = None
@@ -959,13 +996,14 @@ class TrainerRegistrationOut(BaseModel):
     def from_registration(cls, v):
         if isinstance(v, dict):
             return v
-        show_type = getattr(v, 'show_type', None)
+        association = getattr(v, 'association', None)
         return {
             'id': v.id,
             'trainer_id': v.trainer_id,
-            'show_type_id': v.show_type_id,
-            'show_type_code': show_type.code if show_type else '',
-            'show_type_name': show_type.name if show_type else '',
+            'association_id': v.association_id,
+            'association_code': association.code if association else '',
+            'association_name': association.name if association else '',
+            'association_type': association.association_type if association else None,
             'member_number': v.member_number,
             'status': v.status,
             'expires_at': v.expires_at,
@@ -997,6 +1035,8 @@ class HorseCreate(BaseModel):
     trainer_first_name: Optional[str] = Field(default=None, max_length=100)
     trainer_last_name: Optional[str] = Field(default=None, max_length=100)
     trainer_email: Optional[EmailStr] = None
+    sire_name: Optional[str] = Field(default=None, max_length=200)
+    dam_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
@@ -1024,12 +1064,55 @@ class HorseUpdate(BaseModel):
     trainer_first_name: Optional[str] = Field(default=None, max_length=100)
     trainer_last_name: Optional[str] = Field(default=None, max_length=100)
     trainer_email: Optional[EmailStr] = None
+    sire_name: Optional[str] = Field(default=None, max_length=200)
+    dam_name: Optional[str] = Field(default=None, max_length=200)
     foaling_date: Optional[date] = None
     sex: Optional[Literal["Mare", "Gelding", "Stallion"]] = None
     breed_id: Optional[UUID] = None
     breed_ids: Optional[list[UUID]] = None
     color_id: Optional[UUID] = None
     is_solid_paint_bred: Optional[bool] = None
+
+def _horse_out_data(v) -> dict:
+    """Shared ORM -> dict projection for HorseOut and its subclasses."""
+    foaling_date = getattr(v, 'foaling_date', None)
+    unloaded = sa_inspect(v).unloaded
+    breed = None if 'breed' in unloaded else getattr(v, 'breed', None)
+    breeds = [] if 'breeds' in unloaded else list(getattr(v, 'breeds', None) or [])
+    if not breeds and breed:
+        breeds = [breed]
+    breed_ids = [b.id for b in breeds]
+    breed_names = [b.name for b in breeds]
+    color = getattr(v, 'color', None)
+    owner_exhibitor = getattr(v, 'owner_exhibitor', None)
+    trainer = getattr(v, 'trainer', None)
+    data = {
+        'id': v.id,
+        'name': v.name,
+        'owner_exhibitor_id': v.owner_exhibitor_id,
+        'owner_exhibitor_name': owner_exhibitor.full_name if owner_exhibitor else None,
+        'created_by_exhibitor_id': getattr(v, 'created_by_exhibitor_id', None),
+        'owner_name': getattr(v, 'owner_name', None),
+        'trainer_id': getattr(v, 'trainer_id', None),
+        # trainer_name is always the display name: registry takes precedence over free text
+        'trainer_name': trainer.name if trainer else getattr(v, 'trainer_name', None),
+        'sire_name': getattr(v, 'sire_name', None),
+        'dam_name': getattr(v, 'dam_name', None),
+        'foaling_date': foaling_date,
+        'sex': v.sex,
+        'breed_id': breed_ids[0] if breed_ids else v.breed_id,
+        'breed_name': ', '.join(breed_names) if breed_names else (breed.name if breed else None),
+        'breed_ids': breed_ids,
+        'breed_names': breed_names,
+        'color_id': v.color_id,
+        'color_name': color.name if color else None,
+        'is_solid_paint_bred': getattr(v, 'is_solid_paint_bred', False),
+        'created_at': v.created_at,
+    }
+    if foaling_date:
+        data['age'] = max(0, datetime.now().year - foaling_date.year)
+    return data
+
 
 class HorseOut(BaseModel):
     id: UUID
@@ -1040,6 +1123,8 @@ class HorseOut(BaseModel):
     owner_name: Optional[str] = None
     trainer_id: Optional[UUID] = None
     trainer_name: Optional[str] = None
+    sire_name: Optional[str] = None
+    dam_name: Optional[str] = None
     foaling_date: Optional[date] = None
     sex: Optional[str] = None
     breed_id: Optional[UUID] = None
@@ -1057,44 +1142,73 @@ class HorseOut(BaseModel):
     def compute_derived(cls, v):
         if isinstance(v, dict):
             return v
-        foaling_date = getattr(v, 'foaling_date', None)
-        unloaded = sa_inspect(v).unloaded
-        breed = None if 'breed' in unloaded else getattr(v, 'breed', None)
-        breeds = [] if 'breeds' in unloaded else list(getattr(v, 'breeds', None) or [])
-        if not breeds and breed:
-            breeds = [breed]
-        breed_ids = [b.id for b in breeds]
-        breed_names = [b.name for b in breeds]
-        color = getattr(v, 'color', None)
-        owner_exhibitor = getattr(v, 'owner_exhibitor', None)
-        trainer = getattr(v, 'trainer', None)
-        data = {
-            'id': v.id,
-            'name': v.name,
-            'owner_exhibitor_id': v.owner_exhibitor_id,
-            'owner_exhibitor_name': owner_exhibitor.full_name if owner_exhibitor else None,
-            'created_by_exhibitor_id': getattr(v, 'created_by_exhibitor_id', None),
-            'owner_name': getattr(v, 'owner_name', None),
-            'trainer_id': getattr(v, 'trainer_id', None),
-            # trainer_name is always the display name: registry takes precedence over free text
-            'trainer_name': trainer.name if trainer else getattr(v, 'trainer_name', None),
-            'foaling_date': foaling_date,
-            'sex': v.sex,
-            'breed_id': breed_ids[0] if breed_ids else v.breed_id,
-            'breed_name': ', '.join(breed_names) if breed_names else (breed.name if breed else None),
-            'breed_ids': breed_ids,
-            'breed_names': breed_names,
-            'color_id': v.color_id,
-            'color_name': color.name if color else None,
-            'is_solid_paint_bred': getattr(v, 'is_solid_paint_bred', False),
-            'created_at': v.created_at,
-        }
-        if foaling_date:
-            data['age'] = max(0, datetime.now().year - foaling_date.year)
-        return data
+        return _horse_out_data(v)
 
     class Config:
         from_attributes = True
+
+
+class HorseRegistrationBrief(BaseModel):
+    association_id: UUID
+    association_code: str
+    association_type: AssociationType
+    registration_number: str
+
+
+class HorseDocumentBrief(BaseModel):
+    document_type: str
+    document_type_label: str
+    issue_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+
+
+class MyHorseOut(HorseOut):
+    """HorseOut plus what the exhibitor profile's horse list needs to show
+    readiness at a glance: association numbers and a document summary.
+    Both are only populated when the router eager-loads them."""
+    registrations: list[HorseRegistrationBrief] = Field(default_factory=list)
+    documents: list[HorseDocumentBrief] = Field(default_factory=list)
+
+    @model_validator(mode='before')
+    @classmethod
+    def compute_derived(cls, v):
+        if isinstance(v, dict):
+            return v
+        data = _horse_out_data(v)
+        unloaded = sa_inspect(v).unloaded
+        regs = [] if 'registrations' in unloaded else list(getattr(v, 'registrations', None) or [])
+        data['registrations'] = [
+            {
+                'association_id': r.association_id,
+                'association_code': r.association.code if r.association else '',
+                'association_type': r.association.association_type if r.association else 'breed',
+                'registration_number': r.registration_number,
+            }
+            for r in regs
+        ]
+        docs = [] if 'documents' in unloaded else list(getattr(v, 'documents', None) or [])
+        data['documents'] = [
+            {
+                'document_type': d.document_type,
+                'document_type_label': DOC_TYPE_LABELS.get(d.document_type, d.document_type),
+                'issue_date': d.issue_date,
+                'expiry_date': d.expiry_date,
+            }
+            for d in docs
+        ]
+        return data
+
+
+class HorseSearchMatch(BaseModel):
+    """Result row for the name-based horse search used when an exhibitor wants
+    to link a horse that is already in the system."""
+    horse_id: UUID
+    horse_name: str
+    owner_name: Optional[str] = None
+    sex: Optional[str] = None
+    breed_name: Optional[str] = None
+    registrations: list[HorseRegistrationBrief] = Field(default_factory=list)
+
 
 class HorseRiderOut(BaseModel):
     exhibitor_id: UUID
@@ -1107,14 +1221,15 @@ class HorseRiderCreate(BaseModel):
 # ── Exhibitor Registrations ───────────────────────────────────────────────────
 
 class ExhibitorRegistrationCreate(BaseModel):
-    show_type_id: UUID
+    association_id: UUID
     member_number: str = Field(min_length=1, max_length=50)
 
 class ExhibitorRegistrationOut(BaseModel):
     id: UUID
-    show_type_id: UUID
-    show_type_code: str
-    show_type_name: str
+    association_id: UUID
+    association_code: str
+    association_name: str
+    association_type: Optional[AssociationType] = None
     member_number: str
 
     model_config = ConfigDict(from_attributes=True)

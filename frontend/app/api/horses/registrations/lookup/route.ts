@@ -5,13 +5,13 @@ export async function GET(req: NextRequest) {
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const showTypeId = req.nextUrl.searchParams.get('show_type_id');
+  const associationId = req.nextUrl.searchParams.get('association_id');
   const registrationNumber = req.nextUrl.searchParams.get('registration_number');
-  if (!showTypeId || !registrationNumber) {
-    return NextResponse.json({ error: 'show_type_id and registration_number are required' }, { status: 400 });
+  if (!associationId || !registrationNumber) {
+    return NextResponse.json({ error: 'association_id and registration_number are required' }, { status: 400 });
   }
 
-  const qs = new URLSearchParams({ show_type_id: showTypeId, registration_number: registrationNumber });
+  const qs = new URLSearchParams({ association_id: associationId, registration_number: registrationNumber });
   const res = await fetch(`${API_URL}/horses/registrations/lookup?${qs.toString()}`, { headers });
   if (res.status === 404) return NextResponse.json(null, { status: 404 });
   const json = await res.json();

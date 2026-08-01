@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-type SanctioningFeeState = { sanctioned_association_id: string; dollars: string };
+type SanctioningFeeState = { association_id: string; dollars: string };
 
 export type FeeRow = {
   id: string;
@@ -16,7 +16,7 @@ export type FeeRow = {
 };
 
 export type SanctioningRow = {
-  sanctioned_association_id: string;
+  association_id: string;
   code: string;
   name: string;
   per_class_fee_cents: number;
@@ -113,7 +113,7 @@ export default function FeesClient({
 
   const [sanctioningFees, setSanctioningFees] = useState<SanctioningFeeState[]>(
     sanctioning.map((s) => ({
-      sanctioned_association_id: s.sanctioned_association_id,
+      association_id: s.association_id,
       dollars: centsToDollars(s.per_class_fee_cents),
     })),
   );
@@ -121,7 +121,7 @@ export default function FeesClient({
   function setSanctioningFee(id: string, dollars: string) {
     setSanctioningFees((prev) =>
       prev.map((s) =>
-        s.sanctioned_association_id === id ? { ...s, dollars } : s,
+        s.association_id === id ? { ...s, dollars } : s,
       ),
     );
   }
@@ -207,7 +207,7 @@ export default function FeesClient({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             items: sanctioningFees.map((s) => ({
-              sanctioned_association_id: s.sanctioned_association_id,
+              association_id: s.association_id,
               per_class_fee_cents: dollarsToCents(s.dollars || '0'),
             })),
           }),
@@ -367,11 +367,11 @@ export default function FeesClient({
               </p>
               {sanctioning.map((s) => {
                 const fee = sanctioningFees.find(
-                  (f) => f.sanctioned_association_id === s.sanctioned_association_id,
+                  (f) => f.association_id === s.association_id,
                 );
                 return (
                   <div
-                    key={s.sanctioned_association_id}
+                    key={s.association_id}
                     className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end mb-2"
                   >
                     <span>
@@ -391,7 +391,7 @@ export default function FeesClient({
                         inputMode="decimal"
                         value={fee?.dollars ?? ''}
                         onChange={(e) =>
-                          setSanctioningFee(s.sanctioned_association_id, e.target.value)
+                          setSanctioningFee(s.association_id, e.target.value)
                         }
                         className="w-full border rounded px-3 py-2"
                         style={{ borderColor: COLORS.border }}

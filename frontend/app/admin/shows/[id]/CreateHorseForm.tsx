@@ -20,6 +20,8 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     name: '',
     owner_exhibitor_id: '',
     sex: '',
+    sire_name: '',
+    dam_name: '',
     foaling_date: '',
     breed_ids: [] as string[],
     color_id: '',
@@ -38,6 +40,8 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     const body: Record<string, unknown> = { name: form.name.trim() };
     if (form.owner_exhibitor_id) body.owner_exhibitor_id = form.owner_exhibitor_id;
     if (form.sex) body.sex = form.sex;
+    if (form.sire_name.trim()) body.sire_name = form.sire_name.trim();
+    if (form.dam_name.trim()) body.dam_name = form.dam_name.trim();
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     body.breed_ids = form.breed_ids;
     if (form.color_id) body.color_id = form.color_id;
@@ -50,7 +54,7 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
     setSaving(false);
     if (res.ok) {
       router.refresh();
-      setForm({ name: '', owner_exhibitor_id: '', sex: '', foaling_date: '', breed_ids: [], color_id: '' });
+      setForm({ name: '', owner_exhibitor_id: '', sex: '', sire_name: '', dam_name: '', foaling_date: '', breed_ids: [], color_id: '' });
     } else {
       setError('Failed to add horse.');
     }
@@ -86,6 +90,22 @@ export default function CreateHorseForm({ breeds, colors, exhibitors }: Props) {
             className="w-full border rounded px-3 py-2"
           />
         </div>
+        <input
+          name="sire_name"
+          placeholder="Sire"
+          value={form.sire_name}
+          onChange={handleChange}
+          maxLength={200}
+          className="border rounded px-3 py-2"
+        />
+        <input
+          name="dam_name"
+          placeholder="Dam"
+          value={form.dam_name}
+          onChange={handleChange}
+          maxLength={200}
+          className="border rounded px-3 py-2"
+        />
         <div className="sm:col-span-2">
           <BreedCheckboxGroup
             breeds={breeds}

@@ -4,16 +4,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
-const UNCERTIFIED_SHOW_TYPE_CODES = ['OPEN'];
-
-interface ShowType {
+interface Association {
   id: string;
   code: string;
   name: string;
 }
 
 interface CertEntry {
-  show_type_id: string;
+  association_id: string;
   secretary_id_number: string;
 }
 
@@ -28,20 +26,20 @@ interface AphaCert {
 export default function ShowSecretaryRegisterForm() {
   const router = useRouter();
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
-  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+  const [associations, setAssociations] = useState<Association[]>([]);
   const [certifications, setCertifications] = useState<Record<string, CertEntry>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [aphaCert, setAphaCert] = useState<AphaCert>({ status: 'idle' });
 
   useEffect(() => {
-    fetch('/api/show-types')
+    fetch('/api/associations')
       .then((r) => r.json())
-      .then((data) => setShowTypes(Array.isArray(data) ? data.filter((st: ShowType) => !UNCERTIFIED_SHOW_TYPE_CODES.includes(st.code)) : []))
+      .then((data) => setAssociations(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
 
-  const aphaSelected = showTypes.some(st => st.code === 'APHA' && !!certifications[st.id]);
+  const aphaSelected = associations.some(st => st.code === 'APHA' && !!certifications[st.id]);
 
   // Trigger APHA lookup whenever APHA becomes selected (and email is available)
   useEffect(() => {
@@ -86,21 +84,21 @@ export default function ShowSecretaryRegisterForm() {
     if (aphaSelected && form.email) lookupApha(form.email);
   };
 
-  const toggleShowType = (st: ShowType) => {
+  const toggleAssociation = (st: Association) => {
     setCertifications((prev) => {
       if (prev[st.id]) {
         const next = { ...prev };
         delete next[st.id];
         return next;
       }
-      return { ...prev, [st.id]: { show_type_id: st.id, secretary_id_number: '' } };
+      return { ...prev, [st.id]: { association_id: st.id, secretary_id_number: '' } };
     });
   };
 
-  const handleSecretaryId = (showTypeId: string, value: string) => {
+  const handleSecretaryId = (associationId: string, value: string) => {
     setCertifications((prev) => ({
       ...prev,
-      [showTypeId]: { ...prev[showTypeId], secretary_id_number: value },
+      [associationId]: { ...prev[associationId], secretary_id_number: value },
     }));
   };
 
@@ -212,11 +210,11 @@ export default function ShowSecretaryRegisterForm() {
             Select the show type(s) you are certified for and enter your Secretary ID for each.
           </p>
         </div>
-        {showTypes.length === 0 ? (
+        {associations.length === 0 ? (
           <p className="text-xs" style={{ color: '#8b7355' }}>Loading show types…</p>
         ) : (
           <div className="space-y-3">
-            {showTypes.map((st) => {
+            {associations.map((st) => {
               const checked = !!certifications[st.id];
               const isApha = st.code === 'APHA';
               return (
@@ -225,7 +223,7 @@ export default function ShowSecretaryRegisterForm() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => toggleShowType(st)}
+                      onChange={() => toggleAssociation(st)}
                       className="w-4 h-4 rounded"
                       style={{ accentColor: '#8b4513' }}
                     />

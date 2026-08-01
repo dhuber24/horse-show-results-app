@@ -5,9 +5,9 @@ import ExhibitorRegistrations from './ExhibitorRegistrations';
 
 interface Registration {
   id: string;
-  show_type_id: string;
-  show_type_code: string;
-  show_type_name: string;
+  association_id: string;
+  association_code: string;
+  association_name: string;
   member_number: string;
 }
 
@@ -17,7 +17,7 @@ interface Certificate {
   original_filename: string;
   issue_date: string | null;
   expiry_date: string | null;
-  show_type_id: string | null;
+  association_id: string | null;
 }
 
 interface Props {

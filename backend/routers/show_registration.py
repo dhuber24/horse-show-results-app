@@ -85,11 +85,14 @@ NSBA_SANCTION_RATE = 0.06
 
 
 def _class_is_nsba(show: Show, class_: Class) -> bool:
-    if show.show_type and show.show_type.code == "NSBA":
-        return True
+    """NSBA approval comes from club sanctioning, not from the show type.
+
+    Migration 080 split clubs out of show_types: NSBA is a club association a
+    show opts into via show_sanctioning, so an "NSBA show" is now (for example)
+    an OPEN or AQHA show carrying NSBA sanctioning."""
     return any(
-        (a.show_type and a.show_type.code == "NSBA")
-        for a in (class_.associations or [])
+        s.association is not None and s.association.code == "NSBA"
+        for s in (show.sanctioning or [])
     )
 
 
@@ -114,7 +117,13 @@ async def _load_exhibitor_for_user(user_id: UUID, db: AsyncSession) -> Exhibitor
 
 async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
     result = await db.execute(
-        select(Show).options(selectinload(Show.show_type)).where(Show.id == show_id)
+        select(Show)
+        .options(
+            selectinload(Show.show_type),
+            # Needed by _class_is_nsba: club sanctioning drives NSBA fees.
+            selectinload(Show.sanctioning),
+        )
+        .where(Show.id == show_id)
     )
     show = result.scalar_one_or_none()
     if not show:

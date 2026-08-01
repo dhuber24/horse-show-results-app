@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from 'react';
 
-interface ShowType { id: string; code: string; name: string; }
+interface Association { id: string; code: string; name: string; }
 
 interface Affiliation {
   id: string;
-  show_type_id: string;
-  show_type_code: string;
-  show_type_name: string;
+  association_id: string;
+  association_code: string;
+  association_name: string;
   member_number: string;
   status: 'professional' | 'non_pro' | 'general';
   expires_at: string | null;
@@ -52,13 +52,13 @@ interface Props {
 
 export default function TrainerAffiliationsPanel({ initialAffiliations }: Props) {
   const [affiliations, setAffiliations] = useState<Affiliation[]>(initialAffiliations);
-  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+  const [associations, setAssociations] = useState<Association[]>([]);
   const [form, setForm] = useState<{
-    show_type_id: string;
+    association_id: string;
     member_number: string;
     status: Affiliation['status'];
     expires_at: string;
-  }>({ show_type_id: '', member_number: '', status: 'general', expires_at: '' });
+  }>({ association_id: '', member_number: '', status: 'general', expires_at: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -70,16 +70,16 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
+    fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
-  const usedShowTypeIds = new Set(affiliations.map((a) => a.show_type_id));
-  const available = showTypes.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id)
+  const usedAssociationIds = new Set(affiliations.map((a) => a.association_id));
+  const available = associations.filter(
+    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedAssociationIds.has(st.id)
   );
 
   const handleAdd = async () => {
-    if (!form.show_type_id || !form.member_number.trim()) {
+    if (!form.association_id || !form.member_number.trim()) {
       setError('Pick an association and enter a member number.');
       return;
     }
@@ -89,7 +89,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        show_type_id: form.show_type_id,
+        association_id: form.association_id,
         member_number: form.member_number.trim(),
         status: form.status,
         expires_at: form.expires_at || null,
@@ -103,7 +103,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
     }
     const created: Affiliation = await res.json();
     setAffiliations((prev) => [...prev, created]);
-    setForm({ show_type_id: '', member_number: '', status: 'general', expires_at: '' });
+    setForm({ association_id: '', member_number: '', status: 'general', expires_at: '' });
   };
 
   const startEdit = (a: Affiliation) => {
@@ -165,8 +165,8 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
           <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
             Association
             <select
-              value={form.show_type_id}
-              onChange={(e) => setForm((p) => ({ ...p, show_type_id: e.target.value }))}
+              value={form.association_id}
+              onChange={(e) => setForm((p) => ({ ...p, association_id: e.target.value }))}
               className="mt-1 w-full border rounded px-3 py-2 text-sm normal-case font-normal"
               style={inputStyle}
             >
@@ -211,8 +211,8 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
         </div>
         <button
           onClick={handleAdd}
-          disabled={saving || !form.show_type_id || !form.member_number.trim()}
-          title={!form.show_type_id ? 'Choose an association first' : !form.member_number.trim() ? 'Enter your member number' : undefined}
+          disabled={saving || !form.association_id || !form.member_number.trim()}
+          title={!form.association_id ? 'Choose an association first' : !form.member_number.trim() ? 'Enter your member number' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: '#8b4513' }}
         >
@@ -231,7 +231,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
               <li key={a.id} className="border rounded p-4" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
                 {editingId === a.id ? (
                   <div className="space-y-3">
-                    <p className="text-sm font-medium" style={{ color: '#2c1810' }}>{a.show_type_name} ({a.show_type_code})</p>
+                    <p className="text-sm font-medium" style={{ color: '#2c1810' }}>{a.association_name} ({a.association_code})</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
                         Member Number
@@ -275,9 +275,9 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2">
-                        <span className="font-medium text-sm" style={{ color: '#2c1810' }}>{a.show_type_name}</span>
+                        <span className="font-medium text-sm" style={{ color: '#2c1810' }}>{a.association_name}</span>
                         <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
-                          {a.show_type_code}
+                          {a.association_code}
                         </span>
                         <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: '#eef6ee', color: '#166534' }}>
                           {STATUS_LABEL[a.status]}

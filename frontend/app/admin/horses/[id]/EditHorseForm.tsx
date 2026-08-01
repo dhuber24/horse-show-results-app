@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import AssociationSelect, { AssociationTypeBadge, AssociationType } from '@/components/AssociationSelect';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import HorseDocuments from '@/components/HorseDocuments';
 import TrainerSelect from '@/components/TrainerSelect';
@@ -11,8 +12,8 @@ import SectionHeader from '@/components/SectionHeader';
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
-interface ShowType { id: string; code: string; name: string; }
-interface Registration { id: string; show_type_id: string; show_type_code: string; show_type_name: string; registration_number: string; }
+interface Association { id: string; code: string; name: string; association_type: AssociationType; }
+interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type: AssociationType; registration_number: string; }
 interface Rider { exhibitor_id: string; full_name: string; }
 interface Trainer { id: string; name: string; }
 
@@ -23,6 +24,8 @@ interface Horse {
   owner_name: string | null;
   trainer_id: string | null;
   trainer_name: string | null;
+  sire_name: string | null;
+  dam_name: string | null;
   foaling_date: string | null;
   sex: string | null;
   breed_id: string | null;
@@ -37,15 +40,14 @@ interface Props {
   breeds: Breed[];
   colors: HorseColor[];
   exhibitors: Exhibitor[];
-  showTypes: ShowType[];
+  associations: Association[];
   registrations: Registration[];
   trainers: Trainer[];
 }
 
-const UNCERTIFIED_CODES = ['OPEN'];
 
 
-export default function EditHorseForm({ horse, breeds, colors, exhibitors, showTypes, registrations: initialRegs, trainers }: Props) {
+export default function EditHorseForm({ horse, breeds, colors, exhibitors, associations, registrations: initialRegs, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
@@ -56,6 +58,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     trainer_last_name: '',
     trainer_email: '',
     sex: horse.sex ?? '',
+    sire_name: horse.sire_name ?? '',
+    dam_name: horse.dam_name ?? '',
     foaling_date: horse.foaling_date ?? '',
     breed_ids: horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []),
     color_id: horse.color_id ?? '',
@@ -66,7 +70,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [registrations, setRegistrations] = useState<Registration[]>(initialRegs);
-  const [newReg, setNewReg] = useState({ show_type_id: '', registration_number: '' });
+  const [newReg, setNewReg] = useState({ association_id: '', registration_number: '' });
   const [addingReg, setAddingReg] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
@@ -108,6 +112,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
       trainer_last_name: form.trainer_last_name.trim() || null,
       trainer_email: form.trainer_email.trim() || null,
       sex: form.sex || null,
+      sire_name: form.sire_name.trim() || null,
+      dam_name: form.dam_name.trim() || null,
       foaling_date: form.foaling_date || null,
       breed_ids: form.breed_ids,
       color_id: form.color_id || null,
@@ -140,19 +146,19 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
   };
 
   const handleAddReg = async () => {
-    if (!newReg.show_type_id || !newReg.registration_number.trim()) {
+    if (!newReg.association_id || !newReg.registration_number.trim()) {
       setRegError('Select an association and enter a registration number.');
       return;
     }
     const trimmed = newReg.registration_number.trim();
     setAddingReg(true);
     setRegError(null);
-    const qs = new URLSearchParams({ show_type_id: newReg.show_type_id, registration_number: trimmed });
+    const qs = new URLSearchParams({ association_id: newReg.association_id, registration_number: trimmed });
     const lookupRes = await fetch(`/api/horses/registrations/lookup?${qs.toString()}`);
     if (lookupRes.ok) {
       const existing = await lookupRes.json();
       if (existing.horse_id && existing.horse_id !== horse.id) {
-        const st = showTypes.find((s) => s.id === newReg.show_type_id);
+        const st = associations.find((s) => s.id === newReg.association_id);
         const owner = existing.owner_name ? ` (owner: ${existing.owner_name})` : '';
         setRegError(`${st?.code ?? 'Registration'} #${trimmed} is already on file for horse "${existing.horse_name}"${owner}.`);
         setAddingReg(false);
@@ -162,13 +168,13 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     const res = await fetch(`/api/horses/${horse.id}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ show_type_id: newReg.show_type_id, registration_number: trimmed }),
+      body: JSON.stringify({ association_id: newReg.association_id, registration_number: trimmed }),
     });
     setAddingReg(false);
     if (res.ok) {
       const created = await res.json();
       setRegistrations((prev) => [...prev, created]);
-      setNewReg({ show_type_id: '', registration_number: '' });
+      setNewReg({ association_id: '', registration_number: '' });
     } else {
       const err = await res.json().catch(() => ({}));
       setRegError(err.detail ?? 'Failed to add registration.');
@@ -205,8 +211,8 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
     if (res.ok) setRiders((prev) => prev.filter((r) => r.exhibitor_id !== exhibitorId));
   };
 
-  const usedShowTypeIds = new Set(registrations.map((r) => r.show_type_id));
-  const availableShowTypes = showTypes.filter((st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id));
+  const usedAssociationIds = new Set(registrations.map((r) => r.association_id));
+  const availableAssociations = associations.filter((a) => !usedAssociationIds.has(a.id));
 
   // Parse year directly from the ISO string to avoid the JS UTC-to-local timezone shift
   // that moves Jan 1 dates to Dec 31 of the prior year for users west of UTC.
@@ -283,6 +289,14 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
                   )}
                 </label>
                 <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sire</label>
+                <input name="sire_name" value={form.sire_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Dam</label>
+                <input name="dam_name" value={form.dam_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
               </div>
               <div className="sm:col-span-2">
                 <BreedCheckboxGroup
@@ -378,24 +392,25 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, showT
               <ul className="space-y-2">
                 {registrations.map((r) => (
                   <li key={r.id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                    <div><span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.show_type_code}</span><span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span></div>
+                    <div className="flex items-center gap-2"><span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.association_code}</span><span className="text-sm" style={{ color: '#2c1810' }}>{r.registration_number}</span><AssociationTypeBadge type={r.association_type} /></div>
                     <button onClick={() => setConfirmDeleteRegId(r.id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
-                    {confirmDeleteRegId === r.id && <ConfirmDialog title="Remove Registration" message={`Remove ${r.show_type_code} registration? This cannot be undone.`} confirmLabel="Yes, remove" destructive onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }} onCancel={() => setConfirmDeleteRegId(null)} />}
+                    {confirmDeleteRegId === r.id && <ConfirmDialog title="Remove Registration" message={`Remove ${r.association_code} registration? This cannot be undone.`} confirmLabel="Yes, remove" destructive onConfirm={() => { handleDeleteReg(r.id); setConfirmDeleteRegId(null); }} onCancel={() => setConfirmDeleteRegId(null)} />}
                   </li>
                 ))}
               </ul>
             ) : <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>}
-            {availableShowTypes.length > 0 && (
+            {availableAssociations.length > 0 && (
               <div className="flex flex-wrap gap-2 items-end pt-1">
                 <div className="flex-1 min-w-[160px]">
                   <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-                  <select value={newReg.show_type_id} onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))} className="w-full border rounded px-3 py-2 text-sm">
-                    <option value="">Select...</option>
-                    {availableShowTypes.map((st) => <option key={st.id} value={st.id}>{st.code} - {st.name}</option>)}
-                  </select>
+                  <AssociationSelect
+                    associations={availableAssociations}
+                    value={newReg.association_id}
+                    onChange={(association_id) => setNewReg((p) => ({ ...p, association_id }))}
+                  />
                 </div>
                 <div className="flex-1 min-w-[160px]">
-                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
+                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration / Member #</label>
                   <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
                 </div>
                 <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingReg ? 'Adding...' : 'Add'}</button>

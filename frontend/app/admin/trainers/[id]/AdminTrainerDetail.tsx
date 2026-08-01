@@ -30,9 +30,9 @@ interface AdminTrainer {
 
 interface Affiliation {
   id: string;
-  show_type_id: string;
-  show_type_code: string;
-  show_type_name: string;
+  association_id: string;
+  association_code: string;
+  association_name: string;
   member_number: string;
   status: 'professional' | 'non_pro' | 'general';
   expires_at: string | null;
@@ -50,7 +50,7 @@ interface TrainerHorse {
   is_solid_paint_bred: boolean;
 }
 
-interface ShowType { id: string; code: string; name: string; }
+interface Association { id: string; code: string; name: string; }
 
 const UNCERTIFIED_CODES = ['OPEN'];
 
@@ -122,18 +122,18 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
   const toggle = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
 
   const [affiliations, setAffiliations] = useState<Affiliation[]>(initialAffiliations);
-  const [showTypes, setShowTypes] = useState<ShowType[]>([]);
+  const [associations, setAssociations] = useState<Association[]>([]);
   const [newReg, setNewReg] = useState<{
-    show_type_id: string;
+    association_id: string;
     member_number: string;
     status: Affiliation['status'];
     expires_at: string;
-  }>({ show_type_id: '', member_number: '', status: 'general', expires_at: '' });
+  }>({ association_id: '', member_number: '', status: 'general', expires_at: '' });
   const [regError, setRegError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/show-types').then((r) => r.json()).then(setShowTypes).catch(() => {});
+    fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
   const publicRequirementsMet =
@@ -146,9 +146,9 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
   };
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-  const usedShowTypeIds = new Set(affiliations.map((a) => a.show_type_id));
-  const availableShowTypes = showTypes.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedShowTypeIds.has(st.id),
+  const usedAssociationIds = new Set(affiliations.map((a) => a.association_id));
+  const availableAssociations = associations.filter(
+    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedAssociationIds.has(st.id),
   );
 
   const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
@@ -189,7 +189,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
   };
 
   const handleAddAffiliation = async () => {
-    if (!newReg.show_type_id || !newReg.member_number.trim()) {
+    if (!newReg.association_id || !newReg.member_number.trim()) {
       setRegError('Pick an association and enter a member number.');
       return;
     }
@@ -198,7 +198,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        show_type_id: newReg.show_type_id,
+        association_id: newReg.association_id,
         member_number: newReg.member_number.trim(),
         status: newReg.status,
         expires_at: newReg.expires_at || null,
@@ -211,7 +211,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
     }
     const created: Affiliation = await res.json();
     setAffiliations((prev) => [...prev, created]);
-    setNewReg({ show_type_id: '', member_number: '', status: 'general', expires_at: '' });
+    setNewReg({ association_id: '', member_number: '', status: 'general', expires_at: '' });
   };
 
   const handleDeleteAffiliation = async (id: string) => {
@@ -405,13 +405,13 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Association">
             <select
-              value={newReg.show_type_id}
-              onChange={(e) => setNewReg((p) => ({ ...p, show_type_id: e.target.value }))}
+              value={newReg.association_id}
+              onChange={(e) => setNewReg((p) => ({ ...p, association_id: e.target.value }))}
               className={inputClass}
               style={inputStyle}
             >
               <option value="">- Choose -</option>
-              {availableShowTypes.map((st) => (
+              {availableAssociations.map((st) => (
                 <option key={st.id} value={st.id}>{st.name} ({st.code})</option>
               ))}
             </select>
@@ -448,8 +448,8 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
         </div>
         <button
           onClick={handleAddAffiliation}
-          disabled={!newReg.show_type_id || !newReg.member_number.trim()}
-          title={!newReg.show_type_id ? 'Pick an association' : !newReg.member_number.trim() ? 'Enter the member number' : undefined}
+          disabled={!newReg.association_id || !newReg.member_number.trim()}
+          title={!newReg.association_id ? 'Pick an association' : !newReg.member_number.trim() ? 'Enter the member number' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: '#8b4513' }}
         >
@@ -468,7 +468,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
               >
                 <div className="space-y-1 min-w-0">
                   <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
-                    {a.show_type_name} <span className="text-xs" style={{ color: '#8b7355' }}>({a.show_type_code})</span>
+                    {a.association_name} <span className="text-xs" style={{ color: '#8b7355' }}>({a.association_code})</span>
                   </p>
                   <p className="text-sm" style={{ color: '#5a4632' }}>
                     Member #{a.member_number} · {STATUS_LABEL[a.status]}

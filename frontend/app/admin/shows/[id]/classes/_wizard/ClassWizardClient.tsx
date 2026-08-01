@@ -55,6 +55,7 @@ const COLORS = {
 } as const;
 
 type Step = 1 | 2 | 3;
+type Mode = 'wizard' | 'hub';
 
 export default function ClassWizardClient({
   showId,
@@ -82,7 +83,15 @@ export default function ClassWizardClient({
     : initialDivisions.length === 0
       ? 2
       : 3;
+  // Once every section already has data, skip the linear step-through and
+  // land on the overview so editing a single section doesn't mean walking
+  // back through steps that are already configured.
+  const allConfigured =
+    initialDisciplines.length > 0 && initialDivisions.length > 0 && initialClasses.length > 0;
+
+  const [mode, setMode] = useState<Mode>(allConfigured ? 'hub' : 'wizard');
   const [step, setStep] = useState<Step>(initialStep);
+  const [hubSection, setHubSection] = useState<Step | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,21 +99,47 @@ export default function ClassWizardClient({
   const [divisions, setDivisions] = useState<DivisionItem[]>(initialDivisions);
   const [classes, setClasses] = useState<ClassItem[]>(initialClasses);
 
+  if (mode === 'hub' && hubSection === null) {
+    return (
+      <HubOverview
+        disciplines={disciplines}
+        divisions={divisions}
+        classes={classes}
+        onEdit={(section) => setHubSection(section)}
+      />
+    );
+  }
+
+  const editing = mode === 'hub';
+  const activeStep = editing ? hubSection! : step;
+  const backToOverview = () => setHubSection(null);
+
   return (
     <div className="space-y-6">
-      <Stepper
-        step={step}
-        steps={[
-          { key: 1, label: '1. Disciplines', done: disciplines.length > 0 },
-          { key: 2, label: '2. Divisions', done: divisions.length > 0 },
-          { key: 3, label: '3. Classes', done: classes.length > 0 },
-        ]}
-        onJump={(target) => {
-          if (target === 2 && disciplines.length === 0) return;
-          if (target === 3 && (disciplines.length === 0 || divisions.length === 0)) return;
-          setStep(target);
-        }}
-      />
+      {editing ? (
+        <button
+          type="button"
+          onClick={backToOverview}
+          className="text-sm hover:underline"
+          style={{ color: '#8b4513' }}
+        >
+          ← Back to setup overview
+        </button>
+      ) : (
+        <Stepper
+          step={step}
+          steps={[
+            { key: 1, label: '1. Disciplines', done: disciplines.length > 0 },
+            { key: 2, label: '2. Divisions', done: divisions.length > 0 },
+            { key: 3, label: '3. Classes', done: classes.length > 0 },
+          ]}
+          onJump={(target) => {
+            if (target === 2 && disciplines.length === 0) return;
+            if (target === 3 && (disciplines.length === 0 || divisions.length === 0)) return;
+            setStep(target);
+          }}
+        />
+      )}
 
       {error && (
         <div
@@ -116,8 +151,9 @@ export default function ClassWizardClient({
         </div>
       )}
 
-      {step === 1 && (
+      {activeStep === 1 && (
         <DisciplineStep
+          mode={editing ? 'hub' : 'wizard'}
           showId={showId}
           existing={disciplines}
           standardOptions={standardDisciplines}
@@ -127,13 +163,15 @@ export default function ClassWizardClient({
           onRefreshed={(rows) => setDisciplines(rows)}
           onSaved={(rows) => {
             setDisciplines(rows);
-            setStep(2);
             router.refresh();
+            if (editing) backToOverview();
+            else setStep(2);
           }}
         />
       )}
-      {step === 2 && (
+      {activeStep === 2 && (
         <DivisionStep
+          mode={editing ? 'hub' : 'wizard'}
           showId={showId}
           disciplines={disciplines}
           existing={divisions}
@@ -141,16 +179,17 @@ export default function ClassWizardClient({
           busy={busy}
           setBusy={setBusy}
           setError={setError}
-          onBack={() => setStep(1)}
+          onBack={editing ? undefined : () => setStep(1)}
           onRefreshed={(rows) => setDivisions(rows)}
           onSaved={(rows) => {
             setDivisions(rows);
-            setStep(3);
             router.refresh();
+            if (editing) backToOverview();
+            else setStep(3);
           }}
         />
       )}
-      {step === 3 && (
+      {activeStep === 3 && (
         <ClassesStep
           showId={showId}
           showStartDate={showStartDate}
@@ -162,10 +201,94 @@ export default function ClassWizardClient({
           setBusy={setBusy}
           setError={setError}
           onChanged={(rows) => setClasses(rows)}
-          onBack={() => setStep(2)}
-          onDone={() => router.push(`/admin/shows/${showId}`)}
+          onBack={editing ? undefined : () => setStep(2)}
+          onDone={
+            editing
+              ? undefined
+              : () => {
+                  if (disciplines.length > 0 && divisions.length > 0 && classes.length > 0) {
+                    setMode('hub');
+                  } else {
+                    router.push(`/admin/shows/${showId}`);
+                  }
+                }
+          }
         />
       )}
+    </div>
+  );
+}
+
+// ── Setup overview (post-configuration edit hub) ────────────────────────────────
+
+function HubOverview({
+  disciplines,
+  divisions,
+  classes,
+  onEdit,
+}: {
+  disciplines: DisciplineItem[];
+  divisions: DivisionItem[];
+  classes: ClassItem[];
+  onEdit: (section: Step) => void;
+}) {
+  const items: { key: Step; label: string; hint: string; done: boolean }[] = [
+    {
+      key: 1,
+      label: 'Disciplines',
+      hint: `${disciplines.length} discipline${disciplines.length === 1 ? '' : 's'}`,
+      done: disciplines.length > 0,
+    },
+    {
+      key: 2,
+      label: 'Divisions',
+      hint: `${divisions.length} division${divisions.length === 1 ? '' : 's'}`,
+      done: divisions.length > 0,
+    },
+    {
+      key: 3,
+      label: 'Classes',
+      hint: `${classes.length} class${classes.length === 1 ? '' : 'es'}`,
+      done: classes.length > 0,
+    },
+  ];
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm" style={{ color: COLORS.muted }}>
+        Class setup is configured. Click a section to make changes.
+      </p>
+      <ul className="space-y-3">
+        {items.map((item) => (
+          <li key={item.key}>
+            <button
+              type="button"
+              onClick={() => onEdit(item.key)}
+              className="w-full flex items-start justify-between gap-3 p-4 rounded-lg border text-left transition-colors hover:bg-amber-50"
+              style={{
+                borderColor: item.done ? '#bcd9c0' : COLORS.border,
+                backgroundColor: item.done ? '#f3faf3' : COLORS.bg,
+              }}
+            >
+              <div>
+                <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+                  {item.label}
+                </h2>
+                <p className="text-sm mt-0.5" style={{ color: COLORS.muted }}>{item.hint}</p>
+              </div>
+              <span
+                className="text-xs px-2 py-1 rounded shrink-0"
+                style={{
+                  color: item.done ? '#1f4e1f' : COLORS.warn,
+                  backgroundColor: item.done ? '#dff1df' : COLORS.warnSoft,
+                }}
+              >
+                {item.done ? 'Edit' : 'Open'}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -228,6 +351,7 @@ function Stepper({
 // ── Step 1: Disciplines ────────────────────────────────────────────────────────
 
 function DisciplineStep({
+  mode,
   showId,
   existing,
   standardOptions,
@@ -237,6 +361,7 @@ function DisciplineStep({
   onRefreshed,
   onSaved,
 }: {
+  mode: Mode;
   showId: string;
   existing: DisciplineItem[];
   standardOptions: StandardItem[];
@@ -471,7 +596,7 @@ function DisciplineStep({
           className="text-sm rounded px-4 py-2 disabled:opacity-50"
           style={{ backgroundColor: COLORS.warn, color: '#fff' }}
         >
-          {busy ? 'Saving…' : 'Save & continue →'}
+          {busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
         </button>
       </div>
     </section>
@@ -481,6 +606,7 @@ function DisciplineStep({
 // ── Step 2: Divisions ──────────────────────────────────────────────────────────
 
 function DivisionStep({
+  mode,
   showId,
   disciplines,
   existing,
@@ -492,6 +618,7 @@ function DivisionStep({
   onRefreshed,
   onSaved,
 }: {
+  mode: Mode;
   showId: string;
   disciplines: DisciplineItem[];
   existing: DivisionItem[];
@@ -499,7 +626,7 @@ function DivisionStep({
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
-  onBack: () => void;
+  onBack?: () => void;
   onRefreshed: (rows: DivisionItem[]) => void;
   onSaved: (rows: DivisionItem[]) => void;
 }) {
@@ -724,15 +851,20 @@ function DivisionStep({
         </div>
       </div>
 
-      <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm rounded px-3 py-2 border"
-          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-        >
-          ← Back
-        </button>
+      <div
+        className={`flex pt-2 border-t ${onBack ? 'justify-between' : 'justify-end'}`}
+        style={{ borderColor: COLORS.border }}
+      >
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-sm rounded px-3 py-2 border"
+            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+          >
+            ← Back
+          </button>
+        )}
         <button
           type="button"
           onClick={save}
@@ -740,7 +872,7 @@ function DivisionStep({
           className="text-sm rounded px-4 py-2 disabled:opacity-50"
           style={{ backgroundColor: COLORS.warn, color: '#fff' }}
         >
-          {busy ? 'Saving…' : 'Save & continue →'}
+          {busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
         </button>
       </div>
     </section>
@@ -788,8 +920,8 @@ function ClassesStep({
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
   onChanged: (rows: ClassItem[]) => void;
-  onBack: () => void;
-  onDone: () => void;
+  onBack?: () => void;
+  onDone?: () => void;
 }) {
   const [classDate, setClassDate] = useState(showStartDate);
   // Date-qualified cell keys (`${classDate}::${disciplineId}::${divisionId}`)
@@ -1213,24 +1345,32 @@ function ClassesStep({
         )}
       </div>
 
-      <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm rounded px-3 py-2 border"
-          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-        >
-          ← Back
-        </button>
-        <button
-          type="button"
-          onClick={onDone}
-          className="text-sm rounded px-4 py-2"
-          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-        >
-          Done →
-        </button>
-      </div>
+      {(onBack || onDone) && (
+        <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-sm rounded px-3 py-2 border"
+              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+            >
+              ← Back
+            </button>
+          ) : (
+            <span />
+          )}
+          {onDone && (
+            <button
+              type="button"
+              onClick={onDone}
+              className="text-sm rounded px-4 py-2"
+              style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+            >
+              Done →
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

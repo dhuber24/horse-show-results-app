@@ -9,7 +9,7 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
-from models import Exhibitor, ExhibitorDocument, ShowType
+from models import Association, Exhibitor, ExhibitorDocument
 from schemas import ExhibitorDocumentOut, ExhibitorDocumentUpdate
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
@@ -55,17 +55,17 @@ async def list_exhibitor_documents(
     result = await db.execute(
         select(ExhibitorDocument)
         .where(ExhibitorDocument.exhibitor_id == exhibitor_id)
-        .options(selectinload(ExhibitorDocument.show_type))
+        .options(selectinload(ExhibitorDocument.association))
         .order_by(ExhibitorDocument.document_type, ExhibitorDocument.created_at)
     )
     return result.scalars().all()
 
 
-async def _resolve_show_type(show_type_id: UUID, db: AsyncSession) -> ShowType:
-    st = await db.get(ShowType, show_type_id)
-    if not st:
+async def _resolve_association(association_id: UUID, db: AsyncSession) -> Association:
+    assoc = await db.get(Association, association_id)
+    if not assoc:
         raise HTTPException(400, "Unknown association")
-    return st
+    return assoc
 
 
 @router.post("/{exhibitor_id}/documents", response_model=ExhibitorDocumentOut, status_code=201)
@@ -75,7 +75,7 @@ async def upload_exhibitor_document(
     document_type: str = Form(...),
     issue_date: Optional[str] = Form(None),
     expiry_date: Optional[str] = Form(None),
-    show_type_id: Optional[str] = Form(None),
+    association_id: Optional[str] = Form(None),
     user_id: str = Depends(require_authenticated),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
@@ -85,12 +85,12 @@ async def upload_exhibitor_document(
 
     await _check_access(exhibitor_id, user_id, x_user_role, db)
 
-    show_type: Optional[ShowType] = None
-    if show_type_id:
-        st_uuid = safe_uuid(show_type_id)
+    association: Optional[Association] = None
+    if association_id:
+        st_uuid = safe_uuid(association_id)
         if not st_uuid:
             raise HTTPException(400, "Invalid association id")
-        show_type = await _resolve_show_type(st_uuid, db)
+        association = await _resolve_association(st_uuid, db)
 
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
@@ -109,12 +109,12 @@ async def upload_exhibitor_document(
         file_size=len(content),
         issue_date=date.fromisoformat(issue_date) if issue_date else None,
         expiry_date=date.fromisoformat(expiry_date) if expiry_date else None,
-        show_type_id=show_type.id if show_type else None,
+        association_id=association.id if association else None,
         uploaded_by_user_id=UUID(user_id),
     )
     db.add(doc)
     await db.commit()
-    await db.refresh(doc, attribute_names=['show_type'])
+    await db.refresh(doc, attribute_names=['association'])
     return doc
 
 
@@ -135,17 +135,17 @@ async def update_exhibitor_document(
             ExhibitorDocument.id == doc_id,
             ExhibitorDocument.exhibitor_id == exhibitor_id,
         )
-        .options(selectinload(ExhibitorDocument.show_type))
+        .options(selectinload(ExhibitorDocument.association))
     )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(404, "Document not found")
 
-    if body.clear_show_type:
-        doc.show_type_id = None
-    elif body.show_type_id is not None:
-        await _resolve_show_type(body.show_type_id, db)
-        doc.show_type_id = body.show_type_id
+    if body.clear_association:
+        doc.association_id = None
+    elif body.association_id is not None:
+        await _resolve_association(body.association_id, db)
+        doc.association_id = body.association_id
 
     if body.clear_issue_date:
         doc.issue_date = None
@@ -158,7 +158,7 @@ async def update_exhibitor_document(
         doc.expiry_date = body.expiry_date
 
     await db.commit()
-    await db.refresh(doc, attribute_names=['show_type'])
+    await db.refresh(doc, attribute_names=['association'])
     return doc
 
 

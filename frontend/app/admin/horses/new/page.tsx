@@ -1,15 +1,15 @@
-import { fetchBreeds, fetchHorseColors, fetchExhibitors, fetchShowTypes, fetchTrainers } from '@/lib/api';
+import { fetchBreeds, fetchHorseColors, fetchExhibitors, fetchAssociations, fetchTrainers } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import NewHorseForm from './NewHorseForm';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function NewHorsePage() {
   const headers = await getAuthHeaders();
-  const [breeds, colors, exhibitors, showTypes, trainers] = await Promise.all([
+  const [breeds, colors, exhibitors, associations, trainers] = await Promise.all([
     fetchBreeds(),
     fetchHorseColors(),
     fetchExhibitors(headers || undefined),
-    fetchShowTypes(),
+    fetchAssociations(headers || undefined),
     fetchTrainers(headers || undefined),
   ]);
 
@@ -28,7 +28,7 @@ export default async function NewHorsePage() {
         breeds={breeds}
         colors={colors}
         exhibitors={exhibitors}
-        showTypes={showTypes}
+        associations={associations}
         trainers={trainers}
       />
     </main>

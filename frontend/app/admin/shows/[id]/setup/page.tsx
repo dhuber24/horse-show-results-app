@@ -38,7 +38,7 @@ export default async function SetupHubPage({
 
   const [judges, sanctioning, fees] = await Promise.all([
     fetchAuthed<{ id: string }[]>(`${API_URL}/shows/${id}/judges/`, []),
-    fetchAuthed<{ sanctioned_association_id: string }[]>(
+    fetchAuthed<{ association_id: string }[]>(
       `${API_URL}/shows/${id}/sanctioning/`,
       [],
     ),
