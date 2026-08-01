@@ -2,8 +2,17 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { redirect, notFound } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
-import HorseDocuments from '@/components/HorseDocuments';
-import EditMyHorseForm from './EditMyHorseForm';
+import EditMyHorseForm, { HorseSectionKey } from './EditMyHorseForm';
+
+/** `?section=` deep-links to a collapsible section. `documents` is the older
+ *  spelling still used by the Documents link on the My Horses list. */
+const SECTION_ALIASES: Record<string, HorseSectionKey> = {
+  details: 'details',
+  people: 'people',
+  health: 'health',
+  documents: 'health',
+  associations: 'associations',
+};
 
 export default async function ExhibitorHorsePage({
   params,
@@ -45,7 +54,6 @@ export default async function ExhibitorHorsePage({
     const docsRes = await fetch(`${API_URL}/horses/${id}/documents`, { headers: headers!, cache: 'no-store' });
     if (docsRes.ok) docs = await docsRes.json();
   }
-  const showDocumentsFirst = section === 'documents';
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
@@ -61,26 +69,13 @@ export default async function ExhibitorHorsePage({
         )}
       </div>
 
-      {isOwner && showDocumentsFirst && (
-        <div id="documents" className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>
-            Health &amp; Registration Documents
-          </h2>
-          <HorseDocuments horseId={id} initialDocuments={docs} />
-        </div>
-      )}
-
-      <EditMyHorseForm horse={horse} registrations={registrations} isOwner={isOwner} />
-
-      {isOwner && !showDocumentsFirst && (
-        <div id="documents" className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>
-            Health &amp; Registration Documents
-          </h2>
-          <HorseDocuments horseId={id} initialDocuments={docs} />
-        </div>
-      )}
+      <EditMyHorseForm
+        horse={horse}
+        registrations={registrations}
+        documents={docs}
+        isOwner={isOwner}
+        initialSection={section ? SECTION_ALIASES[section] : undefined}
+      />
     </main>
   );
 }
-

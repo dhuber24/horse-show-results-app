@@ -4,14 +4,19 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
-import SectionHeader from '@/components/SectionHeader';
 import AssociationSelect, { AssociationTypeBadge, AssociationType } from '@/components/AssociationSelect';
+import HorseDocuments, {
+  HorseDocument,
+  HEALTH_DOC_TYPES,
+  REGISTRATION_DOC_TYPES,
+} from '@/components/HorseDocuments';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
 interface Association { id: string; code: string; name: string; association_type: AssociationType; }
 interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type: AssociationType; registration_number: string; }
 interface Rider { exhibitor_id: string; full_name: string; }
+interface ExhibitorName { id: string; full_name: string; }
 
 interface Horse {
   id: string;
@@ -33,18 +38,93 @@ interface Horse {
   age: number | null;
 }
 
+/** The page is a tab set; `?section=` deep-links to one tab. */
+export type HorseSectionKey = 'details' | 'people' | 'health' | 'associations';
+
+/** Which form fields each Save button is responsible for. */
+type SaveOrigin = 'details' | 'people';
+
 interface Props {
   horse: Horse;
   registrations: Registration[];
+  documents: HorseDocument[];
   isOwner: boolean;
+  initialSection?: HorseSectionKey;
 }
 
-const UNCERTIFIED_CODES = ['OPEN'];
+const TABS: { key: HorseSectionKey; label: string; ownerOnly?: boolean }[] = [
+  { key: 'details', label: 'Details' },
+  { key: 'people', label: 'People' },
+  // Documents are only returned by the API for the owner, so non-owners get no tab.
+  { key: 'health', label: 'Health', ownerOnly: true },
+  { key: 'associations', label: 'Associations' },
+];
 
-interface ExhibitorName { id: string; full_name: string; }
+const CARD_STYLE = { borderColor: '#d4b896', backgroundColor: '#ffffff' };
+const ROW_STYLE = { borderColor: '#e8d5b7', backgroundColor: '#faf6f0' };
+const PRIMARY_BUTTON = { backgroundColor: '#2c1810', color: '#f5ede0' };
+const OWNER_BADGE = { backgroundColor: '#fef3c7', color: '#92400e' };
 
+function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>{label}</dt>
+      <dd style={{ color: '#2c1810' }}>{value || '-'}</dd>
+    </div>
+  );
+}
 
-export default function EditMyHorseForm({ horse, registrations: initialRegs, isOwner }: Props) {
+function PanelIntro({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm" style={{ color: '#8b7355' }}>{children}</p>;
+}
+
+function SubHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#a89070' }}>{children}</p>
+  );
+}
+
+function RegistrationRow({ reg, onRemove }: { reg: Registration; onRemove?: () => void }) {
+  return (
+    <li className="flex items-center justify-between p-3 rounded border" style={ROW_STYLE}>
+      <div>
+        <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{reg.association_code}</span>
+        <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{reg.registration_number}</span>
+        <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{reg.association_name}</span>
+        <span className="ml-2"><AssociationTypeBadge type={reg.association_type} /></span>
+      </div>
+      {onRemove && (
+        <button onClick={onRemove} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
+      )}
+    </li>
+  );
+}
+
+function TabPanel({ id, active, children }: { id: HorseSectionKey; active: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      role="tabpanel"
+      id={`panel-${id}`}
+      aria-labelledby={`tab-${id}`}
+      hidden={!active}
+      tabIndex={0}
+      /* Inactive panels stay mounted so switching tabs never discards a
+         half-filled upload form or a document that was just added. */
+      className={active ? 'rounded-lg border p-5 space-y-4' : 'hidden'}
+      style={CARD_STYLE}
+    >
+      {children}
+    </div>
+  );
+}
+
+export default function EditMyHorseForm({
+  horse,
+  registrations: initialRegs,
+  documents,
+  isOwner,
+  initialSection,
+}: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
@@ -64,6 +144,9 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Details and People edit one horse record but have their own Save button, so
+  // status lands in the tab the user actually clicked in.
+  const [saveOrigin, setSaveOrigin] = useState<SaveOrigin | null>(null);
   const [riders, setRiders] = useState<Rider[]>([]);
 
   const [breeds, setBreeds] = useState<Breed[]>([]);
@@ -78,7 +161,12 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
   const [addingRider, setAddingRider] = useState(false);
   const [riderError, setRiderError] = useState<string | null>(null);
   const [confirmRemoveRiderId, setConfirmRemoveRiderId] = useState<string | null>(null);
-  const [open, setOpen] = useState({ details: true, riders: true, registrations: true });
+
+  const tabs = TABS.filter((t) => !t.ownerOnly || isOwner);
+  // A `?section=` pointing at a tab this viewer can't see falls back to Details.
+  const [activeTab, setActiveTab] = useState<HorseSectionKey>(
+    initialSection && tabs.some((t) => t.key === initialSection) ? initialSection : 'details'
+  );
 
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
@@ -88,13 +176,26 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     fetch(`/api/horses/${horse.id}/riders`).then((r) => r.json()).then(setRiders).catch(() => {});
   }, [horse.id]);
 
-  const toggle = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
+  const selectTab = (key: HorseSectionKey) => {
+    setActiveTab(key);
+    document.getElementById(`tab-${key}`)?.focus();
+  };
+
+  // role="tablist" promises arrow-key navigation, so honour it.
+  const handleTabKeys = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const i = tabs.findIndex((t) => t.key === activeTab);
+    if (e.key === 'ArrowRight') { e.preventDefault(); selectTab(tabs[(i + 1) % tabs.length].key); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); selectTab(tabs[(i - 1 + tabs.length) % tabs.length].key); }
+    else if (e.key === 'Home') { e.preventDefault(); selectTab(tabs[0].key); }
+    else if (e.key === 'End') { e.preventDefault(); selectTab(tabs[tabs.length - 1].key); }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSave = async () => {
+  const handleSave = async (origin: SaveOrigin) => {
+    setSaveOrigin(origin);
     if (!form.name.trim()) { setError('Horse name is required.'); return; }
     const hasOtherTrainer = !form.trainer_id && (
       form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
@@ -207,9 +308,7 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
   };
 
   const usedAssociationIds = new Set(registrations.map((r) => r.association_id));
-  const availableAssociations = associations.filter(
-    (st) => !UNCERTIFIED_CODES.includes(st.code) && !usedAssociationIds.has(st.id)
-  );
+  const availableAssociations = associations.filter((st) => !usedAssociationIds.has(st.id));
 
   // Parse year directly from the ISO string to avoid timezone shift on Jan 1 dates.
   const birthYear = form.foaling_date ? parseInt(form.foaling_date.split('-')[0], 10) : null;
@@ -222,102 +321,65 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
     return [{ exhibitor_id: horse.owner_exhibitor_id, full_name: horse.owner_exhibitor_name }, ...riders];
   })();
 
-  if (!isOwner) {
-    return (
-      <div className="space-y-6">
-        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
-          <SectionHeader title="Horse Details" open={open.details} onToggle={() => toggle('details')} />
-          {open.details && (
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Owner</dt><dd style={{ color: '#2c1810' }}>{horse.owner_exhibitor_name || horse.owner_name || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Trainer</dt><dd style={{ color: '#2c1810' }}>{form.trainer_name || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sex</dt><dd style={{ color: '#2c1810' }}>{form.sex || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Foaling Date</dt><dd style={{ color: '#2c1810' }}>{form.foaling_date || '-'}{displayAge !== null && displayAge !== undefined ? ` (show age ${displayAge})` : ''}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Sire</dt><dd style={{ color: '#2c1810' }}>{form.sire_name || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Dam</dt><dd style={{ color: '#2c1810' }}>{form.dam_name || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Breeds</dt><dd style={{ color: '#2c1810' }}>{form.breed_ids.map((id) => breeds.find((b) => b.id === id)?.name).filter(Boolean).join(', ') || '-'}</dd></div>
-              <div><dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>Color</dt><dd style={{ color: '#2c1810' }}>{colors.find((c) => c.id === form.color_id)?.name || '-'}</dd></div>
-              {form.is_solid_paint_bred && (
-                <div className="sm:col-span-2"><dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Solid Paint-Bred (SPB)</dd></div>
-              )}
-            </dl>
-          )}
-        </div>
-
-        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
-          <SectionHeader title="Association Registrations" open={open.registrations} onToggle={() => toggle('registrations')} />
-          {open.registrations && (
-            registrations.length > 0 ? (
-              <ul className="space-y-2">
-                {registrations.map((r) => (
-                  <li key={r.id} className="p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                    <span className="font-mono font-semibold" style={{ color: '#8b4513' }}>{r.association_code}</span>
-                    <span className="ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
-                    <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.association_name}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
-            )
-          )}
-        </div>
-
-        <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896' }}>
-          <SectionHeader title="Rider(s)" open={open.riders} onToggle={() => toggle('riders')} />
-          {open.riders && (
-            displayRiders.length === 0
-              ? <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p>
-              : (
-                <ul className="space-y-2">
-                  {displayRiders.map((r) => (
-                    <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>
-                      <span>{r.full_name}</span>
-                      {horse.owner_exhibitor_id && r.exhibitor_id === horse.owner_exhibitor_id && (
-                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Owner</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Helper used in the owner (editable) riders section below
   const riderIds = new Set(displayRiders.map((r) => r.exhibitor_id));
   const availableForRider = exhibitorNames.filter((e) => !riderIds.has(e.id));
+  const ownerLabel = horse.owner_exhibitor_name || horse.owner_name;
+
+  const saveRow = (origin: SaveOrigin) => (
+    <div className="space-y-2">
+      {saveOrigin === origin && error && <p className="text-red-600 text-sm">{error}</p>}
+      {saveOrigin === origin && saved && <p className="text-green-700 text-sm">Changes saved.</p>}
+      <button
+        onClick={() => handleSave(origin)}
+        disabled={saving}
+        className="px-5 py-2 rounded font-medium disabled:opacity-50"
+        style={PRIMARY_BUTTON}
+      >
+        {saving && saveOrigin === origin ? 'Saving...' : 'Save Changes'}
+      </button>
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border p-5 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <SectionHeader title="Horse Details" open={open.details} onToggle={() => toggle('details')} />
-        {open.details && (
+    <div className="space-y-4">
+      <div
+        role="tablist"
+        aria-label="Horse record sections"
+        onKeyDown={handleTabKeys}
+        className="flex border-b overflow-x-auto"
+        style={{ borderColor: '#d4b896' }}
+      >
+        {tabs.map((t) => {
+          const active = activeTab === t.key;
+          return (
+            <button
+              key={t.key}
+              id={`tab-${t.key}`}
+              role="tab"
+              aria-selected={active}
+              aria-controls={`panel-${t.key}`}
+              tabIndex={active ? 0 : -1}
+              onClick={() => setActiveTab(t.key)}
+              className="px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors"
+              style={{
+                color: active ? '#2c1810' : '#8b7355',
+                borderBottom: active ? '2px solid #8b4513' : '2px solid transparent',
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Details — who the horse is. */}
+      <TabPanel id="details" active={activeTab === 'details'}>
+        {isOwner ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
                 <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
                 <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" />
-              </div>
-              <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
-                <TrainerSelect
-                  trainerId={form.trainer_id || null}
-                  trainerName={form.trainer_name || null}
-                  trainerFirstName={form.trainer_first_name || null}
-                  trainerLastName={form.trainer_last_name || null}
-                  trainerEmail={form.trainer_email || null}
-                  onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
-                    ...prev,
-                    trainer_id: trainerId ?? '',
-                    trainer_name: trainerName ?? '',
-                    trainer_first_name: trainerFirstName ?? '',
-                    trainer_last_name: trainerLastName ?? '',
-                    trainer_email: trainerEmail ?? '',
-                  }))}
-                />
               </div>
               <div>
                 <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
@@ -370,115 +432,190 @@ export default function EditMyHorseForm({ horse, registrations: initialRegs, isO
                 <label htmlFor="spb_edit" className="text-sm" style={{ color: '#8b7355' }}>Solid Paint-Bred (SPB)</label>
               </div>
             </div>
-
-            {error && <p className="text-red-600 text-sm">{error}</p>}
-            {saved && <p className="text-green-700 text-sm">Changes saved.</p>}
-
-            <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            {saveRow('details')}
           </>
-        )}
-      </div>
-
-      <div className="rounded-lg border p-5 space-y-3" style={{ borderColor: '#d4b896' }}>
-        <SectionHeader title="Rider(s)" open={open.riders} onToggle={() => toggle('riders')} />
-        {open.riders && (
-          <>
-            {displayRiders.length === 0
-              ? <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p>
-              : (
-                <ul className="space-y-2">
-                  {displayRiders.map((r) => {
-                    const isOwnerRow = horse.owner_exhibitor_id && r.exhibitor_id === horse.owner_exhibitor_id;
-                    return (
-                      <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0', color: '#2c1810' }}>
-                        <span>{r.full_name}</span>
-                        <div className="flex items-center gap-2">
-                          {isOwnerRow && (
-                            <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>Owner</span>
-                          )}
-                          {!isOwnerRow && (
-                            <>
-                              <button onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)} className="text-xs text-red-600 hover:text-red-800">Remove</button>
-                              {confirmRemoveRiderId === r.exhibitor_id && (
-                                <span className="flex items-center gap-1">
-                                  <span className="text-xs" style={{ color: '#2c1810' }}>Remove {r.full_name}?</span>
-                                  <button onClick={() => { handleRemoveRider(r.exhibitor_id); setConfirmRemoveRiderId(null); }} className="text-xs text-red-700 font-semibold hover:text-red-900">Yes</button>
-                                  <button onClick={() => setConfirmRemoveRiderId(null)} className="text-xs" style={{ color: '#8b7355' }}>Cancel</button>
-                                </span>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )
-            }
-            {availableForRider.length > 0 && (
-              <div className="flex flex-wrap gap-2 items-end pt-1">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
-                  <select value={newRiderId} onChange={(e) => setNewRiderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
-                    <option value="">Select exhibitor...</option>
-                    {availableForRider.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-                  </select>
-                </div>
-                <button onClick={handleAddRider} disabled={addingRider} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>{addingRider ? 'Adding...' : 'Add'}</button>
+        ) : (
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <ReadOnlyField label="Sex" value={form.sex} />
+            <ReadOnlyField
+              label="Foaling Date"
+              value={form.foaling_date
+                ? `${form.foaling_date}${displayAge !== null && displayAge !== undefined ? ` (show age ${displayAge})` : ''}`
+                : null}
+            />
+            <ReadOnlyField label="Sire" value={form.sire_name} />
+            <ReadOnlyField label="Dam" value={form.dam_name} />
+            <ReadOnlyField
+              label="Breeds"
+              value={form.breed_ids.map((id) => breeds.find((b) => b.id === id)?.name).filter(Boolean).join(', ')}
+            />
+            <ReadOnlyField label="Color" value={colors.find((c) => c.id === form.color_id)?.name} />
+            {form.is_solid_paint_bred && (
+              <div className="sm:col-span-2">
+                <dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={OWNER_BADGE}>
+                  Solid Paint-Bred (SPB)
+                </dd>
               </div>
             )}
-            {riderError && <p className="text-red-600 text-sm">{riderError}</p>}
-          </>
+          </dl>
         )}
-      </div>
+      </TabPanel>
 
-      <div className="rounded-lg border p-5 space-y-4" style={{ borderColor: '#d4b896' }}>
-        <SectionHeader title="Breed Registrations &amp; Club Memberships" open={open.registrations} onToggle={() => toggle('registrations')} />
-        {open.registrations && (
-          <>
-            {registrations.length > 0 ? (
-              <ul className="space-y-2">
-                {registrations.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between p-3 rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-                    <div>
-                      <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{r.association_code}</span>
-                      <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{r.registration_number}</span>
-                      <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{r.association_name}</span>
-                      <span className="ml-2"><AssociationTypeBadge type={r.association_type} /></span>
+      {/* People — everyone attached to the horse, in one place. */}
+      <TabPanel id="people" active={activeTab === 'people'}>
+        <PanelIntro>Owner, trainer, and the riders who show this horse.</PanelIntro>
+
+        <dl className="text-sm">
+          <ReadOnlyField label="Owner" value={ownerLabel} />
+        </dl>
+
+        <div>
+          <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+          {isOwner ? (
+            <TrainerSelect
+              trainerId={form.trainer_id || null}
+              trainerName={form.trainer_name || null}
+              trainerFirstName={form.trainer_first_name || null}
+              trainerLastName={form.trainer_last_name || null}
+              trainerEmail={form.trainer_email || null}
+              onChange={({ trainerId, trainerName, trainerFirstName, trainerLastName, trainerEmail }) => setForm((prev) => ({
+                ...prev,
+                trainer_id: trainerId ?? '',
+                trainer_name: trainerName ?? '',
+                trainer_first_name: trainerFirstName ?? '',
+                trainer_last_name: trainerLastName ?? '',
+                trainer_email: trainerEmail ?? '',
+              }))}
+            />
+          ) : (
+            <p style={{ color: '#2c1810' }}>{form.trainer_name || '-'}</p>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t pt-4" style={{ borderColor: '#f0e4d0' }}>
+          <SubHeading>Rider(s)</SubHeading>
+          {displayRiders.length === 0 ? (
+            <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p>
+          ) : (
+            <ul className="space-y-2">
+              {displayRiders.map((r) => {
+                const isOwnerRow = horse.owner_exhibitor_id && r.exhibitor_id === horse.owner_exhibitor_id;
+                return (
+                  <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ ...ROW_STYLE, color: '#2c1810' }}>
+                    <span>{r.full_name}</span>
+                    <div className="flex items-center gap-2">
+                      {isOwnerRow && (
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={OWNER_BADGE}>Owner</span>
+                      )}
+                      {isOwner && !isOwnerRow && (
+                        <>
+                          <button onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)} className="text-xs text-red-600 hover:text-red-800">Remove</button>
+                          {confirmRemoveRiderId === r.exhibitor_id && (
+                            <span className="flex items-center gap-1">
+                              <span className="text-xs" style={{ color: '#2c1810' }}>Remove {r.full_name}?</span>
+                              <button onClick={() => { handleRemoveRider(r.exhibitor_id); setConfirmRemoveRiderId(null); }} className="text-xs text-red-700 font-semibold hover:text-red-900">Yes</button>
+                              <button onClick={() => setConfirmRemoveRiderId(null)} className="text-xs" style={{ color: '#8b7355' }}>Cancel</button>
+                            </span>
+                          )}
+                        </>
+                      )}
                     </div>
-                    <button onClick={() => handleDeleteReg(r.id)} className="text-xs text-red-600 hover:text-red-800 ml-4 shrink-0">Remove</button>
                   </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
-            )}
-
-            {availableAssociations.length > 0 && (
-              <div className="flex flex-wrap gap-2 items-end pt-1">
-                <div className="flex-1 min-w-[160px]">
-                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
-                  <AssociationSelect
-                    associations={availableAssociations}
-                    value={newReg.association_id}
-                    onChange={(association_id) => setNewReg((p) => ({ ...p, association_id }))}
-                  />
-                </div>
-                <div className="flex-1 min-w-[160px]">
-                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration / Member #</label>
-                  <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
-                </div>
-                <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
-                  {addingReg ? 'Adding...' : 'Add'}
-                </button>
+                );
+              })}
+            </ul>
+          )}
+          {isOwner && availableForRider.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-end pt-1">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
+                <select value={newRiderId} onChange={(e) => setNewRiderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
+                  <option value="">Select exhibitor...</option>
+                  {availableForRider.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                </select>
               </div>
-            )}
-            {regError && <p className="text-red-600 text-sm">{regError}</p>}
-          </>
+              <button onClick={handleAddRider} disabled={addingRider} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
+                {addingRider ? 'Adding...' : 'Add'}
+              </button>
+            </div>
+          )}
+          {riderError && <p className="text-red-600 text-sm">{riderError}</p>}
+        </div>
+
+        {isOwner && saveRow('people')}
+      </TabPanel>
+
+      {/* Health — travel and competition paperwork. Owner-only data. */}
+      {isOwner && (
+        <TabPanel id="health" active={activeTab === 'health'}>
+          <PanelIntro>
+            Coggins, vaccination records, and health certificates. Shows check these before the horse ships in.
+          </PanelIntro>
+          <HorseDocuments
+            horseId={horse.id}
+            initialDocuments={documents}
+            types={HEALTH_DOC_TYPES}
+            emptyLabel="No health documents on file."
+            uploadLabel="+ Upload Health Document"
+          />
+        </TabPanel>
+      )}
+
+      {/* Associations — the numbers, plus the papers backing them. */}
+      <TabPanel id="associations" active={activeTab === 'associations'}>
+        <PanelIntro>Breed registrations and club memberships carried by this horse.</PanelIntro>
+
+        {registrations.length > 0 ? (
+          <ul className="space-y-2">
+            {registrations.map((r) => (
+              <RegistrationRow
+                key={r.id}
+                reg={r}
+                onRemove={isOwner ? () => handleDeleteReg(r.id) : undefined}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
         )}
-      </div>
+
+        {isOwner && availableAssociations.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-end pt-1">
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
+              <AssociationSelect
+                associations={availableAssociations}
+                value={newReg.association_id}
+                onChange={(association_id) => setNewReg((p) => ({ ...p, association_id }))}
+              />
+            </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration / Member #</label>
+              <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
+              {addingReg ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+        )}
+        {regError && <p className="text-red-600 text-sm">{regError}</p>}
+
+        {isOwner && (
+          <div className="border-t pt-4 space-y-3" style={{ borderColor: '#f0e4d0' }}>
+            <SubHeading>Registration Papers</SubHeading>
+            <PanelIntro>
+              Scans of the registration certificates and membership cards behind the numbers above.
+            </PanelIntro>
+            <HorseDocuments
+              horseId={horse.id}
+              initialDocuments={documents}
+              types={REGISTRATION_DOC_TYPES}
+              emptyLabel="No registration papers on file."
+              uploadLabel="+ Upload Registration Paper"
+            />
+          </div>
+        )}
+      </TabPanel>
     </div>
   );
 }

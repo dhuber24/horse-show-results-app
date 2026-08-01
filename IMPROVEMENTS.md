@@ -1,5 +1,55 @@
 # Codebase Improvements
 
+## August 2026
+
+### Add a Horse: Wizard on Its Own Page
+
+The add-a-horse form asked for everything at once in a single tall panel appended to the bottom of the My Horses list, and the only way to reach the horse fields in "I ride this horse" mode was through a search sub-flow nested inside that same panel. It is now a five-step wizard on a dedicated route, `/profile/horses/new`.
+
+**Steps (`frontend/app/profile/AddHorseWizard.tsx`)**
+1. **Owner** — required. `I own this horse` / `I ride this horse, but do not own it`. Ride mode keeps the anti-duplicate gate: you must search before you can type owner details by hand, and picking a hit from the results links the existing horse and ends the wizard instead of creating a second record.
+2. **Horse** — only `name` is required; sex, foaling date, sire, dam, breeds, color, and SPB are optional.
+3. **Trainer** — optional, skippable.
+4. **Registrations** — optional, skippable. Breed registries and club memberships stay split, with the duplicate-number lookup unchanged.
+5. **Review** — every field listed, with anything omitted marked *Skipped*, then **Create Horse**.
+
+**Behaviour**
+- Only Owner and Horse gate creation, matching the rule that a horse needs a name and an owner and nothing else.
+- Optional steps offer **Skip** only while genuinely empty — once something is entered the button disappears, so "skip" is never ambiguous about whether it discards input.
+- The step indicator lets the user jump back to any cleared step. Because a later step may already have passed, `handleCreate` re-validates every step and jumps to the first failure rather than trusting the walk-forward.
+**Its own page (`frontend/app/profile/horses/new/`)**
+- `new` is a static segment, so it wins over the sibling `[id]` dynamic route without any extra guarding.
+- The server page resolves the exhibitor (bouncing to `/profile` if the row doesn't exist yet, since that page creates it) and passes down only the profile's horse ids, used to label search hits already on the profile. The wizard loads breeds / colors / associations itself, so nothing is drilled through `MyHorsesPanel` any more.
+- The "find a horse" handoff now travels as query params — `?name=` or `?association_id=&registration_number=` — and the wizard resolves the registration into a chip once the association registry has loaded. Previously this was in-memory component state.
+- **`router.refresh()` must not be called alongside `router.push()`** in `NewHorseWizard`. Doing both in one tick cancelled the navigation and left the wizard stranded on screen with its button stuck reading "Saving..." *after the horse had already been created* — the worst possible failure shape, since retrying would duplicate. `/profile` fetches with `cache: 'no-store'`, so the push alone lands on fresh data.
+
+**Extraction**
+- New `frontend/app/profile/horse-shared.tsx` holds the types plus `RegChips` and `SearchResultList`, so the panel and the wizard can share them without importing each other.
+- `MyHorsesPanel` drops from 1260 to ~590 lines and keeps only the list, filter/sort, the "find existing horse" panel, and unlink. Its dead inline `.sort()` on insert (immediately re-sorted by `visibleHorses`) is gone, as are the breeds/colors fetches it only held for the form.
+- The card's Documents link now points at `?section=health`, the canonical name for that tab.
+
+### Exhibitor Horse Page: Tabs and Section Restructure
+
+The four sections below are now **tabs** (`Details` / `People` / `Health` / `Associations`) rather than a stack of open accordions, using the same tab styling as `ProfileTabs`, with `role="tablist"` ARIA and arrow-key/Home/End navigation. Inactive panels stay mounted so switching tabs never discards a half-filled upload form. `SectionHeader` is no longer used here (still used by the admin horse form, admin trainer detail, and the trainer profile form).
+
+`/profile/horses/[id]` had grown four content areas with three different structural treatments. Horse Details, Rider(s), and Registrations were collapsible `SectionHeader` cards inside `EditMyHorseForm`; the documents block was a plain `<h2>` card that lived in `page.tsx` **outside** the form, could not collapse, and was written twice — once before and once after the form — so that `?section=documents` could float it to the top by reordering the DOM. Separately, the `REGISTRATION` document type ("Registration & Membership") uploaded into a block titled "Health & Registration Documents" while the registration *numbers* it backs lived in a different section entirely.
+
+**Sections (`frontend/app/profile/horses/[id]/EditMyHorseForm.tsx`)**
+- Four uniform collapsible sections: **Horse Details** (identity), **Owner, Trainer & Riders** (people), **Health & Documentation**, **Associations**. Trainer moved out of Horse Details to sit with the riders it belongs beside.
+- Owner and view-only renders were merged into one pass gated on `isOwner`, replacing two near-duplicate 130-line returns. Non-owners get Details / People / Associations read-only; Health is owner-only data and is not rendered for them.
+- Details and People each carry a Save button over the same shared `PATCH /api/horses/{id}`; `saveOrigin` scopes the saved/error message to the section the user clicked in.
+- Local `Section` wrapper hides collapsed content with the `hidden` attribute instead of unmounting it, so collapsing no longer discards a half-filled upload form or a just-uploaded document.
+- Dropped the `UNCERTIFIED_CODES = ['OPEN']` filter — dead since migration 080 removed OPEN from `associations`, and the last surviving copy of a guard removed elsewhere in that migration.
+
+**Scoped documents (`frontend/components/HorseDocuments.tsx`)**
+- New optional `types`, `emptyLabel`, and `uploadLabel` props let one instance own a subset of `DOC_TYPES`. Health renders Coggins / Vaccination / Health Certificate; Associations renders Registration & Membership under a "Registration Papers" subheading beside the numbers.
+- With a single allowed type the instance preselects it and drops both the filter dropdown and the upload form's type picker rather than making the user restate it.
+- `Document` interface renamed to `HorseDocument` and exported (it shadowed the DOM `Document` type). Callers passing no `types` — the admin horse form — are unchanged.
+
+**Deep links (`frontend/app/profile/horses/[id]/page.tsx`)**
+- Documents are now fetched once and passed into the form; the duplicated JSX blocks and the `showDocumentsFirst` reordering hack are gone.
+- `?section=` maps through `SECTION_ALIASES` to open and smooth-scroll to a section. The My Horses list still links `?section=documents`, which aliases to `health`.
+
 ## July 2026
 
 ### Associations Split from Show Types (Breed vs Club)

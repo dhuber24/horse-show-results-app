@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 
-interface Document {
+export interface HorseDocument {
   id: string;
   document_type: string;
   document_type_label: string;
@@ -17,7 +17,13 @@ interface Document {
 
 interface Props {
   horseId: string;
-  initialDocuments?: Document[];
+  initialDocuments?: HorseDocument[];
+  /** Restrict this instance to a subset of DOC_TYPES. Defaults to every type. */
+  types?: string[];
+  /** Copy shown when this instance has nothing on file. */
+  emptyLabel?: string;
+  /** Label on the button that opens the upload form. */
+  uploadLabel?: string;
 }
 
 const DOC_TYPES = [
@@ -26,6 +32,11 @@ const DOC_TYPES = [
   { value: 'HEALTH_CERTIFICATE', label: 'Health Certificate (CVI)' },
   { value: 'REGISTRATION', label: 'Registration & Membership' },
 ];
+
+/** Paperwork proving the horse is fit to travel and compete. */
+export const HEALTH_DOC_TYPES = ['COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE'];
+/** Papers backing the association numbers carried by the horse. */
+export const REGISTRATION_DOC_TYPES = ['REGISTRATION'];
 
 function expiryStatus(expiry: string | null): 'expired' | 'soon' | 'valid' | 'none' {
   if (!expiry) return 'none';
@@ -71,8 +82,8 @@ function formatSize(bytes: number) {
 
 const emptyUpload = { document_type: '', issue_date: '', expiry_date: '' };
 
-export default function HorseDocuments({ horseId, initialDocuments }: Props) {
-  const [docs, setDocs] = useState<Document[]>(initialDocuments ?? []);
+export default function HorseDocuments({ horseId, initialDocuments, types, emptyLabel, uploadLabel }: Props) {
+  const [docs, setDocs] = useState<HorseDocument[]>(initialDocuments ?? []);
   const [loading, setLoading] = useState(!initialDocuments);
   const [filterType, setFilterType] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -91,6 +102,21 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [horseId, initialDocuments]);
+
+  // A scoped instance only lists, filters, and uploads its own document types, so
+  // Health and Associations can each own the paperwork that belongs under them.
+  const allowedTypes = useMemo(
+    () => (types ? DOC_TYPES.filter((t) => types.includes(t.value)) : DOC_TYPES),
+    [types]
+  );
+  const scopedDocs = useMemo(
+    () => (types ? docs.filter((d) => types.includes(d.document_type)) : docs),
+    [docs, types]
+  );
+  // With a single allowed type there is nothing to pick or filter by — preselect it
+  // and drop both controls rather than making the user restate the obvious.
+  const singleType = allowedTypes.length === 1 ? allowedTypes[0].value : null;
+  const freshForm = () => ({ ...emptyUpload, document_type: singleType ?? '' });
 
   const canUpload = (uploadForm: typeof form, uploadFile: File | null) =>
     !!uploadFile && !!uploadForm.document_type && !!uploadForm.issue_date && !!uploadForm.expiry_date;
@@ -113,7 +139,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
     if (res.ok) {
       const created = await res.json();
       setDocs((prev) => [...prev, created]);
-      setForm(emptyUpload);
+      setForm(freshForm());
       setFile(null);
       setShowForm(false);
     } else {
@@ -136,26 +162,28 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
 
   if (loading) return <p className="text-sm" style={{ color: '#8b7355' }}>Loading...</p>;
 
-  const visibleDocs = filterType ? docs.filter((d) => d.document_type === filterType) : docs;
+  const visibleDocs = filterType ? scopedDocs.filter((d) => d.document_type === filterType) : scopedDocs;
 
   return (
     <div className="space-y-4">
-      <select
-        value={filterType}
-        onChange={(e) => setFilterType(e.target.value)}
-        className="border rounded px-3 py-2 text-sm"
-        style={{ borderColor: '#d4b896', color: '#2c1810' }}
-      >
-        <option value="">All documents ({docs.length})</option>
-        {DOC_TYPES.map((t) => {
-          const count = docs.filter((d) => d.document_type === t.value).length;
-          return <option key={t.value} value={t.value}>{t.label} ({count})</option>;
-        })}
-      </select>
+      {allowedTypes.length > 1 && (
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          className="border rounded px-3 py-2 text-sm"
+          style={{ borderColor: '#d4b896', color: '#2c1810' }}
+        >
+          <option value="">All documents ({scopedDocs.length})</option>
+          {allowedTypes.map((t) => {
+            const count = scopedDocs.filter((d) => d.document_type === t.value).length;
+            return <option key={t.value} value={t.value}>{t.label} ({count})</option>;
+          })}
+        </select>
+      )}
 
       {visibleDocs.length === 0 ? (
         <p className="text-sm" style={{ color: '#a89070' }}>
-          {filterType ? 'No documents of this type on file.' : 'No documents on file.'}
+          {filterType ? 'No documents of this type on file.' : emptyLabel ?? 'No documents on file.'}
         </p>
       ) : (
         <ul className="space-y-2">
@@ -165,7 +193,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
               <li key={doc.id} className="flex items-start justify-between rounded p-3 border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {!filterType && typeLabel && (
+                    {!filterType && !singleType && typeLabel && (
                       <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0e4d0', color: '#5c3d1e' }}>
                         {typeLabel}
                       </span>
@@ -218,21 +246,23 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
           <p className="text-sm font-semibold" style={{ color: '#2c1810' }}>Upload Document</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="sm:col-span-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type *</label>
-              <select
-                value={form.document_type}
-                onChange={async (e) => {
-                  const nextForm = { ...form, document_type: e.target.value };
-                  setForm(nextForm);
-                  await maybeAutoUpload(nextForm, file);
-                }}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">Select...</option>
-                {DOC_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </div>
+            {!singleType && (
+              <div className="sm:col-span-2">
+                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type *</label>
+                <select
+                  value={form.document_type}
+                  onChange={async (e) => {
+                    const nextForm = { ...form, document_type: e.target.value };
+                    setForm(nextForm);
+                    await maybeAutoUpload(nextForm, file);
+                  }}
+                  className="w-full border rounded px-3 py-2 text-sm"
+                >
+                  <option value="">Select...</option>
+                  {allowedTypes.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue Date *</label>
               <input
@@ -290,7 +320,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
           {error && <p className="text-red-600 text-sm">{error}</p>}
           {!error && file && !uploading && !canUpload(form, file) && (
             <p className="text-xs" style={{ color: '#8b7355' }}>
-              Complete document type, issue date, and expiry date to auto-upload.
+              Complete {singleType ? '' : 'document type, '}issue date, and expiry date to auto-upload.
             </p>
           )}
           {uploading && (
@@ -299,7 +329,7 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
 
           <div className="flex gap-2">
             <button
-              onClick={() => { setShowForm(false); setForm(emptyUpload); setFile(null); setError(null); }}
+              onClick={() => { setShowForm(false); setForm(freshForm()); setFile(null); setError(null); }}
               className="px-4 py-2 rounded text-sm border"
               style={{ borderColor: '#d4b896', color: '#8b7355' }}
             >
@@ -309,11 +339,11 @@ export default function HorseDocuments({ horseId, initialDocuments }: Props) {
         </div>
       ) : (
         <button
-          onClick={() => setShowForm(true)}
+          onClick={() => { setShowForm(true); setForm(freshForm()); }}
           className="text-sm font-medium hover:underline"
           style={{ color: '#8b4513' }}
         >
-          + Upload Document
+          {uploadLabel ?? '+ Upload Document'}
         </button>
       )}
     </div>
