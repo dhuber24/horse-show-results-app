@@ -90,6 +90,12 @@ EOF
 
 Replace `UNIQUE` with something fresh each run (e.g. `` `date +%s` ``) — the
 email is the login identifier and registration 409s on a duplicate.
+
+`fill` splits its argument on the first space, so the **selector cannot contain
+spaces** — `input[placeholder="e.g. Fancy Little Gun"]` is a parse error. Use a
+space-free form like `input[placeholder^="e.g."]`, or set the value from `eval`
+via the native setter plus an `input` event (needed anyway for React-controlled
+`<input type="date">`, which ignores a plain `.value =`).
 Screenshots land in `.claude/skills/run-app/screenshots/`
 (latest of each name overwrites; `screenshot.png` always has the most recent
 shot of the whole session).
@@ -107,6 +113,7 @@ Driver commands:
 | `wait-url <substring>` | wait up to 30s for `page.url()` to contain substring |
 | `click <css selector>` | click (supports `text=...` too) |
 | `fill <css selector> <value...>` | fill an input (goes through real input events, not `.value=`) |
+| `set-file <css selector> <path>` | drive an `<input type="file">`, including the `sr-only` ones behind a styled drop-zone label |
 | `press <key>` | keyboard press, e.g. `Enter` |
 | `screenshot [name]` | full-page PNG, default name `shot-NN` |
 | `console-errors` | dump any `console.error`/`pageerror` seen so far |

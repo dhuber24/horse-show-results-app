@@ -6,12 +6,20 @@
 
 The add-a-horse form asked for everything at once in a single tall panel appended to the bottom of the My Horses list, and the only way to reach the horse fields in "I ride this horse" mode was through a search sub-flow nested inside that same panel. It is now a five-step wizard on a dedicated route, `/profile/horses/new`.
 
-**Steps (`frontend/app/profile/AddHorseWizard.tsx`)**
+**Steps (`frontend/app/profile/AddHorseWizard.tsx`)** — order mirrors the tabs on the horse's own page:
 1. **Owner** — required. `I own this horse` / `I ride this horse, but do not own it`. Ride mode keeps the anti-duplicate gate: you must search before you can type owner details by hand, and picking a hit from the results links the existing horse and ends the wizard instead of creating a second record.
 2. **Horse** — only `name` is required; sex, foaling date, sire, dam, breeds, color, and SPB are optional.
 3. **Trainer** — optional, skippable.
-4. **Registrations** — optional, skippable. Breed registries and club memberships stay split, with the duplicate-number lookup unchanged.
-5. **Review** — every field listed, with anything omitted marked *Skipped*, then **Create Horse**.
+4. **Health** — optional, skippable, **owner-mode only**. Coggins / vaccination / health certificate uploads.
+5. **Registrations** — optional, skippable. Breed registries and club memberships stay split, with the duplicate-number lookup unchanged.
+6. **Review** — every field listed, with anything omitted marked *Skipped*, then **Create Horse**.
+
+**Health step: two backend constraints shape it**
+- Documents post to `/horses/{id}/documents`, which needs a horse that doesn't exist yet. So the step **queues** `File` objects plus type/issue/expiry in component state, and `handleCreate` flushes the queue after the horse row comes back.
+- `_check_access` in `backend/routers/horse_documents.py` only lets the **registered owner** upload. In ride mode the owner is somebody else, so the step is dropped entirely rather than letting a rider queue uploads that would 403 *after* the horse was created. Switching to ride mode also discards anything already staged.
+- Because the step list depends on an answer given back on step 1, `steps` is derived from `owner.mode` and every index into it is clamped — otherwise switching modes late would strand `stepIndex` past the end.
+- Partial failure is handled explicitly: if the horse is created but some uploads fail, `createdHorseId` is set, the **Create Horse button is replaced by a link to the horse's Health tab**, and the error names the failed files. Re-offering creation there would produce a duplicate horse.
+- Client-side size check mirrors `MAX_FILE_SIZE`; MIME is left to the server, which sniffs magic bytes and ignores the client Content-Type.
 
 **Behaviour**
 - Only Owner and Horse gate creation, matching the rule that a horse needs a name and an owner and nothing else.

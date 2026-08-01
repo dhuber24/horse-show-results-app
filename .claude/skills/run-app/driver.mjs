@@ -82,6 +82,16 @@ async function handle(line) {
         console.log(`OK fill ${sel}`);
         break;
       }
+      case 'set-file': {
+        // `set-file <selector> <path>` — drives an <input type="file">, including
+        // the visually-hidden ones behind a styled drop-zone label.
+        const sp3 = rest.indexOf(' ');
+        const sel = rest.slice(0, sp3);
+        const filePath = rest.slice(sp3 + 1);
+        await parseTarget(sel).first().setInputFiles(filePath, { timeout: 15000 });
+        console.log(`OK set-file ${sel} <- ${filePath}`);
+        break;
+      }
       case 'press':
         await page.keyboard.press(rest);
         console.log(`OK press ${rest}`);

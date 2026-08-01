@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
+import { DOC_TYPES, HEALTH_DOC_TYPES, MAX_DOC_BYTES } from '@/components/HorseDocuments';
 import {
   Association,
   AssociationType,
@@ -22,17 +24,37 @@ import {
  */
 type OwnerMode = 'self' | 'ride';
 
-type StepKey = 'owner' | 'horse' | 'trainer' | 'registrations' | 'review';
+type StepKey = 'owner' | 'horse' | 'trainer' | 'health' | 'registrations' | 'review';
 
-/** Only Owner and Horse gate creation; everything else can be skipped and
- *  filled in later from the horse's own page. */
-const STEPS: { key: StepKey; label: string; optional?: boolean }[] = [
+/**
+ * Only Owner and Horse gate creation; everything else can be skipped and filled
+ * in later from the horse's own page. Step order mirrors the tabs on that page.
+ *
+ * `ownerOnly` steps are dropped in ride mode: the documents endpoint only lets
+ * the horse's registered owner upload, so offering Health to a rider would 403
+ * after the horse had already been created.
+ */
+const STEPS: { key: StepKey; label: string; optional?: boolean; ownerOnly?: boolean }[] = [
   { key: 'owner', label: 'Owner' },
   { key: 'horse', label: 'Horse' },
   { key: 'trainer', label: 'Trainer', optional: true },
+  { key: 'health', label: 'Health', optional: true, ownerOnly: true },
   { key: 'registrations', label: 'Registrations', optional: true },
   { key: 'review', label: 'Review' },
 ];
+
+/** A health document staged in the browser. It can only be uploaded once the
+ *  horse exists, so the wizard queues these and posts them after creation. */
+interface PendingDoc {
+  key: string;
+  file: File;
+  document_type: string;
+  issue_date: string;
+  expiry_date: string;
+}
+
+const HEALTH_DOC_OPTIONS = DOC_TYPES.filter((t) => HEALTH_DOC_TYPES.includes(t.value));
+const emptyDocDraft = { document_type: '', issue_date: '', expiry_date: '' };
 
 const emptyForm = {
   name: '', trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '',
@@ -112,6 +134,14 @@ export default function AddHorseWizard({
   const [newReg, setNewReg] = useState(emptyNewReg);
   const [regError, setRegError] = useState<string | null>(null);
 
+  const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([]);
+  const [docDraft, setDocDraft] = useState(emptyDocDraft);
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docError, setDocError] = useState<string | null>(null);
+  // Set once the horse row exists. Creation must not be offered again after
+  // this point — a retry would create a duplicate horse.
+  const [createdHorseId, setCreatedHorseId] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
     fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
@@ -133,8 +163,16 @@ export default function AddHorseWizard({
     }]));
   }, [associations, initialRegAssociationId, initialRegNumber]);
 
-  const step = STEPS[stepIndex];
-  const isLast = stepIndex === STEPS.length - 1;
+  // Ride mode drops the owner-only Health step, so the list — and every index
+  // into it — depends on the answer given back on step 1.
+  const steps = useMemo(
+    () => STEPS.filter((s) => !s.ownerOnly || owner.mode === 'self'),
+    [owner.mode]
+  );
+  const lastIndex = steps.length - 1;
+  const safeIndex = Math.min(stepIndex, lastIndex);
+  const step = steps[safeIndex];
+  const isLast = safeIndex === lastIndex;
 
   const usedAssociationIds = new Set(pendingRegs.map((r) => r.association_id));
   const availableAssociations = associations.filter((a) => !usedAssociationIds.has(a.id));
@@ -169,6 +207,7 @@ export default function AddHorseWizard({
         || form.trainer_last_name.trim() || form.trainer_email.trim());
     }
     if (key === 'registrations') return pendingRegs.length > 0;
+    if (key === 'health') return pendingDocs.length > 0;
     return true;
   };
 
@@ -181,10 +220,10 @@ export default function AddHorseWizard({
   const goNext = () => {
     const issue = stepIssue(step.key);
     if (issue) { setStepError(issue); return; }
-    goTo(Math.min(stepIndex + 1, STEPS.length - 1));
+    goTo(Math.min(safeIndex + 1, lastIndex));
   };
 
-  const goBack = () => { setStepError(null); setStepIndex((i) => Math.max(i - 1, 0)); };
+  const goBack = () => { setStepError(null); setStepIndex(Math.max(safeIndex - 1, 0)); };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -193,6 +232,14 @@ export default function AddHorseWizard({
   const handleOwnerMode = (mode: OwnerMode) => {
     setOwner((prev) => ({ ...prev, mode }));
     setStepError(null);
+    // A rider can't upload documents for a horse they don't own, so anything
+    // staged under the Health step is dropped along with the step itself.
+    if (mode === 'ride') {
+      setPendingDocs([]);
+      setDocDraft(emptyDocDraft);
+      setDocFile(null);
+      setDocError(null);
+    }
     // Switching modes restarts the ride-mode search so a stale result set can't
     // leak into the other branch.
     setRideQuery('');
@@ -274,11 +321,52 @@ export default function AddHorseWizard({
     setPendingRegs((prev) => prev.filter((r) => r.association_id !== association_id));
   };
 
+  const handleQueueDoc = () => {
+    if (!docFile) { setDocError('Choose a file to upload.'); return; }
+    if (!docDraft.document_type) { setDocError('Select a document type.'); return; }
+    if (!docDraft.issue_date || !docDraft.expiry_date) {
+      setDocError('Issue date and expiry date are both required.');
+      return;
+    }
+    if (docFile.size > MAX_DOC_BYTES) { setDocError('File is too large (max 10 MB).'); return; }
+
+    setPendingDocs((prev) => [...prev, {
+      key: `${docFile.name}-${Date.now()}`,
+      file: docFile,
+      document_type: docDraft.document_type,
+      issue_date: docDraft.issue_date,
+      expiry_date: docDraft.expiry_date,
+    }]);
+    setDocDraft(emptyDocDraft);
+    setDocFile(null);
+    setDocError(null);
+  };
+
+  const handleRemoveDoc = (key: string) => {
+    setPendingDocs((prev) => prev.filter((d) => d.key !== key));
+  };
+
+  /** Documents need a horse_id, so the queue is flushed only after creation.
+   *  Returns the filenames that failed. */
+  const uploadQueuedDocs = async (horseId: string): Promise<string[]> => {
+    const failed: string[] = [];
+    for (const doc of pendingDocs) {
+      const fd = new FormData();
+      fd.append('file', doc.file);
+      fd.append('document_type', doc.document_type);
+      fd.append('issue_date', doc.issue_date);
+      fd.append('expiry_date', doc.expiry_date);
+      const res = await fetch(`/api/horses/${horseId}/documents`, { method: 'POST', body: fd });
+      if (!res.ok) failed.push(doc.file.name);
+    }
+    return failed;
+  };
+
   const handleCreate = async () => {
     // Re-check every step: the indicator lets the user jump back and change
     // an answer after a later step was already cleared.
-    for (let i = 0; i < STEPS.length; i++) {
-      const issue = stepIssue(STEPS[i].key);
+    for (let i = 0; i < steps.length; i++) {
+      const issue = stepIssue(steps[i].key);
       if (issue) { setStepError(issue); setStepIndex(i); return; }
     }
 
@@ -318,14 +406,29 @@ export default function AddHorseWizard({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    setSaving(false);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to add horse.');
+      setSaving(false);
       return;
     }
-    onCreated(await res.json());
+
+    const horse: MyHorse = await res.json();
+    const failed = pendingDocs.length > 0 ? await uploadQueuedDocs(horse.id) : [];
+    setSaving(false);
+
+    // The horse exists from here on, so never route back to "Create Horse" —
+    // point at the horse instead, or the exhibitor would create a duplicate.
+    if (failed.length > 0) {
+      setCreatedHorseId(horse.id);
+      setError(
+        `${horse.name} was created, but ${failed.length} document${failed.length === 1 ? '' : 's'} ` +
+        `failed to upload (${failed.join(', ')}). Open the horse to add ${failed.length === 1 ? 'it' : 'them'}.`
+      );
+      return;
+    }
+    onCreated(horse);
   };
 
   const breedLabel = form.breed_ids
@@ -342,14 +445,14 @@ export default function AddHorseWizard({
     <div className="border rounded-lg p-4 space-y-4" style={PANEL_STYLE}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-sm font-semibold" style={{ color: '#2c1810' }}>{step.label}</span>
-        <span className="text-xs" style={{ color: '#8b7355' }}>Step {stepIndex + 1} of {STEPS.length}</span>
+        <span className="text-xs" style={{ color: '#8b7355' }}>Step {safeIndex + 1} of {steps.length}</span>
       </div>
 
       {/* Step indicator — cleared steps stay reachable so answers can be revised. */}
       <ol className="flex flex-wrap gap-1.5">
-        {STEPS.map((s, i) => {
-          const active = i === stepIndex;
-          const reachable = i <= furthest;
+        {steps.map((s, i) => {
+          const active = i === safeIndex;
+          const reachable = i <= Math.min(furthest, lastIndex);
           return (
             <li key={s.key}>
               <button
@@ -537,7 +640,103 @@ export default function AddHorseWizard({
         </div>
       )}
 
-      {/* ---- Step 4: Registrations (optional) ---- */}
+      {/* ---- Health (optional, owner-only) ---- */}
+      {step.key === 'health' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Health Records</p>
+            <StepBadge>Optional</StepBadge>
+          </div>
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            Coggins, vaccination records, and health certificates. These upload once the
+            horse is created, so they stay listed here until you finish the wizard.
+          </p>
+
+          {pendingDocs.length > 0 && (
+            <ul className="space-y-1">
+              {pendingDocs.map((d) => (
+                <li key={d.key} className="flex items-center justify-between p-2 rounded text-sm" style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+                  <span className="min-w-0">
+                    <span className="font-semibold mr-2">
+                      {DOC_TYPES.find((t) => t.value === d.document_type)?.label}
+                    </span>
+                    <span className="break-all">{d.file.name}</span>
+                    <span className="text-xs ml-2">expires {d.expiry_date}</span>
+                  </span>
+                  <button onClick={() => handleRemoveDoc(d.key)} className="text-xs text-red-600 hover:text-red-800 ml-3 shrink-0">
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
+            <div className="sm:col-span-2 pt-2">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type</label>
+              <select
+                value={docDraft.document_type}
+                onChange={(e) => setDocDraft((p) => ({ ...p, document_type: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: '#d4b896' }}
+              >
+                <option value="">Select...</option>
+                {HEALTH_DOC_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue Date</label>
+              <input
+                type="date"
+                value={docDraft.issue_date}
+                onChange={(e) => setDocDraft((p) => ({ ...p, issue_date: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: '#d4b896' }}
+              />
+            </div>
+            <div>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Expiry Date</label>
+              <input
+                type="date"
+                value={docDraft.expiry_date}
+                onChange={(e) => setDocDraft((p) => ({ ...p, expiry_date: e.target.value }))}
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: '#d4b896' }}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>File (PDF or image, max 10 MB)</label>
+              <label
+                className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-5 cursor-pointer transition-colors hover:bg-amber-50/40"
+                style={{ borderColor: '#d4b896' }}
+              >
+                <input
+                  type="file"
+                  accept=".pdf,image/*"
+                  onChange={(e) => { setDocFile(e.target.files?.[0] ?? null); setDocError(null); }}
+                  className="sr-only"
+                />
+                {docFile ? (
+                  <span className="text-sm font-medium text-center break-all" style={{ color: '#2c1810' }}>{docFile.name}</span>
+                ) : (
+                  <>
+                    <span className="text-sm font-medium" style={{ color: '#8b4513' }}>Click to choose a file</span>
+                    <span className="text-xs mt-1" style={{ color: '#a89070' }}>PDF or image - max 10 MB</span>
+                  </>
+                )}
+              </label>
+            </div>
+            <div className="sm:col-span-2">
+              <button onClick={handleQueueDoc} className="px-3 py-2 rounded text-sm font-medium" style={PRIMARY_BUTTON}>
+                Add Document
+              </button>
+            </div>
+          </div>
+          {docError && <p className="text-red-600 text-xs">{docError}</p>}
+        </div>
+      )}
+
+      {/* ---- Registrations (optional) ---- */}
       {step.key === 'registrations' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -634,6 +833,13 @@ export default function AddHorseWizard({
             <ReviewRow label="Color" value={colors.find((c) => c.id === form.color_id)?.name} skipped={!form.color_id} />
             <ReviewRow label="SPB" value={form.is_solid_paint_bred ? 'Yes' : 'No'} />
             <ReviewRow label="Trainer" value={trainerLabel} skipped={!trainerLabel} />
+            {owner.mode === 'self' && (
+              <ReviewRow
+                label="Health Records"
+                value={`${pendingDocs.length} document${pendingDocs.length === 1 ? '' : 's'} to upload`}
+                skipped={pendingDocs.length === 0}
+              />
+            )}
             <ReviewRow
               label="Registrations"
               value={pendingRegs.map((r) => `${r.association_code} ${r.registration_number}`).join(', ')}
@@ -649,28 +855,40 @@ export default function AddHorseWizard({
       {/* Footer nav */}
       <div className="flex flex-wrap items-center gap-2 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
         <div className="flex flex-wrap gap-2 pt-3">
-          {stepIndex > 0 && (
-            <button onClick={goBack} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
-              Back
-            </button>
-          )}
-          {isLast ? (
-            <button onClick={handleCreate} disabled={saving} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
-              {saving ? 'Saving...' : 'Create Horse'}
-            </button>
+          {createdHorseId ? (
+            <Link
+              href={`/profile/horses/${createdHorseId}?section=health`}
+              className="px-4 py-2 rounded text-sm font-medium"
+              style={PRIMARY_BUTTON}
+            >
+              Open {form.name.trim()}
+            </Link>
           ) : (
-            <button onClick={goNext} className="px-4 py-2 rounded text-sm font-medium" style={PRIMARY_BUTTON}>
-              Next
-            </button>
-          )}
-          {!isLast && step.optional && !stepHasData(step.key) && (
-            <button onClick={() => goTo(stepIndex + 1)} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
-              Skip
-            </button>
+            <>
+              {safeIndex > 0 && (
+                <button onClick={goBack} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+                  Back
+                </button>
+              )}
+              {isLast ? (
+                <button onClick={handleCreate} disabled={saving} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
+                  {saving ? 'Saving...' : 'Create Horse'}
+                </button>
+              ) : (
+                <button onClick={goNext} className="px-4 py-2 rounded text-sm font-medium" style={PRIMARY_BUTTON}>
+                  Next
+                </button>
+              )}
+              {!isLast && step.optional && !stepHasData(step.key) && (
+                <button onClick={() => goTo(safeIndex + 1)} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+                  Skip
+                </button>
+              )}
+            </>
           )}
         </div>
         <button onClick={onCancel} className="ml-auto mt-3 text-xs hover:underline" style={{ color: '#8b7355' }}>
-          Cancel
+          {createdHorseId ? 'Back to My Horses' : 'Cancel'}
         </button>
       </div>
     </div>

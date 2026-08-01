@@ -26,12 +26,15 @@ interface Props {
   uploadLabel?: string;
 }
 
-const DOC_TYPES = [
+export const DOC_TYPES = [
   { value: 'COGGINS', label: 'Coggins Test (EIA)' },
   { value: 'VACCINATION', label: 'Vaccination Records' },
   { value: 'HEALTH_CERTIFICATE', label: 'Health Certificate (CVI)' },
   { value: 'REGISTRATION', label: 'Registration & Membership' },
 ];
+
+/** Mirrors MAX_FILE_SIZE in backend/routers/horse_documents.py. */
+export const MAX_DOC_BYTES = 10 * 1024 * 1024;
 
 /** Paperwork proving the horse is fit to travel and compete. */
 export const HEALTH_DOC_TYPES = ['COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE'];
