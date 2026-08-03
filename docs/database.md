@@ -95,6 +95,8 @@ Current migration files:
 
 | `082_coggins_override_audit.sql` | New `coggins_override_audit` table recording each show-staff bypass of the Coggins entry gate (`skip_coggins_check`). Only *effective* overrides are written — passing the flag for a horse that already holds a valid Coggins overrides nothing and records nothing, so the table counts real bypasses rather than flag usage. FK behaviour is mixed on purpose: `show_id` CASCADEs (the audit answers a question about a show, so it goes when the show does, keeping the table bounded), while `entry_id` / `class_id` / `horse_id` / `overridden_by` SET NULL with `horse_name` and `overridden_by_name` denormalized alongside — an audit that goes anonymous when a user is deleted is not much of an audit. |
 
+| `083_document_extractions.sql` | New `document_extractions` table recording each AI read of an uploaded horse document. A row is written *before* the document is saved and linked to it on save, in the same transaction — so a stored `expiry_date` can always be traced to whether a human typed it, accepted the model's reading, or corrected it. `document_id` is nullable because an uploader can abandon a read; those rows are kept rather than cleaned up. `extracted` is JSONB holding the model's output whole, so the extraction schema can widen without a migration and old rows stay readable against the schema of their day. |
+
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
 ## Running Migrations
@@ -271,6 +273,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `results` | Manual placings; `raw_score` carries the numeric input for `pattern` (judge score) and `time` (seconds) classes — `place` is derived from `raw_score` for those types |
 | `result_audit` | Immutable placing change history |
 | `coggins_override_audit` | One row per effective show-staff bypass of the Coggins entry gate: horse, which failure was bypassed (`missing` / `undated` / `expired`), who did it, and when |
+| `document_extractions` | One row per AI read of an uploaded horse document: what the model suggested (`extracted`), what the human saved (`accepted`), which suggestions they changed (`overridden_fields`), and what the read cost. `document_id` is NULL for abandoned uploads |
 | `side_pots` | Optional money pool spanning multiple classes; carries `entry_fee_cents`, `payback_percent`, `scoring_method` (`sum_placings` / `sum_scores`), `eligibility_rule`, `payout_schedule` (JSONB keyed by entry-count band), and `status` (`open` / `closed` / `settled`) |
 | `side_pot_classes` | Many-to-many: which classes feed each pot |
 | `side_pot_entries` | Back-number opt-ins (`paid` flag); pool size = `entry_fee_cents × paid count` |

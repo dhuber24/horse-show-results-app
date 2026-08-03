@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import Optional
+from sqlalchemy import func, select
+from typing import Any, Optional
 from datetime import date
 from uuid import UUID
 
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
-from models import Horse, HorseDocument, Exhibitor
-from schemas import HorseDocumentOut
+from extraction import extract_horse_document, extraction_available
+from models import DocumentExtraction, Horse, HorseDocument, Exhibitor
+from schemas import DocumentExtractionOut, HorseDocumentOut
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -180,6 +181,83 @@ async def list_horse_documents(
     return result.scalars().all()
 
 
+@router.post("/{horse_id}/documents/analyze", response_model=DocumentExtractionOut)
+async def analyze_horse_document(
+    horse_id: UUID,
+    file: UploadFile = File(...),
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read a document and suggest field values, without saving anything.
+
+    Gated on the same permission as upload, not the (broader) view permission:
+    this reads the contents of a file being added to someone's horse, so whoever
+    can call it should already be allowed to add documents there.
+
+    Always returns 200 with a status the uploader can act on. A model that is
+    unavailable, unconfigured, or defeated by a bad scan just means the form
+    gets filled in by hand, which is how it worked before this endpoint existed
+    — turning that into an error would break upload for everyone the moment the
+    extraction service had a bad day.
+    """
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    await _assert_can_manage(horse, user_id, x_user_role, db)
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(400, "File too large (max 10 MB)")
+
+    mime = _detect_mime(content)
+    if mime is None:
+        raise HTTPException(400, "Unsupported file type. Upload a PDF or image (JPEG, PNG, WebP, TIFF).")
+
+    filename = file.filename or 'document'
+    result = await extract_horse_document(content, mime, filename)
+
+    record = DocumentExtraction(
+        horse_id=horse_id,
+        original_filename=filename,
+        mime_type=mime,
+        file_size=len(content),
+        status=result.status,
+        error_message=result.error_message,
+        extracted=result.fields or None,
+        model=result.model,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        requested_by_user_id=safe_uuid(user_id),
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    fields = dict(result.fields)
+    return DocumentExtractionOut(
+        extraction_id=record.id,
+        status=result.status,
+        message=result.error_message,
+        fields=fields,
+        low_confidence_fields=fields.get('low_confidence_fields') or [],
+        notes=fields.get('notes'),
+    )
+
+
+def _overridden_fields(suggested: dict[str, Any], saved: dict[str, Any]) -> list[str]:
+    """Which of the model's suggestions the human changed before saving.
+
+    Only compares fields the form actually offers. A suggestion of None that the
+    human filled in counts as an override — that is the undated-Coggins case,
+    and it is the most useful thing in here to be able to count later.
+    """
+    return sorted(
+        key for key, value in saved.items()
+        if (suggested.get(key) or None) != (value or None)
+    )
+
+
 @router.post("/{horse_id}/documents", response_model=HorseDocumentOut, status_code=201)
 async def upload_horse_document(
     horse_id: UUID,
@@ -187,6 +265,7 @@ async def upload_horse_document(
     document_type: str = Form(...),
     issue_date: Optional[str] = Form(None),
     expiry_date: Optional[str] = Form(None),
+    extraction_id: Optional[str] = Form(None),
     user_id: str = Depends(require_authenticated),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
@@ -219,9 +298,51 @@ async def upload_horse_document(
         uploaded_by_user_id=UUID(user_id),
     )
     db.add(doc)
+
+    # Link the extraction in the same transaction as the document it describes,
+    # so a saved document can never be missing the record of where its dates
+    # came from.
+    # Every bad-extraction_id path is ignored rather than rejected: unparseable,
+    # unknown, belonging to another horse, or already claimed by a document. The
+    # document is what the user asked for and provenance is bookkeeping, so a
+    # stale id left in a tab must not be the reason someone can't file their
+    # paperwork. Note this deliberately does NOT use `safe_uuid` — that raises
+    # 400 on a malformed id, which is right for an id the request is *about* and
+    # wrong for one that only annotates it.
+    extraction = None
+    if extraction_id:
+        try:
+            extraction_uuid = UUID(extraction_id)
+        except (ValueError, AttributeError):
+            extraction_uuid = None
+        if extraction_uuid is not None:
+            extraction = await db.get(DocumentExtraction, extraction_uuid)
+            if extraction and (extraction.horse_id != horse_id or extraction.document_id is not None):
+                extraction = None
+
+    if extraction is not None:
+        await db.flush()  # assigns doc.id
+        saved = {
+            'document_type': document_type,
+            'issue_date': doc.issue_date.isoformat() if doc.issue_date else None,
+            'expiry_date': doc.expiry_date.isoformat() if doc.expiry_date else None,
+        }
+        extraction.document_id = doc.id
+        extraction.accepted = saved
+        extraction.overridden_fields = _overridden_fields(extraction.extracted or {}, saved)
+        extraction.linked_at = func.now()
+
     await db.commit()
     await db.refresh(doc)
     return doc
+
+
+@router.get("/documents/extraction-status")
+async def document_extraction_status(
+    user_id: str = Depends(require_authenticated),
+):
+    """Whether the upload form should offer to read documents at all."""
+    return {"available": extraction_available()}
 
 
 @router.get("/{horse_id}/documents/{doc_id}/download")

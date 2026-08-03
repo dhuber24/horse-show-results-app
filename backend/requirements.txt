@@ -42,6 +42,11 @@ python-dateutil==2.8.2
 pytz==2023.3.post1
 pypdf==6.11.0
 
+# Document extraction (reads dates/registration numbers off uploaded scans).
+# Optional at runtime: with no ANTHROPIC_API_KEY set the upload form falls back
+# to manual entry rather than failing.
+anthropic==0.116.0
+
 # Optional: For CSV/Excel export (future)
 # openpyxl==3.11.0
 # python-docx==0.8.11

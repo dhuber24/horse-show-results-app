@@ -46,6 +46,7 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 | Show lifecycle and operational workflow | `docs/show-workflow.md` |
 | APHA and association-specific behavior | `docs/apha.md` |
 | AQHA research, class codes, and validation | `docs/aqha.md` |
+| Reading data off uploaded documents | `docs/document-extraction.md` |
 | Historical change log | `IMPROVEMENTS.md` |
 | Contributor workflow | `CONTRIBUTING.md` |
 
@@ -60,6 +61,7 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 | Pydantic schemas | `backend/schemas.py` |
 | Backend routers | `backend/routers/` |
 | Association rules | `backend/rules/` |
+| Document extraction | `backend/extraction/` |
 | NextAuth config | `frontend/auth.ts` |
 | Backend proxy helper | `frontend/lib/backend-fetch.ts` |
 | Shared frontend API helpers | `frontend/lib/api.ts` |
@@ -98,6 +100,7 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `results`: placings. For `pattern`/`time` classes, `raw_score` is the source of truth and `place` is recomputed server-side on every change.
 - `result_audit`: placing change history (placement classes only — derived placings are not audited).
 - `coggins_override_audit`: one row per effective show-staff bypass of the Coggins entry gate (migration 082) — horse, which failure was bypassed, who did it, when. Written in the same transaction as the entry it describes.
+- `document_extractions`: one row per AI read of an uploaded horse document (migration 083) — what the model suggested (`extracted`), what the human saved (`accepted`), and which suggestions they changed (`overridden_fields`). Written *before* the document is saved and linked to it on save, in the same transaction. See `docs/document-extraction.md`.
 - `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
 - `users`: login accounts and roles. First/last name are the editable source of truth; `full_name` is a derived display compatibility field.
 - `exhibitors`: person/profile records, optionally linked to users.
@@ -176,6 +179,8 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 
 ## Sharp Edges
 
+- Document extraction only ever *suggests*. Nothing read off a scan reaches `horse_documents` without a human pressing save — `horse_documents.expiry_date` is what the Coggins entry gate checks, so a misread date would silently admit or block a horse. The upload form's auto-upload-when-complete shortcut is deliberately suppressed once a document has been read.
+- `ANTHROPIC_API_KEY` is optional. Unset (or an API outage, or an unreadable scan) degrades the upload form to manual entry, which is how it worked before extraction existed. Extraction must never be the reason someone can't file paperwork.
 - Do not create an `EXHIBITOR` user without also creating the linked `exhibitors` row.
 - Do not create a `TRAINER` user without also creating or linking the matching `trainers` row.
 - `cert_org_users.Org` uses a capital `O`.

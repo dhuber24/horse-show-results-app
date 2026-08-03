@@ -7,6 +7,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # Optional. Unset just means the document upload form is filled in by
+      # hand, the way it worked before extraction existed.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - ./backend:/app
     healthcheck:

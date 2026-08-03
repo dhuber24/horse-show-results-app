@@ -2,6 +2,20 @@
 
 ## August 2026
 
+### Documents Fill In Their Own Fields
+
+Uploading a Coggins asked the exhibitor to hand-type the issue and expiration dates printed on the scan they had just attached. That is where undated and mistyped Coggins records come from — and an undated Coggins blocks entry, which is the failure `coggins_override_audit` exists to absorb. The fix attacks the source rather than the symptom.
+
+`POST /horses/{id}/documents/analyze` reads the file and returns the fields; the upload form pre-fills from them and the uploader confirms. One extractor covers all four document types (Coggins, health certificate, vaccination, registration), pulling dates, test result, accession and lab, veterinarian and clinic, and — on registration papers — association, registration number, sire, dam, color, and foaling date.
+
+- **The model suggests; a human saves.** Nothing extracted reaches a record unreviewed. `horse_documents.expiry_date` is the field the entry gate checks, so a misread year would silently admit an expired horse or block a valid one, and neither failure announces itself. The form's existing auto-upload-when-complete shortcut is suppressed once a document has been read, replaced by an explicit save — otherwise extraction would have inherited a path that commits without anyone looking.
+- **Coggins expirations are never computed.** A Coggins prints the date blood was drawn; how long that stays valid is state and association policy, not something legible on the form. The model returns `expiry_date` only when one is printed, and `test_date` separately. The form then offers a one-click "12 months from the test" — a derived date a person accepts, never one the model asserted.
+- **Migration 083** adds `document_extractions`: the model's raw output, what was saved, and `overridden_fields` for the difference. It is written *before* the document exists and linked on save in the same transaction, so a saved document can never be missing the record of where its dates came from. That also makes the feature measurable — a field overridden most of the time is a field the extractor is getting wrong.
+- **Every failure degrades to the old form.** No API key, an outage, a scan too poor to read, a TIFF: all return a status the form handles by falling back to manual entry. Extraction is a shortcut over a form that still works by hand, and must never be why someone can't file paperwork. `ANTHROPIC_API_KEY` is optional for exactly this reason.
+- Structured outputs pin the response shape, but shape is not semantics — dates are re-parsed server-side in `_normalize()`, and anything that isn't a real date is dropped to null and flagged rather than passed to a form field as though it were read off the page.
+
+Not added: extraction for exhibitor and trainer documents. Those tables have different fields and membership-card extraction is its own problem; the horse-side extractor should earn its keep first.
+
 ### Coggins Overrides Are Audited
 
 The Coggins gate has a deliberate escape hatch — `skip_coggins_check` lets show staff enter a horse whose record is thin but whose paper Coggins they have physically inspected. It left no trace, so a show could not answer "who entered this horse without valid Coggins on file, and what was wrong with it".

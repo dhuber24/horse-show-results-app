@@ -5,7 +5,7 @@ from sqlalchemy import (
     ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
     Index, Numeric, func, event, text
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -716,6 +716,46 @@ class HorseDocument(Base):
 
     horse = relationship("Horse", back_populates="documents")
     uploaded_by = relationship("User")
+
+
+class DocumentExtraction(Base):
+    """One AI read of an uploaded horse document, with what the human did next.
+
+    Written when a document is analyzed — before it is saved — and linked to the
+    resulting `HorseDocument` if the uploader goes on to save. The model only
+    ever suggests; `overridden_fields` records where the person disagreed, which
+    is what makes a stored `expiry_date` answerable later: typed, accepted, or
+    corrected.
+    """
+    __tablename__ = "document_extractions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    # Null until save; null forever if the uploader abandons the upload.
+    document_id = Column(UUID(as_uuid=True), ForeignKey("horse_documents.id", ondelete="CASCADE"), nullable=True)
+
+    original_filename = Column(Text, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+
+    status = Column(Text, nullable=False)
+    error_message = Column(Text, nullable=True)
+
+    extracted = Column(JSONB, nullable=True)
+    accepted = Column(JSONB, nullable=True)
+    overridden_fields = Column(ARRAY(Text), nullable=False, server_default="{}")
+
+    model = Column(Text, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    linked_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    horse = relationship("Horse")
+    document = relationship("HorseDocument")
+    requested_by = relationship("User")
 
 
 class ExhibitorDocument(Base):

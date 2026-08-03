@@ -807,6 +807,24 @@ class HorseDocumentOut(BaseModel):
         from_attributes = True
 
 
+# ── Document Extraction ─────────────────────────────────────────────────────────
+
+class DocumentExtractionOut(BaseModel):
+    """What the model read off a document, for the uploader to review.
+
+    `fields` is the raw extraction, returned as-is rather than flattened onto
+    named attributes so the extraction schema can grow without a schema change
+    here. `status` is always present; on anything other than 'succeeded' the
+    uploader falls back to typing the form by hand and `message` explains why.
+    """
+    extraction_id: UUID
+    status: str
+    message: Optional[str] = None
+    fields: dict = Field(default_factory=dict)
+    low_confidence_fields: list[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
 # ── Breeds ─────────────────────────────────────────────────────────────────────
 
 class BreedCreate(BaseModel):
