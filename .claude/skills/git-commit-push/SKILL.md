@@ -7,9 +7,8 @@ This repo's actual workflow is **direct-to-main**: every commit in `git log`
 lands on `main` and gets pushed to `origin/main` immediately. `CONTRIBUTING.md`
 describes a feature-branch/PR process, but it isn't followed — don't create
 branches or PRs unless the user explicitly asks for that instead of the normal
-flow. There's already a workspace agent (`.github/agents/git-commit-push.agent.md`)
-and script (`scripts/run-git-commit-push.ps1`) encoding this same procedure;
-this skill is the Claude Code path to the same result.
+flow. There's already a script (`scripts/run-git-commit-push.ps1`) encoding
+this same procedure; this skill is the Claude Code path to the same result.
 
 ## Preconditions
 
