@@ -21,7 +21,7 @@ from models import (
     Show,
 )
 from schemas import EntryCreate, EntryUpdate, EntryOut
-from routers.shows import _assert_show_access
+from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
 
 router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/entries", tags=["Entries"])
@@ -87,6 +87,7 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
     if show.show_type and show.show_type.code == "AQHA":
         aqha_code = _aqha_class_code(show, class_)
         context["aqha_show_type_id"] = show.show_type_id
+        context["aqha_association_id"] = await get_aqha_association_id(db)
         context["aqha_class_code"] = aqha_code
         context["aqha_class"] = await db.get(AqhaStandardClass, aqha_code) if aqha_code else None
     return context

@@ -40,6 +40,7 @@ from models import (
     Show,
     ShowEntry,
 )
+from routers.shows import get_aqha_association_id
 from rules import get_rules
 from schemas import EntryOut
 
@@ -171,6 +172,7 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
     if show.show_type and show.show_type.code == "AQHA":
         aqha_code = _aqha_class_code(show, class_)
         context["aqha_show_type_id"] = show.show_type_id
+        context["aqha_association_id"] = await get_aqha_association_id(db)
         context["aqha_class_code"] = aqha_code
         context["aqha_class"] = (
             await db.get(AqhaStandardClass, aqha_code) if aqha_code else None
@@ -441,6 +443,11 @@ async def register_for_show(
             class_id=item.class_id,
             exhibitor_id=exhibitor.id,
             horse_id=item.horse_id,
+            # Explicit, not left to the column default: that default is applied
+            # at flush, and validate_entry runs before this is ever flushed. An
+            # unset status reads as None and short-circuits every association
+            # rule, silently skipping validation.
+            status="ENTERED",
             apha_division=item.apha_division,
             relationship_to_owner=item.relationship_to_owner,
         )

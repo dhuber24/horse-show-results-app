@@ -13,6 +13,7 @@ from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
 from models import (
     AqhaStandardClass,
+    Association,
     ClassAssociation,
     Show,
     ShowAffiliation,
@@ -331,6 +332,18 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
     raise HTTPException(403, "Not authorized for this show")
 
 
+async def get_aqha_association_id(db: AsyncSession) -> Optional[UUID]:
+    """AQHA's row in the `associations` registry.
+
+    Horse and exhibitor registration numbers key on `associations`, not on
+    `show_types` (migration 080), so AQHA entry validation needs this id rather
+    than the show's show_type_id. Shared by every caller that builds an AQHA
+    validation context.
+    """
+    result = await db.execute(select(Association.id).where(Association.code == "AQHA"))
+    return result.scalar_one_or_none()
+
+
 async def _count_show_classes(db: AsyncSession, show_id: UUID) -> int:
     result = await db.execute(
         select(func.count()).select_from(Class).where(Class.show_id == show_id)
@@ -510,12 +523,15 @@ async def aqha_validation(
     )
     standard_by_code = {row.code: row for row in standard_result.scalars().all()}
 
+    aqha_association_id = await get_aqha_association_id(db)
+
     rules = get_rules("AQHA")
     issues = rules.validate_show_schedule(
         show,
         classes,
         {
             "aqha_show_type_id": show.show_type_id,
+            "aqha_association_id": aqha_association_id,
             "standard_classes_by_code": standard_by_code,
             "qualified_management_workshop_staff": await _qualified_aqha_management_workshop_staff(db, show),
         },
@@ -541,6 +557,7 @@ async def aqha_validation(
             class_,
             {
                 "aqha_show_type_id": show.show_type_id,
+                "aqha_association_id": aqha_association_id,
                 "aqha_class_code": aqha_code,
                 "aqha_class": standard_by_code.get(aqha_code),
             },

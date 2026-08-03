@@ -2,6 +2,41 @@
 
 ## August 2026
 
+### Self-Registration Skipped Association Validation Entirely
+
+Every association rule starts with a guard that skips withdrawn entries:
+
+```python
+if getattr(entry, "status", "ENTERED") != "ENTERED":
+    return []
+```
+
+`Entry.status` is declared `Column(Text, nullable=False, default="ENTERED")`. A SQLAlchemy `default=` is applied **at flush**, not at construction, and validation deliberately runs *before* the entry is flushed. So `entry.status` was `None`, the `getattr` default never applied (the attribute exists, it is just unset), `None != "ENTERED"` held, and the rules returned `[]`.
+
+`routers/show_registration.py` built its `Entry(...)` without `status`, so exhibitor self-registration silently ran **no** association validation at all. The admin entry path was unaffected — it builds from `EntryCreate`, whose schema default sets `status="ENTERED"` before the model is constructed.
+
+Caught when an exhibitor holding only an APHA membership, on an APHA-registered horse, successfully self-registered into an AQHA class that should have rejected both.
+
+**Fix, in two parts**
+- `show_registration.py` sets `status="ENTERED"` explicitly at construction, with a comment on why the column default is not enough here.
+- `DefaultRules.entry_is_active()` centralizes the guard and treats `None` as ENTERED, since callers validate pre-flush by design. `AQHARules.validate_entry` uses it. This is the part that stops the bug from recurring: any future path that builds an unsaved `Entry` now validates instead of silently passing.
+
+Worth noting the failure mode — a bypass, not an error. Registration returned `201` and looked healthy; only checking a case that *should* fail revealed it.
+
+### AQHA Entry Validation Blocked Every Entry
+
+`AQHARules._has_horse_registration` and `_has_exhibitor_registration` matched registration rows on `reg.show_type_id`. Migration 080 split the association registry out of `show_types`, so `horse_registrations` and `exhibitor_registrations` have only carried `association_id` since — the attribute the rules read no longer exists on those rows.
+
+`getattr(reg, "show_type_id", None)` therefore returned `None` for every row, never matched the show's `show_type_id`, and both checks reported "no registration on file" regardless of the data. Every entry into an AQHA show was rejected with a 422 (`AQHA_HORSE_REGISTRATION_REQUIRED` + `AQHA_EXHIBITOR_MEMBERSHIP_REQUIRED`), including horses and exhibitors with valid AQHA numbers. The failure was silent from the caller's side: the message named a real requirement, so it read as a data problem rather than a bug.
+
+**Fix** — both helpers now match `reg.association_id` against AQHA's `associations` row. Since the rules layer has no DB access, callers resolve the id via a new shared `get_aqha_association_id()` in `routers/shows.py` and pass it as `context["aqha_association_id"]`. All four context builders supply it: entry create/update (`routers/entries.py`), exhibitor self-registration (`routers/show_registration.py`), and both contexts in the `aqha-validation` endpoint.
+
+`_aqha_class_code` was left alone — `class_associations` genuinely does key on `show_type_id`, so that lookup was never affected.
+
+When the association id is absent from context the check is skipped rather than failing, matching the module's stated policy of only enforcing what it can verify. That keeps a caller that forgets the key from silently reintroducing a total block.
+
+Verified end-to-end against seeded data: a horse and exhibitor with AQHA numbers now `POST` an entry successfully (`201`), an APHA-only pair into the same class is still rejected, and unrelated AQHA rules still fire (Select age, class-code presence).
+
 ### Horse Panel Loose Ends
 
 Three follow-ups from the horse-panel work.

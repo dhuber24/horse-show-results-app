@@ -43,12 +43,13 @@ class AQHARules(DefaultRules):
     code = "AQHA"
 
     def validate_entry(self, entry, show, cls, context=None):
-        if getattr(entry, "status", "ENTERED") != "ENTERED":
+        if not self.entry_is_active(entry):
             return []
 
         context = context or {}
         issues: list[dict[str, Any]] = []
         aqha_show_type_id = context.get("aqha_show_type_id") or getattr(show, "show_type_id", None)
+        aqha_association_id = context.get("aqha_association_id")
         aqha_class = context.get("aqha_class")
         aqha_code = context.get("aqha_class_code") or self._aqha_class_code(cls, aqha_show_type_id)
 
@@ -84,7 +85,7 @@ class AQHARules(DefaultRules):
                 class_id=getattr(cls, "id", None),
                 class_code=aqha_code,
             ))
-        elif not self._has_horse_registration(horse, aqha_show_type_id):
+        elif not self._has_horse_registration(horse, aqha_association_id):
             issues.append(self._issue(
                 "error",
                 "AQHA_HORSE_REGISTRATION_REQUIRED",
@@ -102,7 +103,7 @@ class AQHARules(DefaultRules):
                 class_id=getattr(cls, "id", None),
                 class_code=aqha_code,
             ))
-        elif not self._has_exhibitor_registration(exhibitor, aqha_show_type_id):
+        elif not self._has_exhibitor_registration(exhibitor, aqha_association_id):
             severity = "warning" if class_division == "Equestrians With Disabilities" else "error"
             issues.append(self._issue(
                 severity,
@@ -328,18 +329,29 @@ class AQHARules(DefaultRules):
                 return getattr(assoc, "association_class_code", None)
         return None
 
-    def _has_horse_registration(self, horse, aqha_show_type_id):
-        return any(
-            getattr(reg, "show_type_id", None) == aqha_show_type_id
-            and bool(getattr(reg, "registration_number", None))
-            for reg in getattr(horse, "registrations", []) or []
+    def _has_horse_registration(self, horse, aqha_association_id):
+        return self._has_registration(
+            getattr(horse, "registrations", None), aqha_association_id, "registration_number"
         )
 
-    def _has_exhibitor_registration(self, exhibitor, aqha_show_type_id):
+    def _has_exhibitor_registration(self, exhibitor, aqha_association_id):
+        return self._has_registration(
+            getattr(exhibitor, "registrations", None), aqha_association_id, "member_number"
+        )
+
+    def _has_registration(self, registrations, aqha_association_id, number_attr):
+        """Registration rows point at `associations`, not `show_types` (migration
+        080), so these cannot be matched on the show's show_type_id. Callers
+        resolve AQHA's association id and pass it in context; with no id there is
+        nothing to match on, so the check is skipped rather than rejecting every
+        entry — consistent with this module only enforcing what it can verify.
+        """
+        if aqha_association_id is None:
+            return True
         return any(
-            getattr(reg, "show_type_id", None) == aqha_show_type_id
-            and bool(getattr(reg, "member_number", None))
-            for reg in getattr(exhibitor, "registrations", []) or []
+            getattr(reg, "association_id", None) == aqha_association_id
+            and bool(getattr(reg, number_attr, None))
+            for reg in registrations or []
         )
 
     def _horse_age(self, horse, show):
