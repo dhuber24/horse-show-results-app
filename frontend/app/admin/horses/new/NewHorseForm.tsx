@@ -27,6 +27,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
   const router = useRouter();
   const [form, setForm] = useState({
     name: '',
+    barn_name: '',
     owner_exhibitor_id: '',
     trainer_id: '',
     trainer_name: '',
@@ -97,7 +98,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) { setError('Horse name is required.'); return; }
+    if (!form.name.trim()) { setError('Registered name is required.'); return; }
     const hasOtherTrainer = !form.trainer_id && (
       form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
     );
@@ -110,6 +111,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
 
     const body: Record<string, unknown> = {
       name: form.name.trim(),
+      barn_name: form.barn_name.trim() || null,
       owner_exhibitor_id: form.owner_exhibitor_id || null,
       trainer_id: form.trainer_id || null,
       trainer_name: form.trainer_name.trim() || null,
@@ -189,8 +191,13 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
         <h2 className="font-semibold" style={{ color: '#2c1810' }}>Horse Details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
-            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Name *</label>
-            <input name="name" value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2" placeholder="Horse name" />
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Registered Name *</label>
+            <input name="name" value={form.name} onChange={handleChange} maxLength={200} className="w-full border rounded px-3 py-2" placeholder="Name on the association papers" />
+            <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+              This is what the horse is entered and published under.
+            </p>
+            <label className="text-sm block mb-1 mt-3" style={{ color: '#8b7355' }}>Barn Name</label>
+            <input name="barn_name" value={form.barn_name} onChange={handleChange} maxLength={200} className="w-full border rounded px-3 py-2" placeholder="Stable or call name" />
           </div>
           <div className="sm:col-span-2">
             <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Owner</label>

@@ -35,10 +35,16 @@ from models import (
     Exhibitor,
     ExhibitorHorse,
     Horse,
-    HorseDocument,
     Result,
     Show,
     ShowEntry,
+)
+from routers.horse_documents import (
+    COGGINS_MESSAGES,
+    COGGINS_VALID,
+    assert_coggins_valid,
+    coggins_status,
+    load_coggins_expiries,
 )
 from routers.shows import get_aqha_association_id
 from rules import get_rules
@@ -180,44 +186,21 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
     return context
 
 
-async def _assert_coggins(horse_id: UUID, db: AsyncSession) -> None:
-    result = await db.execute(
-        select(HorseDocument).where(
-            HorseDocument.horse_id == horse_id,
-            HorseDocument.document_type == "COGGINS",
-        )
-    )
-    docs = result.scalars().all()
-    today = date.today()
-    has_valid = any(doc.expiry_date is None or doc.expiry_date >= today for doc in docs)
-    if not has_valid:
-        msg = (
-            "No valid Coggins on file for this horse"
-            if not docs
-            else "Coggins on file has expired"
-        )
-        raise HTTPException(422, {"code": "COGGINS_EXPIRED", "message": msg})
-
-
 def _coggins_requirement(expiry_dates: list[date | None]) -> dict:
-    today = date.today()
-    has_valid = any(expiry_date is None or expiry_date >= today for expiry_date in expiry_dates)
-    if has_valid:
-        return {
-            "code": "COGGINS",
-            "label": "Coggins Test (EIA)",
-            "status": "valid",
-            "message": "Valid Coggins on file",
-        }
+    """Requirement row for the self-registration screen.
 
+    Shares `coggins_status` with the secretary entry path so the screen can
+    never say a horse is clear to register while the entry endpoint rejects it.
+    """
+    status = coggins_status(expiry_dates)
     return {
         "code": "COGGINS",
         "label": "Coggins Test (EIA)",
-        "status": "expired" if expiry_dates else "missing",
+        "status": status,
         "message": (
-            "Coggins on file has expired"
-            if expiry_dates
-            else "No valid Coggins on file for this horse"
+            "Valid Coggins on file"
+            if status == COGGINS_VALID
+            else COGGINS_MESSAGES[status]
         ),
     }
 
@@ -257,15 +240,7 @@ async def preview_registration(
             select(Horse).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
         )
         horses = horses_result.scalars().all()
-        coggins_expiries_by_horse = {h.id: [] for h in horses}
-        coggins_result = await db.execute(
-            select(HorseDocument.horse_id, HorseDocument.expiry_date).where(
-                HorseDocument.horse_id.in_(horse_ids),
-                HorseDocument.document_type == "COGGINS",
-            )
-        )
-        for horse_id, expiry_date in coggins_result.all():
-            coggins_expiries_by_horse.setdefault(horse_id, []).append(expiry_date)
+        coggins_expiries_by_horse = await load_coggins_expiries(list(horse_ids), db)
 
     existing_result = await db.execute(
         select(Entry)
@@ -437,7 +412,7 @@ async def register_for_show(
                 )
             batch_non_pattern_classes.add(cls.id)
 
-        await _assert_coggins(item.horse_id, db)
+        await assert_coggins_valid(item.horse_id, db)
 
         entry = Entry(
             class_id=item.class_id,

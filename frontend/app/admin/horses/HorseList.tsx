@@ -6,6 +6,7 @@ import Link from 'next/link';
 interface Horse {
   id: string;
   name: string;
+  barn_name: string | null;
   sex: string | null;
   owner_exhibitor_name: string | null;
   owner_name: string | null;
@@ -36,7 +37,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
       const horseBreeds = h.breed_names?.length ? h.breed_names : (h.breed_name ? [h.breed_name] : []);
       if (breedFilter && !horseBreeds.includes(breedFilter)) return false;
       if (q) {
-        const haystack = [h.name, h.owner_exhibitor_name, h.owner_name, ...horseBreeds, h.color_name]
+        const haystack = [h.name, h.barn_name, h.owner_exhibitor_name, h.owner_name, ...horseBreeds, h.color_name]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
@@ -88,7 +89,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
       <div className="flex flex-wrap gap-2">
         <input
           type="search"
-          placeholder="Search name, owner, breed…"
+          placeholder="Search name, barn name, owner, breed…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm"
@@ -134,6 +135,11 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
               <div>
                 <div className="font-semibold" style={{ color: '#2c1810' }}>
                   {horse.name}
+                  {horse.barn_name && (
+                    <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
+                      &ldquo;{horse.barn_name}&rdquo;
+                    </span>
+                  )}
                   {horse.sex && (
                     <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
                       {horse.sex}

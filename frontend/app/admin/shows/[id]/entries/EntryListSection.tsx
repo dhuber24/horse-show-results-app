@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import HorseDocuments, { HEALTH_DOC_TYPES } from '@/components/HorseDocuments';
 
 interface Entry {
   id: string;
@@ -75,6 +76,7 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPapers, setShowPapers] = useState(false);
 
   const horseName = entry.horse_name ?? entry.horse?.name ?? '(unknown horse)';
   const exhibitorName = entry.exhibitor_name ?? entry.exhibitor?.full_name ?? '(unknown exhibitor)';
@@ -95,6 +97,7 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
   };
 
   return (
+    <>
     <tr className="border-t align-top" style={{ borderColor: '#f0e6d6' }}>
       <td className="py-1.5 pr-3 font-mono whitespace-nowrap" style={{ color: '#8b4513' }}>
         {entry.back_number != null ? `#${entry.back_number}` : '—'}
@@ -124,6 +127,16 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
         {error && <span className="text-xs text-red-600 mr-2">{error}</span>}
+        {entry.horse_id && (
+          <button
+            onClick={() => setShowPapers(v => !v)}
+            className="text-xs hover:underline mr-3"
+            style={{ color: '#8b4513' }}
+            title={`Health documents on file for ${horseName}`}
+          >
+            {showPapers ? 'Hide papers' : 'Papers'}
+          </button>
+        )}
         <button
           onClick={() => setConfirmDelete(true)}
           className="text-xs hover:underline text-red-600"
@@ -144,6 +157,22 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
         )}
       </td>
     </tr>
+    {showPapers && entry.horse_id && (
+      <tr style={{ backgroundColor: '#faf7f2' }}>
+        <td colSpan={7} className="px-3 py-3">
+          <p className="text-xs font-semibold mb-2" style={{ color: '#5c3d1e' }}>
+            Health documents — {horseName}
+          </p>
+          <HorseDocuments
+            horseId={entry.horse_id}
+            types={HEALTH_DOC_TYPES}
+            emptyLabel="No health documents uploaded for this horse."
+            readOnly
+          />
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 

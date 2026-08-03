@@ -2,6 +2,76 @@
 
 ## August 2026
 
+### Coggins Overrides Are Audited
+
+The Coggins gate has a deliberate escape hatch — `skip_coggins_check` lets show staff enter a horse whose record is thin but whose paper Coggins they have physically inspected. It left no trace, so a show could not answer "who entered this horse without valid Coggins on file, and what was wrong with it".
+
+**Migration 082** adds `coggins_override_audit`: show, entry, class, horse, which failure was bypassed (`missing` / `undated` / `expired`), who did it, and when.
+
+- **Only effective overrides are recorded.** `create_entry` now evaluates the Coggins status either way and only writes a row when the horse would actually have been rejected. Passing the flag for a horse that already holds a valid Coggins overrides nothing, so the table counts real bypasses rather than flag usage — otherwise the audit would fill with noise from a UI that could set the flag defensively.
+- **Written in the same transaction as the entry**, via a `flush()` to assign `entry.id` before the audit row is added. An entry that bypassed the gate must never exist without the row explaining why; committing the entry first and auditing after would leave exactly that gap whenever the second write failed.
+- **FK behaviour is mixed on purpose.** `show_id` CASCADEs — the audit answers a question about a show, so it goes when the show does and the table stays bounded. Everything else SET NULLs, with `horse_name` and `overridden_by_name` denormalized alongside: an audit that goes anonymous when a staff account is deleted is not much of an audit.
+- `GET /shows/{id}/coggins-overrides` reads them back, behind the same `_assert_show_access` check as the rest of the entries flow. `CogginsOverridePanel` on the admin entries page renders **nothing** when a show has no overrides — the normal case — and is collapsed by default when it does.
+
+Not added: a free-text reason field. The policy already fixes the reason ("I inspected the paper document"), and a required note would slow the entry desk for a value the attestation already carries. Easy to add later if shows want it.
+
+### Dead Code: CreateHorseForm
+
+`frontend/app/admin/shows/[id]/CreateHorseForm.tsx` was a 130-line horse quick-add on the show page that nothing imported. Deleted. Worth noting the near-miss: it was edited earlier in this same batch of work to relabel its name field, an inert change to a file no user could reach — checking for importers before editing would have caught it.
+
+### Show Staff Can Read Health Paperwork
+
+Horse documents were ADMIN-or-owner for every operation, so a show secretary could **override** the Coggins gate but could not **look at** the document behind it. Tightening the gate made that worse: more entries now stop at a warning whose evidence the person deciding cannot open.
+
+`horse_documents.py` splits the single `_check_access` into two:
+
+| | Roles | Endpoints |
+| --- | --- | --- |
+| `_assert_can_view` | ADMIN, SHOW_SECRETARY, SHOW_MANAGER, owner | list, download |
+| `_assert_can_manage` | ADMIN, owner | upload, delete |
+
+Read and write answer different questions. Staff read paperwork to *verify* it; the record stays the owner's to maintain, so a secretary cannot add or remove documents on someone else's horse.
+
+**Viewing is not scoped to horses at the user's own shows.** That was the first instinct and it is wrong here: the secretary most needs the Coggins while *creating* the entry, before any row links the horse to the show, so the scoped rule would hide the document at exactly the moment it is needed. The trade — any secretary or manager can read any horse's health documents — is acceptable for roles that already see exhibitor contact details, entries, and back numbers.
+
+**Surfaces.** `HorseDocuments` gained a `readOnly` prop that drops upload/remove and leaves list + download; offering write controls to staff would only produce a 403. It appears in two places: the Coggins warning on `CreateEntryForm` expands the horse's health documents inline, so staff can check before overriding, and every row on the admin entries list carries a **Papers** toggle for routine lookups.
+
+### An Undated Coggins Disabled the Entry Gate Permanently
+
+Both entry paths evaluated a horse's Coggins the same way:
+
+```python
+has_valid = any(doc.expiry_date is None or doc.expiry_date >= today for doc in docs)
+```
+
+`expiry_date is None` counting as valid means **one undated Coggins clears the horse forever** — the `any()` runs over every row on file, so a single dated-blank record permanently satisfies the check no matter how many expired ones sit beside it. A horse whose current Coggins had lapsed still entered cleanly as long as some older undated row existed.
+
+It also disagreed with what the exhibitor was being shown. The readiness flags on the horse card evaluate only the *newest* document per type, so the card rendered a red "Coggins expired" while both entry paths accepted the entry. Two different policies, three copies of the logic (`entries.py`, `show_registration._assert_coggins`, `_coggins_requirement`).
+
+**New rule:** a horse is cleared only by a Coggins carrying an expiration date that has not passed. An undated record does not clear it — there is nothing on it to verify.
+
+- `coggins_status()` in `routers/horse_documents.py` is now the single implementation, returning `valid` / `missing` / `undated` / `expired`. All three former copies call it, plus the new `load_coggins_expiries()` and `assert_coggins_valid()` helpers. The frontend `cogginsCheck()` in `MyHorsesPanel` mirrors it so the card and the gate cannot drift again.
+- `undated` is reported ahead of `expired` when both are present: it names the fixable data problem, where "expired" would send the exhibitor after a new test they may not need.
+- All states keep the `COGGINS_EXPIRED` error code, since the entry form and self-registration screen branch on it. The message carries the distinction.
+- Coggins moved out of the generic newest-per-type expiry loop on the horse card — it is an entry gate, so it flags `danger` with an explicit "blocks entry" rather than sitting among the soft 45-day warnings.
+
+**The override is the point.** `skip_coggins_check=true` lets a secretary or manager who has physically inspected the paper Coggins enter the horse anyway, so tightening the rule cannot strand an exhibitor whose documentation is genuinely fine — a thin record is a data problem, not a disqualification. The button now says "I inspected it — add entry" and states the condition, rather than the previous bare "Add anyway". Exhibitors have no equivalent: `require_admin_or_show_admin` plus a show-access check gate the endpoint, and self-registration has no override at all.
+
+Verified `coggins_status` against nine cases, including the one that motivated this: `[undated, expired]` returned valid before and returns `undated` now. Two follow-ups deliberately left open — the override writes no audit row, and show staff still cannot *view* horse health documents (`horse_documents._check_access` is ADMIN-or-owner), so today they override a check they are not permitted to look at.
+
+### Barn Name Finished on the Admin Surfaces
+
+Migration 081 added `horses.barn_name` and wired it through the backend and the exhibitor-facing screens, but the admin side was left half-done: the admin **edit** form got the field while the admin **create** form had no barn-name input at all, and `/admin/horses` neither displayed nor searched it. An admin could therefore see and change a barn name on an existing horse but never set one on a new horse, and could not find a horse by the name most people at the show actually call it.
+
+No backend work was needed — `barn_name` was already on `HorseCreate` / `HorseUpdate` / `HorseOut` and `GET /horses/` already returned it. This was purely the frontend catching up.
+
+- `NewHorseForm` takes **Registered Name \*** (with "This is what the horse is entered and published under") plus an optional **Barn Name**, matching the wizard's copy. `Name *` was an ambiguous label for the field that decides how the horse is published. Also picked up the `maxLength={200}` the edit form already had and the backend already enforced.
+- `HorseList` adds `barn_name` to the `Horse` interface and to the search haystack, and the placeholder now says so. The delete confirmation still names the registered name.
+- The `/admin/horses/[id]` heading renders `Registered Name "Barn Name"`; the breadcrumb stays registered-name-only.
+- `CreateHorseForm` (the quick-add on the show page) had its label and error message changed from "Horse name" to "Registered name", but deliberately **did not** get a barn-name field.
+
+**The rule this settles:** the registered name is the identifier wherever a horse is competing — exhibitors, judges, and show staff all reference the association name. Barn name is ancillary: searchable, and rendered quoted and de-emphasised next to the registered name, but never a replacement for it. That is why it stays off the class schedule, the published results, and the gate screen, and why the mid-show quick-add doesn't ask for it.
+
 ### Self-Registration Skipped Association Validation Entirely
 
 Every association rule starts with a guard that skips withdrawn entries:

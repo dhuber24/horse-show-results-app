@@ -96,6 +96,19 @@ Show-scoped write access is usually checked with join tables:
 - `show_gate_stewards`
 - `show_scorekeepers`
 
+### Horse Documents: Read And Write Split
+
+`backend/routers/horse_documents.py` separates the two, because they answer different questions:
+
+| | Allowed roles | Endpoints |
+| --- | --- | --- |
+| `_assert_can_view` | `ADMIN`, `SHOW_SECRETARY`, `SHOW_MANAGER`, or the horse's registered owner | list, download |
+| `_assert_can_manage` | `ADMIN` or the horse's registered owner | upload, delete |
+
+Show staff read health paperwork to **verify** it — the secretary at the entry desk and the in-gate both need to see a Coggins. The record itself stays the owner's to maintain, so staff cannot add or remove documents on someone else's horse.
+
+Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents — acceptable for roles that already see exhibitor contact details, entries, and back numbers.
+
 ## Sharp Edges
 
 - Do not trust client-provided role or user IDs from browser code. Only server-side Next route handlers should attach backend auth headers.

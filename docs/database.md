@@ -93,6 +93,8 @@ Current migration files:
 
 | `081_horse_barn_name.sql` | Add nullable `horses.barn_name` (stable/call name) and split it from `horses.name`, which is documented via `COMMENT` as the **registered (association) name** and stays required — it is what the horse is entered and published under. Deliberately *not* a rename of `horses.name` to `registered_name`: that column is referenced across entries, results, the public schedule, search and exports, and the rename would buy nothing beyond the label the UI already shows. |
 
+| `082_coggins_override_audit.sql` | New `coggins_override_audit` table recording each show-staff bypass of the Coggins entry gate (`skip_coggins_check`). Only *effective* overrides are written — passing the flag for a horse that already holds a valid Coggins overrides nothing and records nothing, so the table counts real bypasses rather than flag usage. FK behaviour is mixed on purpose: `show_id` CASCADEs (the audit answers a question about a show, so it goes when the show does, keeping the table bounded), while `entry_id` / `class_id` / `horse_id` / `overridden_by` SET NULL with `horse_name` and `overridden_by_name` denormalized alongside — an audit that goes anonymous when a user is deleted is not much of an audit. |
+
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
 ## Running Migrations
@@ -268,6 +270,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `show_entries` | Show-level back number assignment |
 | `results` | Manual placings; `raw_score` carries the numeric input for `pattern` (judge score) and `time` (seconds) classes — `place` is derived from `raw_score` for those types |
 | `result_audit` | Immutable placing change history |
+| `coggins_override_audit` | One row per effective show-staff bypass of the Coggins entry gate: horse, which failure was bypassed (`missing` / `undated` / `expired`), who did it, and when |
 | `side_pots` | Optional money pool spanning multiple classes; carries `entry_fee_cents`, `payback_percent`, `scoring_method` (`sum_placings` / `sum_scores`), `eligibility_rule`, `payout_schedule` (JSONB keyed by entry-count band), and `status` (`open` / `closed` / `settled`) |
 | `side_pot_classes` | Many-to-many: which classes feed each pot |
 | `side_pot_entries` | Back-number opt-ins (`paid` flag); pool size = `entry_fee_cents × paid count` |

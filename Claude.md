@@ -97,6 +97,7 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - `show_entries`: show-level exhibitor back numbers.
 - `results`: placings. For `pattern`/`time` classes, `raw_score` is the source of truth and `place` is recomputed server-side on every change.
 - `result_audit`: placing change history (placement classes only — derived placings are not audited).
+- `coggins_override_audit`: one row per effective show-staff bypass of the Coggins entry gate (migration 082) — horse, which failure was bypassed, who did it, when. Written in the same transaction as the entry it describes.
 - `side_pots` / `side_pot_classes` / `side_pot_entries` / `side_pot_payouts`: optional money pool spanning multiple classes; opt-ins per back number, payouts written on settle.
 - `users`: login accounts and roles. First/last name are the editable source of truth; `full_name` is a derived display compatibility field.
 - `exhibitors`: person/profile records, optionally linked to users.

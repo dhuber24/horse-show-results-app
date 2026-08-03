@@ -23,7 +23,7 @@ from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
 from routers.horse_documents import router as horse_documents_router
 from routers.exhibitor_documents import router as exhibitor_documents_router
-from routers.entries import router as entries_router
+from routers.entries import router as entries_router, coggins_audit_router
 from routers.results import router as results_router
 from routers.auth import router as auth_router
 from routers.dashboard import router as dashboard_router
@@ -112,6 +112,7 @@ app.include_router(horse_documents_router)
 app.include_router(exhibitor_documents_router)
 app.include_router(exhibitors_router)
 app.include_router(entries_router)
+app.include_router(coggins_audit_router)
 app.include_router(results_router)
 app.include_router(backnumbers_router)
 app.include_router(venues_router)

@@ -26,6 +26,11 @@ export default async function AdminHorsePage({ params }: { params: Promise<{ id:
         ]} />
         <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
           {horse.name}
+          {horse.barn_name && (
+            <span className="ml-2 text-lg font-normal" style={{ color: '#8b7355' }}>
+              &ldquo;{horse.barn_name}&rdquo;
+            </span>
+          )}
         </h1>
       </div>
 

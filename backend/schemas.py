@@ -1339,6 +1339,25 @@ class EntryOut(BaseModel):
         from_attributes = True
 
 
+class CogginsOverrideAuditOut(BaseModel):
+    """A show-staff bypass of the Coggins entry gate (migration 082)."""
+
+    id: UUID
+    show_id: UUID
+    entry_id: Optional[UUID]
+    class_id: Optional[UUID]
+    horse_id: Optional[UUID]
+    horse_name: str
+    # Which failure was bypassed: 'missing', 'undated', or 'expired'.
+    coggins_status: str
+    overridden_by: Optional[UUID]
+    overridden_by_name: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Gate management ────────────────────────────────────────────────────────────
 
 class GateEntryOut(BaseModel):

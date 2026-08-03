@@ -24,6 +24,14 @@ interface Props {
   emptyLabel?: string;
   /** Label on the button that opens the upload form. */
   uploadLabel?: string;
+  /**
+   * Drop the upload and remove controls, leaving list + download. Used for show
+   * staff, who may read any horse's paperwork to verify it but do not maintain
+   * the record — `_assert_can_manage` in `backend/routers/horse_documents.py`
+   * rejects their writes regardless, so offering the controls would only
+   * produce a 403.
+   */
+  readOnly?: boolean;
 }
 
 export const DOC_TYPES = [
@@ -85,7 +93,7 @@ function formatSize(bytes: number) {
 
 const emptyUpload = { document_type: '', issue_date: '', expiry_date: '' };
 
-export default function HorseDocuments({ horseId, initialDocuments, types, emptyLabel, uploadLabel }: Props) {
+export default function HorseDocuments({ horseId, initialDocuments, types, emptyLabel, uploadLabel, readOnly }: Props) {
   const [docs, setDocs] = useState<HorseDocument[]>(initialDocuments ?? []);
   const [loading, setLoading] = useState(!initialDocuments);
   const [filterType, setFilterType] = useState('');
@@ -220,13 +228,15 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
                   >
                     Download
                   </a>
-                  <button
-                    onClick={() => setConfirmDeleteId(doc.id)}
-                    className="text-xs text-red-600 hover:text-red-800"
-                  >
-                    Remove
-                  </button>
-                  {confirmDeleteId === doc.id && (
+                  {!readOnly && (
+                    <button
+                      onClick={() => setConfirmDeleteId(doc.id)}
+                      className="text-xs text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  )}
+                  {!readOnly && confirmDeleteId === doc.id && (
                     <ConfirmDialog
                       title="Remove Document"
                       message={`Remove ${doc.original_filename}? This cannot be undone.`}
@@ -340,7 +350,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             </button>
           </div>
         </div>
-      ) : (
+      ) : !readOnly ? (
         <button
           onClick={() => { setShowForm(true); setForm(freshForm()); }}
           className="text-sm font-medium hover:underline"
@@ -348,7 +358,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
         >
           {uploadLabel ?? '+ Upload Document'}
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

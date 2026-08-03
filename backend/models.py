@@ -817,6 +817,31 @@ class ResultAudit(Base):
     changed_by_user = relationship("User", back_populates="audits")
 
 
+class CogginsOverrideAudit(Base):
+    """One row per effective show-staff bypass of the Coggins entry gate.
+
+    Written only when the override actually mattered — passing
+    `skip_coggins_check` for a horse that already holds a valid Coggins
+    overrides nothing and records nothing. `horse_name` and
+    `overridden_by_name` are denormalized snapshots so a row stays readable
+    after the horse or the staff account is deleted (migration 082).
+    """
+
+    __tablename__ = "coggins_override_audit"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="SET NULL"), nullable=True)
+    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="SET NULL"), nullable=True)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
+    horse_name = Column(Text, nullable=False)
+    # The status that was bypassed: 'missing', 'undated', or 'expired'.
+    coggins_status = Column(Text, nullable=False)
+    overridden_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    overridden_by_name = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
 class ShowFee(Base):
     __tablename__ = "show_fees"
 

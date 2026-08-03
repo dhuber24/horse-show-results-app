@@ -9,6 +9,7 @@ import {
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import CreateEntryForm from '../CreateEntryForm';
 import EntryListSection from './EntryListSection';
+import CogginsOverridePanel from './CogginsOverridePanel';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 export default async function ShowEntriesPage({ params }: { params: Promise<{ id: string }> }) {
@@ -79,6 +80,8 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       <section>
         <CreateEntryForm showId={id} classes={classes} exhibitors={selectableExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
+
+      <CogginsOverridePanel showId={id} />
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Entries by Class</h2>

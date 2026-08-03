@@ -17,7 +17,7 @@ type PreviewClass = {
 type RegistrationRequirement = {
   code: string;
   label: string;
-  status: 'valid' | 'missing' | 'expired';
+  status: 'valid' | 'missing' | 'undated' | 'expired';
   message: string;
 };
 

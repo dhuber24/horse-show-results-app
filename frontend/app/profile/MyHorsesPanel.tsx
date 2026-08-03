@@ -43,6 +43,33 @@ function daysUntil(isoDate: string): number {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
+type CogginsStatus = 'valid' | 'missing' | 'undated' | 'expired';
+
+const COGGINS_BLOCKER_TEXT: Record<Exclude<CogginsStatus, 'valid'>, string> = {
+  missing: 'No Coggins on file — blocks entry',
+  undated: 'Coggins has no expiration date — blocks entry',
+  expired: 'Coggins expired — blocks entry',
+};
+
+/**
+ * Mirrors `coggins_status()` in `backend/routers/horse_documents.py`. Keep the
+ * two in step: this is what tells the exhibitor whether a horse can be entered,
+ * and the backend is what actually enforces it. A Coggins clears the horse only
+ * when it carries an expiration date that has not passed, so an undated one is a
+ * blocker rather than a pass — there is nothing on it to verify.
+ */
+function cogginsCheck(docs: HorseDocumentBrief[]): { status: CogginsStatus; daysLeft: number | null } {
+  const coggins = docs.filter((d) => d.document_type === 'COGGINS');
+  if (!coggins.length) return { status: 'missing', daysLeft: null };
+  const dated = coggins.filter((d) => d.expiry_date).map((d) => daysUntil(d.expiry_date!));
+  const furthest = dated.length ? Math.max(...dated) : null;
+  if (furthest !== null && furthest >= 0) return { status: 'valid', daysLeft: furthest };
+  // Report the undated case ahead of the expired one: it names the fixable data
+  // problem, where "expired" sends the exhibitor after a test they may not need.
+  if (coggins.some((d) => !d.expiry_date)) return { status: 'undated', daysLeft: null };
+  return { status: 'expired', daysLeft: null };
+}
+
 /**
  * What would stop this horse from being entered at a show — missing paperwork
  * and expiring documents. Document status is only returned by the API for horses
@@ -56,15 +83,25 @@ function readinessFlags(horse: MyHorse, isOwner: boolean): ReadinessFlag[] {
   if (!isOwner) return flags;
 
   const docs = horse.documents ?? [];
-  if (!docs.some((d) => d.document_type === 'COGGINS')) {
-    flags.push({ tone: 'warn', text: 'No Coggins on file' });
+
+  // Coggins is an entry gate, not just an expiry warning, so it gets the
+  // backend's rule and a danger tone rather than the generic handling below.
+  const coggins = cogginsCheck(docs);
+  if (coggins.status !== 'valid') {
+    flags.push({ tone: 'danger', text: COGGINS_BLOCKER_TEXT[coggins.status] });
+  } else if (coggins.daysLeft !== null && coggins.daysLeft <= EXPIRY_WARNING_DAYS) {
+    flags.push({
+      tone: 'warn',
+      text: `Coggins expires in ${coggins.daysLeft} day${coggins.daysLeft === 1 ? '' : 's'}`,
+    });
   }
 
-  // Only the most recent document of each type matters — an expired Coggins that
-  // has already been replaced by a current one is not a problem.
+  // Only the most recent document of each type matters — an expired vaccination
+  // record that has already been replaced by a current one is not a problem.
   const sortKey = (d: HorseDocumentBrief) => d.expiry_date ?? d.issue_date ?? '';
   const latestByType = new Map<string, HorseDocumentBrief>();
   for (const doc of docs) {
+    if (doc.document_type === 'COGGINS') continue;
     const current = latestByType.get(doc.document_type);
     if (!current || sortKey(doc) > sortKey(current)) latestByType.set(doc.document_type, doc);
   }

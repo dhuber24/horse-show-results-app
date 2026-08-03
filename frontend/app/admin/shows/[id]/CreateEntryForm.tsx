@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
+import HorseDocuments, { HEALTH_DOC_TYPES } from '@/components/HorseDocuments';
 
 interface Props {
   showId: string;
@@ -39,6 +40,7 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cogginsWarning, setCogginsWarning] = useState<string | null>(null);
+  const [showPapers, setShowPapers] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -71,6 +73,7 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
     setSaving(true);
     setError(null);
     setCogginsWarning(null);
+    setShowPapers(false);
 
     const body: Record<string, unknown> = {
       showId,
@@ -230,18 +233,42 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
 
       {cogginsWarning && (
         <div className="rounded border border-yellow-300 bg-yellow-50 p-3 text-sm" style={{ color: '#92400e' }}>
-          <p className="font-medium mb-2">⚠ {cogginsWarning}</p>
+          <p className="font-medium mb-1">⚠ {cogginsWarning}</p>
+          <p className="mb-2">
+            Check what is on file below, or override if you have physically inspected
+            the exhibitor&rsquo;s Coggins and confirmed it has not expired.
+          </p>
+
+          <button
+            onClick={() => setShowPapers((v) => !v)}
+            className="text-sm font-medium hover:underline mb-2"
+            style={{ color: '#8b4513' }}
+          >
+            {showPapers ? 'Hide health documents' : 'View health documents on file'}
+          </button>
+          {showPapers && (
+            <div className="mb-3 rounded border bg-white p-3" style={{ borderColor: '#e8d5b7' }}>
+              <HorseDocuments
+                horseId={form.horse_id}
+                types={HEALTH_DOC_TYPES}
+                emptyLabel="No health documents uploaded for this horse."
+                readOnly
+              />
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <button
               onClick={() => submitEntry(true)}
               disabled={saving}
               className="px-3 py-1 rounded text-sm font-medium disabled:opacity-50"
               style={{ backgroundColor: '#92400e', color: '#fff' }}
+              title="Records the entry despite the Coggins on file — for staff who have seen the paper document"
             >
-              Add anyway
+              I inspected it — add entry
             </button>
             <button
-              onClick={() => setCogginsWarning(null)}
+              onClick={() => { setCogginsWarning(null); setShowPapers(false); }}
               className="text-sm hover:underline"
               style={{ color: '#8b7355' }}
             >
