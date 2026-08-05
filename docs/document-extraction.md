@@ -29,10 +29,35 @@ Two consequences in the code:
   complete behavior is suppressed and an explicit **Looks right — save** button
   appears. Auto-upload stays on for values the uploader typed themselves.
 
+## Two upload surfaces
+
+| Surface | Endpoint | Gate |
+| --- | --- | --- |
+| `HorseDocuments` — horse already exists | `POST /horses/{horse_id}/documents/analyze` | Same as upload: ADMIN or the horse's owner |
+| Add-a-horse wizard — no horse yet | `POST /documents/analyze` | Authenticated, rate limited |
+
+The wizard stages health documents in the browser and saves them only after the
+horse is created, so there is no `horse_id` to authorize against at the moment
+the file is chosen. That is also the first place an exhibitor ever files a
+Coggins, which makes it the surface extraction most needs to reach.
+
+Hence `document_extractions.horse_id` is nullable (migration 084): a row with a
+NULL `horse_id` is a read taken before its horse existed. It gets attached when
+the queued document is finally saved, in the same transaction that links the
+document.
+
+**The unattached endpoint has a genuinely weaker gate**, and that is worth
+stating rather than burying: with no horse there is nothing to check ownership
+against, so any signed-in user can read any file they already hold. They learn
+nothing about anyone else's data, but it spends model tokens — so it is rate
+limited to 20/minute **keyed on the user id, not the client address**. Every
+request reaches the backend from the Next.js server, so an IP-keyed limit would
+be one global bucket and a single busy user would lock out everyone else.
+
 ## Flow
 
-1. Uploader picks a file in `HorseDocuments`.
-2. `POST /horses/{horse_id}/documents/analyze` — reads the file, writes a
+1. Uploader picks a file in `HorseDocuments` (or the wizard's Health step).
+2. The matching analyze endpoint reads the file, writes a
    `document_extractions` row, returns the fields. Saves no document.
 3. The form pre-fills; extracted fields are marked *read from document*,
    uncertain ones *check this*, and everything the model read (vet, lab,
@@ -48,13 +73,49 @@ Two consequences in the code:
 One extractor covers all four `document_type` values. The schema is in
 `backend/extraction/documents.py`.
 
-| Group | Fields |
+The Coggins fields follow the section layout of a VS 10-11 form, because the
+section a value sits under is what identifies it:
+
+| Form section | Fields |
 | --- | --- |
-| Any document | `document_type`, `issue_date`, `expiry_date`, `horse_name` |
-| Coggins / health | `test_date`, `result`, `accession_number`, `lab_name`, `veterinarian_name`, `veterinarian_clinic`, `veterinarian_phone` |
+| Any document | `document_type`, `issue_date`, `expiry_date` |
+| 1. Administrative & tracking | `accession_number`, `test_date` (date blood **drawn**) |
+| 2. Contact information | `owner_name`, `owner_address`, `stable_name`, `veterinarian_name`, `veterinarian_clinic`, `veterinarian_phone`, `clinic_license_number` |
+| 3. Equine identification | `horse_name`, `age_text`, `sex`, `breed`, `color`, `microchip_number`, `markings`, `identity_images_present` |
+| 4. Laboratory test data | `lab_name`, `date_received`, `date_reported`, `test_type` (AGID / ELISA), `test_reason` |
+| 5. Official result | `result`, `technician_name` |
 | Vaccination | `vaccinations[]` (`name`, `administered_on`) |
-| Registration | `association_code`, `registration_number`, `sire_name`, `dam_name`, `color`, `sex`, `foaling_date`, `breeder` |
+| Registration | `association_code`, `registration_number`, `sire_name`, `dam_name`, `foaling_date`, `breeder` |
 | Always | `low_confidence_fields[]`, `notes` |
+
+### Three dates, easily transposed
+
+A Coggins carries **three** dates and getting them the wrong way round has
+consequences:
+
+| On the form | Field | Why it matters |
+| --- | --- | --- |
+| Date blood drawn | `test_date` | Validity runs from **here** |
+| Date received | `date_received` | Lab handling only |
+| Date reported | `date_reported` | Also the document's `issue_date` unless one is printed separately |
+
+The derived-expiry offer uses `test_date`. Using `date_reported` instead would
+quietly hand the horse the extra days between the draw and the lab's report.
+
+### A positive result is extraordinary
+
+A finalized Coggins virtually always reads NEGATIVE — a non-negative sample is
+escalated to federal authorities for quarantine rather than issued as a routine
+certificate. So the model is told that POSITIVE is an exceptional reading to be
+returned only when the box is unmistakably marked, and flagged if there is any
+doubt. `reviewWarnings()` then surfaces POSITIVE or INCONCLUSIVE as a red banner
+in the review panel rather than a quiet row in a detail list, along with a
+`identity_images_present: NONE` reading — these forms prove identity with photos
+or a vet-drawn silhouette, and one missing them is worth a second look.
+
+Identity images are reported as present or absent only. The model is explicitly
+told not to describe them: the person reviewing has the document open, so a
+generated description adds nothing and risks inventing detail.
 
 Only `document_type`, `issue_date`, and `expiry_date` are persisted onto the
 document. The rest is shown for verification and kept in
@@ -62,14 +123,20 @@ document. The rest is shown for verification and kept in
 
 ### Coggins expiration is never computed
 
-A Coggins prints the date blood was drawn; how long that result stays valid is a
-state and association policy question, not something legible on the form. So:
+A standard EIA form has **no expiration field at all** — it prints the date blood
+was drawn, and how long that result stays valid is a state and association policy
+question. So:
 
-- `expiry_date` comes back **only** when an expiration is explicitly printed.
+- `expiry_date` comes back **only** when an expiration is explicitly printed,
+  which for a Coggins is essentially never. `null` is the correct answer.
 - `test_date` comes back separately.
 - When the document is a Coggins with a test date and no printed expiry, the
-  form offers a one-click *"Use 12 months from the test"* — a derived date the
-  uploader accepts, never one the model asserted.
+  form offers a one-click *"Use 12 months from the blood draw"* — a derived date
+  the uploader accepts, never one the model asserted.
+
+`twelveMonthsAfter()` clamps a Feb 29 draw to Feb 28 rather than letting it roll
+into March. This date decides whether a horse may compete, so where the calendar
+is ambiguous it rounds against extra eligibility.
 
 ## Storage
 
@@ -77,6 +144,7 @@ state and association policy question, not something legible on the form. So:
 
 | Column | Notes |
 | --- | --- |
+| `horse_id` | NULL when the read predated the horse (wizard); set on save |
 | `document_id` | NULL until save; NULL forever if the upload is abandoned |
 | `extracted` | Raw model output, JSONB, stored whole so the schema can widen without a migration |
 | `accepted` | The values actually saved |
@@ -132,4 +200,12 @@ can't file their paperwork.
 - **An extraction is claimed once.** Re-submitting an `extraction_id` that
   already has a document, or one belonging to another horse, is ignored rather
   than rejected — the document is what the user asked for, provenance is
-  bookkeeping and should not fail the upload.
+  bookkeeping and should not fail the upload. A NULL `horse_id` is the one case
+  that is *not* a mismatch: that read predated the horse, and saving attaches it.
+- **Shared UI helpers live in `frontend/lib/document-extraction.ts`**, not in
+  either component. Both surfaces show the same review panel and field markers,
+  and the horse-page form and the wizard would otherwise drift.
+- **The wizard needs no auto-upload suppression.** Its "Add Document" button is
+  already a deliberate click, so the uploader confirms what was read by
+  construction — unlike `HorseDocuments`, which had an auto-upload-when-complete
+  shortcut that had to be switched off once a document was read.

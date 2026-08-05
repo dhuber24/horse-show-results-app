@@ -3,6 +3,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import ApprovalLinkCallout from '@/components/ApprovalLinkCallout';
+import HorseAccessRequestsPanel from '@/components/HorseAccessRequestsPanel';
+import HorseTransferControl from './HorseTransferControl';
 import {
   Association,
   HorseDocumentBrief,
@@ -147,6 +150,21 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
 
+  // Linking someone else's horse takes the owner's approval, so the flow can
+  // pause here between "we know who owns it" and "they said yes".
+  const [approvalNeeded, setApprovalNeeded] = useState<{
+    horseId: string;
+    horseName: string;
+    ownerName: string;
+  } | null>(null);
+  const [requestingApproval, setRequestingApproval] = useState(false);
+  const [approvalSent, setApprovalSent] = useState<{
+    url: string;
+    emailSent: boolean | null;
+    approverName: string;
+  } | null>(null);
+  const [requestsKey, setRequestsKey] = useState(0);
+
   useEffect(() => {
     fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
@@ -183,6 +201,8 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     setSearchResult(null);
     setSearchMessage(null);
     setNotFoundSearch(false);
+    setApprovalNeeded(null);
+    setApprovalSent(null);
   };
 
   const addHorseToList = (horse: MyHorse) => {
@@ -260,6 +280,8 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
   const handleLink = async (horseId: string) => {
     setLinkingId(horseId);
+    setApprovalNeeded(null);
+    setApprovalSent(null);
     const res = await fetch(`/api/exhibitors/${exhibitorId}/linked-horses`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -268,10 +290,51 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
     setLinkingId(null);
     if (res.ok) {
       addHorseToList(await res.json());
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setSearchMessage(err.detail ?? 'Failed to add horse to your profile.');
+      return;
     }
+    const err = await res.json().catch(() => ({}));
+    const detail = err?.detail;
+    // The horse belongs to somebody: offer to ask them rather than dead-ending.
+    if (detail?.code === 'OWNER_APPROVAL_REQUIRED') {
+      setApprovalNeeded({
+        horseId: detail.horse_id,
+        horseName: detail.horse_name,
+        ownerName: detail.owner_name,
+      });
+      setSearchMessage(detail.message);
+      return;
+    }
+    setSearchMessage(
+      typeof detail === 'string' ? detail : 'Failed to add horse to your profile.',
+    );
+  };
+
+  const handleRequestApproval = async () => {
+    if (!approvalNeeded) return;
+    setRequestingApproval(true);
+    const res = await fetch('/api/horse-access-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ horse_id: approvalNeeded.horseId, kind: 'link' }),
+    });
+    setRequestingApproval(false);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setSearchMessage(
+        typeof json?.detail === 'string'
+          ? json.detail
+          : json?.detail?.message || 'Could not send the request.',
+      );
+      return;
+    }
+    setApprovalNeeded(null);
+    setSearchMessage(null);
+    setApprovalSent({
+      url: json.approval_url,
+      emailSent: json.email_sent ?? null,
+      approverName: json.approver_name,
+    });
+    setRequestsKey((k) => k + 1);
   };
 
   const handleRemoveFromProfile = async (horse: MyHorse) => {
@@ -293,6 +356,11 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
   return (
     <div className="space-y-4">
+      <HorseAccessRequestsPanel
+        refreshKey={requestsKey}
+        onChanged={() => router.refresh()}
+      />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm" style={{ color: '#8b7355' }}>
@@ -467,6 +535,11 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                       >
                         Documents
                       </Link>
+                      <HorseTransferControl
+                        horseId={horse.id}
+                        horseName={horse.name}
+                        onSent={() => setRequestsKey((k) => k + 1)}
+                      />
                     </>
                   ) : (
                     <Link
@@ -643,6 +716,18 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           {searchMessage && !searchResult && (
             <div className="flex flex-wrap items-center gap-3">
               <p className="text-xs" style={{ color: '#8b4513' }}>{searchMessage}</p>
+              {approvalNeeded && (
+                <button
+                  onClick={handleRequestApproval}
+                  disabled={requestingApproval}
+                  className="px-3 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 shrink-0"
+                  style={{ backgroundColor: '#8b4513' }}
+                >
+                  {requestingApproval
+                    ? 'Sending…'
+                    : `Ask ${approvalNeeded.ownerName} for approval`}
+                </button>
+              )}
               {(notFoundSearch || (searchMode === 'name' && nameResults?.length === 0)) && (
                 <button
                   onClick={handleCreateFromSearch}
@@ -653,6 +738,14 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 </button>
               )}
             </div>
+          )}
+
+          {approvalSent && (
+            <ApprovalLinkCallout
+              url={approvalSent.url}
+              emailSent={approvalSent.emailSent}
+              approverName={approvalSent.approverName}
+            />
           )}
 
           <div>

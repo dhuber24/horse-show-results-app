@@ -51,14 +51,18 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
           style={{ backgroundColor: '#f0e8d8', borderColor: '#d4b896' }}
         >
           <div className="text-sm" style={{ color: '#5d4a37' }}>
-            Registration is open for this show.
+            Registration is open. Sign up for the show — stalls, shavings and camping — then pick
+            your classes.
           </div>
+          {/* Sign-up is the single entry point: it is required before classes,
+              and it forwards anyone already signed up straight to the class
+              picker rather than making them re-enter the same numbers. */}
           <Link
-            href={`/shows/${id}/register`}
-            className="text-sm font-medium px-3 py-1.5 rounded text-white"
+            href={`/shows/${id}/signup`}
+            className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
             style={{ backgroundColor: '#8b4513' }}
           >
-            Register for classes →
+            Sign up →
           </Link>
         </div>
       )}
@@ -71,7 +75,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {show.status !== 'ACTIVE' && (
+      {/* Only for people who could otherwise be entering scores. An exhibitor or
+          spectator reading the class schedule has no scoring screen to be locked
+          out of, so the banner told them nothing and read like a warning. */}
+      {canScore && show.status !== 'ACTIVE' && (
         <div
           className="mb-4 px-4 py-3 rounded border text-sm font-medium"
           style={{ backgroundColor: '#fef3c7', borderColor: '#d4b896', color: '#92400e' }}

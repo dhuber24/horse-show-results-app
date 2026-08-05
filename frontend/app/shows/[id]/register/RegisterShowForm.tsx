@@ -30,7 +30,21 @@ type PreviewHorse = {
 
 type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
 
+type Signup = {
+  show_entry_id: string;
+  registered_at: string;
+  back_number: number | null;
+  arrival_date: string | null;
+  departure_date: string | null;
+  notes: string | null;
+  reservations: { show_fee_id: string; quantity: number }[];
+};
+
 export type PreviewData = {
+  /** Null until the exhibitor completes show sign-up. The POST rejects class
+   *  entries without it, so the form refuses to render the picker rather than
+   *  letting someone fill it in and be turned away on submit. */
+  signup: Signup | null;
   show: {
     id: string;
     name: string;
@@ -39,6 +53,7 @@ export type PreviewData = {
     end_date: string;
     show_type_code: string | null;
     office_charge_cents: number;
+    office_charge_basis: string;
   };
   exhibitor: { id: string; full_name: string };
   classes: PreviewClass[];
@@ -67,6 +82,78 @@ function horseBlockers(horse: PreviewHorse): string[] {
 
 function canRegisterHorse(horse: PreviewHorse): boolean {
   return horse.can_register ?? horseBlockers(horse).length === 0;
+}
+
+/**
+ * One class the exhibitor is already entered in, with the control to get back
+ * out of it. Removal is a labelled button rather than a link tucked inside the
+ * "entered" badge: taking a class off is as ordinary an action as adding one,
+ * and an entry with no placing yet is the exhibitor's to undo.
+ */
+function EnteredRow({
+  entry,
+  className,
+  horseName,
+  isConfirming,
+  isRemoving,
+  onAsk,
+  onCancel,
+  onConfirm,
+}: {
+  entry: ExistingEntry;
+  className: string;
+  horseName: string;
+  isConfirming: boolean;
+  isRemoving: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 rounded px-2 py-1.5"
+      style={{ backgroundColor: '#dcfce7' }}
+    >
+      <span className="text-xs min-w-0 truncate" style={{ color: '#065f46' }}>
+        ✓ Entered · 🐴 {horseName}
+      </span>
+      {isConfirming ? (
+        <span className="flex items-center gap-2 shrink-0">
+          <span className="text-xs" style={{ color: '#065f46' }}>Remove?</span>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isRemoving}
+            className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
+            style={{ backgroundColor: '#b91c1c' }}
+          >
+            {isRemoving ? 'Removing…' : 'Yes, remove'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isRemoving}
+            className="text-xs hover:underline"
+            style={{ color: '#15803d' }}
+          >
+            Keep
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onAsk}
+          className="text-xs font-medium px-2 py-1 rounded border shrink-0"
+          style={{ borderColor: '#86efac', color: '#065f46', backgroundColor: '#ffffff' }}
+          title={`Remove ${horseName} from ${className}`}
+          aria-label={`Remove ${horseName} from ${className}`}
+          data-entry-id={entry.id}
+        >
+          Remove
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function RegisterShowForm({ showId, preview }: { showId: string; preview: PreviewData }) {
@@ -140,7 +227,14 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
   const distinctHorsesSelected = new Set(
     selectedClassIds.map((cid) => selection[cid]).filter(Boolean),
   ).size;
-  const officeChargeTotalCents = distinctHorsesSelected * show.office_charge_cents;
+  // Mirrors office_charge_total_cents() in backend/billing.py: per_back_number
+  // is one charge for the exhibitor however many horses they bring.
+  const officeChargeTotalCents =
+    selectedClassIds.length === 0
+      ? 0
+      : show.office_charge_basis === 'per_horse'
+        ? distinctHorsesSelected * show.office_charge_cents
+        : show.office_charge_cents;
   const totalFee = subtotalCents + sanctionCents + officeChargeTotalCents;
 
   const classesByDate = useMemo(() => {
@@ -231,6 +325,36 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     }
   };
 
+  if (!preview.signup) {
+    return (
+      <div className="mt-6">
+        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
+        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          Register for classes — {exhibitor.full_name}
+        </p>
+        <div
+          className="mt-6 rounded-lg border p-4 text-sm"
+          style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
+        >
+          <p className="font-medium">Sign up for the show first.</p>
+          <p className="mt-1">
+            The show office needs your stall, shavings, and camping numbers before you pick classes.
+            It only takes a minute, and you can change those numbers later.
+          </p>
+          <div className="mt-3">
+            <Link
+              href={`/shows/${show.id}/signup`}
+              className="inline-block px-4 py-2 rounded font-medium text-white"
+              style={{ backgroundColor: '#8b4513' }}
+            >
+              Sign up for this show →
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (horses.length === 0) {
     return (
       <div className="mt-6">
@@ -266,7 +390,53 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
       >
         Pick a horse for each class you want to enter. The show secretary assigns your back number
         once the show begins. Fees shown are informational — payment is collected at the show.
+        <div className="mt-2">
+          <Link
+            href={`/shows/${showId}/signup`}
+            className="text-sm font-medium hover:underline"
+            style={{ color: '#8b4513' }}
+          >
+            Change stalls, shavings or camping →
+          </Link>
+        </div>
       </div>
+
+      {existing_entries.length > 0 && (
+        <section
+          className="mt-4 rounded-lg border p-3"
+          style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}
+        >
+          <h2 className="text-sm font-semibold" style={{ color: '#065f46' }}>
+            You&apos;re entered in {existing_entries.length} class
+            {existing_entries.length === 1 ? '' : 'es'}
+          </h2>
+          <p className="text-xs mt-0.5 mb-2" style={{ color: '#15803d' }}>
+            Entered by mistake? Remove it here — nothing is final until the show starts.
+          </p>
+          <ul className="space-y-1.5">
+            {existing_entries.map((e) => {
+              const cls = classById.get(e.class_id);
+              return (
+                <li key={e.id} className="flex flex-col gap-1">
+                  <span className="text-xs font-medium" style={{ color: '#065f46' }}>
+                    {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class'}
+                  </span>
+                  <EnteredRow
+                    entry={e}
+                    className={cls?.class_name ?? 'this class'}
+                    horseName={e.horse_id ? (horseNameById.get(e.horse_id) ?? 'horse') : 'horse'}
+                    isConfirming={confirmWithdrawEntryId === e.id}
+                    isRemoving={withdrawingEntryId === e.id}
+                    onAsk={() => { setConfirmWithdrawEntryId(e.id); setWithdrawError(null); }}
+                    onCancel={() => { setConfirmWithdrawEntryId(null); setWithdrawError(null); }}
+                    onConfirm={() => handleWithdraw(e.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {unavailableHorses.length > 0 && (
         <div
@@ -342,55 +512,24 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
                           )}
                         </div>
                         {existing.length > 0 && (
-                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                            <span className="text-xs" style={{ color: '#065f46' }}>Entered:</span>
-                            {existing.map((e) => {
-                              const horseName = e.horse_id ? (horseNameById.get(e.horse_id) ?? 'horse') : 'horse';
-                              const isConfirming = confirmWithdrawEntryId === e.id;
-                              const isWithdrawing = withdrawingEntryId === e.id;
-                              return (
-                                <span
-                                  key={e.id}
-                                  className="inline-flex items-center gap-1 text-xs rounded px-2 py-0.5"
-                                  style={{ backgroundColor: '#dcfce7', color: '#065f46' }}
-                                >
-                                  🐴 {horseName}
-                                  {isConfirming ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleWithdraw(e.id)}
-                                        disabled={isWithdrawing}
-                                        className="text-red-700 hover:underline font-medium disabled:opacity-50"
-                                      >
-                                        {isWithdrawing ? 'Withdrawing…' : 'Confirm'}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => { setConfirmWithdrawEntryId(null); setWithdrawError(null); }}
-                                        disabled={isWithdrawing}
-                                        className="hover:underline"
-                                        style={{ color: '#15803d' }}
-                                      >
-                                        Cancel
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => { setConfirmWithdrawEntryId(e.id); setWithdrawError(null); }}
-                                      className="hover:underline"
-                                      style={{ color: '#15803d' }}
-                                      title="Withdraw this entry"
-                                      aria-label={`Withdraw ${horseName} from ${cls.class_name}`}
-                                    >
-                                      Withdraw
-                                    </button>
-                                  )}
-                                </span>
-                              );
-                            })}
-                          </div>
+                          <ul className="mt-2 space-y-1.5">
+                            {existing.map((e) => (
+                              <li key={e.id}>
+                                <EnteredRow
+                                  entry={e}
+                                  className={cls.class_name}
+                                  horseName={
+                                    e.horse_id ? (horseNameById.get(e.horse_id) ?? 'horse') : 'horse'
+                                  }
+                                  isConfirming={confirmWithdrawEntryId === e.id}
+                                  isRemoving={withdrawingEntryId === e.id}
+                                  onAsk={() => { setConfirmWithdrawEntryId(e.id); setWithdrawError(null); }}
+                                  onCancel={() => { setConfirmWithdrawEntryId(null); setWithdrawError(null); }}
+                                  onConfirm={() => handleWithdraw(e.id)}
+                                />
+                              </li>
+                            ))}
+                          </ul>
                         )}
                       </div>
                       <div className="shrink-0">

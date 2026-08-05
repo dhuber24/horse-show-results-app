@@ -21,7 +21,7 @@ from routers.trainers import router as trainers_router
 from routers.trainer_documents import router as trainer_documents_router
 from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
-from routers.horse_documents import router as horse_documents_router
+from routers.horse_documents import router as horse_documents_router, documents_router
 from routers.exhibitor_documents import router as exhibitor_documents_router
 from routers.entries import router as entries_router, coggins_audit_router
 from routers.results import router as results_router
@@ -38,10 +38,8 @@ from routers.standard_setup import router as standard_setup_router
 from routers.side_pots import router as side_pots_router
 from routers.show_registration import router as show_registration_router
 from routers.show_fees import router as show_fees_router
-from routers.show_judges import (
-    router as show_judges_router,
-    known_judges_router,
-)
+from routers.show_judges import router as show_judges_router
+from routers.judges import router as judges_router
 from routers.associations import router as associations_router
 from routers.sanctioning import (
     registry_router as sanctioning_registry_router,
@@ -50,6 +48,9 @@ from routers.sanctioning import (
 )
 from routers.user_invites import router as user_invites_router
 from routers.gate import router as gate_router
+from routers.horse_access import router as horse_access_router
+from routers.my_shows import router as my_shows_router
+from routers.show_office import router as show_office_router
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ app.include_router(trainer_documents_router)
 app.include_router(breeds_router)
 app.include_router(horse_colors_router)
 app.include_router(horse_documents_router)
+app.include_router(documents_router)
 app.include_router(exhibitor_documents_router)
 app.include_router(exhibitors_router)
 app.include_router(entries_router)
@@ -127,12 +129,15 @@ app.include_router(side_pots_router)
 app.include_router(show_registration_router)
 app.include_router(show_fees_router)
 app.include_router(show_judges_router)
-app.include_router(known_judges_router)
+app.include_router(judges_router)
 app.include_router(sanctioning_registry_router)
 app.include_router(sanctioning_requests_router)
 app.include_router(show_sanctioning_router)
 app.include_router(user_invites_router)
 app.include_router(gate_router)
+app.include_router(horse_access_router)
+app.include_router(my_shows_router)
+app.include_router(show_office_router)
 
 
 @app.get("/", tags=["Health"])

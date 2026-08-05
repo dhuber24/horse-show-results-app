@@ -1,6 +1,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import type { MyShow } from '@/lib/my-shows';
 import ProfileTabs from './ProfileTabs';
 
 export default async function ProfilePage({
@@ -27,6 +28,7 @@ export default async function ProfilePage({
   let trainerProfile: any = null;
   let trainerHorses: any[] = [];
   let trainerAffiliations: any[] = [];
+  let showHistory: MyShow[] = [];
 
   if (role === 'EXHIBITOR') {
     const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
@@ -45,14 +47,17 @@ export default async function ProfilePage({
     }
 
     if (exhibitor) {
-      const [horsesRes, docsRes, regsRes] = await Promise.all([
+      const [horsesRes, docsRes, regsRes, showsRes] = await Promise.all([
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/my-horses`, { headers: headers!, cache: 'no-store' }),
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/documents`, { headers: headers!, cache: 'no-store' }),
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/registrations`, { headers: headers!, cache: 'no-store' }),
+        fetch(`${API_URL}/my-shows/`, { headers: headers!, cache: 'no-store' }),
       ]);
       if (horsesRes.ok) horses = await horsesRes.json();
       if (docsRes.ok) exhibitorDocs = await docsRes.json();
       if (regsRes.ok) exhibitorRegs = await regsRes.json();
+      // Same payload the My Shows page reads, so history and bills agree.
+      if (showsRes.ok) showHistory = ((await showsRes.json())?.shows ?? []) as MyShow[];
     }
   }
 
@@ -83,8 +88,11 @@ export default async function ProfilePage({
         trainerProfile={trainerProfile}
         trainerHorses={trainerHorses}
         trainerAffiliations={trainerAffiliations}
+        showHistory={showHistory}
         initialTab={
-          tab === 'memberships' || tab === 'horses' || tab === 'affiliations' ? tab : 'account'
+          tab === 'memberships' || tab === 'horses' || tab === 'affiliations' || tab === 'history'
+            ? tab
+            : 'account'
         }
       />
     </main>

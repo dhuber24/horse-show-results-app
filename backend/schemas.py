@@ -631,7 +631,7 @@ class ShowFeeOut(BaseModel):
 
 # ── Show Judges ────────────────────────────────────────────────────────────────
 
-class ShowJudgeAffiliationOut(BaseModel):
+class JudgeAssociationOut(BaseModel):
     id: UUID
     code: str
     name: str
@@ -640,32 +640,58 @@ class ShowJudgeAffiliationOut(BaseModel):
         from_attributes = True
 
 
-class ShowJudgeCreate(BaseModel):
+class JudgeCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: Optional[str] = Field(default=None, max_length=200)
     phone: Optional[str] = Field(default=None, max_length=50)
-    affiliation_ids: list[UUID] = []
+    association_ids: list[UUID] = []
+
+
+class JudgeUpdate(BaseModel):
+    first_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    last_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    association_ids: Optional[list[UUID]] = None
+    is_active: Optional[bool] = None
+
+
+class JudgeOut(BaseModel):
+    id: UUID
+    first_name: str
+    last_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    is_active: bool = True
+    associations: list[JudgeAssociationOut] = []
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ShowJudgeCreate(BaseModel):
+    """Assign an existing registry judge to the show. Details are read from the
+    registry — the show never restates them."""
+    judge_id: UUID
     sort_order: int = 0
 
 
 class ShowJudgeUpdate(BaseModel):
-    first_name: Optional[str] = Field(default=None, max_length=100)
-    last_name: Optional[str] = Field(default=None, max_length=100)
-    email: Optional[str] = Field(default=None, max_length=200)
-    phone: Optional[str] = Field(default=None, max_length=50)
-    affiliation_ids: Optional[list[UUID]] = None
     sort_order: Optional[int] = None
 
 
 class ShowJudgeOut(BaseModel):
     id: UUID
     show_id: UUID
+    judge_id: UUID
+    # Flattened from the registry for display; not stored on show_judges.
     first_name: str
     last_name: str
     email: Optional[str] = None
     phone: Optional[str] = None
-    affiliations: list[ShowJudgeAffiliationOut] = []
+    associations: list[JudgeAssociationOut] = []
     sort_order: Optional[int] = None
     created_at: datetime
 
@@ -1064,8 +1090,14 @@ class HorseCreate(BaseModel):
     color_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
 
-class HorseCreateWithRegistrations(HorseCreate):
+class HorseWithRegistrationsBase(HorseCreate):
+    """A horse plus the association numbers to file with it, in one request, so
+    a rejected number never leaves an orphaned horse behind. Who ends up owning
+    it is left to the subclasses — that differs by who is filling the form in."""
     registrations: list[HorseRegistrationCreate] = Field(default_factory=list)
+
+
+class HorseCreateWithRegistrations(HorseWithRegistrationsBase):
     # Owner selection for exhibitor self-service: exactly one of these must apply.
     # claim_ownership=True → caller is the owner.
     # owner_exhibitor_id   → existing exhibitor (from HorseCreate parent).
@@ -1374,6 +1406,112 @@ class CogginsOverrideAuditOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Show office paperwork verification (migration 090) ─────────────────────────
+
+VerificationKind = Literal["horse_age", "horse_registration", "exhibitor_membership"]
+
+# How a single check reads back to the office:
+#   verified    — signed off, and the value on file still matches the sign-off.
+#   stale       — signed off, but the value on file has changed since.
+#   unverified  — a value is on file and nobody has checked it against paper.
+#   not_on_file — nothing to check against; the record itself is missing.
+VerificationStatus = Literal["verified", "stale", "unverified", "not_on_file"]
+
+
+class ShowVerificationCreate(BaseModel):
+    """What to sign off on. The value verified is never sent by the client —
+    the backend reads it off the record so a caller cannot attest to a number
+    that is not actually on file."""
+
+    kind: VerificationKind
+    horse_id: Optional[UUID] = None
+    exhibitor_id: Optional[UUID] = None
+    association_id: Optional[UUID] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class ShowVerificationOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    kind: VerificationKind
+    horse_id: Optional[UUID]
+    exhibitor_id: Optional[UUID]
+    association_id: Optional[UUID]
+    verified_value: str
+    note: Optional[str]
+    verified_by: Optional[UUID]
+    verified_by_name: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class VerificationCheckOut(BaseModel):
+    """One line on the check-in sheet."""
+
+    kind: VerificationKind
+    status: VerificationStatus
+    # What the profile says right now — the number or date staff hold the paper
+    # against. None means nothing is on file (status is then not_on_file).
+    current_value: Optional[str] = None
+    association_id: Optional[UUID] = None
+    association_code: Optional[str] = None
+    association_name: Optional[str] = None
+    # Populated once signed off; verified_value is what was on file at the time,
+    # and differs from current_value exactly when the check has gone stale.
+    verification_id: Optional[UUID] = None
+    verified_value: Optional[str] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    note: Optional[str] = None
+
+
+class VerificationHorseOut(BaseModel):
+    horse_id: UUID
+    horse_name: str
+    barn_name: Optional[str] = None
+    age_check: VerificationCheckOut
+    registrations: list[VerificationCheckOut] = Field(default_factory=list)
+
+
+class VerificationExhibitorOut(BaseModel):
+    exhibitor_id: UUID
+    exhibitor_name: str
+    back_number: Optional[int] = None
+    # NULL registered_at is a shell row a secretary created while adding an
+    # entry by hand — the person is on the roster but never self-signed up.
+    signed_up: bool = False
+    memberships: list[VerificationCheckOut] = Field(default_factory=list)
+    horses: list[VerificationHorseOut] = Field(default_factory=list)
+    outstanding: int = 0
+
+
+class VerificationTotalsOut(BaseModel):
+    checks: int = 0
+    verified: int = 0
+    stale: int = 0
+    unverified: int = 0
+    not_on_file: int = 0
+
+
+class VerificationChecklistOut(BaseModel):
+    show_id: UUID
+    exhibitors: list[VerificationExhibitorOut] = Field(default_factory=list)
+    totals: VerificationTotalsOut = Field(default_factory=VerificationTotalsOut)
+
+
+class StaffHorseCreate(HorseWithRegistrationsBase):
+    """A horse created by show staff for an exhibitor standing at the desk.
+
+    The owner is always the exhibitor named in the path. None of the
+    owner-selection fields the self-service form uses are declared here, and the
+    inherited `owner_exhibitor_id` is dropped by
+    `people.build_horse_with_registrations` along with the rest of the owner
+    resolution — so no request body can point the horse at somebody else.
+    """
 
 
 # ── Gate management ────────────────────────────────────────────────────────────

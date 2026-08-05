@@ -29,11 +29,11 @@ horse_breeds = Table(
     Column("breed_id", UUID(as_uuid=True), ForeignKey("breeds.id", ondelete="CASCADE"), primary_key=True),
 )
 
-show_judge_affiliations = Table(
-    "show_judge_affiliations",
+judge_associations = Table(
+    "judge_associations",
     Base.metadata,
-    Column("judge_id", UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="CASCADE"), primary_key=True),
-    Column("show_type_id", UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), primary_key=True),
+    Column("judge_id", UUID(as_uuid=True), ForeignKey("judges.id", ondelete="CASCADE"), primary_key=True),
+    Column("association_id", UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -592,6 +592,12 @@ class Horse(Base):
     barn_name = Column(Text, nullable=True)
     owner_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
     created_by_exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=True)
+    # Who actually pressed create. Show staff creating a horse for an exhibitor
+    # at the desk have no exhibitor record of their own, so created_by_exhibitor_id
+    # cannot attribute them (migration 090).
+    created_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     owner_name = Column(Text, nullable=True)
     trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="SET NULL"), nullable=True)
     trainer_name = Column(Text, nullable=True)
@@ -614,6 +620,7 @@ class Horse(Base):
     documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
     owner_exhibitor = relationship("Exhibitor", foreign_keys=[owner_exhibitor_id])
     created_by_exhibitor = relationship("Exhibitor", foreign_keys=[created_by_exhibitor_id])
+    created_by_user = relationship("User", foreign_keys=[created_by_user_id])
 
 
 class Exhibitor(Base):
@@ -658,6 +665,56 @@ class ExhibitorHorse(Base):
 
     exhibitor = relationship("Exhibitor", back_populates="exhibitor_horses")
     horse = relationship("Horse", back_populates="exhibitor_horses")
+
+
+class HorseAccessRequest(Base):
+    """Consent, pending, for a horse changing hands (migration 087).
+
+    `kind='link'` is someone asking the owner to put their horse on that
+    person's profile; `kind='transfer'` is the owner handing ownership over.
+    Either way `approver_exhibitor_id` is whoever must press the button, so
+    approve/decline is one code path rather than two.
+    """
+    __tablename__ = "horse_access_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    token = Column(Text, nullable=False, unique=True)
+    kind = Column(Text, nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    horse_name = Column(Text, nullable=False)
+    requester_exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="SET NULL"), nullable=True
+    )
+    requested_by_name = Column(Text, nullable=False)
+    approver_exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="SET NULL"), nullable=True
+    )
+    approver_name = Column(Text, nullable=False)
+    approver_email = Column(Text, nullable=True)
+    status = Column(Text, nullable=False, server_default="pending")
+    message = Column(Text, nullable=True)
+    email_sent = Column(Boolean, nullable=True)
+    expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
+    responded_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Declared here as well as in the migration, and named to match it: startup
+    # create_all races the migration runner, and a table it creates first makes
+    # the migration's CREATE TABLE IF NOT EXISTS a no-op. Constraints that live
+    # only in the SQL are silently lost on those databases (migration 089).
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('link', 'transfer')", name="ck_horse_access_requests_kind"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'declined', 'cancelled', 'expired')",
+            name="ck_horse_access_requests_status",
+        ),
+    )
+
+    horse = relationship("Horse")
+    requester = relationship("Exhibitor", foreign_keys=[requester_exhibitor_id])
+    approver = relationship("Exhibitor", foreign_keys=[approver_exhibitor_id])
 
 
 class ExhibitorRegistration(Base):
@@ -730,7 +787,10 @@ class DocumentExtraction(Base):
     __tablename__ = "document_extractions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    # Null when the document was read before its horse existed — the add-a-horse
+    # wizard stages documents in the browser and saves them only after creation.
+    # Set when the queued document is finally saved.
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=True)
     # Null until save; null forever if the uploader abandons the upload.
     document_id = Column(UUID(as_uuid=True), ForeignKey("horse_documents.id", ondelete="CASCADE"), nullable=True)
 
@@ -882,6 +942,90 @@ class CogginsOverrideAudit(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
+class ShowVerification(Base):
+    """One document a show's office physically inspected (migration 090).
+
+    Three kinds, one table, because the actor, the question, and the staleness
+    rule are identical for all of them: `horse_age` (foaling date on the
+    registration papers), `horse_registration` (one association's registration
+    number), `exhibitor_membership` (one association's membership number).
+    `kind` fixes which of the three subject columns are populated.
+
+    Scoped to a show on purpose — this is a show attesting that its own office
+    saw the paper, not a permanent property of the horse or the person, so a
+    single bad sign-off cannot propagate to every future show.
+
+    `verified_value` is the snapshot of what was on file at sign-off, derived
+    server-side and never accepted from the client. It is what lets a check go
+    stale: edit the number afterwards and the stored value no longer matches.
+    """
+
+    __tablename__ = "show_verifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=True)
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=True
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=True
+    )
+    verified_value = Column(Text, nullable=False)
+    note = Column(Text, nullable=True)
+    verified_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    verified_by_name = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Declared here as well as in the migration, and named to match it: startup
+    # create_all races the migration runner, and a table it creates first makes
+    # the migration's CREATE TABLE IF NOT EXISTS a no-op (see migration 089).
+    # The unique indexes are partial because the subject columns are nullable per
+    # kind and Postgres treats NULLs as distinct — a plain UniqueConstraint would
+    # not stop the same horse's age being signed off twice.
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('horse_age', 'horse_registration', 'exhibitor_membership')",
+            name="ck_show_verifications_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'horse_age'"
+            " AND horse_id IS NOT NULL AND exhibitor_id IS NULL AND association_id IS NULL)"
+            " OR (kind = 'horse_registration'"
+            " AND horse_id IS NOT NULL AND exhibitor_id IS NULL AND association_id IS NOT NULL)"
+            " OR (kind = 'exhibitor_membership'"
+            " AND exhibitor_id IS NOT NULL AND horse_id IS NULL AND association_id IS NOT NULL)",
+            name="ck_show_verifications_subject",
+        ),
+        Index(
+            "uq_show_verifications_horse_age",
+            "show_id", "horse_id",
+            unique=True,
+            postgresql_where=text("kind = 'horse_age'"),
+        ),
+        Index(
+            "uq_show_verifications_horse_registration",
+            "show_id", "horse_id", "association_id",
+            unique=True,
+            postgresql_where=text("kind = 'horse_registration'"),
+        ),
+        Index(
+            "uq_show_verifications_exhibitor_membership",
+            "show_id", "exhibitor_id", "association_id",
+            unique=True,
+            postgresql_where=text("kind = 'exhibitor_membership'"),
+        ),
+        Index("idx_show_verifications_show", "show_id"),
+    )
+
+    show = relationship("Show")
+    horse = relationship("Horse")
+    exhibitor = relationship("Exhibitor")
+    association = relationship("Association")
+    verified_by_user = relationship("User")
+
+
 class ShowFee(Base):
     __tablename__ = "show_fees"
 
@@ -898,20 +1042,44 @@ class ShowFee(Base):
     show = relationship("Show", back_populates="fees")
 
 
-class ShowJudge(Base):
-    __tablename__ = "show_judges"
+class Judge(Base):
+    """A judge, as a person rather than as a line on one show.
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    Show setup picks from this registry and reads the details off it; the
+    details are not restated per show. `associations` is what the judge is
+    carded with, and points at `Association` (the affiliation registry), not
+    at `ShowType` (show configuration)."""
+    __tablename__ = "judges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     first_name = Column(Text, nullable=False)
     last_name = Column(Text, nullable=False)
     email = Column(Text, nullable=True)
     phone = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    associations = relationship(
+        "Association",
+        secondary=judge_associations,
+        lazy="selectin",
+        order_by="Association.code",
+    )
+
+
+class ShowJudge(Base):
+    """Assignment of a registry judge to a show. Carries no judge details of
+    its own — those live on `Judge`."""
+    __tablename__ = "show_judges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    judge_id = Column(UUID(as_uuid=True), ForeignKey("judges.id", ondelete="RESTRICT"), nullable=False)
     sort_order = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="judges")
-    affiliations = relationship("ShowType", secondary=show_judge_affiliations, lazy="selectin")
+    judge = relationship("Judge", lazy="selectin")
 
 
 class ShowEntry(Base):
@@ -921,6 +1089,13 @@ class ShowEntry(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
     back_number = Column(Integer, nullable=True)
+    # Set when the exhibitor completes show sign-up (migration 088). NULL means
+    # this is a shell row a secretary created while adding an entry by hand —
+    # the exhibitor has not signed up and cannot self-register for classes.
+    registered_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    arrival_date = Column(Date, nullable=True)
+    departure_date = Column(Date, nullable=True)
+    registration_notes = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -930,12 +1105,46 @@ class ShowEntry(Base):
 
     show = relationship("Show", back_populates="show_entries")
     exhibitor = relationship("Exhibitor")
+    reservations = relationship(
+        "ShowEntryReservation", back_populates="show_entry", cascade="all, delete-orphan"
+    )
     side_pot_entries = relationship(
         "SidePotEntry", back_populates="show_entry", cascade="all, delete-orphan"
     )
     side_pot_payouts = relationship(
         "SidePotPayout", back_populates="show_entry", cascade="all, delete-orphan"
     )
+
+
+class ShowEntryReservation(Base):
+    """How many of a given show fee this exhibitor reserved at sign-up.
+
+    Points at `ShowFee` rather than restating stalls/shavings/camping as
+    columns: the secretary already configures those with prices and units, and
+    what an exhibitor may reserve is derived from the unit (see
+    RESERVABLE_FEE_UNITS in `routers/show_registration.py`).
+    """
+    __tablename__ = "show_entry_reservations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_entry_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    show_fee_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_fees.id", ondelete="CASCADE"), nullable=False
+    )
+    quantity = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("show_entry_id", "show_fee_id"),
+        # See HorseAccessRequest.__table_args__ for why this is declared here
+        # and not only in the migration.
+        CheckConstraint("quantity >= 0", name="ck_show_entry_reservations_quantity"),
+    )
+
+    show_entry = relationship("ShowEntry", back_populates="reservations")
+    show_fee = relationship("ShowFee")
 
 
 class ShowSecretaryCertification(Base):

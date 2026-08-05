@@ -49,6 +49,7 @@ export default function SanctioningClient({
     () => new Set(current.map((c) => c.association_id)),
   );
 
+  const [requestOpen, setRequestOpen] = useState(false);
   const [requestName, setRequestName] = useState('');
   const [requestNotes, setRequestNotes] = useState('');
   const [requestSent, setRequestSent] = useState(false);
@@ -112,6 +113,7 @@ export default function SanctioningClient({
         return;
       }
       setRequestSent(true);
+      setRequestOpen(false);
       setRequestName('');
       setRequestNotes('');
     } finally {
@@ -202,16 +204,10 @@ export default function SanctioningClient({
         </div>
       </section>
 
-      <section
-        className="p-4 rounded-lg border space-y-3"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-      >
-        <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-          Request a new sanctioning association
-        </h2>
-        <p className="text-xs" style={{ color: COLORS.muted }}>
-          Don&apos;t see the sanctioning body you need? Submit a request and an admin will review.
-        </p>
+      {/* Requesting a club is the rare case — it stays a single line until
+          someone asks for it, so the common path (pick and save) owns the
+          screen. */}
+      <div>
         {requestSent ? (
           <div
             className="rounded border px-3 py-2 text-sm"
@@ -219,10 +215,29 @@ export default function SanctioningClient({
           >
             Request submitted. An admin will review.
           </div>
+        ) : !requestOpen ? (
+          <button
+            type="button"
+            onClick={() => setRequestOpen(true)}
+            className="text-sm hover:underline"
+            style={{ color: '#8b4513' }}
+          >
+            + Request new sanctioned club
+          </button>
         ) : (
-          <>
+          <section
+            className="p-4 rounded-lg border space-y-3"
+            style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+          >
+            <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+              Request a new sanctioned club
+            </h2>
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              Don&apos;t see the sanctioning body you need? Submit a request and an admin will review.
+            </p>
             <input
               type="text"
+              autoFocus
               placeholder="Association name (e.g. International Buckskin Horse Assoc.)"
               value={requestName}
               onChange={(e) => setRequestName(e.target.value)}
@@ -236,20 +251,33 @@ export default function SanctioningClient({
               className="w-full border rounded px-3 py-2 text-sm"
               style={{ borderColor: COLORS.border, minHeight: 60 }}
             />
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestOpen(false);
+                  setRequestName('');
+                  setRequestNotes('');
+                }}
+                className="text-sm rounded px-3 py-2 border"
+                style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+              >
+                Cancel
+              </button>
               <button
                 type="button"
                 onClick={submitRequest}
                 disabled={busy || !requestName.trim()}
-                className="text-sm rounded px-3 py-2 border disabled:opacity-50"
-                style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+                title={requestName.trim() ? undefined : 'Enter the association name first'}
+                className="text-sm rounded px-3 py-2 disabled:opacity-50"
+                style={{ backgroundColor: COLORS.warn, color: '#fff' }}
               >
                 Submit request
               </button>
             </div>
-          </>
+          </section>
         )}
-      </section>
+      </div>
     </div>
   );
 }

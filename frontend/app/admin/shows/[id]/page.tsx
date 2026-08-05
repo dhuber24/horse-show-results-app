@@ -25,6 +25,12 @@ const tiles = (showId: string) => [
     icon: '🎟️',
   },
   {
+    href: `/admin/shows/${showId}/check-in`,
+    title: 'Paperwork Check-In',
+    description: 'Sign off on horse age, registration papers, and membership cards you have inspected.',
+    icon: '📄',
+  },
+  {
     href: `/admin/shows/${showId}/back-numbers`,
     title: 'Assign Back Numbers',
     description: 'Assign back numbers to exhibitors for this show.',

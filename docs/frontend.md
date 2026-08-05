@@ -31,7 +31,12 @@ Public spectator screens skip route handlers entirely: they are server component
 - Disabled buttons should include a `title` explaining why they are disabled.
 - Keep admin and operational screens dense, scannable, and predictable.
 - Avoid adding new uses of `ConfirmDialog`; the current convention is inline confirmation.
+- Setup steps that are already configured are labelled **Edit**, not "Done" — the row is still a link, so the badge names the action rather than restating the state. Applies to the show setup hub and the class wizard's overview.
+- A picker that reads from a registry shows the registry's values read-only. If the values are wrong, the fix belongs in the registry, not in the screen that consumed them — the judges step is the reference implementation.
+- Secondary asks stay one line until asked for: "+ Request new sanctioned club", "+ New judge", "+ Add judge" expand their form in place rather than occupying the screen in case someone needs them.
+- A long working surface (a matrix, a standard-library list) keeps its save/finish control in a `sticky bottom-0` footer. A save button below hundreds of rows is a save button users report as missing.
 - Spectator-only preferences (starred classes on the schedule) persist in `localStorage`, not the database — these screens are used signed-out. Key them per show (`hsr:fav-classes:{showId}`), read them in an effect after mount so SSR and first client render agree, and guard the write-back so the empty pre-hydration state cannot clobber what is stored.
+- **Schedule filters** (`ScheduleBoard`): **Favorites** is the per-device starred set above and is offered to everyone; **Registered** narrows to the classes the signed-in exhibitor is entered in and is rendered **only for `EXHIBITOR`s** — a spectator has nothing to be registered in, so the control would be permanently dead. The class ids come from the server (`/dashboard/exhibitor/{userId}`, filtered to this show) and passed in as a prop; the fetch degrades to an empty list on any failure because the schedule is a public page that has to keep working for everyone else. The two filters **intersect** rather than replace each other, and either one makes the view span all show days — your classes and the horse you are tracking do not all run on the same day. The summary line and empty state name whichever combination is active.
 
 ## Important Routes
 
@@ -40,16 +45,20 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/` | Public home: Active Shows entry button + upcoming show list |
 | `/shows/active` | Public list of `ACTIVE`-status shows |
 | `/shows/[id]/live` | Public active-show hub: buttons for Schedule, Results, Leaderboard, Details |
-| `/shows/[id]/schedule` | Public class schedule: day tabs, per-ring grouping, live gate badges, per-class expandable program listing (back #, horse, owner, sire, dam, exhibitor), whole-show search across classes *and* entries (horse, exhibitor, owner, sire, dam, back #), and per-device starred classes |
+| `/shows/[id]/schedule` | Public class schedule: day tabs, per-ring grouping, live gate badges, per-class expandable program listing (back #, horse, owner, sire, dam, exhibitor), whole-show search across classes *and* entries (horse, exhibitor, owner, sire, dam, back #), and two filters — **Favorites** (per-device starred classes) and **Registered** (exhibitors only) |
 | `/shows/[id]/results` | Public results index (posted vs awaiting) |
 | `/shows/[id]/leaderboard` | Public high-point standings (placeholder — scoring model pending) |
 | `/shows/[id]/details` | Public show details: venue, dates, associations, policies |
-| `/shows/[id]` | Public show detail and scorekeeper class links |
+| `/shows/[id]` | Public show detail and scorekeeper class links. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCOREKEEPER; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
 | `/shows/[id]/classes/[classId]` | Public class results |
 | `/shows/[id]/classes/[classId]/scorekeeper` | Scorekeeper placing form |
+| `/shows/[id]/signup` | Exhibitor show sign-up — stalls, shavings, camping. Required before class registration; forwards on if already signed up |
+| `/shows/[id]/register` | Exhibitor class registration. Renders a "sign up first" card until `/signup` is done |
 | `/scorekeeper` | Scorekeeper assigned shows |
-| `/dashboard` | Exhibitor entries dashboard |
-| `/profile` | User account, memberships, and horses tabbed view (`?tab=account|memberships|horses`) |
+| `/dashboard` | Exhibitor entries dashboard ("My Show Entries") — per-show buttons to the show page and full class schedule |
+| `/my-shows` | Exhibitor "My Shows": itemized bill per show (classes, NSBA sanction, office charge, stalls/shavings/camping) plus outstanding total. This is what the navbar **My Shows** button opens |
+| `/horse-requests/[token]` | Approve or decline a horse link / ownership transfer. No session required — the token is the authorization |
+| `/profile` | User account, memberships, horses, and show history tabbed view (`?tab=account|memberships|horses|history`) |
 | `/profile/horses/new` | Add-a-horse wizard (static segment, wins over `[id]`); seeds from `?name=` / `?association_id=&registration_number=` |
 | `/profile/horses/[id]` | Exhibitor horse record in four tabs — Details, People (owner/trainer/riders), Health & Documentation, Associations (`?section=details\|people\|health\|associations` selects a tab, plus the legacy `documents` alias for `health`) |
 | `/api/exhibitors/me` | Resolve exhibitor profile from signed-in user |
@@ -58,10 +67,23 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/api/exhibitors/[id]/created-horses` | Horses created by exhibitor |
 | `/api/exhibitors/[id]/linked-horses` | Non-owner horse links for exhibitor |
 | `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list |
+| `/api/horse-access-requests` | List / create horse link + ownership-transfer requests |
+| `/api/horse-access-requests/[requestId]` | Cancel a request you sent |
+| `/api/horse-access-requests/[requestId]/respond` | Approve or decline while signed in as the approver |
+| `/api/horse-access-requests/by-token/[token]` | Read a request from the emailed link (no session) |
+| `/api/horse-access-requests/by-token/[token]/respond` | Approve or decline from the emailed link (no session) |
+| `/api/shows/[showId]/register/signup` | Show sign-up read (`GET`) and save (`PUT`) |
+| `/api/my-shows` | Exhibitor's shows with itemized bills |
 | `/api/associations` | Affiliation registry (breed registries + club bodies); `?type=breed\|club` filters |
+| `/api/judges` | Judge registry list/create proxy — the source of judge details for show setup |
+| `/api/shows/[showId]/judges` | Assign a registry judge to a show (`{ judge_id, sort_order }`) / list assignments |
 | `/api/horses/search` | Horse name / registration-number search used to link an existing horse |
 | `/api/horses/registrations/lookup` | Exact association + registration-number horse lookup |
 | `/api/shows/[showId]/coggins-overrides` | Show-staff Coggins bypasses recorded for a show, newest first |
+| `/api/shows/[showId]/verifications/checklist` | The show's paperwork sweep, by exhibitor, with per-check status |
+| `/api/shows/[showId]/verifications` | Record a sign-off (`POST`) — subject only; the backend reads the value off the record |
+| `/api/shows/[showId]/verifications/[verificationId]` | Undo a sign-off (`DELETE`) |
+| `/api/shows/[showId]/exhibitors/[exhibitorId]/horses` | Show staff creating a horse for a roster exhibitor at the desk |
 | `/api/trainers` | Trainer list/create proxy |
 | `/api/trainers/[id]` | Trainer update/delete proxy |
 | `/api/trainers/me` | Current trainer profile proxy |
@@ -74,6 +96,7 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/admin/shows/[id]/setup` | Ring, division (discipline), and section (bracket) setup from standard lists |
 | `/admin/shows/[id]/classes` | Class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import |
 | `/admin/shows/[id]/entries` | Entries by class |
+| `/admin/shows/[id]/check-in` | Paperwork check-in: sign off on horse age, registration papers, and membership cards physically inspected; add a horse for a roster exhibitor |
 | `/admin/shows/[id]/back-numbers` | Show-level back number assignment |
 | `/admin/shows/[id]/side-pots` | Side pot list, create form |
 | `/admin/shows/[id]/side-pots/[potId]` | Side pot detail: settings, opt-ins, live standings, settle, frozen payouts |
@@ -97,12 +120,15 @@ npm run build
 
 ## Exhibitor Profile Enhancements
 
-- `/profile` now separates `Account`, `Memberships`, and `My Horses` into tabs via `ProfileTabs`.
+- `/profile` separates `Account`, `Memberships`, `My Horses`, and `Show History` into tabs via `ProfileTabs`. The Show History tab (`ShowHistoryPanel`) reads the same `/my-shows` payload the My Shows page does, so "which shows was I part of" has one answer; each row links back to the show, its results, and its schedule.
+- **Adding a horse someone else owns takes the owner's approval.** `MyHorsesPanel` handles the `409 OWNER_APPROVAL_REQUIRED` from `/linked-horses` by offering "Ask {owner} for approval" rather than dead-ending, then renders `ApprovalLinkCallout` with the link to send. Owned horses get a `HorseTransferControl` ("Transfer ownership") that offers only exhibitors with accounts — accepting a transfer requires signing in. `HorseAccessRequestsPanel` sits at the top of the tab with both directions: requests waiting on you (approve/decline in place) and requests you sent (cancel).
+- `ApprovalLinkCallout` always shows the approval URL for copy and paste, whether or not the email sent. SMTP is optional in this deployment and mail lands in spam often enough that "we emailed them" is not a plan — the link on screen is the reliable path.
 - `EditAccountForm` manages user identity plus exhibitor contact/emergency/youth fields.
 - `MyHorsesPanel` supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
 - `MyHorsesPanel` renders one card per horse showing sex/SPB/role badges, breed · color · age, sire/dam pedigree, owner and trainer, association registration chips, and **readiness flags**. Flags call out what would block an entry: no association registration, a Coggins problem, and other documents that are expired or expiring within 45 days. For the non-Coggins types only the newest document of each type is evaluated, so a superseded vaccination record does not raise a false alarm. Actions sit in their own footer row so cards stay aligned regardless of flag count.
 - `CogginsOverridePanel` on the admin entries page lists the show's recorded Coggins bypasses. It **renders nothing when the show has none**, which is the normal case — an empty section on every show would be noise. It is collapsed by default when rows do exist.
 - `HorseDocuments` takes a **`readOnly`** prop that drops the upload and remove controls, leaving list + download. Use it for show staff: `_assert_can_manage` rejects their writes regardless, so rendering the controls would only produce a 403. It is used by the Coggins warning on `CreateEntryForm` and the per-row **Papers** toggle on the admin entries list, which are how a secretary reads a horse's health paperwork.
+- The add-a-horse wizard's Health step reads documents too, via the unattached `/api/documents/analyze` route — it stages paperwork before the horse exists, so it has no `horse_id` to analyze against. It needs no auto-upload suppression because "Add Document" is already a deliberate click. Shared labels, helpers, and the `analyzeDocument()` fetch live in [frontend/lib/document-extraction.ts](../frontend/lib/document-extraction.ts) so the two surfaces cannot drift.
 - `HorseDocuments` reads the file when it is chosen and pre-fills the type and dates from the document — see [docs/document-extraction.md](document-extraction.md). Two things about the form change once a read succeeds: field labels gain a *read from document* / *check this* / *not on the document* marker, and the **auto-upload-when-complete** shortcut is suppressed in favour of an explicit **Looks right — save** button. Auto-upload stays on for values the uploader typed, and for every path where extraction did not run (unreadable scan, no API key, TIFF) — the form must keep working exactly as before whenever the shortcut is unavailable.
 - **Coggins is an entry gate, not just an expiry warning**, so `cogginsCheck()` handles it separately from the other document types and flags it `danger` with an explicit "blocks entry". It mirrors `coggins_status()` in [backend/routers/horse_documents.py](../backend/routers/horse_documents.py) — **keep the two in step**: the card is what tells the exhibitor whether a horse can be entered, and the backend is what actually enforces it. A horse clears only on a Coggins carrying an expiration date that has not passed; `missing`, `undated`, and `expired` all block, and each gets its own message so the exhibitor knows whether to upload, add a date, or get a new test.
 - Readiness flags are driven by `registrations` and `documents` on `MyHorseOut` (backed by `GET /exhibitors/{id}/my-horses`). The backend only populates `documents` for horses the caller owns, matching the owner-only access rule on the horse-documents endpoints, so linked horses show registration flags only.

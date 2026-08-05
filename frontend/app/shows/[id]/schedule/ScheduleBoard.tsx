@@ -88,14 +88,22 @@ export default function ScheduleBoard({
   showStatus,
   classes,
   programIndex,
+  isExhibitor = false,
+  registeredClassIds = [],
 }: {
   showId: string;
   showStatus: string;
   classes: ScheduleClass[];
   programIndex: Record<string, ProgramEntry[]>;
+  /** Whether the viewer is a signed-in exhibitor. Spectators never see the
+   *  Registered filter — there is nothing for them to be registered in. */
+  isExhibitor?: boolean;
+  registeredClassIds?: string[];
 }) {
   const router = useRouter();
   const isLive = showStatus === 'ACTIVE';
+
+  const registered = useMemo(() => new Set(registeredClassIds), [registeredClassIds]);
 
   const days = useMemo(
     () => Array.from(new Set(classes.map(c => c.class_date))).sort(),
@@ -110,6 +118,7 @@ export default function ScheduleBoard({
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [registeredOnly, setRegisteredOnly] = useState(false);
   const hydrated = useRef(false);
 
   // Favorites load after mount so the server and first client render agree.
@@ -201,20 +210,34 @@ export default function ScheduleBoard({
     });
   }
 
-  // Favorites and search both span the whole show — someone tracking a horse
-  // should not have to guess which day it runs on.
-  const spanAllDays = searching || favoritesOnly;
+  // Search and both filters span the whole show — someone tracking a horse, or
+  // checking what they're entered in, should not have to guess which day it
+  // runs on.
+  const spanAllDays = searching || favoritesOnly || registeredOnly;
 
+  // The two filters intersect rather than replace each other: "starred *and*
+  // entered" is a meaningful question on a long show day.
   const shown = useMemo(() => {
     let base = classes;
     if (favoritesOnly) base = base.filter(c => favorites.has(c.id));
+    if (registeredOnly) base = base.filter(c => registered.has(c.id));
     if (searching) base = base.filter(c => tokens.every(t => (haystacks[c.id] ?? '').includes(t)));
     if (!spanAllDays) base = base.filter(c => c.class_date === activeDay);
     return base;
-  }, [classes, favoritesOnly, favorites, searching, tokens, haystacks, spanAllDays, activeDay]);
+  }, [
+    classes, favoritesOnly, favorites, registeredOnly, registered,
+    searching, tokens, haystacks, spanAllDays, activeDay,
+  ]);
 
   const dayClasses = classes.filter(c => c.class_date === activeDay);
   const dayDone = dayClasses.filter(c => c.gate_status === 'done').length;
+
+  // Both filters can be on at once, so the summary and empty state name
+  // whichever combination is actually active rather than assuming one.
+  const filtering = favoritesOnly || registeredOnly;
+  const filterLabel = favoritesOnly && registeredOnly
+    ? 'starred and entered'
+    : favoritesOnly ? 'starred' : 'entered';
 
   // Ring headers only earn their space when the day actually runs more than one.
   const showRingHeaders = !spanAllDays && new Set(shown.map(c => c.ring_name ?? '')).size > 1;
@@ -300,29 +323,51 @@ export default function ScheduleBoard({
         </div>
 
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setFavoritesOnly(v => !v)}
-            aria-pressed={favoritesOnly}
-            disabled={favorites.size === 0 && !favoritesOnly}
-            title={favorites.size === 0
-              ? 'Star a class to start tracking it'
-              : favoritesOnly ? 'Show all classes' : 'Show only starred classes'}
-            className="text-sm font-medium px-3 py-1.5 rounded-full border transition disabled:opacity-50"
-            style={favoritesOnly
-              ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-              : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
-          >
-            ★ My classes{favorites.size > 0 ? ` (${favorites.size})` : ''}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setFavoritesOnly(v => !v)}
+              aria-pressed={favoritesOnly}
+              disabled={favorites.size === 0 && !favoritesOnly}
+              title={favorites.size === 0
+                ? 'Star a class to start tracking it'
+                : favoritesOnly ? 'Show all classes' : 'Show only starred classes'}
+              className="text-sm font-medium px-3 py-1.5 rounded-full border transition disabled:opacity-50"
+              style={favoritesOnly
+                ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
+                : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+            >
+              ★ Favorites{favorites.size > 0 ? ` (${favorites.size})` : ''}
+            </button>
+
+            {/* Only offered to exhibitors: a spectator has nothing to be
+                registered in, so the control would be permanently dead. */}
+            {isExhibitor && (
+              <button
+                type="button"
+                onClick={() => setRegisteredOnly(v => !v)}
+                aria-pressed={registeredOnly}
+                disabled={registered.size === 0 && !registeredOnly}
+                title={registered.size === 0
+                  ? "You're not entered in any classes at this show yet"
+                  : registeredOnly ? 'Show all classes' : "Show only classes you're entered in"}
+                className="text-sm font-medium px-3 py-1.5 rounded-full border transition disabled:opacity-50"
+                style={registeredOnly
+                  ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
+                  : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+              >
+                🐴 Registered{registered.size > 0 ? ` (${registered.size})` : ''}
+              </button>
+            )}
+          </div>
 
           <p className="text-xs" style={{ color: '#8b7355' }}>
             {searching
               ? (shown.length === 0
                 ? 'No matches.'
                 : `${shown.length} ${shown.length === 1 ? 'class' : 'classes'} across the whole show`)
-              : favoritesOnly
-                ? `${shown.length} starred ${shown.length === 1 ? 'class' : 'classes'}`
+              : filtering
+                ? `${shown.length} ${shown.length === 1 ? 'class' : 'classes'} · ${filterLabel}`
                 : dayClasses.length > 0
                   ? `${formatDayLong(activeDay)} · ${dayClasses.length} ${dayClasses.length === 1 ? 'class' : 'classes'}${isLive ? ` · ${dayDone} complete` : ''}`
                   : ''}
@@ -334,9 +379,13 @@ export default function ScheduleBoard({
         <p style={{ color: '#8b7355' }}>
           {searching
             ? 'Nothing matches that search.'
-            : favoritesOnly
-              ? 'No starred classes yet. Tap the ☆ on a class to track it.'
-              : 'No classes are posted for this day yet.'}
+            : favoritesOnly && registeredOnly
+              ? "None of the classes you're entered in are starred."
+              : favoritesOnly
+                ? 'No starred classes yet. Tap the ☆ on a class to track it.'
+                : registeredOnly
+                  ? "You're not entered in any classes at this show yet."
+                  : 'No classes are posted for this day yet.'}
         </p>
       )}
 

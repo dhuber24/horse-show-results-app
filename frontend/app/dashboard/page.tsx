@@ -77,11 +77,20 @@ export default async function DashboardPage() {
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Show Entries</h1>
-        {data.exhibitor && (
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.exhibitor.full_name}</p>
-        )}
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Show Entries</h1>
+          {data.exhibitor && (
+            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.exhibitor.full_name}</p>
+          )}
+        </div>
+        <Link
+          href="/my-shows"
+          className="text-sm font-medium px-3 py-2 rounded border"
+          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+        >
+          My Shows &amp; bills →
+        </Link>
       </div>
 
       {!hasEntries ? (
@@ -202,15 +211,34 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
             {formatDateRange(show.show_start_date, show.show_end_date)}
             {show.show_venue && <> · {show.show_venue}</>}
           </p>
-          {show.show_status === 'PUBLISHED' && (
+          {/* Every card offers the two places an exhibitor actually wants next:
+              the show's own page, and the full schedule (not just their own
+              classes, which is what the rows below already are). */}
+          <div className="flex flex-wrap gap-2 mt-2">
             <Link
-              href={`/shows/${show.show_id}/register`}
-              className="inline-block mt-1 text-xs font-medium hover:underline"
-              style={{ color: '#8b4513' }}
+              href={`/shows/${show.show_id}`}
+              className="text-xs font-medium px-2.5 py-1 rounded border"
+              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
             >
-              Manage registration →
+              Show details
             </Link>
-          )}
+            <Link
+              href={`/shows/${show.show_id}/schedule`}
+              className="text-xs font-medium px-2.5 py-1 rounded border"
+              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+            >
+              Full class schedule
+            </Link>
+            {show.show_status === 'PUBLISHED' && (
+              <Link
+                href={`/shows/${show.show_id}/register`}
+                className="text-xs font-medium px-2.5 py-1 rounded"
+                style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+              >
+                Manage registration
+              </Link>
+            )}
+          </div>
         </div>
         <span
           className="text-xs px-2 py-0.5 rounded font-medium shrink-0 mt-0.5"

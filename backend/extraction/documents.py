@@ -57,6 +57,8 @@ _DATE_FIELDS = (
     "issue_date",
     "expiry_date",
     "test_date",
+    "date_received",
+    "date_reported",
     "foaling_date",
 )
 
@@ -105,23 +107,45 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "document_type",
         "issue_date",
         "expiry_date",
-        "test_date",
-        "horse_name",
-        "result",
+        # 1. Administrative & tracking
         "accession_number",
-        "lab_name",
+        "test_date",
+        # 2. Contact information
+        "owner_name",
+        "owner_address",
+        "stable_name",
         "veterinarian_name",
         "veterinarian_clinic",
         "veterinarian_phone",
+        "clinic_license_number",
+        # 3. Equine identification
+        "horse_name",
+        "age_text",
+        "sex",
+        "breed",
+        "color",
+        "microchip_number",
+        "markings",
+        "identity_images_present",
+        # 4. Laboratory test data
+        "lab_name",
+        "date_received",
+        "date_reported",
+        "test_type",
+        "test_reason",
+        # 5. Official test result
+        "result",
+        "technician_name",
+        # Vaccination records
         "vaccinations",
+        # Registration certificates
         "association_code",
         "registration_number",
         "sire_name",
         "dam_name",
-        "color",
-        "sex",
         "foaling_date",
         "breeder",
+        # Always
         "low_confidence_fields",
         "notes",
     ],
@@ -140,20 +164,81 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
             "Expiration date, YYYY-MM-DD, ONLY if an expiration is explicitly printed "
             "on the document. Do not compute one from the test date.",
         ),
+        # --- 1. Administrative and tracking ---
+        "accession_number": _nullable(
+            "string", "Lab accession, case, or specimen number that tracks this test."
+        ),
         "test_date": _nullable(
             "string",
-            "For a Coggins, the date blood was drawn or the test performed, YYYY-MM-DD.",
+            "Date blood was DRAWN from the horse, YYYY-MM-DD. This is the date the "
+            "sample was collected, not the date the lab received or reported it.",
         ),
-        "horse_name": _nullable("string", "Registered name of the horse as printed."),
-        "result": _nullable_enum(
-            ("NEGATIVE", "POSITIVE", "INCONCLUSIVE"),
-            "Coggins/EIA test result.",
+        # --- 2. Contact information ---
+        "owner_name": _nullable("string", "Name of the horse's owner."),
+        "owner_address": _nullable("string", "Owner's mailing address, on one line."),
+        "stable_name": _nullable(
+            "string", "Stable, farm, or barn where the horse is kept, if given separately."
         ),
-        "accession_number": _nullable("string", "Lab accession or case number."),
-        "lab_name": _nullable("string", "Testing laboratory name."),
-        "veterinarian_name": _nullable("string", "Accredited veterinarian who signed."),
+        "veterinarian_name": _nullable("string", "Accredited veterinarian who drew the sample."),
         "veterinarian_clinic": _nullable("string", "Clinic or practice name."),
         "veterinarian_phone": _nullable("string", "Veterinarian or clinic phone number."),
+        "clinic_license_number": _nullable(
+            "string",
+            "Clinic or veterinarian licence/accreditation number, often printed as "
+            "'Lic#' or 'License No.'",
+        ),
+        # --- 3. Equine identification ---
+        "horse_name": _nullable("string", "Registered name of the horse as printed."),
+        "age_text": _nullable(
+            "string",
+            "Age exactly as printed, including the unit (e.g. '6 Yrs'). Do not convert "
+            "it to a birth year.",
+        ),
+        "breed": _nullable("string", "Breed as printed (e.g. Quarter Horse)."),
+        "microchip_number": _nullable(
+            "string",
+            "Microchip/transponder number, usually 15 digits. Transcribe every digit "
+            "exactly and add it to low_confidence_fields if any digit is unclear — a "
+            "single wrong digit identifies a different horse.",
+        ),
+        "markings": _nullable(
+            "string",
+            "Written description of markings, whorls, brands, and scars (e.g. 'White "
+            "star on forehead; socks on left fore and right hind'). Transcribe the "
+            "text only. Do not describe the photographs or line drawings.",
+        ),
+        "identity_images_present": _nullable_enum(
+            ("PHOTOS", "DIAGRAM", "BOTH", "NONE"),
+            "Whether the form carries the visual identity proof it is supposed to: "
+            "PHOTOS for identity photographs, DIAGRAM for a silhouette the vet has "
+            "drawn markings onto, BOTH, or NONE if neither is present. Judge only "
+            "whether they are there — do not describe them.",
+        ),
+        # --- 4. Laboratory test data ---
+        "lab_name": _nullable("string", "Testing laboratory name."),
+        "date_received": _nullable(
+            "string", "Date the laboratory RECEIVED the sample, YYYY-MM-DD."
+        ),
+        "date_reported": _nullable(
+            "string", "Date the laboratory REPORTED the result, YYYY-MM-DD."
+        ),
+        "test_type": _nullable(
+            "string",
+            "Test method as printed — AGID (the classic Coggins), ELISA, or cELISA.",
+        ),
+        "test_reason": _nullable(
+            "string", "Stated reason for testing (e.g. Annual, Travel, Sale, Change of ownership)."
+        ),
+        # --- 5. Official test result ---
+        "result": _nullable_enum(
+            ("NEGATIVE", "POSITIVE", "INCONCLUSIVE"),
+            "The official EIA result. Read the ticked or marked box, not any nearby "
+            "unticked one. Leave null if no box is clearly marked.",
+        ),
+        "technician_name": _nullable(
+            "string",
+            "Approved EIA technician or laboratory signatory, as printed or signed.",
+        ),
         "vaccinations": {
             "type": "array",
             "description": "Vaccines listed. Empty array if none.",
@@ -200,7 +285,40 @@ of typing; a plausible-looking wrong value can go unnoticed and end up gating a 
 horse's eligibility to compete.
 - Never compute an expiration date. Return `expiry_date` only when an expiration is \
 explicitly printed. Coggins validity is set by state and association rules, not by \
-the document, so a test date is not an expiration date — put it in `test_date`.
+the document, so a test date is not an expiration date — put it in `test_date`. A \
+standard EIA form has no expiration field at all, so `expiry_date: null` is the \
+normal, correct answer for one.
+
+A Coggins (VS 10-11 or a state equivalent) is laid out in sections, and the \
+section a value sits under is what tells you which field it is:
+
+1. Administrative and tracking — accession number, date blood drawn.
+2. Contact information — owner and address, stable, veterinarian, clinic, licence number.
+3. Equine identification — name, age, sex, breed, color, microchip, and markings.
+4. Laboratory test data — lab name, date received, date reported, test type, reason.
+5. Official result — negative or positive, and the technician who signed.
+
+- **These forms carry three different dates and they are easy to transpose.** \
+Blood drawn from the horse → `test_date`. Sample arrived at the lab → \
+`date_received`. Lab issued the result → `date_reported`, which is also the \
+document's `issue_date` unless a separate issue date is printed. When a date is \
+labelled only "Date", use its section to decide, and flag it if the section does \
+not settle it.
+- Transcribe the microchip number digit by digit. One wrong digit identifies a \
+different horse, so flag it whenever any digit is less than certain.
+- For the result, read the box that is actually ticked, crossed, or filled. Both \
+options are always printed; only one is marked. If no box is clearly marked, return \
+null rather than guessing. **A finalized form almost always reads NEGATIVE**: a \
+non-negative sample is escalated to federal authorities for quarantine rather than \
+issued as a routine certificate. So POSITIVE is an extraordinary reading — return it \
+only if the positive box is unmistakably marked, and add `result` to \
+`low_confidence_fields` if there is any doubt at all. Do not "correct" a genuinely \
+marked positive to negative either; report exactly what is marked.
+- Markings: transcribe the written description only. These forms prove identity with \
+photographs (digital certificates carry front, back, and both profiles) or a \
+silhouette the veterinarian has drawn on. Do not describe or interpret those images \
+— just say in `identity_images_present` whether identity photos or a marked diagram \
+are there at all, since a Coggins missing them is worth a second look.
 - Dates print in many formats and some are handwritten. Convert to YYYY-MM-DD. When \
 a date is genuinely ambiguous (05/06/25 could be May or June, and the year could be \
 2025 or 1925), pick the reading most consistent with the rest of the document and \

@@ -2,6 +2,16 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import ConfirmDialog from './ConfirmDialog';
+import {
+  DETAIL_FIELDS,
+  ExtractionResponse,
+  FIELD_LABELS,
+  WIDE_DETAIL_FIELDS,
+  analyzeDocument,
+  asText,
+  reviewWarnings,
+  twelveMonthsAfter,
+} from '@/lib/document-extraction';
 
 export interface HorseDocument {
   id: string;
@@ -92,65 +102,6 @@ function formatSize(bytes: number) {
 }
 
 const emptyUpload = { document_type: '', issue_date: '', expiry_date: '' };
-
-interface ExtractionResponse {
-  extraction_id: string;
-  status: string;
-  message: string | null;
-  fields: Record<string, unknown>;
-  low_confidence_fields: string[];
-  notes: string | null;
-}
-
-/** Human labels for the fields the review panel reports on. */
-const FIELD_LABELS: Record<string, string> = {
-  document_type: 'Document type',
-  issue_date: 'Issue date',
-  expiry_date: 'Expiry date',
-  test_date: 'Test date',
-  horse_name: 'Horse name',
-  result: 'Test result',
-  accession_number: 'Accession no.',
-  lab_name: 'Laboratory',
-  veterinarian_name: 'Veterinarian',
-  veterinarian_clinic: 'Clinic',
-  veterinarian_phone: 'Phone',
-  association_code: 'Association',
-  registration_number: 'Registration no.',
-  sire_name: 'Sire',
-  dam_name: 'Dam',
-  color: 'Color',
-  sex: 'Sex',
-  foaling_date: 'Foaled',
-  breeder: 'Breeder',
-};
-
-/** Read-only detail shown alongside the form, in the order it reads best. */
-const DETAIL_FIELDS = [
-  'horse_name', 'result', 'test_date', 'accession_number', 'lab_name',
-  'veterinarian_name', 'veterinarian_clinic', 'veterinarian_phone',
-  'association_code', 'registration_number', 'sire_name', 'dam_name',
-  'color', 'sex', 'foaling_date', 'breeder',
-];
-
-function asText(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim()) return value.trim();
-  return null;
-}
-
-/**
- * A Coggins rarely prints an expiration — it prints the date blood was drawn,
- * and how long that stays good is state and association policy. So the backend
- * never returns a computed expiry. This offers the common 12-month reading as
- * something the uploader clicks, so a derived date is always a human's call.
- */
-function twelveMonthsAfter(iso: string): string | null {
-  const parts = iso.split('-').map(Number);
-  if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
-  const [y, m, d] = parts;
-  const next = new Date(Date.UTC(y + 1, m - 1, d));
-  return Number.isNaN(next.getTime()) ? null : next.toISOString().slice(0, 10);
-}
 
 export default function HorseDocuments({ horseId, initialDocuments, types, emptyLabel, uploadLabel, readOnly }: Props) {
   const [docs, setDocs] = useState<HorseDocument[]>(initialDocuments ?? []);
@@ -244,19 +195,10 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     }
 
     setReading(true);
-    let read: ExtractionResponse | null = null;
-    try {
-      const fd = new FormData();
-      fd.append('file', nextFile);
-      const res = await fetch(`/api/horses/${horseId}/documents/analyze`, { method: 'POST', body: fd });
-      if (res.ok) read = await res.json();
-    } catch {
-      // Reading is a convenience over a form that still works by hand. A
-      // network failure here should cost the uploader nothing but the shortcut.
-    }
+    const read = await analyzeDocument(nextFile, horseId);
     setReading(false);
 
-    if (!read || read.status !== 'succeeded') {
+    if (!read) {
       await maybeAutoUpload(form, nextFile);
       return;
     }
@@ -444,7 +386,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
                   style={{ color: '#8b4513' }}
                 >
                   No expiry printed. Use {formatDate(derivedExpiry)} — 12 months from the{' '}
-                  {formatDate(testDate)} test?
+                  {formatDate(testDate)} blood draw?
                 </button>
               )}
             </div>
@@ -485,6 +427,15 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
               <p className="text-xs font-semibold" style={{ color: '#5c3d1e' }}>
                 Read from the document — check it before saving
               </p>
+              {reviewWarnings(extractedFields).map((warning) => (
+                <p
+                  key={warning}
+                  className="text-xs font-medium rounded px-2 py-1.5"
+                  style={{ color: '#7f1d1d', backgroundColor: '#fee2e2' }}
+                >
+                  {warning}
+                </p>
+              ))}
               {extraction.notes && (
                 <p className="text-xs" style={{ color: '#b45309' }}>{extraction.notes}</p>
               )}
@@ -497,11 +448,13 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
               {details.length > 0 && (
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
                   {details.map(([key, value]) => (
-                    <div key={key} className="flex gap-2">
+                    <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
                       <dt className="shrink-0" style={{ color: '#8b7355' }}>
                         {FIELD_LABELS[key] ?? key}:
                       </dt>
-                      <dd className="truncate" style={{ color: '#2c1810' }}>{value}</dd>
+                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: '#2c1810' }}>
+                        {value}
+                      </dd>
                     </div>
                   ))}
                 </dl>

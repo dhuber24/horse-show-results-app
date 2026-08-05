@@ -6,6 +6,16 @@ import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
 import { DOC_TYPES, HEALTH_DOC_TYPES, MAX_DOC_BYTES } from '@/components/HorseDocuments';
 import {
+  DETAIL_FIELDS,
+  ExtractionResponse,
+  FIELD_LABELS,
+  WIDE_DETAIL_FIELDS,
+  analyzeDocument,
+  asText,
+  reviewWarnings,
+  twelveMonthsAfter,
+} from '@/lib/document-extraction';
+import {
   Association,
   AssociationType,
   Breed,
@@ -51,6 +61,9 @@ interface PendingDoc {
   document_type: string;
   issue_date: string;
   expiry_date: string;
+  /** The read this document's values came from, so provenance survives the
+   *  queue and gets linked when the document is finally saved. */
+  extraction_id?: string;
 }
 
 const HEALTH_DOC_OPTIONS = DOC_TYPES.filter((t) => HEALTH_DOC_TYPES.includes(t.value));
@@ -139,6 +152,8 @@ export default function AddHorseWizard({
   const [docDraft, setDocDraft] = useState(emptyDocDraft);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
+  const [docReading, setDocReading] = useState(false);
+  const [docExtraction, setDocExtraction] = useState<ExtractionResponse | null>(null);
   // Set once the horse row exists. Creation must not be offered again after
   // this point — a retry would create a duplicate horse.
   const [createdHorseId, setCreatedHorseId] = useState<string | null>(null);
@@ -334,6 +349,36 @@ export default function AddHorseWizard({
     setPendingRegs((prev) => prev.filter((r) => r.association_id !== association_id));
   };
 
+  /**
+   * Read the chosen file and pre-fill the draft. There is no horse yet, so this
+   * uses the unattached endpoint and the resulting extraction is claimed later,
+   * when the queued document is actually saved.
+   *
+   * Nothing is queued here — "Add Document" is still a deliberate click, so the
+   * uploader confirms what was read by definition. That is the same rule the
+   * horse-page form enforces by suppressing its auto-upload shortcut.
+   */
+  const handleDocFileChosen = async (nextFile: File | null) => {
+    setDocFile(nextFile);
+    setDocExtraction(null);
+    setDocError(null);
+    if (!nextFile) return;
+    if (nextFile.size > MAX_DOC_BYTES) { setDocError('File is too large (max 10 MB).'); return; }
+
+    setDocReading(true);
+    const read = await analyzeDocument(nextFile);
+    setDocReading(false);
+    if (!read) return;
+
+    setDocExtraction(read);
+    const f = read.fields;
+    setDocDraft((prev) => ({
+      document_type: asText(f.document_type) ?? prev.document_type,
+      issue_date: asText(f.issue_date) ?? prev.issue_date,
+      expiry_date: asText(f.expiry_date) ?? prev.expiry_date,
+    }));
+  };
+
   const handleQueueDoc = () => {
     if (!docFile) { setDocError('Choose a file to upload.'); return; }
     if (!docDraft.document_type) { setDocError('Select a document type.'); return; }
@@ -349,14 +394,40 @@ export default function AddHorseWizard({
       document_type: docDraft.document_type,
       issue_date: docDraft.issue_date,
       expiry_date: docDraft.expiry_date,
+      extraction_id: docExtraction?.extraction_id,
     }]);
     setDocDraft(emptyDocDraft);
     setDocFile(null);
+    setDocExtraction(null);
     setDocError(null);
   };
 
   const handleRemoveDoc = (key: string) => {
     setPendingDocs((prev) => prev.filter((d) => d.key !== key));
+  };
+
+  const docExtractedFields = docExtraction?.fields ?? {};
+  const docLowConfidence = docExtraction?.low_confidence_fields ?? [];
+  const docDetails = DETAIL_FIELDS
+    .map((key) => [key, asText(docExtractedFields[key])] as const)
+    .filter((pair): pair is readonly [string, string] => pair[1] !== null);
+
+  const docTestDate = asText(docExtractedFields.test_date);
+  const docDerivedExpiry =
+    docExtraction && docDraft.document_type === 'COGGINS' && !docDraft.expiry_date && docTestDate
+      ? twelveMonthsAfter(docTestDate)
+      : null;
+
+  /** Marks how a value got into the field, matching the horse-page form. */
+  const docFieldHint = (key: string) => {
+    if (!docExtraction) return null;
+    if (docLowConfidence.includes(key)) {
+      return <span className="text-xs ml-1" style={{ color: '#b45309' }}>· check this</span>;
+    }
+    if (asText(docExtractedFields[key])) {
+      return <span className="text-xs ml-1" style={{ color: '#7a8b55' }}>· read from document</span>;
+    }
+    return <span className="text-xs ml-1" style={{ color: '#a89070' }}>· not on the document</span>;
   };
 
   /** Documents need a horse_id, so the queue is flushed only after creation.
@@ -369,6 +440,9 @@ export default function AddHorseWizard({
       fd.append('document_type', doc.document_type);
       fd.append('issue_date', doc.issue_date);
       fd.append('expiry_date', doc.expiry_date);
+      // Claims the read taken before this horse existed, attaching horse_id and
+      // recording which suggestions the uploader changed.
+      if (doc.extraction_id) fd.append('extraction_id', doc.extraction_id);
       const res = await fetch(`/api/horses/${horseId}/documents`, { method: 'POST', body: fd });
       if (!res.ok) failed.push(doc.file.name);
     }
@@ -694,7 +768,9 @@ export default function AddHorseWizard({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
             <div className="sm:col-span-2 pt-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type</label>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+                Document Type{docFieldHint('document_type')}
+              </label>
               <select
                 value={docDraft.document_type}
                 onChange={(e) => setDocDraft((p) => ({ ...p, document_type: e.target.value }))}
@@ -706,7 +782,9 @@ export default function AddHorseWizard({
               </select>
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue Date</label>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+                Issue Date{docFieldHint('issue_date')}
+              </label>
               <input
                 type="date"
                 value={docDraft.issue_date}
@@ -716,7 +794,9 @@ export default function AddHorseWizard({
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Expiry Date</label>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+                Expiry Date{docFieldHint('expiry_date')}
+              </label>
               <input
                 type="date"
                 value={docDraft.expiry_date}
@@ -724,6 +804,17 @@ export default function AddHorseWizard({
                 className="w-full border rounded px-3 py-2 text-sm"
                 style={{ borderColor: '#d4b896' }}
               />
+              {docDerivedExpiry && (
+                <button
+                  type="button"
+                  onClick={() => setDocDraft((p) => ({ ...p, expiry_date: docDerivedExpiry }))}
+                  className="text-xs mt-1 hover:underline text-left"
+                  style={{ color: '#8b4513' }}
+                >
+                  No expiry printed. Use {docDerivedExpiry} — 12 months from the{' '}
+                  {docTestDate} blood draw?
+                </button>
+              )}
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>File (PDF or image, max 10 MB)</label>
@@ -734,7 +825,7 @@ export default function AddHorseWizard({
                 <input
                   type="file"
                   accept=".pdf,image/*"
-                  onChange={(e) => { setDocFile(e.target.files?.[0] ?? null); setDocError(null); }}
+                  onChange={(e) => { handleDocFileChosen(e.target.files?.[0] ?? null); }}
                   className="sr-only"
                 />
                 {docFile ? (
@@ -753,6 +844,56 @@ export default function AddHorseWizard({
               </button>
             </div>
           </div>
+
+          {docReading && (
+            <p className="text-xs" style={{ color: '#8b7355' }}>
+              Reading the document to fill in the dates...
+            </p>
+          )}
+
+          {docExtraction && (
+            <div className="rounded border p-3 space-y-2" style={{ borderColor: '#d9c9a8', backgroundColor: '#fdfaf4' }}>
+              <p className="text-xs font-semibold" style={{ color: '#5c3d1e' }}>
+                Read from the document — check it before adding
+              </p>
+              {reviewWarnings(docExtractedFields).map((warning) => (
+                <p
+                  key={warning}
+                  className="text-xs font-medium rounded px-2 py-1.5"
+                  style={{ color: '#7f1d1d', backgroundColor: '#fee2e2' }}
+                >
+                  {warning}
+                </p>
+              ))}
+              {docExtraction.notes && (
+                <p className="text-xs" style={{ color: '#b45309' }}>{docExtraction.notes}</p>
+              )}
+              {docLowConfidence.length > 0 && (
+                <p className="text-xs" style={{ color: '#b45309' }}>
+                  Hard to read: {docLowConfidence.map((k) => FIELD_LABELS[k] ?? k).join(', ')}.
+                </p>
+              )}
+              {docDetails.length > 0 && (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {docDetails.map(([key, value]) => (
+                    <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
+                      <dt className="shrink-0" style={{ color: '#8b7355' }}>
+                        {FIELD_LABELS[key] ?? key}:
+                      </dt>
+                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: '#2c1810' }}>
+                        {value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              <p className="text-xs" style={{ color: '#a89070' }}>
+                These details are shown so you can verify the document is the right one. Only the
+                type and dates above are saved.
+              </p>
+            </div>
+          )}
+
           {docError && <p className="text-red-600 text-xs">{docError}</p>}
         </div>
       )}

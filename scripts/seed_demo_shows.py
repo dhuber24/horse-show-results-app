@@ -42,6 +42,7 @@ from models import (
     ClassAssociation,
     Discipline,
     Division,
+    Judge,
     Ring,
     Show,
     ShowFee,
@@ -424,16 +425,17 @@ async def seed(db: AsyncSession) -> None:
                 per_class_fee_cents=SANCTION_FEE_CENTS[code],
             ))
 
-        # Judges
+        # Judges — the person goes in the registry once and is assigned to each
+        # show that hires them, so the same judge at two shows is one row.
         for i, (first, last, email, phone) in enumerate(spec["judges"]):
-            db.add(ShowJudge(
-                show_id=show.id,
-                first_name=first,
-                last_name=last,
-                email=email,
-                phone=phone,
-                sort_order=i,
-            ))
+            judge = (await db.execute(
+                select(Judge).where(func.lower(Judge.email) == email.lower())
+            )).scalar_one_or_none()
+            if not judge:
+                judge = Judge(first_name=first, last_name=last, email=email, phone=phone)
+                db.add(judge)
+                await db.flush()
+            db.add(ShowJudge(show_id=show.id, judge_id=judge.id, sort_order=i))
 
         # Fees
         for i, (code, label, cents, unit, notes) in enumerate(spec["fees"]):

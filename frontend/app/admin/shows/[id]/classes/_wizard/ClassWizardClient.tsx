@@ -191,6 +191,7 @@ export default function ClassWizardClient({
       )}
       {activeStep === 3 && (
         <ClassesStep
+          mode={editing ? 'hub' : 'wizard'}
           showId={showId}
           showStartDate={showStartDate}
           showEndDate={showEndDate}
@@ -204,7 +205,7 @@ export default function ClassWizardClient({
           onBack={editing ? undefined : () => setStep(2)}
           onDone={
             editing
-              ? undefined
+              ? backToOverview
               : () => {
                   if (disciplines.length > 0 && divisions.length > 0 && classes.length > 0) {
                     setMode('hub');
@@ -345,6 +346,70 @@ function Stepper({
         })}
       </ol>
     </nav>
+  );
+}
+
+// ── Step footer ────────────────────────────────────────────────────────────────
+
+/**
+ * The save/finish bar every step ends with. It sticks to the bottom of the
+ * viewport because the standard libraries and the class matrix are long enough
+ * to push a static footer out of sight — and a save button you have to scroll
+ * to find reads as a save button that doesn't exist.
+ */
+function StepFooter({
+  onBack,
+  onAction,
+  actionLabel,
+  disabled,
+  hint,
+}: {
+  onBack?: () => void;
+  onAction: () => void;
+  actionLabel: string;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div
+      className="sticky bottom-0 -mx-4 -mb-4 px-4 py-3 border-t flex items-center justify-between gap-3 flex-wrap"
+      style={{
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bg,
+        // Reads as a bar floating over the content it covers mid-scroll,
+        // rather than a row that has cut the matrix in half.
+        boxShadow: '0 -2px 6px rgba(44, 24, 16, 0.08)',
+      }}
+    >
+      {onBack ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm rounded px-3 py-2 border"
+          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+        >
+          ← Back
+        </button>
+      ) : (
+        <span />
+      )}
+      <div className="flex items-center gap-3">
+        {hint && (
+          <span className="text-xs" style={{ color: COLORS.muted }}>
+            {hint}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onAction}
+          disabled={disabled}
+          className="text-sm rounded px-4 py-2 disabled:opacity-50"
+          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+        >
+          {actionLabel}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -588,17 +653,18 @@ function DisciplineStep({
         </div>
       </div>
 
-      <div className="flex justify-end pt-2 border-t" style={{ borderColor: COLORS.border }}>
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy}
-          className="text-sm rounded px-4 py-2 disabled:opacity-50"
-          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-        >
-          {busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
-        </button>
-      </div>
+      <StepFooter
+        onAction={save}
+        disabled={busy}
+        actionLabel={busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
+        hint={
+          newNames.length > 0
+            ? `${newNames.length} to add`
+            : mode === 'hub'
+              ? undefined
+              : `${existing.length} selected`
+        }
+      />
     </section>
   );
 }
@@ -851,30 +917,19 @@ function DivisionStep({
         </div>
       </div>
 
-      <div
-        className={`flex pt-2 border-t ${onBack ? 'justify-between' : 'justify-end'}`}
-        style={{ borderColor: COLORS.border }}
-      >
-        {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="text-sm rounded px-3 py-2 border"
-            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-          >
-            ← Back
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy}
-          className="text-sm rounded px-4 py-2 disabled:opacity-50"
-          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-        >
-          {busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
-        </button>
-      </div>
+      <StepFooter
+        onBack={onBack}
+        onAction={save}
+        disabled={busy}
+        actionLabel={busy ? 'Saving…' : mode === 'hub' ? 'Save changes' : 'Save & continue →'}
+        hint={
+          newNames.length > 0
+            ? `${newNames.length} to add`
+            : mode === 'hub'
+              ? undefined
+              : `${existing.length} selected`
+        }
+      />
     </section>
   );
 }
@@ -897,6 +952,7 @@ function enumerateDates(start: string, end: string): string[] {
 }
 
 function ClassesStep({
+  mode,
   showId,
   showStartDate,
   showEndDate,
@@ -910,6 +966,7 @@ function ClassesStep({
   onBack,
   onDone,
 }: {
+  mode: Mode;
   showId: string;
   showStartDate: string;
   showEndDate: string;
@@ -924,6 +981,9 @@ function ClassesStep({
   onDone?: () => void;
 }) {
   const [classDate, setClassDate] = useState(showStartDate);
+  // The schedule can run to hundreds of rows; it lives below the picker and
+  // stays folded so the matrix — the thing being worked in — owns the screen.
+  const [listOpen, setListOpen] = useState(false);
   // Date-qualified cell keys (`${classDate}::${disciplineId}::${divisionId}`)
   // for picks that have been clicked but whose create hasn't reconciled into
   // `classes` yet — drives the in-flight "…" marker on the matrix.
@@ -1133,88 +1193,6 @@ function ClassesStep({
         </p>
       </div>
 
-      {/* ── Existing classes ──────────────────────────────────────────── */}
-      {classes.length === 0 ? (
-        <p className="text-sm" style={{ color: COLORS.muted }}>
-          No classes yet.
-        </p>
-      ) : (
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="space-y-3">
-            {classesByDate.map(([date, dayClasses]) => (
-              <div key={date}>
-                <p
-                  className="text-xs font-medium mb-1 flex items-center gap-2"
-                  style={{ color: COLORS.muted }}
-                >
-                  {date} — {dayClasses.length} class
-                  {dayClasses.length === 1 ? '' : 'es'}
-                  {dayClasses.length > 1 && (
-                    <span style={{ color: COLORS.border }}>· drag to reorder</span>
-                  )}
-                  {savingOrder && (
-                    <span style={{ color: COLORS.done }}>· saving…</span>
-                  )}
-                </p>
-                <Droppable droppableId={date}>
-                  {(dropProvided) => (
-                    <ul
-                      ref={dropProvided.innerRef}
-                      {...dropProvided.droppableProps}
-                      className="space-y-1"
-                    >
-                      {dayClasses.map((c, index) => (
-                        <Draggable key={c.id} draggableId={c.id} index={index}>
-                          {(dragProvided, snapshot) => (
-                            <li
-                              ref={dragProvided.innerRef}
-                              {...dragProvided.draggableProps}
-                              className="flex items-center justify-between gap-2 text-sm border-b py-1"
-                              style={{
-                                borderColor: COLORS.borderSoft,
-                                backgroundColor: snapshot.isDragging
-                                  ? COLORS.highlight
-                                  : 'transparent',
-                                ...dragProvided.draggableProps.style,
-                              }}
-                            >
-                              <span className="flex items-center gap-2 min-w-0" style={{ color: COLORS.text }}>
-                                <span
-                                  {...dragProvided.dragHandleProps}
-                                  className="cursor-grab active:cursor-grabbing select-none shrink-0"
-                                  title="Drag to reorder"
-                                  aria-label="Drag to reorder"
-                                  style={{ color: COLORS.border }}
-                                >
-                                  ⠿
-                                </span>
-                                <span className="font-mono shrink-0" style={{ color: '#8b4513' }}>
-                                  #{c.class_number}
-                                </span>
-                                <span className="truncate">{c.class_name}</span>
-                              </span>
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => removeClass(c.id)}
-                                className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
-                              >
-                                Delete
-                              </button>
-                            </li>
-                          )}
-                        </Draggable>
-                      ))}
-                      {dropProvided.placeholder}
-                    </ul>
-                  )}
-                </Droppable>
-              </div>
-            ))}
-          </div>
-        </DragDropContext>
-      )}
-
       {/* ── Builder ───────────────────────────────────────────────────── */}
       <div
         className="rounded border p-3 space-y-3"
@@ -1345,32 +1323,127 @@ function ClassesStep({
         )}
       </div>
 
-      {(onBack || onDone) && (
-        <div className="flex justify-between pt-2 border-t" style={{ borderColor: COLORS.border }}>
-          {onBack ? (
-            <button
-              type="button"
-              onClick={onBack}
-              className="text-sm rounded px-3 py-2 border"
-              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-            >
-              ← Back
-            </button>
-          ) : (
-            <span />
-          )}
-          {onDone && (
-            <button
-              type="button"
-              onClick={onDone}
-              className="text-sm rounded px-4 py-2"
-              style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-            >
-              Done →
-            </button>
+      {/* ── The schedule so far ───────────────────────────────────────────
+          Below the picker and folded by default: a built-out show runs to
+          hundreds of classes, and the matrix is what the secretary is working
+          in. The count in the header is the live feedback that a click landed;
+          the ✓ on the matrix cell is the other half. */}
+      {classes.length === 0 ? (
+        <p className="text-sm" style={{ color: COLORS.muted }}>
+          No classes yet.
+        </p>
+      ) : (
+        <div>
+          <button
+            type="button"
+            onClick={() => setListOpen((open) => !open)}
+            aria-expanded={listOpen}
+            className="w-full flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+            style={{ borderColor: COLORS.border, backgroundColor: '#fff', color: COLORS.text }}
+          >
+            <span className="font-medium">
+              <span aria-hidden>{listOpen ? '▾' : '▸'}</span> Classes added ({classes.length})
+            </span>
+            <span className="text-xs" style={{ color: COLORS.muted }}>
+              {listOpen ? 'Hide' : 'Show, reorder, or delete'}
+            </span>
+          </button>
+
+          {listOpen && (
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <div className="space-y-3 mt-3">
+                {classesByDate.map(([date, dayClasses]) => (
+                  <div key={date}>
+                    <p
+                      className="text-xs font-medium mb-1 flex items-center gap-2"
+                      style={{ color: COLORS.muted }}
+                    >
+                      {date} — {dayClasses.length} class
+                      {dayClasses.length === 1 ? '' : 'es'}
+                      {dayClasses.length > 1 && (
+                        <span style={{ color: COLORS.border }}>· drag to reorder</span>
+                      )}
+                      {savingOrder && (
+                        <span style={{ color: COLORS.done }}>· saving…</span>
+                      )}
+                    </p>
+                    <Droppable droppableId={date}>
+                      {(dropProvided) => (
+                        <ul
+                          ref={dropProvided.innerRef}
+                          {...dropProvided.droppableProps}
+                          className="space-y-1"
+                        >
+                          {dayClasses.map((c, index) => (
+                            <Draggable key={c.id} draggableId={c.id} index={index}>
+                              {(dragProvided, snapshot) => (
+                                <li
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  className="flex items-center justify-between gap-2 text-sm border-b py-1"
+                                  style={{
+                                    borderColor: COLORS.borderSoft,
+                                    backgroundColor: snapshot.isDragging
+                                      ? COLORS.highlight
+                                      : 'transparent',
+                                    ...dragProvided.draggableProps.style,
+                                  }}
+                                >
+                                  <span className="flex items-center gap-2 min-w-0" style={{ color: COLORS.text }}>
+                                    <span
+                                      {...dragProvided.dragHandleProps}
+                                      className="cursor-grab active:cursor-grabbing select-none shrink-0"
+                                      title="Drag to reorder"
+                                      aria-label="Drag to reorder"
+                                      style={{ color: COLORS.border }}
+                                    >
+                                      ⠿
+                                    </span>
+                                    <span className="font-mono shrink-0" style={{ color: '#8b4513' }}>
+                                      #{c.class_number}
+                                    </span>
+                                    <span className="truncate">{c.class_name}</span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => removeClass(c.id)}
+                                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
+                                  >
+                                    Delete
+                                  </button>
+                                </li>
+                              )}
+                            </Draggable>
+                          ))}
+                          {dropProvided.placeholder}
+                        </ul>
+                      )}
+                    </Droppable>
+                  </div>
+                ))}
+              </div>
+            </DragDropContext>
           )}
         </div>
       )}
+
+      {/* Classes save as they are clicked, so this finishes the step rather
+          than saving it — but the step still needs a way out that isn't the
+          browser's back button. */}
+      <StepFooter
+        onBack={onBack}
+        onAction={onDone ?? (() => undefined)}
+        disabled={busy || queuedKeys.size > 0 || !onDone}
+        actionLabel={
+          queuedKeys.size > 0
+            ? 'Adding…'
+            : mode === 'hub'
+              ? 'Done — back to overview'
+              : 'Finish class setup →'
+        }
+        hint={`${classes.length} class${classes.length === 1 ? '' : 'es'} saved`}
+      />
     </section>
   );
 }

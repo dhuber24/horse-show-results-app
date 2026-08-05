@@ -103,6 +103,8 @@ export default async function SetupHubPage({
                     })}
                   </p>
                 </div>
+                {/* A configured step is still a link, so the badge names what
+                    clicking it does rather than restating the green styling. */}
                 <span
                   className="text-xs px-2 py-1 rounded shrink-0"
                   style={{
@@ -110,7 +112,7 @@ export default async function SetupHubPage({
                     backgroundColor: step.done ? '#dff1df' : COLORS.warnSoft,
                   }}
                 >
-                  {step.done ? 'Done' : 'Open'}
+                  {step.done ? 'Edit' : 'Open'}
                 </span>
               </div>
             </Link>

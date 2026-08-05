@@ -24,10 +24,10 @@ export default async function Navbar() {
               {session.user?.name} · {session.user?.role}
             </span>
             {session.user?.role === 'EXHIBITOR' && (
-              <Link href="/dashboard"
+              <Link href="/my-shows"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
-                My Entries
+                My Shows
               </Link>
             )}
             {['GATE_STEWARD', 'ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY'].includes(session.user?.role ?? '') && (

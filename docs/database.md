@@ -97,6 +97,8 @@ Current migration files:
 
 | `083_document_extractions.sql` | New `document_extractions` table recording each AI read of an uploaded horse document. A row is written *before* the document is saved and linked to it on save, in the same transaction — so a stored `expiry_date` can always be traced to whether a human typed it, accepted the model's reading, or corrected it. `document_id` is nullable because an uploader can abandon a read; those rows are kept rather than cleaned up. `extracted` is JSONB holding the model's output whole, so the extraction schema can widen without a migration and old rows stay readable against the schema of their day. |
 
+| `084_document_extractions_horse_optional.sql` | Drop NOT NULL from `document_extractions.horse_id`. The add-a-horse wizard stages health documents in the browser and saves them only after the horse is created, so a read taken while the user is still filling in the wizard has no horse to point at — and that is exactly where an exhibitor first files a Coggins. A NULL `horse_id` means the read predated its horse; it is filled in when the queued document is saved. |
+
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
 ## Running Migrations
@@ -117,6 +119,153 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "<SQL 
 If a manual migration file is applied outside the runner, also insert its filename into `_migrations`.
 
 ## Recent Schema Updates
+
+### New table: `show_verifications` + `horses.created_by_user_id` (migration 090)
+
+The show office's record of paperwork it has **physically inspected**. Three
+kinds share one table because the actor, the question, and the staleness rule
+are identical for all of them:
+
+| `kind` | Subject columns | What staff read | Value snapshotted |
+| --- | --- | --- | --- |
+| `horse_age` | `horse_id` | The foaling date on the registration papers | `horses.foaling_date` (ISO) |
+| `horse_registration` | `horse_id` + `association_id` | The registration number on the papers | `horse_registrations.registration_number` |
+| `exhibitor_membership` | `exhibitor_id` + `association_id` | The rider's membership card | `exhibitor_registrations.member_number` |
+
+`ck_show_verifications_subject` enforces which subject columns each kind
+populates, so a row cannot describe a shape nobody handles.
+
+Columns: `id`, `show_id` (CASCADE), `kind`, `horse_id` / `exhibitor_id` /
+`association_id` (all CASCADE, all nullable per kind), `verified_value`, `note`,
+`verified_by` (SET NULL), `verified_by_name` snapshot, `created_at`.
+
+**Scope is per show.** A verification is a show attesting that *its own* office
+saw the document, not a permanent property of the horse or the person — the next
+show runs its own gate, and one bad sign-off cannot propagate forward. Same
+reasoning as `coggins_override_audit`.
+
+**`verified_value` is what makes the record honest.** Staff verify a *value*, not
+a row, so the on-file value is snapshotted at sign-off. Edit the number
+afterwards and the check reads back as `stale` instead of staying green. The
+backend derives this column itself and never accepts it from the request —
+a caller able to name the value it "verified" could attest to anything.
+
+Uniqueness is **three partial indexes**, not one composite UNIQUE: the subject
+columns are deliberately nullable per kind and Postgres treats NULLs as
+distinct, so a plain UNIQUE would not stop the same horse's age being signed off
+twice.
+
+- `uq_show_verifications_horse_age` on `(show_id, horse_id) WHERE kind = 'horse_age'`
+- `uq_show_verifications_horse_registration` on `(show_id, horse_id, association_id) WHERE kind = 'horse_registration'`
+- `uq_show_verifications_exhibitor_membership` on `(show_id, exhibitor_id, association_id) WHERE kind = 'exhibitor_membership'`
+
+`horses.created_by_user_id` (SET NULL) is added in the same migration because
+090 also lets show staff create a horse for an exhibitor at the desk.
+`created_by_exhibitor_id` cannot attribute that — staff have no exhibitor record
+— and it stays NULL for staff-created horses, which is also how the profile's
+horse list distinguishes them (that list reads `created_by_exhibitor_id` **or**
+an `exhibitor_horses` link, so the staff path writes the link).
+
+This table was created by `create_all` before the migration ran on the
+development database, and the constraints and partial indexes survived only
+because they are declared in `backend/models.py` as well — see the next section.
+
+### CHECK constraints lost to the create_all race (migration 089)
+
+Backend startup runs `Base.metadata.create_all`, which races the migration
+runner. On a database where the app booted first, migrations 087 and 088 found
+their tables already present and their `CREATE TABLE IF NOT EXISTS` was skipped
+**in full** — including the CHECK constraints, which existed only in the SQL.
+Indexes and comments still applied, because those are separate statements, so
+the shortfall was precisely the checks and nothing else. This is the failure
+mode idempotent DDL does *not* protect against: the table exists, so it looks
+applied, but it is not the table the migration describes.
+
+**Writing a new migration: declare constraints in `backend/models.py` too**,
+with the same explicit name the SQL uses. A constraint that lives only in the
+migration is silently absent on every create_all-first database. Migration 089
+is the catch-up for databases already past that point:
+`ck_horse_access_requests_kind`, `ck_horse_access_requests_status`,
+`ck_show_entry_reservations_quantity`.
+
+### New table: `horse_access_requests` (migration 087)
+
+Consent, pending, for a horse changing hands. Two flows share one table because
+they are the same shape — a request that only takes effect when a specific
+person says yes:
+
+| `kind` | Requester | Approver | On approval |
+| --- | --- | --- | --- |
+| `link` | An exhibitor who wants the horse on their profile | The horse's current owner | Writes the `exhibitor_horses` row |
+| `transfer` | The current owner | The person receiving the horse | Moves `horses.owner_exhibitor_id`, then writes `exhibitor_horses` for them |
+
+`approver_exhibitor_id` is always "whoever must press the button", which is why
+approve/decline is one code path (`_apply_decision` in
+[backend/routers/horse_access.py](../backend/routers/horse_access.py)).
+
+Columns: `id`, `token` (UNIQUE), `kind`, `horse_id` (CASCADE), `horse_name`
+snapshot, `requester_exhibitor_id` / `approver_exhibitor_id` (both SET NULL),
+`requested_by_name` / `approver_name` / `approver_email`, `status`
+(`pending` / `approved` / `declined` / `cancelled` / `expired`), `message`,
+`email_sent` (NULL = never attempted, FALSE = attempted and failed),
+`expires_at`, `responded_at`, `created_at`.
+
+A partial UNIQUE index on `(horse_id, requester_exhibitor_id, kind) WHERE
+status = 'pending'` allows one outstanding ask at a time without blocking a
+fresh request after a decline. Horses CASCADE; the exhibitors SET NULL so a
+closed account doesn't erase a horse's history.
+
+The token is the authorization for the decision page, matching `user_invites` —
+single-use, 30-day TTL. It is emailed *and* shown to the requester for copy and
+paste, because SMTP is optional here and an undelivered email must not be the
+reason a sale can't be recorded.
+
+### Show sign-up: `show_entries` columns + `show_entry_reservations` (migration 088)
+
+`show_entries` gains `registered_at TIMESTAMPTZ`, `arrival_date DATE`,
+`departure_date DATE`, and `registration_notes TEXT`. `registered_at` is the
+sign-up gate: set means the exhibitor completed sign-up, NULL means the row is
+a shell a secretary created while adding a late entry by hand. The migration
+backfills `registered_at` from `created_at` on every existing row, so anybody
+already registered stays registered.
+
+`show_entry_reservations` records how many of each show fee an exhibitor booked:
+
+- `id`, `show_entry_id` (CASCADE), `show_fee_id` (CASCADE), `quantity` (>= 0),
+  `created_at`
+- UNIQUE `(show_entry_id, show_fee_id)`
+
+It points at `show_fees` rather than restating stalls/shavings/camping as
+columns. The secretary already configures those rows with prices and units, and
+which ones an exhibitor may reserve is derived from the **unit** —
+`per_stall`, `per_bag`, `per_night` (`RESERVABLE_FEE_UNITS` in
+[backend/billing.py](../backend/billing.py)) — so a show that adds its own
+per-stall fee is offered without a schema change.
+
+### New tables: `judges`, `judge_associations` (migration 085)
+
+A judge used to exist only as a row on `show_judges`, so their name, contact
+details, and affiliations were retyped into every show that hired them. The
+judge is now the record; the show assignment only points at it.
+
+`judges`:
+
+- `id` UUID primary key
+- `first_name`, `last_name` TEXT NOT NULL
+- `email`, `phone` TEXT nullable
+- `is_active` BOOLEAN NOT NULL default TRUE
+- UNIQUE index on `(lower(first_name), lower(last_name), lower(coalesce(email,'')))` — name + email is the identity rule, the same one the old "known judges" dropdown applied in Python
+
+`judge_associations`: `(judge_id, association_id)` — what the judge is carded
+with, referencing `associations`, **not** `show_types`. The migration carried
+the old `show_judge_affiliations` rows across by matching codes and dropped
+that table; OPEN affiliations were discarded because OPEN has no `associations`
+row (migration 080) and never meant an affiliation.
+
+`show_judges` changed shape in the same migration: `judge_id` UUID NOT NULL FK
+-> `judges.id` (`ON DELETE RESTRICT`), UNIQUE `(show_id, judge_id)`, and the
+`first_name` / `last_name` / `email` / `phone` columns were dropped. Existing
+rows were deduplicated into the registry by that identity rule before the drop.
 
 ### New table: `trainers`
 
@@ -220,6 +369,10 @@ erDiagram
 
     venues ||--o{ shows : hosts
     show_types ||--o{ shows : primary_type
+    shows ||--o{ show_judges : hires
+    judges ||--o{ show_judges : officiates
+    judges ||--o{ judge_associations : carded_with
+    associations ||--o{ judge_associations : cards
     shows ||--o{ show_affiliations : has
     shows ||--o{ classes : schedules
     shows ||--o{ show_entries : assigns_back_numbers
@@ -260,6 +413,9 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `shows` | Event shell with primary show type, venue, dates, status |
 | `show_affiliations` | Secondary associations available for selected classes |
 | `rings` | Per-show arenas, each with `sort_order` |
+| `judges` | **Judge registry** (migration 085) — the judge as a person: name, email, phone, `is_active`. Identity is name + email, enforced by a unique index, so the same judge is one row no matter how many shows hire them |
+| `judge_associations` | Which associations a judge is carded with. Points at `associations` (affiliation registry), not `show_types` |
+| `show_judges` | Assignment of a registry judge to a show, with `sort_order`. Carries no judge details of its own — `judge_id` is RESTRICT, so a judge who has officiated cannot be deleted out from under the history. Unique on `(show_id, judge_id)` |
 | `divisions` | Per-show **disciplines** (Halter, Western Pleasure, Trail, Barrels). Each carries `default_score_type` (`placement` / `pattern` / `time`) that newly-created classes inherit when score_type is omitted. Legacy rows from before migration 048 are not auto-classified; secretaries may need to clean up names that are really sections. |
 | `sections` | Per-show **age/skill brackets** (10 & Under, 11-13, Walk-Trot, Amateur). Each section is linked to one or more divisions via `division_sections` (M2M, migration 061). A section with no division memberships can't be used on classes. |
 | `division_sections` | Join table on `(division_id, section_id)`. A composite FK on `classes(division_id, section_id)` references this table — pairing a class with an unregistered (div, sec) returns 422. Removing a section from a division that still has classes pairing them returns 409. |

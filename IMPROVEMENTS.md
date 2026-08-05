@@ -2,6 +2,103 @@
 
 ## August 2026
 
+### The Show Office Can Say What It Actually Looked At
+
+The app stored registration numbers, membership numbers, and foaling dates, but kept no record that anyone had ever picked up the document behind them. "Did we verify this horse's age?" was answerable only by asking whoever worked the desk that morning. **Migration 090** gives the office somewhere to put the answer.
+
+- **Three checks, one table.** `horse_age` (the foaling date on the papers), `horse_registration` (a registration number, per association), `exhibitor_membership` (a membership card, per association). They share `show_verifications` because the actor, the question, and the staleness rule are identical for all three; `kind` fixes which subject columns are populated, and a CHECK constraint stops a row describing a shape nobody handles.
+- **A sign-off is against a value, not a row.** `verified_value` snapshots what was on file at the moment staff signed. Edit the number afterwards and the check reads back as **stale** — with both values shown — instead of quietly staying green. A live join would have made every sign-off permanent no matter what changed underneath it.
+- **The client never names the value.** The endpoint takes the subject only and reads the current value off the record itself. A caller that could say what it "verified" could attest to a number nobody has on file, which is the one thing a verification record must not allow.
+- **Scoped to the show, not to the horse.** This is a show attesting that *its* office saw the paper. Making it permanent would have meant one bad sign-off following a horse to every future show, and would have quietly relieved the next show of a duty that is actually theirs. Same reasoning as `coggins_override_audit`.
+- **It records; it does not gate.** The Coggins gate stays the only hard stop on entry. An office halfway through its sweep still has a show to run, and a second blocking gate would have been overridden into meaninglessness by lunchtime.
+- **Uniqueness is three partial indexes.** The subject columns are nullable per kind and Postgres treats NULLs as distinct, so a plain composite UNIQUE would not have stopped the same horse's age being signed off twice. The constraints and indexes are declared in `models.py` as well as the SQL — and that turned out to matter: `create_all` created this table before the migration ran, so the SQL's `CREATE TABLE IF NOT EXISTS` was a no-op and everything the live table has came from the model.
+
+### Show Staff Can Add A Horse For Someone Standing At The Desk
+
+An exhibitor arriving with a horse that was never added to their profile had no path forward — staff could see the problem and not fix it.
+
+- **Scoped by roster, not by rank.** `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` 403s unless that exhibitor has a `show_entries` row or a class entry at that show. Staff get this reach because the person is in front of them at *their* show, which is a much narrower claim than "secretaries may write to profiles".
+- **The exhibitor owns it, and can see it.** Ownership alone does not put a horse on someone's profile list — that reads `created_by_exhibitor_id` or an `exhibitor_horses` link — so the staff path writes the link, and the horse appears in their own list and the Add Entry picker straight away.
+- **The trail is honest.** `created_by_exhibitor_id` stays NULL, because they did not add it, and a new `horses.created_by_user_id` records the staff member who did. A horse appearing on a profile with nothing saying where it came from is exactly the surprise worth spending a column on.
+- **The request body has no owner field to abuse.** The staff schema declares none of the owner-selection fields, and the shared builder drops the inherited `owner_exhibitor_id`, so no body shape can point the horse at a third party. That builder and the registration pre-check are now shared with the exhibitor's own add-a-horse wizard rather than duplicated.
+
+### The Read-Only Banner Only Warns People Who Could Have Been Scoring
+
+Every visitor to a non-`ACTIVE` show read "Read-only — results can only be entered when the show is Active." Exhibitors and spectators can never enter results at all, so it announced a restriction that was not about them and read like something had gone wrong with the show. It is now shown only to the roles with a scoring screen to be locked out of.
+
+### The Schedule Tells An Exhibitor Which Classes Are Theirs
+
+The class schedule had one filter, **My classes**, which was per-device starred classes — nothing to do with what the exhibitor had entered. An exhibitor standing at the rail wanting "just my classes" got the ones they had happened to tap a star on.
+
+- **My classes → Favorites.** The name now says what the button does, which frees the honest name for the thing people were looking for.
+- **Registered** filters to the classes the signed-in exhibitor is actually entered in, sourced server-side from their own entry list and passed in as a prop. It is rendered **only for exhibitors** — a spectator has nothing to be registered in, so the control would be permanently dead — and the fetch degrades to an empty list on failure, because the schedule is a public screen that has to keep working signed-out.
+- The two **intersect** rather than replace each other ("starred *and* entered" is a real question on a long day), and either one spans all show days, since neither your classes nor the horse you are tracking run on just one.
+
+### Nobody Else's Horse, And Nobody's Horse Without Being Asked
+
+Anyone could put anyone else's horse on their profile with one click, which also put it in their show-registration picker. The owner was never told. And there was no way to hand a horse to its new owner at all, so a sale meant the seller kept the record and the buyer built a duplicate. **Migration 087** makes both a request that only takes effect when a specific person says yes.
+
+- **One table, two directions.** `kind='link'` is someone asking the owner for access; `kind='transfer'` is the owner offering ownership, which the recipient accepts. `approver_exhibitor_id` is always "whoever must press the button", so `_apply_decision` is a single code path rather than two implementations of what approval means.
+- **`POST /linked-horses` still links outright when nobody owns the horse.** That is the honest case — there is no one to ask, and requiring approval from a free-text `owner_name` would just block the flow. When there *is* an owner it returns `409 OWNER_APPROVAL_REQUIRED` carrying their name, and the profile screen turns that into "Ask {owner} for approval" instead of dead-ending on an error.
+- **Transfers need the recipient's yes.** Ownership carries the Coggins and registration obligations that gate entries; nobody should acquire those because someone else clicked a button. Only exhibitors with accounts are offered as targets, since accepting means signing in. The former owner keeps whatever profile access they already had — a sale should not erase the horse from the seller's record mid-show.
+- **The link is always on screen.** `backend/mailer.py` sends over stdlib SMTP when `SMTP_HOST` is set and returns `None` (logged, non-fatal) when it isn't, so the create response also carries `approval_url` and the UI always renders it to copy. "We emailed them" is not a plan when mail is optional and spam folders exist; `email_sent` records which actually happened.
+- **Two ways to answer, one effect.** The emailed token page needs no session, because the recipient of a transfer may never have used the app. Signed-in approvers answer in place from the My Horses tab instead, since being logged in as the approver is at least as strong a claim as holding the token — the alternative was telling someone to go find an email that may not have arrived.
+
+### Sign Up For The Show Before You Enter Its Classes
+
+Class entry was the first and only thing an exhibitor told a show. Stalls, shavings, and camping were collected off-app and retyped, and the exhibitor's bill was only ever class fees. **Migration 088** makes the show-level record the deliberate first step.
+
+- **`show_entries` gained `registered_at` rather than a sibling table.** It already *was* the show-level record — it is what carries the back number. A row with a timestamp is a completed sign-up; a row without one is the shell a secretary created adding a late entry by hand. Class self-registration now returns `409 SHOW_SIGNUP_REQUIRED` instead of quietly creating that shell itself.
+- **Reservations point at `show_fees`, not at new columns.** The secretary already configures stall / tack stall / shavings / RV / dry camping rows with real prices. Fixed columns would have been a second place to configure them and would have silently dropped whatever tier a given show offers. What is reservable is derived from the fee's *unit* — `per_stall`, `per_bag`, `per_night` — so a show's own custom per-stall fee appears in the picker with no schema change.
+- **The backfill sets `registered_at` from `created_at` on every existing row.** People already registered are signed up; a gate that locks out the exhibitors it was built for is not a gate.
+- **`build_bill()` in `backend/billing.py` is now the only thing that computes money.** Three screens quote the same total, and they were on their way to three implementations of it. It also fixed a real disagreement: the registration screen multiplied the office charge by distinct horses regardless of `shows.office_charge_basis`, so a `per_back_number` show over-quoted every exhibitor bringing more than one horse.
+- **My Shows** (`/my-shows`, the renamed navbar button) shows the itemized bill per show; **Show History** on the profile and **My Show Entries** read the same endpoint, so the three cannot drift.
+
+### Taking A Class Off Is As Ordinary As Adding One
+
+Withdrawing an entry existed, as a small text link tucked inside the green "entered" badge next to the class. Exhibitors reported not being able to remove classes they had picked by mistake — which is what an affordance that can't be found amounts to. Entered classes now list in a panel at the top of the registration screen, each with a labelled **Remove** button and an inline confirm, and the same control repeats beside the class itself.
+
+### A Judge Is A Person, Not A Line On A Show
+
+Show setup asked the secretary to type a judge's name, email, phone, and affiliations into every show that hired them, then offered a "pick a previously-entered judge" dropdown that pre-filled those fields and let them be edited again. The same judge ended up spelled three ways across three shows, with whichever affiliations were ticked that day. **Migration 085** makes the judge the record.
+
+- **`judges` + `judge_associations`.** The person, and what they are carded with. The cards point at `associations` — the registry of bodies a horse or person is affiliated with — not at `show_types`, which is show configuration. The old affiliations were carried across by matching codes; OPEN affiliations were dropped, because OPEN has had no `associations` row since migration 080 and never meant an affiliation in the first place.
+- **`show_judges` is now only an assignment**: show, judge, running order. Its `first_name` / `last_name` / `email` / `phone` columns were dropped rather than kept "for display" — a second copy of a fact is a second chance to be wrong, and the reason a pick-then-edit form drifts in the first place.
+- **Identity is name + email**, enforced by a unique index, which is the same rule the old dropdown applied in Python. The migration deduplicates existing judges by it before the drop, collapsing case and whitespace variants into one row.
+- **`judge_id` is `ON DELETE RESTRICT`.** A judge who has officiated a show cannot be deleted out from under that history; unassigning them from a show leaves the registry record alone.
+- **Setup picks; it cannot edit.** The step shows the picked judge's cards and contact details read-only, with a line saying corrections are made in the registry. `PATCH /judges/{id}` is admin-only, because that record is shared by every show the judge has ever worked and a typo fix in one show's setup should not silently rewrite the others. A judge who isn't in the registry yet is added to it and assigned in one step, so the flow still ends where it did.
+- Verified against a throwaway Postgres in both directions: an upgrade from messy data (same judge under three spellings, a duplicate on one show) and a fresh `create_all`-shaped database, which the startup race makes a real case. Re-running is a no-op.
+
+### Setup Steps Say What Clicking Them Does
+
+Completed setup steps were badged "Done" — an accurate word that told the secretary nothing, since the row was still a link. They now read **Edit**, matching the class wizard's overview, which already did.
+
+Three related fixes in the same pass, all of the same shape — the screen should be mostly the thing you are doing:
+
+- **The class picker comes first and the schedule folds underneath it.** Step 3 of the class wizard listed every class added so far *above* the matrix, so on a built-out show the picker started below the fold. The list moved below the picker and collapsed behind a "Classes added (N)" disclosure; the live count and the ✓ on the cell are the feedback that a click landed, and the list still opens for drag-to-reorder and delete.
+- **Save buttons that stick.** Steps 1-3 now end in a shared `StepFooter` fixed to the bottom of the viewport. The previous footers were real buttons at the bottom of a very long standard-library list or class matrix, which is indistinguishable from having no save button — that is how it was reported. Step 3 also gained a finish control in hub-edit mode, where it previously had none, and it is disabled while class creates are still draining.
+- **"+ Request new sanctioned club"** is a one-line link on the sanctioning step instead of a permanently expanded name-and-notes form. Requesting a club is the rare path; picking one is the common one.
+
+### The Coggins Extractor Reads The Whole Form
+
+The first extraction schema covered the fields the app stores plus a few for verification. Against a real VS 10-11 layout it was missing most of the form: owner and stable, clinic licence number, microchip, markings, breed, age, the lab's received and reported dates, test type and reason, and the signing technician. The schema now follows the form's five sections, because the section a value sits under is what identifies it.
+
+- **Three dates, easily transposed.** Blood drawn, received by lab, reported by lab. Validity runs from the **draw**, so the derived-expiry offer uses `test_date`; using `date_reported` would quietly hand the horse the days between the draw and the report. The prompt calls the distinction out explicitly and tells the model to flag a bare "Date" its section cannot resolve.
+- **A positive result is extraordinary, and treated that way.** A non-negative sample is escalated to federal authorities rather than issued as a routine certificate, so a finalized form reading POSITIVE is either a serious finding or a misread. The model returns it only when unmistakably marked, and `reviewWarnings()` surfaces it as a red banner rather than a quiet row in a detail list — the same for a form with no identity photos or diagram.
+- **Identity images are reported present/absent only.** The model is told not to describe them: the reviewer has the document open, so a generated description adds nothing and risks inventing detail. Microchip numbers get the opposite treatment — transcribe every digit, flag any uncertainty, because one wrong digit identifies a different horse.
+- **`twelveMonthsAfter()` clamps Feb 29 to Feb 28** instead of rolling into March. This date gates eligibility, so an ambiguous calendar should round against extra eligibility.
+- No migration was needed. `extracted` is JSONB stored whole precisely so the schema can widen without one, and nothing new is persisted onto `horse_documents` — the added fields are for the human verifying that the right document is attached to the right horse.
+
+### Extraction Reaches The Add-A-Horse Wizard
+
+Extraction shipped against `HorseDocuments`, which needs a horse that already exists. The wizard's Health step stages documents in the browser and saves them only after creation, so it was the one upload path extraction could not reach — and it is where an exhibitor files their first Coggins, which made it the surface that mattered most.
+
+- **Migration 084** drops NOT NULL from `document_extractions.horse_id`. A read genuinely can precede its horse; the column is filled in when the queued document is saved, in the same transaction that links the document. The upload endpoint treats a NULL `horse_id` as claimable rather than as a mismatch.
+- **`POST /documents/analyze`** serves the wizard. Its gate is weaker than the horse-scoped endpoint by necessity — with no horse there is nothing to check ownership against, so authentication is all that is left. A signed-in user can read any file they already hold; they learn nothing about anyone else's data, but it spends tokens, so it is rate limited to 20/minute.
+- **The limit is keyed on the user id, not the client address.** Every request arrives from the Next.js server, so an IP-keyed limit would be a single global bucket and one busy user would lock out the rest. Verified: user A exhausted its budget while user B's next request went straight through.
+- **Shared UI moved to `frontend/lib/document-extraction.ts`** — labels, `asText`, `twelveMonthsAfter`, and an `analyzeDocument()` helper that picks the right endpoint. Both surfaces render the same review panel, and copies in two components would have drifted.
+- The wizard needs no auto-upload suppression: "Add Document" is already a deliberate click, so the human-confirms rule holds by construction.
+
 ### Documents Fill In Their Own Fields
 
 Uploading a Coggins asked the exhibitor to hand-type the issue and expiration dates printed on the scan they had just attached. That is where undated and mistyped Coggins records come from — and an undated Coggins blocks entry, which is the failure `coggins_override_audit` exists to absorb. The fix attacks the source rather than the symptom.

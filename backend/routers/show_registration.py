@@ -1,18 +1,27 @@
 """Exhibitor self-registration for a published show.
 
-Exhibitors browse PUBLISHED shows, pick a horse per class they want to enter,
-and submit one request that:
+Registration is two steps, in order:
 
-- ensures a `show_entries` row exists for the exhibitor (back number left blank
-  for the secretary to assign);
-- creates one `entries` row per (class, horse) pair;
-- runs the same association/Coggins validation as the secretary entry path.
+1. **Sign up for the show** (`/signup`). Creates the `show_entries` row — the
+   show-level record that carries the back number — and captures what the show
+   office needs to run the grounds: stalls, bags of shavings, camping. Those
+   are quantities against the show's own `show_fees` catalog, so the exhibitor
+   only ever sees what the secretary configured, at the secretary's prices.
+
+2. **Enter classes** (`POST /`). Requires a completed sign-up: an exhibitor
+   whose `show_entries.registered_at` is NULL is turned away with a 409 rather
+   than silently having a shell row created for them. That ordering is the
+   point — the office wants stall counts *before* it has a ring full of horses.
+
+Each class entry creates one `entries` row per (class, horse) pair and runs the
+same association/Coggins validation as the secretary entry path.
 
 The exhibitor is derived from the authenticated user — never trusted from the
 request body — so a logged-in EXHIBITOR can only register themselves.
 
-Once a show flips out of PUBLISHED (ACTIVE / COMPLETED / DRAFT), this endpoint
-returns 403 and the secretary must add late entries through the admin flow.
+Once a show flips out of PUBLISHED (ACTIVE / COMPLETED / DRAFT), these
+endpoints return 403 and the secretary must add late entries through the admin
+flow.
 """
 from datetime import date
 from uuid import UUID
@@ -20,11 +29,18 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, union
+from sqlalchemy import func, select, union
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from billing import (
+    build_bill,
+    nsba_sanction_cents,
+    office_charge_total_cents,
+    reservable_fees,
+    show_is_nsba_sanctioned,
+)
 from database import get_db
 from dependencies import INTERNAL_API_KEY, require_authenticated, safe_uuid
 from models import (
@@ -38,6 +54,8 @@ from models import (
     Result,
     Show,
     ShowEntry,
+    ShowEntryReservation,
+    ShowFee,
 )
 from routers.horse_documents import (
     COGGINS_MESSAGES,
@@ -84,28 +102,13 @@ class ShowRegistrationResult(BaseModel):
     total_fee_cents: int
 
 
-# NSBA Sanction Fees rule: 6% of entry fee, minimum $3, charged on every
-# NSBA-approved entry (paid even if the exhibitor scratches).
-# Source: https://www.nsba.com/images/documents/Show-Approval-Documents/Sanction-Fees.pdf
-NSBA_SANCTION_MIN_CENTS = 300
-NSBA_SANCTION_RATE = 0.06
-
-
 def _class_is_nsba(show: Show, class_: Class) -> bool:
-    """NSBA approval comes from club sanctioning, not from the show type.
+    """Whether this class carries an NSBA sanction fee.
 
-    Migration 080 split clubs out of show_types: NSBA is a club association a
-    show opts into via show_sanctioning, so an "NSBA show" is now (for example)
-    an OPEN or AQHA show carrying NSBA sanctioning."""
-    return any(
-        s.association is not None and s.association.code == "NSBA"
-        for s in (show.sanctioning or [])
-    )
-
-
-def _nsba_sanction_cents(entry_fee_cents: int) -> int:
-    pct = int(round(entry_fee_cents * NSBA_SANCTION_RATE))
-    return max(NSBA_SANCTION_MIN_CENTS, pct)
+    Sanctioning is a property of the show, not of the individual class — the
+    per-class signature is kept because the callers iterate classes.
+    """
+    return show_is_nsba_sanctioned(show)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -164,6 +167,45 @@ async def _exhibitor_horse_ids(exhibitor_id: UUID, db: AsyncSession) -> set[UUID
     return {row[0] for row in result.all()}
 
 
+async def _load_show_entry(
+    show_id: UUID, exhibitor_id: UUID, db: AsyncSession
+) -> Optional[ShowEntry]:
+    result = await db.execute(
+        select(ShowEntry)
+        .options(selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee))
+        .where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _load_reservable_fees(show_id: UUID, db: AsyncSession) -> list[ShowFee]:
+    result = await db.execute(
+        select(ShowFee).where(ShowFee.show_id == show_id).order_by(ShowFee.sort_order, ShowFee.label)
+    )
+    return reservable_fees(result.scalars().all())
+
+
+def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
+    if show_entry is None or show_entry.registered_at is None:
+        return None
+    return {
+        "show_entry_id": str(show_entry.id),
+        "registered_at": show_entry.registered_at,
+        "back_number": show_entry.back_number,
+        "arrival_date": show_entry.arrival_date,
+        "departure_date": show_entry.departure_date,
+        "notes": show_entry.registration_notes,
+        "reservations": [
+            {
+                "show_fee_id": str(r.show_fee_id),
+                "quantity": r.quantity,
+            }
+            for r in (show_entry.reservations or [])
+            if r.quantity > 0
+        ],
+    }
+
+
 def _aqha_class_code(show: Show, class_: Class) -> str | None:
     for assoc in class_.associations or []:
         if assoc.show_type_id == show.show_type_id or (
@@ -202,6 +244,136 @@ def _coggins_requirement(expiry_dates: list[date | None]) -> dict:
             if status == COGGINS_VALID
             else COGGINS_MESSAGES[status]
         ),
+    }
+
+
+# ── Sign-up ───────────────────────────────────────────────────────────────────
+
+class ReservationItem(BaseModel):
+    show_fee_id: UUID
+    quantity: int = Field(ge=0, le=999)
+
+
+class ShowSignupBody(BaseModel):
+    reservations: list[ReservationItem] = Field(default_factory=list)
+    arrival_date: Optional[date] = None
+    departure_date: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.get("/signup")
+async def get_signup(
+    show_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The sign-up screen: what this show offers, and what the caller booked.
+
+    `signup` is null until they complete it, which is also what the class
+    registration screen keys off to decide whether to let them in.
+    """
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    fees = await _load_reservable_fees(show_id, db)
+
+    return {
+        "show": {
+            "id": str(show.id),
+            "name": show.name,
+            "status": show.status,
+            "start_date": show.start_date,
+            "end_date": show.end_date,
+            "office_charge_cents": show.office_charge_cents,
+            "office_charge_basis": show.office_charge_basis,
+            "shavings_ban_outside": show.shavings_ban_outside,
+        },
+        "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
+        "fee_options": [
+            {
+                "id": str(f.id),
+                "code": f.code,
+                "label": f.label,
+                "unit": f.unit,
+                "amount_cents": f.amount_cents,
+                "notes": f.notes,
+            }
+            for f in fees
+        ],
+        "signup": _signup_out(show_entry),
+    }
+
+
+@router.put("/signup")
+async def save_signup(
+    show_id: UUID,
+    body: ShowSignupBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Complete or amend show sign-up.
+
+    Idempotent by design — the exhibitor can come back and change their stall
+    count while the show is still PUBLISHED, and the same call handles both the
+    first sign-up and every edit after it. Reservations are replaced wholesale
+    rather than patched: the body is the complete booking, so a fee the
+    exhibitor removed disappears instead of lingering at its old quantity.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    if body.arrival_date and body.departure_date and body.departure_date < body.arrival_date:
+        raise HTTPException(400, "Departure date cannot be before the arrival date")
+
+    fees_by_id = {f.id: f for f in await _load_reservable_fees(show_id, db)}
+    for item in body.reservations:
+        if item.show_fee_id not in fees_by_id:
+            raise HTTPException(400, "One or more selected options are not offered by this show")
+
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    if show_entry is None:
+        show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor.id)
+        # Initialize the collection before the flush makes the row persistent:
+        # assigning to it afterwards would ask SQLAlchemy to diff against a
+        # collection it has never loaded, which is a lazy load in an async
+        # session (MissingGreenlet). The loaded path is safe because
+        # _load_show_entry selectinloads it.
+        show_entry.reservations = []
+        db.add(show_entry)
+        await db.flush()
+
+    show_entry.registered_at = show_entry.registered_at or func.now()
+    show_entry.arrival_date = body.arrival_date
+    show_entry.departure_date = body.departure_date
+    show_entry.registration_notes = body.notes
+
+    # delete-orphan on the relationship turns this reassignment into the
+    # replacement described above.
+    show_entry.reservations = [
+        ShowEntryReservation(show_fee_id=item.show_fee_id, quantity=item.quantity)
+        for item in body.reservations
+        if item.quantity > 0
+    ]
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "You have already signed up for this show")
+
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    reservation_total = sum(
+        fees_by_id[r.show_fee_id].amount_cents * r.quantity
+        for r in (show_entry.reservations or [])
+        if r.show_fee_id in fees_by_id
+    )
+    return {
+        "signup": _signup_out(show_entry),
+        "reservation_total_cents": reservation_total,
     }
 
 
@@ -249,7 +421,13 @@ async def preview_registration(
     )
     existing = existing_result.scalars().all()
 
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+
     return {
+        # Null until show sign-up is done. The screen reads this to send the
+        # exhibitor to sign-up first rather than letting them fill in a class
+        # picker the POST would reject.
+        "signup": _signup_out(show_entry),
         "show": {
             "id": str(show.id),
             "name": show.name,
@@ -258,6 +436,7 @@ async def preview_registration(
             "end_date": show.end_date,
             "show_type_code": show.show_type.code if show.show_type else None,
             "office_charge_cents": show.office_charge_cents,
+            "office_charge_basis": show.office_charge_basis,
         },
         "exhibitor": {
             "id": str(exhibitor.id),
@@ -272,7 +451,7 @@ async def preview_registration(
                 "entry_fee_cents": c.entry_fee_cents,
                 "is_nsba_approved": _class_is_nsba(show, c),
                 "nsba_sanction_cents": (
-                    _nsba_sanction_cents(c.entry_fee_cents)
+                    nsba_sanction_cents(c.entry_fee_cents)
                     if _class_is_nsba(show, c)
                     else 0
                 ),
@@ -351,19 +530,21 @@ async def register_for_show(
                 "accepting entries.",
             )
 
-    # Ensure a show_entries row exists for this exhibitor. Back number stays
-    # NULL — assignment is the secretary's job.
-    show_entry_result = await db.execute(
-        select(ShowEntry).where(
-            ShowEntry.show_id == show_id,
-            ShowEntry.exhibitor_id == exhibitor.id,
+    # Sign-up comes first. A missing (or unfinished) show_entries row means the
+    # office has no stall/shavings/camping numbers for this exhibitor, so we
+    # refuse rather than quietly creating the shell row this used to create.
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    if show_entry is None or show_entry.registered_at is None:
+        raise HTTPException(
+            409,
+            {
+                "code": "SHOW_SIGNUP_REQUIRED",
+                "message": (
+                    "Sign up for this show before entering classes — the office "
+                    "needs your stall, shavings, and camping numbers first."
+                ),
+            },
         )
-    )
-    show_entry = show_entry_result.scalar_one_or_none()
-    if not show_entry:
-        show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor.id)
-        db.add(show_entry)
-        await db.flush()  # populate show_entry.id without committing
 
     # Eager-load horse registration data once per requested horse so the rules
     # engine can read it without lazy loads.
@@ -454,7 +635,7 @@ async def register_for_show(
         db.add(entry)
         created.append(entry)
         sanction_cents = (
-            _nsba_sanction_cents(cls.entry_fee_cents)
+            nsba_sanction_cents(cls.entry_fee_cents)
             if _class_is_nsba(show, cls)
             else 0
         )
@@ -471,7 +652,7 @@ async def register_for_show(
         sanction_total += sanction_cents
         horses_charged.add(item.horse_id)
 
-    office_charge_total = show.office_charge_cents * len(horses_charged)
+    office_charge_total = office_charge_total_cents(show, len(horses_charged), bool(created))
     total_fee = subtotal + sanction_total + office_charge_total
 
     try:

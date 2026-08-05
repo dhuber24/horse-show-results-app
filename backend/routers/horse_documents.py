@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.responses import Response
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from typing import Any, Optional
@@ -181,31 +183,24 @@ async def list_horse_documents(
     return result.scalars().all()
 
 
-@router.post("/{horse_id}/documents/analyze", response_model=DocumentExtractionOut)
-async def analyze_horse_document(
-    horse_id: UUID,
-    file: UploadFile = File(...),
-    user_id: str = Depends(require_authenticated),
-    x_user_role: str = Header(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Read a document and suggest field values, without saving anything.
+async def _analyze_and_record(
+    file: UploadFile,
+    horse_id: Optional[UUID],
+    user_id: str,
+    db: AsyncSession,
+) -> DocumentExtractionOut:
+    """Read a document, record the read, and hand back the suggestion.
 
-    Gated on the same permission as upload, not the (broader) view permission:
-    this reads the contents of a file being added to someone's horse, so whoever
-    can call it should already be allowed to add documents there.
+    Shared by both analyze endpoints. `horse_id` is None when the document is
+    read before its horse exists (the add-a-horse wizard); it gets filled in
+    when the queued document is finally saved.
 
-    Always returns 200 with a status the uploader can act on. A model that is
-    unavailable, unconfigured, or defeated by a bad scan just means the form
-    gets filled in by hand, which is how it worked before this endpoint existed
-    — turning that into an error would break upload for everyone the moment the
-    extraction service had a bad day.
+    Always returns a result the uploader can act on rather than raising for a
+    failed read. A model that is unavailable, unconfigured, or defeated by a bad
+    scan just means the form gets filled in by hand, which is how it worked
+    before extraction existed — turning that into an error would break upload
+    for everyone the moment the extraction service had a bad day.
     """
-    horse = await db.get(Horse, horse_id)
-    if not horse:
-        raise HTTPException(404, "Horse not found")
-    await _assert_can_manage(horse, user_id, x_user_role, db)
-
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(400, "File too large (max 10 MB)")
@@ -243,6 +238,28 @@ async def analyze_horse_document(
         low_confidence_fields=fields.get('low_confidence_fields') or [],
         notes=fields.get('notes'),
     )
+
+
+@router.post("/{horse_id}/documents/analyze", response_model=DocumentExtractionOut)
+async def analyze_horse_document(
+    horse_id: UUID,
+    file: UploadFile = File(...),
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read a document for an existing horse, without saving anything.
+
+    Gated on the same permission as upload, not the (broader) view permission:
+    this reads the contents of a file being added to someone's horse, so whoever
+    can call it should already be allowed to add documents there.
+    """
+    horse = await db.get(Horse, horse_id)
+    if not horse:
+        raise HTTPException(404, "Horse not found")
+    await _assert_can_manage(horse, user_id, x_user_role, db)
+
+    return await _analyze_and_record(file, horse_id, user_id, db)
 
 
 def _overridden_fields(suggested: dict[str, Any], saved: dict[str, Any]) -> list[str]:
@@ -317,7 +334,14 @@ async def upload_horse_document(
             extraction_uuid = None
         if extraction_uuid is not None:
             extraction = await db.get(DocumentExtraction, extraction_uuid)
-            if extraction and (extraction.horse_id != horse_id or extraction.document_id is not None):
+            # A NULL horse_id means the read happened before the horse existed
+            # (add-a-horse wizard) — that one gets claimed and attached here.
+            # Anything already claimed, or belonging to a different horse, is
+            # dropped.
+            if extraction and (
+                extraction.document_id is not None
+                or (extraction.horse_id is not None and extraction.horse_id != horse_id)
+            ):
                 extraction = None
 
     if extraction is not None:
@@ -327,6 +351,7 @@ async def upload_horse_document(
             'issue_date': doc.issue_date.isoformat() if doc.issue_date else None,
             'expiry_date': doc.expiry_date.isoformat() if doc.expiry_date else None,
         }
+        extraction.horse_id = horse_id  # no-op unless the read predated the horse
         extraction.document_id = doc.id
         extraction.accepted = saved
         extraction.overridden_fields = _overridden_fields(extraction.extracted or {}, saved)
@@ -395,3 +420,45 @@ async def delete_horse_document(
 
     await db.delete(doc)
     await db.commit()
+
+
+# --- Reading a document before its horse exists ------------------------------
+# The add-a-horse wizard stages documents in the browser and saves them only
+# after the horse is created, so the horse-scoped endpoint above cannot serve
+# it — there is no horse to authorize against yet.
+
+def _extraction_rate_key(request: Request) -> str:
+    """Rate-limit per user, not per IP.
+
+    Every request reaches the backend from the Next.js server, so the client
+    address is the same for everyone and an IP-keyed limit would be a global
+    cap — one busy user would lock out the rest. The user id is attached
+    server-side by `getAuthHeaders()` and cannot be set by the browser.
+    """
+    return request.headers.get("x-user-id") or get_remote_address(request)
+
+
+_extraction_limiter = Limiter(key_func=_extraction_rate_key)
+
+documents_router = APIRouter(prefix="/documents", tags=["HorseDocuments"])
+
+
+@documents_router.post("/analyze", response_model=DocumentExtractionOut)
+@_extraction_limiter.limit("20/minute")
+async def analyze_unattached_document(
+    request: Request,
+    file: UploadFile = File(...),
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read a document that is not attached to a horse yet.
+
+    Authentication is the only gate available here: with no horse there is
+    nothing to check ownership against. That is a genuinely weaker check than
+    the horse-scoped endpoint, so the exposure is worth stating plainly — a
+    signed-in user can read any file they already hold. They learn nothing
+    about anyone else's data, and the resulting row is written with a NULL
+    `horse_id` until a save attaches it, but it does spend model tokens, which
+    is why it is rate limited.
+    """
+    return await _analyze_and_record(file, None, user_id, db)

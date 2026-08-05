@@ -34,15 +34,15 @@ Codex note: when changing show visibility, scorekeeper access, or result entry b
 
 ## Show Setup Wizard
 
-Show creation runs through a five-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`).
+Show creation runs through a five-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
 
 Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; the wizard's Step 1 secretary assignment writes to `show_secretaries`.
 
 | Step | Route | What it does |
 | --- | --- | --- |
 | 1. Basics | `/admin/shows/new` | Name, show type, dates, venue, Show Secretary. Secretary can be picked from `GET /users/by-role?role=SHOW_SECRETARY` or inline-created via `POST /users/with-password`. Show Managers may only inline-create `SHOW_SECRETARY` accounts (extended check in `routers/people.py`). |
-| 2. Judges | `/admin/shows/[id]/setup/judges` | Reuses `JudgesEditor` — list / add / edit `show_judges` rows. |
-| 3. Sanctioning | `/admin/shows/[id]/setup/sanctioning` | Pick zero or more `sanctioned_associations` (NSBA, WSCA, ...) and set a `per_class_fee_cents` for each. Wraps `PUT /shows/{id}/sanctioning` which replaces the full set. Users can also submit `POST /sanctioned-association-requests` if they need a new sanctioning body added — admin reviews via `POST /sanctioned-association-requests/{id}/review`. |
+| 2. Judges | `/admin/shows/[id]/setup/judges` | Reuses `JudgesEditor` — **picks** judges from the `judges` registry (`GET /judges/`) and assigns them with `POST /shows/{id}/judges`. Name, contact details, and association cards are displayed read-only from the registry; show setup cannot edit them. A judge who isn't in the registry yet is added to it (`POST /judges/`) and assigned in one step. |
+| 3. Sanctioning | `/admin/shows/[id]/setup/sanctioning` | Pick zero or more `sanctioned_associations` (NSBA, WSCA, ...) and set a `per_class_fee_cents` for each. Wraps `PUT /shows/{id}/sanctioning` which replaces the full set. The "+ Request new sanctioned club" link expands the request form on demand (`POST /sanctioned-association-requests`) — admin reviews via `POST /sanctioned-association-requests/{id}/review`. |
 | 4. Lodging & Boarding | `/admin/shows/[id]/setup/lodging` | Three structured slots written into `show_fees` with codes `stall` / `shavings` / `camping`, plus a `shows.shavings_ban_outside` policy bool. Camping uses a free-text notes field to capture "includes electric hookup" or similar. |
 | 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus three structured slots in `show_fees` with codes `standard_class` / `jackpot` / `futurity`. Sanctioning per-class fees are read-only here and link back to Step 3. |
 
@@ -65,6 +65,14 @@ The old per-show Standard Library matrix picker (`MatrixSetupClient`, `POST /sho
 - Class records require **both** `division_id` and `section_id` (migration 061) and the `(division_id, section_id)` pair must be a row in `division_sections` — enforced by a composite FK. The class create/edit forms gate the section dropdown on the chosen division and only show sections that belong to it. The Classes page (`/admin/shows/[id]/classes`) redirects until at least one ring and one division exist.
 - Rings, divisions, and sections cannot be deleted while any class still references them (the API returns 409 and the UI disables the delete button accordingly). Removing a division from a section that still has classes pairing them also returns 409.
 - Demographic splits (Open / Amateur / Youth / SPB) for APHA are still tracked per entry via `entries.apha_division`, not at the section or division level. Sections are about age/skill brackets at the class level, not entry-level eligibility.
+
+## OPEN Class Setup Wizard
+
+`ClassWizardClient` (`/admin/shows/[id]/classes`, OPEN shows) runs three steps — disciplines, divisions, classes — and drops into a hub overview once all three have data, so editing one section doesn't mean walking back through the other two. Its UI contract:
+
+- **Every step ends in a save/finish bar** (`StepFooter`), stuck to the bottom of the viewport. The standard libraries and the class matrix are long enough to push a static footer out of sight, and a save button you have to scroll to find reads as a save button that doesn't exist. Steps 1 and 2 save pending picks; step 3 finishes (its classes are already saved).
+- **Step 3 puts the picker first and folds the schedule underneath it.** Clicking a `(Division × Discipline)` cell creates the class immediately, so the matrix is what the secretary works in; the "Classes added (N)" disclosure below it opens the drag-to-reorder / delete list. The live count in its header and the ✓ on the cell are the feedback that a click landed.
+- Step 3's finish button is disabled while creates are still draining, so nobody leaves mid-queue.
 
 ## Schedule Builder
 
@@ -95,6 +103,34 @@ The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the cli
 - A class with `status = "CLOSED"` rejects new entries at the backend (`backend/routers/entries.py::create_entry`); the EditClassCard status toggle is how secretaries close a class.
 - Association-specific entry validation runs in `backend/rules`. AQHA currently blocks invalid entries when the app can verify the data: missing official AQHA class code, missing AQHA horse registration, missing AQHA exhibitor membership number, youth/select DOB failures, youth stallion entries, junior/senior horse-age mismatches, ranch/VRH minimum-age failures, and 2-year-old performance classes before July 1.
 
+## Paperwork Check-In
+
+Registration papers and membership cards are checked on paper at the desk, against the numbers the exhibitor typed into their profile. The show office records what it inspected at `/admin/shows/[id]/check-in`, backed by [backend/routers/show_office.py](../backend/routers/show_office.py) and `show_verifications` (migration 090).
+
+Three checks, from the three things staff physically hold:
+
+| Check | Held against | Signed off per |
+| --- | --- | --- |
+| Horse age | The foaling date printed on the registration papers | Horse |
+| Horse registration | Each registration number on the papers | Horse × association |
+| Rider membership | Each membership card | Exhibitor × association |
+
+- **The roster is derived, not configured.** Everyone with a `show_entries` row (sign-up, or the shell row a secretary creates when hand-adding an entry) plus everyone with a class entry. Horses come from the show's entries, so a horse only needs papers checked once it is actually competing.
+- **Sign-offs snapshot the value they were held against.** `verified_value` records what was on file at the time, so an exhibitor editing the number afterwards flips the check to `stale` rather than leaving it green. Statuses are `verified`, `stale`, `unverified`, and `not_on_file` (nothing on the profile to check against — the record has to be filled in first).
+- **The value is never sent by the client.** `POST /shows/{id}/verifications` takes only the subject (`kind` plus the ids); the backend reads the current value off the record itself. A caller able to name the value it "verified" could attest to a number nobody has on file.
+- **Re-signing replaces, it does not stack.** Posting the same subject twice updates the one row — that is how a stale check is cleared once staff have seen the new paper. `DELETE /shows/{id}/verifications/{id}` undoes a sign-off recorded against the wrong row.
+- **Scope is one show.** A verification is this show's attestation that its own office saw the document. The next show runs its own sweep — see [docs/database.md](database.md) for why.
+- **Nothing here gates entry.** The Coggins gate is the one hard stop, and deliberately stays the only one; an office mid-sweep must still be able to run its show. Checking is limited to ADMIN / SHOW_SECRETARY / SHOW_MANAGER with access to that show, and the subject must be on that show's roster (403 otherwise).
+
+### Creating a horse for an exhibitor
+
+Someone arrives at the desk with a horse that was never added to their profile. `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` lets show staff create it for them, offered inline on the check-in screen.
+
+- Limited to exhibitors **on that show's roster** — staff get this reach because the person is standing in front of them at *their* show, not as a general licence to write to strangers' profiles.
+- The exhibitor ends up owning the horse and it is linked via `exhibitor_horses`, so it appears in their own horse list and in the Add Entry picker immediately.
+- `created_by_exhibitor_id` stays NULL (they did not add it) and `created_by_user_id` records the staff member who did.
+- The request body carries no owner-selection fields, and `build_horse_with_registrations()` in [backend/routers/people.py](../backend/routers/people.py) drops the inherited `owner_exhibitor_id`, so no body shape can point the horse at somebody else. That helper and `assert_registrations_available()` are shared with the exhibitor's own add-a-horse wizard, so both paths file registrations in the same transaction as the horse.
+
 ## Association Class Setup
 
 - APHA and AQHA shows can bulk-add classes from official standard-class catalogs at `/admin/shows/[id]/classes`.
@@ -121,15 +157,42 @@ The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the cli
 - Exhibitor membership-card documents can be tagged to a specific association (`show_type_id`) for multi-association shows.
 - Exhibitors can manage horse relationships across owner-linked horses, created horses, and linked horses.
 
+### Horse Access and Ownership Transfer
+
+Adding a horse **somebody else owns** takes that owner's approval, and handing a horse over takes the recipient's acceptance. Both run through `horse_access_requests` (migration 087) and [backend/routers/horse_access.py](../backend/routers/horse_access.py).
+
+- `POST /exhibitors/{id}/linked-horses` still links outright when the horse has **no** owner on the platform (`horses.owner_exhibitor_id IS NULL`) — there is nobody to ask. When it does have an owner, it returns `409 OWNER_APPROVAL_REQUIRED` carrying the owner's name, and the profile screen turns that into an "Ask {owner} for approval" button.
+- `POST /horse-access-requests` with `kind: 'link'` asks the owner; with `kind: 'transfer'` (owner only, `to_exhibitor_id` required) offers the horse to another **registered user** — transfer targets must have an account, since accepting requires signing in.
+- The approver decides either way:
+  - from the emailed link at `/horse-requests/[token]` (`POST /horse-access-requests/by-token/{token}/respond`), which needs no session — the recipient of a transfer may never have used the app before;
+  - or in-app from the "Waiting on you" panel on the My Horses tab (`POST /horse-access-requests/{id}/respond`), because being signed in as the approver is at least as strong a claim as holding the token. Both call the same `_apply_decision`.
+- Approving a `link` writes the `exhibitor_horses` row. Approving a `transfer` moves `horses.owner_exhibitor_id` and puts the horse on the recipient's profile; the former owner keeps whatever profile access they already had, so a sale doesn't erase the horse from the seller's record mid-show.
+- **Email is best-effort.** [backend/mailer.py](../backend/mailer.py) sends over stdlib SMTP when `SMTP_HOST` is configured and returns `None` (logged, non-fatal) when it isn't. The create response always includes `approval_url`, and the UI always shows it for copy and paste — an undelivered email must never be the reason a horse can't change hands. `horse_access_requests.email_sent` records which happened.
+- Requests expire after 30 days, are single-use, and can be cancelled by the requester. Aging to `expired` happens lazily, the next time anyone reads the request.
+
 ## Exhibitor Self-Registration
 
-Exhibitors can register themselves for a show that is `PUBLISHED`. The flow lives at `/shows/[id]/register`, surfaced as a CTA on the show detail page for any logged-in `EXHIBITOR` while the show is `PUBLISHED`.
+Exhibitors register themselves for a show that is `PUBLISHED`, in **two steps, in order**:
+
+1. **Show sign-up** at `/shows/[id]/signup` — creates the `show_entries` row and captures what the show office needs to run the grounds: stalls, bags of shavings, camping nights. This is the CTA on the show detail page; anyone already signed up is forwarded on to step 2 rather than re-entering their numbers.
+2. **Class registration** at `/shows/[id]/register` — pick a horse per class.
+
+Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_REQUIRED` when `show_entries.registered_at` is NULL, and the registration screen renders a "sign up first" card instead of a class picker rather than letting someone fill one in and be turned away on submit. The ordering is the point — the office wants stall counts before it has a ring full of horses.
+
+### Show Sign-Up
+
+- `GET /shows/{id}/register/signup` returns the show, the caller's exhibitor profile, the reservable fee options, and their current sign-up (`null` until completed).
+- `PUT /shows/{id}/register/signup` accepts `{ reservations: [{ show_fee_id, quantity }], arrival_date?, departure_date?, notes? }`. Idempotent — the same call handles the first sign-up and every edit after it while the show is `PUBLISHED`. Reservations are **replaced wholesale**, so a removed option disappears rather than lingering at its old quantity.
+- What can be reserved comes from the show's own `show_fees` catalog, filtered by unit: `per_stall`, `per_bag`, `per_night` (`RESERVABLE_FEE_UNITS` in [backend/billing.py](../backend/billing.py)). Prices are the secretary's numbers — there is no second place to configure them, and a show that adds its own per-stall fee is offered automatically. A show that has published no such fees can still be signed up for.
+- `shows.shavings_ban_outside` surfaces as a callout on the sign-up screen, since that policy is precisely what makes the shavings count matter.
+
+### Class Registration
 
 - Backend endpoints (`backend/routers/show_registration.py`):
-  - `GET /shows/{id}/register/preview` returns the show, the caller's exhibitor profile, OPEN classes with `entry_fee_cents`, the horses on the exhibitor's profile (owned + created + linked), and any existing entries (used to pre-disable already-entered horses).
+  - `GET /shows/{id}/register/preview` returns `signup` (null until sign-up is done), the show, the caller's exhibitor profile, OPEN classes with `entry_fee_cents`, the horses on the exhibitor's profile (owned + created + linked), and any existing entries (used to pre-disable already-entered horses).
   - `POST /shows/{id}/register/` accepts `{ entries: [{ class_id, horse_id, apha_division?, relationship_to_owner? }] }`. The exhibitor is resolved from the authenticated user — body never carries `exhibitor_id`.
 - Status gate: only `PUBLISHED` shows accept self-registration. Once a show flips to `ACTIVE`, `COMPLETED`, or back to `DRAFT`, the endpoint returns 403 and the show secretary must add late entries through the admin entries flow.
-- A `show_entries` row is auto-created on first registration (back number stays NULL — the secretary still assigns it).
+- The `show_entries` row comes from sign-up, not from class registration. Class registration no longer creates one silently — see the 409 above.
 - Coggins and association validation (`backend/rules`) run identically to the secretary entry create path. Association rules skip non-`ENTERED` entries via `DefaultRules.entry_is_active()`, which treats an unset status as ENTERED — validation runs before the entry is flushed, and `Entry.status`'s column default is not applied until flush. Code that builds an unsaved `Entry` for validation should still set `status="ENTERED"` explicitly. The preview endpoint includes each horse's Coggins readiness so the self-registration picker can grey out blocked horses before submit. AQHA errors still block at submit time, and a Coggins problem returns `422 COGGINS_EXPIRED`.
 
 ### Coggins Gate
@@ -153,9 +216,23 @@ Staff can read the paperwork before deciding: the Coggins warning on `CreateEntr
 - Fees are surfaced to the exhibitor in three layers; the app does not collect payment.
   - **Per-class entry fee** (`classes.entry_fee_cents`, migration 054, default 0). Set on the class editor or via the bulk "Set fee…" action on the schedule list.
   - **NSBA sanction fee** (auto-computed at preview/POST time). Any class whose primary `show_type_code` is `NSBA` or whose `class_associations` include an `NSBA` row carries an additional `max($3, 6% × entry_fee)` charge per entry, matching the official [NSBA sanction-fees rule](https://www.nsba.com/images/documents/Show-Approval-Documents/Sanction-Fees.pdf). The preview endpoint returns `is_nsba_approved` and `nsba_sanction_cents` per class; the form shows the rollup as a separate line item.
-  - **Office charge per horse** (`shows.office_charge_cents`, migration 055, default 0). One-time charge per distinct horse on the registration, set on the show edit page (Office charge per horse field). Typically covers drug testing and administrative overhead (NSBA World Show uses $75).
+  - **Office charge** (`shows.office_charge_cents`, migration 055, default 0), applied on `shows.office_charge_basis`: `per_back_number` charges the exhibitor once however many horses they bring, `per_horse` multiplies by distinct horses entered. Set on the show edit page. Typically covers drug testing and administrative overhead (NSBA World Show uses $75).
+  - **Stalls, shavings and camping** from show sign-up — `show_entry_reservations.quantity × show_fees.amount_cents`.
+  - All four are computed by `build_bill()` in [backend/billing.py](../backend/billing.py), shared by the registration screen, the sign-up screen, and the My Shows bill, so the three cannot quote different totals.
 - Exhibitors with no horses on their profile see an empty-state nudging them to add a horse first.
-- **Withdraw**: while the show is still `PUBLISHED`, exhibitors can withdraw any of their own entries inline (`DELETE /shows/{id}/register/entries/{entry_id}`). The registration screen renders each existing entry as a chip with an inline confirm; the dashboard ShowCard surfaces a "Manage registration" link to the same screen. Withdraw is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
+- **Removing a class**: while the show is still `PUBLISHED`, exhibitors can take themselves back out of any class they entered (`DELETE /shows/{id}/register/entries/{entry_id}`). The registration screen lists every entered class in a panel at the top of the page, each with a labelled **Remove** button and inline confirm, and repeats the control next to the class itself — removing a class the exhibitor picked by mistake is as ordinary an action as adding one, so it is not hidden inside a badge. Removal is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
+
+## My Shows and the Bill
+
+`GET /my-shows/` ([backend/routers/my_shows.py](../backend/routers/my_shows.py)) returns every show the calling exhibitor signed up for **or** has an entry in, each with an itemized bill from `build_bill()` and a result summary. One endpoint backs three surfaces so they cannot drift:
+
+| Surface | Route | Reads |
+| --- | --- | --- |
+| My Shows | `/my-shows` | The bill per show, plus outstanding total across active shows |
+| My Show Entries | `/dashboard` | Classes and placings (via `/dashboard/exhibitor/{id}`), with buttons back to the show page and the full class schedule |
+| Show History | `/profile?tab=history` | Past shows, each linking back to the show, its results, and its schedule |
+
+The app never collects payment — the bill is what the show office will collect, reported back.
 
 ## Scorekeeper Flow
 

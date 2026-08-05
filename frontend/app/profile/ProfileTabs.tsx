@@ -8,6 +8,8 @@ import TrainerHorsesPanel from './TrainerHorsesPanel';
 import TrainerProfileForm, { TrainerProfile } from './TrainerProfileForm';
 import TrainerAffiliationsPanel from '@/components/TrainerAffiliationsPanel';
 import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
+import ShowHistoryPanel from './ShowHistoryPanel';
+import type { MyShow } from '@/lib/my-shows';
 
 interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
 interface Registration { id: string; association_id: string; association_code: string; association_name: string; member_number: string; }
@@ -42,7 +44,7 @@ interface TrainerAffiliation {
   expires_at: string | null;
 }
 
-type Tab = 'account' | 'memberships' | 'horses' | 'affiliations';
+type Tab = 'account' | 'memberships' | 'horses' | 'affiliations' | 'history';
 
 interface Props {
   user: User;
@@ -54,6 +56,7 @@ interface Props {
   trainerProfile: TrainerProfile | null;
   trainerHorses: TrainerHorse[];
   trainerAffiliations: TrainerAffiliation[];
+  showHistory: MyShow[];
   initialTab?: Tab;
 }
 
@@ -82,12 +85,13 @@ export default function ProfileTabs({
   trainerProfile,
   trainerHorses,
   trainerAffiliations,
+  showHistory,
   initialTab,
 }: Props) {
   const isExhibitor = role === 'EXHIBITOR' && exhibitor !== null;
   const isTrainer = role === 'TRAINER';
   const allowedTabs: Tab[] = isExhibitor
-    ? ['account', 'memberships', 'horses']
+    ? ['account', 'memberships', 'horses', 'history']
     : isTrainer
       ? ['account', 'affiliations', 'horses']
       : ['account'];
@@ -110,6 +114,13 @@ export default function ProfileTabs({
               label={isTrainer ? 'Horses' : 'My Horses'}
               active={activeTab === 'horses'}
               onClick={() => setActiveTab('horses')}
+            />
+          )}
+          {isExhibitor && (
+            <TabButton
+              label="Show History"
+              active={activeTab === 'history'}
+              onClick={() => setActiveTab('history')}
             />
           )}
         </div>
@@ -158,6 +169,16 @@ export default function ProfileTabs({
             exhibitorId={exhibitor!.id}
             initialHorses={initialHorses}
           />
+        </div>
+      )}
+
+      {isExhibitor && activeTab === 'history' && (
+        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+          <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Show History</h2>
+          <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
+            Every show you&rsquo;ve competed in. Open any of them to see the schedule and results.
+          </p>
+          <ShowHistoryPanel shows={showHistory} />
         </div>
       )}
 

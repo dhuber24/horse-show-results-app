@@ -15,7 +15,8 @@ from dependencies import require_admin, require_admin_or_show_admin, require_aut
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association
 from schemas import (
     UserCreate, UserOut,
-    HorseCreate, HorseCreateWithRegistrations, HorseUpdate, HorseOut, MyHorseOut, HorseSearchMatch,
+    HorseCreate, HorseCreateWithRegistrations, HorseWithRegistrationsBase,
+    HorseUpdate, HorseOut, MyHorseOut, HorseSearchMatch,
     HorseRegistrationCreate, HorseRegistrationOut,
     HorseRiderOut, HorseRiderCreate,
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
@@ -380,6 +381,95 @@ def _digits_only(value: Optional[str]) -> str:
     if not value:
         return ""
     return re.sub(r"\D", "", value)
+
+
+async def assert_registrations_available(
+    registrations: list[HorseRegistrationCreate], db: AsyncSession
+) -> None:
+    """Every registration number is free and each association appears once.
+
+    Checked up front, before anything is inserted, so a number that is already
+    on file for a different horse never leaves a half-created horse behind.
+    Shared by the exhibitor's own add-a-horse wizard and the show office's
+    on-behalf-of path (`routers/show_office.py`).
+    """
+    seen_association_ids: set[UUID] = set()
+    for reg in registrations:
+        number = reg.registration_number.strip()
+        if not number:
+            raise HTTPException(400, "Registration number cannot be empty")
+        if reg.association_id in seen_association_ids:
+            raise HTTPException(409, "Each association can only have one registration number")
+        seen_association_ids.add(reg.association_id)
+
+        conflict = await db.execute(
+            select(Horse)
+            .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
+            .where(
+                HorseRegistration.association_id == reg.association_id,
+                HorseRegistration.registration_number == number,
+            )
+            .limit(1)
+        )
+        other = conflict.scalar_one_or_none()
+        if other:
+            suffix = f" (owner: {other.owner_name})" if other.owner_name else ""
+            raise HTTPException(
+                409,
+                f"Registration {number} is already on file for horse '{other.name}'{suffix}. "
+                f"If this is the same horse, contact your show secretary.",
+            )
+
+
+async def build_horse_with_registrations(
+    body: HorseWithRegistrationsBase,
+    owner_exhibitor_id: Optional[UUID],
+    created_by_exhibitor_id: Optional[UUID],
+    created_by_user_id: Optional[UUID],
+    db: AsyncSession,
+) -> Horse:
+    """Insert the horse and its registrations, flushed but not committed.
+
+    Left uncommitted so the caller owns the transaction — the registrations must
+    land with the horse or not at all, and a caller may have more to write in the
+    same unit of work. `assert_registrations_available` is expected to have run
+    first; the IntegrityError handling on commit is the race backstop.
+    """
+    # Take the horse's own fields and nothing else. Owner selection is resolved
+    # by the caller and passed explicitly, so no request shape — self-service or
+    # staff — can point the horse at an owner through the body.
+    dumped = body.model_dump()
+    horse_data = {
+        key: value
+        for key, value in dumped.items()
+        if key in HorseCreate.model_fields and key != 'owner_exhibitor_id'
+    }
+    breeds = await _pop_resolved_horse_breeds(horse_data, db)
+    await _resolve_horse_trainer_fields(horse_data, db)
+    horse = Horse(
+        **horse_data,
+        created_by_exhibitor_id=created_by_exhibitor_id,
+        created_by_user_id=created_by_user_id,
+        owner_exhibitor_id=owner_exhibitor_id,
+    )
+    if breeds is not None:
+        horse.breeds = breeds
+    db.add(horse)
+    await db.flush()
+
+    for reg in body.registrations:
+        db.add(HorseRegistration(
+            horse_id=horse.id,
+            association_id=reg.association_id,
+            registration_number=reg.registration_number.strip(),
+        ))
+    return horse
+
+
+async def load_my_horse(horse_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> MyHorseOut:
+    """Re-read a horse with everything MyHorseOut serializes."""
+    result = await db.execute(select(Horse).options(*_my_horse_options).where(Horse.id == horse_id))
+    return _my_horse_out(result.scalar_one(), exhibitor_id)
 
 
 async def _find_or_create_trainer_by_name_email(
@@ -1131,7 +1221,13 @@ async def link_existing_horse_to_self(
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    """Self-service: link an existing horse to the calling exhibitor's profile."""
+    """Self-service: link an existing horse to the calling exhibitor's profile.
+
+    Only horses nobody on the platform owns can be linked outright. If the horse
+    has an owner of record, linking it puts that owner's horse in someone else's
+    show-registration picker, so it takes the owner's consent — the caller is
+    sent to `POST /horse-access-requests` (migration 087) instead.
+    """
     result = await db.execute(
         select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
     )
@@ -1140,6 +1236,22 @@ async def link_existing_horse_to_self(
     horse = await db.get(Horse, body.horse_id)
     if not horse:
         raise HTTPException(404, "Horse not found")
+    if horse.owner_exhibitor_id is not None and horse.owner_exhibitor_id != exhibitor_id:
+        owner = await db.get(Exhibitor, horse.owner_exhibitor_id)
+        owner_name = owner.full_name if owner else (horse.owner_name or "the owner")
+        raise HTTPException(
+            409,
+            {
+                "code": "OWNER_APPROVAL_REQUIRED",
+                "message": (
+                    f"{horse.name} is owned by {owner_name}. Send them a request "
+                    "and the horse is added to your profile once they approve."
+                ),
+                "owner_name": owner_name,
+                "horse_id": str(horse.id),
+                "horse_name": horse.name,
+            },
+        )
     link = ExhibitorHorse(exhibitor_id=exhibitor_id, horse_id=body.horse_id)
     db.add(link)
     try:
@@ -1239,52 +1351,15 @@ async def create_horse_for_exhibitor(
         raise HTTPException(400, "Specify an owner: claim ownership, select an existing owner, or enter owner details.")
 
     # Pre-validate every registration before inserting anything.
-    seen_association_ids: set[UUID] = set()
-    for reg in body.registrations:
-        number = reg.registration_number.strip()
-        if not number:
-            raise HTTPException(400, "Registration number cannot be empty")
-        if reg.association_id in seen_association_ids:
-            raise HTTPException(409, "Each association can only have one registration number")
-        seen_association_ids.add(reg.association_id)
+    await assert_registrations_available(body.registrations, db)
 
-        conflict = await db.execute(
-            select(Horse)
-            .join(HorseRegistration, HorseRegistration.horse_id == Horse.id)
-            .where(
-                HorseRegistration.association_id == reg.association_id,
-                HorseRegistration.registration_number == number,
-            )
-            .limit(1)
-        )
-        other = conflict.scalar_one_or_none()
-        if other:
-            suffix = f" (owner: {other.owner_name})" if other.owner_name else ""
-            raise HTTPException(
-                409,
-                f"Registration {number} is already on file for horse '{other.name}'{suffix}. "
-                f"If this is the same horse, contact your show secretary.",
-            )
-
-    horse_data = body.model_dump(exclude={'owner_exhibitor_id', 'registrations', 'claim_ownership', 'owner_first_name', 'owner_last_name', 'owner_email'})
-    breeds = await _pop_resolved_horse_breeds(horse_data, db)
-    await _resolve_horse_trainer_fields(horse_data, db)
-    horse = Horse(
-        **horse_data,
-        created_by_exhibitor_id=exhibitor_id,
+    horse = await build_horse_with_registrations(
+        body,
         owner_exhibitor_id=resolved_owner_id,
+        created_by_exhibitor_id=exhibitor_id,
+        created_by_user_id=safe_uuid(user_id),
+        db=db,
     )
-    if breeds is not None:
-        horse.breeds = breeds
-    db.add(horse)
-    await db.flush()
-
-    for reg in body.registrations:
-        db.add(HorseRegistration(
-            horse_id=horse.id,
-            association_id=reg.association_id,
-            registration_number=reg.registration_number.strip(),
-        ))
 
     try:
         await db.commit()
@@ -1295,8 +1370,7 @@ async def create_horse_for_exhibitor(
             "One of the registrations conflicts with an existing record. Please verify and try again.",
         )
 
-    result = await db.execute(select(Horse).options(*_my_horse_options).where(Horse.id == horse.id))
-    return _my_horse_out(result.scalar_one(), exhibitor_id)
+    return await load_my_horse(horse.id, exhibitor_id, db)
 
 
 @exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])
