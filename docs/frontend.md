@@ -22,6 +22,21 @@ Authenticated browser actions should call a Next route handler. The route handle
 
 Prefer `safeFetchBackend()` when the backend may return `204 No Content` or a non-JSON error.
 
+**Never call `res.json()` on a backend response without a guard.** A backend 500 is not a JSON error
+envelope — it arrives as plain text, so `res.json()` throws. In a route handler that throw becomes a
+plain-text `Internal Server Error`, and in a server component it escapes the page entirely, skipping
+whatever "couldn't load this" branch the page already has. Either way the real status is replaced by
+an opaque `Unexpected token 'I', "Internal S"... is not valid JSON` on a screen that often has
+nothing to do with the actual fault, which is a genuinely hard error to trace back to its source.
+
+- Route handlers: use `safeFetchBackend()`, which returns `{ json, status }` and never throws.
+- Server components fetching the backend directly: parse with `readJsonBody(res)` from
+  `frontend/lib/backend-fetch.ts`. It returns `null` for a non-JSON (or `204`) body, so treat
+  `!res.ok || json === null` as the error case and fall back to the page's own message.
+
+Much of the existing code still calls `res.json()` unguarded; fix those as you touch them rather
+than in one sweep.
+
 Public spectator screens skip route handlers entirely: they are server components that call the unauthenticated helpers in `frontend/lib/api.ts` directly, so signed-out visitors are never a special case. Where such a page needs client-side interactivity over a lot of rows — searching, filtering, starring — fetch the whole set once on the server with an index endpoint (`fetchResultsIndex`, `fetchProgramIndex`) and hand it to a client component, rather than making the browser fetch per row.
 
 ## UI Patterns

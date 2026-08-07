@@ -178,6 +178,7 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 - Use `selectinload` for relationships needed by Pydantic serialization; avoid lazy-load surprises in async routes.
 - Authenticated frontend mutations should usually go through `frontend/app/api/` route handlers.
 - Route handlers should preserve backend status codes and use `safeFetchBackend()` when `204` responses are possible.
+- Never call `res.json()` on a backend response unguarded — a 500 comes back as plain text and the throw hides the real error behind an opaque parse error. Route handlers use `safeFetchBackend()`; server components use `readJsonBody()`. See `docs/frontend.md`.
 - Admin pages use `Breadcrumbs`.
 - Destructive UI actions use inline confirmation, not modal overlays.
 - Disabled buttons should include a `title` explaining why they are disabled.

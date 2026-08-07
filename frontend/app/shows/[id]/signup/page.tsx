@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/auth';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import SignupForm, { type SignupData } from './SignupForm';
 
 async function loadSignup(
@@ -13,8 +13,8 @@ async function loadSignup(
     headers,
     cache: 'no-store',
   });
-  const json = await res.json();
-  if (!res.ok) {
+  const json = await readJsonBody(res);
+  if (!res.ok || json === null) {
     return {
       data: null,
       error: json?.detail?.message || json?.detail || json?.error || 'Sign-up is not available for this show.',

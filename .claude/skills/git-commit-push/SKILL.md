@@ -28,7 +28,9 @@ this same procedure; this skill is the Claude Code path to the same result.
    could hold secrets before proceeding. `.claude/scheduled_tasks.lock`, if
    present and staged, should be unstaged — it's local scheduler state, not
    project content: `git restore --staged .claude/scheduled_tasks.lock`.
-3. **Run the documentation guard** — it blocks staged implementation/DB/
+3. **Run the guards.**
+
+   a. **Documentation guard** — it blocks staged implementation/DB/
    runtime/frontend changes without a matching docs update:
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
@@ -37,6 +39,28 @@ this same procedure; this skill is the Claude Code path to the same result.
    `database/README.md`, `frontend/README.md`) and stage that too, then
    re-run. Only bypass with `DOCS_CHECK_BYPASS=1 git commit ...` if the user
    explicitly approves skipping it for this commit.
+
+   b. **Migration guard** — if `git status --short` shows any staged file
+   under `database/migrations/`, apply migrations *before* committing:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File database/migrate.ps1
+   ```
+   The runner is idempotent (it skips anything already in `_migrations`), so
+   running it is itself the check — the output must end with
+   `Migrations complete.` and every staged migration must show as either
+   `applying:` or `skipped:`. Nothing else verifies this: the docs guard
+   treats `database/migrations/` as a change *needing docs*, not as one
+   needing to be applied.
+
+   This is not bookkeeping. `models.py` and the migration are written in the
+   same edit, but only the migration touches Neon — commit without applying
+   it and the ORM selects a column the database doesn't have. Every request
+   through that table 500s, and because most callers parse the response with
+   an unguarded `res.json()`, the user sees `Unexpected token 'I', "Internal
+   S"... is not valid JSON` on some *unrelated-looking* page rather than
+   anything naming the real column. Commit `304bc07` shipped migration 092
+   unapplied exactly this way (091 was applied earlier in the session, 092
+   was written after and never re-run) and broke show sign-up.
 4. **Write the commit message** matching actual repo style (not
    `CONTRIBUTING.md`'s `<type>(<scope>)`/`Fixes #` template, which isn't what's
    used):
@@ -118,6 +142,10 @@ It refuses to run from any branch but `main`, restages around
 pushes to `origin main` at the end — use it when the user wants the full
 commit+push in one step and hasn't asked for finer control over what gets
 staged.
+
+**It runs the docs guard only — not `database/migrate.ps1`.** If the change
+includes a migration, run step 3b yourself before invoking the script;
+otherwise the shortcut will happily push a migration that was never applied.
 
 ## Gotchas
 

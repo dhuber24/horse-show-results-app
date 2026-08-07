@@ -20,6 +20,26 @@ export async function getAuthHeaders(): Promise<Record<string, string> | null> {
 }
 
 /**
+ * Parses a backend response body as JSON, tolerating a body that isn't JSON.
+ *
+ * Not every backend failure is a JSON error envelope: an unhandled exception
+ * comes back as plain text, and calling res.json() on it throws. In a server
+ * component that throw escapes the page and renders the error boundary, so a
+ * page that already has a perfectly good "couldn't load this" branch never
+ * gets to show it — and the real status is replaced by an opaque
+ * "Unexpected token" parse error. Returns null instead, letting the caller
+ * fall back to its own message.
+ */
+export async function readJsonBody(res: Response): Promise<any> {
+  if (res.status === 204) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Safely fetch from backend with error handling.
  * Returns parsed JSON response on success, or error response object.
  */

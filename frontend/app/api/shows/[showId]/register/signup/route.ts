@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
   const { showId } = await params;
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const res = await fetch(`${API_URL}/shows/${showId}/register/signup`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/register/signup`, {
     headers,
     cache: 'no-store',
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
@@ -20,11 +19,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const res = await fetch(`${API_URL}/shows/${showId}/register/signup`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/register/signup`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
