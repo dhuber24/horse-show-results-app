@@ -53,7 +53,7 @@ def _generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _approval_url(token: str) -> str:
+def approval_url(token: str) -> str:
     return f"{public_app_url()}/horse-requests/{token}"
 
 
@@ -143,7 +143,7 @@ def _out(request: HorseAccessRequest, caller_exhibitor_id: UUID | None = None) -
     )
     return {
         "approval_url": (
-            _approval_url(request.token)
+            approval_url(request.token)
             if is_requester and request.status == "pending"
             else None
         ),
@@ -170,7 +170,7 @@ def _out(request: HorseAccessRequest, caller_exhibitor_id: UUID | None = None) -
 # ── Notification copy ─────────────────────────────────────────────────────────
 
 def _email_body(request: HorseAccessRequest) -> tuple[str, str]:
-    url = _approval_url(request.token)
+    url = approval_url(request.token)
     note = f"\n\nThey added a note:\n{request.message}\n" if request.message else "\n"
     if request.kind == "link":
         subject = f"{request.requested_by_name} wants to add {request.horse_name} to their profile"
@@ -195,6 +195,56 @@ def _email_body(request: HorseAccessRequest) -> tuple[str, str]:
             f"{REQUEST_TTL_DAYS} days.\n"
         )
     return subject, body
+
+
+# ── Opening a request ─────────────────────────────────────────────────────────
+
+async def build_access_request(
+    kind: str,
+    horse: Horse,
+    requester: Exhibitor,
+    approver: Exhibitor,
+    db: AsyncSession,
+    message: Optional[str] = None,
+) -> HorseAccessRequest:
+    """Stage a pending request. Added to the session but neither flushed nor
+    committed, so the unique-pending-per-horse constraint surfaces on the
+    caller's commit where it can be turned into a 409 — and so a caller
+    creating the horse in the same transaction gets both rows or neither.
+
+    Shared with `people.create_horse_for_exhibitor`, which reaches this when a
+    rider files a horse against an owner who already has an account: the record
+    is new, but putting it on the rider's profile is the same question this
+    table exists to ask.
+    """
+    request = HorseAccessRequest(
+        token=_generate_token(),
+        kind=kind,
+        horse_id=horse.id,
+        horse_name=horse.name,
+        requester_exhibitor_id=requester.id,
+        requested_by_name=requester.full_name,
+        approver_exhibitor_id=approver.id,
+        approver_name=approver.full_name,
+        approver_email=await _exhibitor_email(approver, db),
+        message=message,
+        expires_at=_now() + timedelta(days=REQUEST_TTL_DAYS),
+    )
+    db.add(request)
+    return request
+
+
+async def notify_request(request: HorseAccessRequest, db: AsyncSession) -> None:
+    """Mail the approver and record whether it went out. Commits.
+
+    Called only after the request itself is committed: the request exists
+    whether or not the mail does, and every caller hands the approval link back
+    for copy/paste, so an unset SMTP_HOST is never the reason a horse can't
+    change hands.
+    """
+    subject, mail_body = _email_body(request)
+    request.email_sent = await send_email(request.approver_email, subject, mail_body)
+    await db.commit()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -238,20 +288,9 @@ async def create_request(
     if not approver:
         raise HTTPException(404, "The person who needs to approve this was not found")
 
-    request = HorseAccessRequest(
-        token=_generate_token(),
-        kind=body.kind,
-        horse_id=horse.id,
-        horse_name=horse.name,
-        requester_exhibitor_id=requester.id,
-        requested_by_name=requester.full_name,
-        approver_exhibitor_id=approver.id,
-        approver_name=approver.full_name,
-        approver_email=await _exhibitor_email(approver, db),
-        message=body.message,
-        expires_at=_now() + timedelta(days=REQUEST_TTL_DAYS),
+    request = await build_access_request(
+        body.kind, horse, requester, approver, db, message=body.message
     )
-    db.add(request)
     try:
         await db.commit()
     except IntegrityError:
@@ -263,15 +302,10 @@ async def create_request(
         )
     await db.refresh(request)
 
-    # Delivery is best-effort and deliberately after the commit: the request
-    # exists whether or not the mail goes out, and the caller always gets the
-    # link back to pass along by hand.
-    subject, mail_body = _email_body(request)
-    request.email_sent = await send_email(request.approver_email, subject, mail_body)
-    await db.commit()
+    await notify_request(request, db)
     await db.refresh(request)
 
-    return {**_out(request, requester.id), "approval_url": _approval_url(request.token)}
+    return {**_out(request, requester.id), "approval_url": approval_url(request.token)}
 
 
 @router.get("/", response_model=list[HorseAccessRequestOut])

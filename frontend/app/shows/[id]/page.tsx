@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Fragment } from 'react';
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { auth } from '@/auth';
+import VisitorShowView from './_components/VisitorShowView';
 
 function formatClassDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -16,6 +17,15 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const role = (session?.user as any)?.role;
   const canScore = (role === 'ADMIN' || role === 'SCOREKEEPER');
   const canSelfRegister = role === 'EXHIBITOR';
+
+  // A visitor with no account gets the event details and the two things they
+  // can act on, not a class list. The classes fetch is skipped entirely for
+  // them — nothing on their screen reads it. The rail screens (/live,
+  // /schedule, /results) stay open to everyone; this gates the browsing path.
+  if (!session) {
+    const show = await fetchShow(id);
+    return <VisitorShowView showId={id} show={show} />;
+  }
 
   const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
   const registrationOpen = show.status === 'PUBLISHED';

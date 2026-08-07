@@ -36,6 +36,8 @@ from sqlalchemy.orm import selectinload
 
 from billing import (
     build_bill,
+    early_rate_is_open,
+    fee_rate_cents,
     nsba_sanction_cents,
     office_charge_total_cents,
     reservable_fees,
@@ -185,6 +187,39 @@ async def _load_reservable_fees(show_id: UUID, db: AsyncSession) -> list[ShowFee
     return reservable_fees(result.scalars().all())
 
 
+def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> list[dict]:
+    """The reservable fees, each priced for *this* exhibitor.
+
+    `rate_cents` is what they will actually be charged, and is the only number
+    the sign-up screen should multiply by a quantity — quoting `amount_cents`
+    while `build_bill` charges the early rate is exactly the disagreement
+    billing.py exists to prevent.
+
+    Two rates can be in play at once on the same screen: a line they already
+    booked keeps the rate it was booked at, while a line they have not booked
+    is quoted at today's. `early_rate_open` is the second of those, so the
+    screen can nudge someone to reserve before the deadline.
+    """
+    booked_on = {
+        r.show_fee_id: r.reserved_at for r in (show_entry.reservations if show_entry else []) or []
+    }
+    return [
+        {
+            "id": str(f.id),
+            "code": f.code,
+            "label": f.label,
+            "unit": f.unit,
+            "amount_cents": f.amount_cents,
+            "rate_cents": fee_rate_cents(f, booked_on.get(f.id)),
+            "early_amount_cents": f.early_amount_cents,
+            "early_deadline": f.early_deadline,
+            "early_rate_open": early_rate_is_open(f),
+            "notes": f.notes,
+        }
+        for f in fees
+    ]
+
+
 def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
     if show_entry is None or show_entry.registered_at is None:
         return None
@@ -289,17 +324,7 @@ async def get_signup(
             "shavings_ban_outside": show.shavings_ban_outside,
         },
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
-        "fee_options": [
-            {
-                "id": str(f.id),
-                "code": f.code,
-                "label": f.label,
-                "unit": f.unit,
-                "amount_cents": f.amount_cents,
-                "notes": f.notes,
-            }
-            for f in fees
-        ],
+        "fee_options": _fee_options_out(fees, show_entry),
         "signup": _signup_out(show_entry),
     }
 
@@ -316,9 +341,15 @@ async def save_signup(
 
     Idempotent by design — the exhibitor can come back and change their stall
     count while the show is still PUBLISHED, and the same call handles both the
-    first sign-up and every edit after it. Reservations are replaced wholesale
-    rather than patched: the body is the complete booking, so a fee the
-    exhibitor removed disappears instead of lingering at its old quantity.
+    first sign-up and every edit after it. The body is the complete booking, so
+    a fee the exhibitor removed disappears instead of lingering at its old
+    quantity.
+
+    Lines they still want are updated in place rather than deleted and
+    recreated, because `reserved_at` is what decides whether they get the
+    fee's early rate. Recreating the row would re-date it, so an exhibitor who
+    reserved stalls in April would silently lose their early rate the moment
+    they came back in July to change their arrival date.
     """
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
@@ -351,13 +382,27 @@ async def save_signup(
     show_entry.departure_date = body.departure_date
     show_entry.registration_notes = body.notes
 
-    # delete-orphan on the relationship turns this reassignment into the
-    # replacement described above.
-    show_entry.reservations = [
-        ShowEntryReservation(show_fee_id=item.show_fee_id, quantity=item.quantity)
-        for item in body.reservations
-        if item.quantity > 0
-    ]
+    wanted = {
+        item.show_fee_id: item.quantity for item in body.reservations if item.quantity > 0
+    }
+    existing_by_fee = {r.show_fee_id: r for r in (show_entry.reservations or [])}
+    for fee_id, quantity in wanted.items():
+        row = existing_by_fee.get(fee_id)
+        if row is None:
+            # Set here rather than left to the column default: an unset
+            # server-default column comes back expired after the INSERT, and
+            # reading it below would be a lazy load in an async session.
+            show_entry.reservations.append(
+                ShowEntryReservation(
+                    show_fee_id=fee_id, quantity=quantity, reserved_at=date.today()
+                )
+            )
+        else:
+            row.quantity = quantity
+    for fee_id, row in existing_by_fee.items():
+        if fee_id not in wanted:
+            # delete-orphan on the relationship turns this into a DELETE.
+            show_entry.reservations.remove(row)
 
     try:
         await db.commit()
@@ -367,7 +412,7 @@ async def save_signup(
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     reservation_total = sum(
-        fees_by_id[r.show_fee_id].amount_cents * r.quantity
+        fee_rate_cents(fees_by_id[r.show_fee_id], r.reserved_at) * r.quantity
         for r in (show_entry.reservations or [])
         if r.show_fee_id in fees_by_id
     )

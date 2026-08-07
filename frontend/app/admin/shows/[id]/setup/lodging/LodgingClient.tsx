@@ -10,6 +10,8 @@ export type FeeRow = {
   amount_cents: number;
   unit: string;
   notes: string | null;
+  early_amount_cents: number | null;
+  early_deadline: string | null;
 };
 
 const COLORS = {
@@ -25,6 +27,10 @@ type SlotState = {
   feeId: string | null;
   dollars: string;
   notes: string;
+  /** Early-bird rate. Both fields or neither — the backend rejects a half-set
+   *  pair rather than storing a discount that would never fire. */
+  earlyDollars: string;
+  earlyDeadline: string;
 };
 
 const SLOTS = [
@@ -46,6 +52,27 @@ function dollarsToCents(input: string): number {
   const n = Number.parseFloat(input);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100);
+}
+
+type EarlyFields = { early_amount_cents: number | null; early_deadline: string | null };
+
+/** The early-bird half of a slot's payload, or the reason it can't be sent. */
+function earlyFields(slot: SlotState, standardCents: number): EarlyFields | { error: string } {
+  const hasAmount = slot.earlyDollars.trim() !== '';
+  const hasDeadline = slot.earlyDeadline.trim() !== '';
+  if (!hasAmount && !hasDeadline) {
+    return { early_amount_cents: null, early_deadline: null };
+  }
+  if (hasAmount !== hasDeadline) {
+    return {
+      error: 'an early rate needs both a discounted amount and a "reserve by" date.',
+    };
+  }
+  const earlyCents = dollarsToCents(slot.earlyDollars);
+  if (earlyCents > standardCents) {
+    return { error: 'the early rate must be lower than the standard rate.' };
+  }
+  return { early_amount_cents: earlyCents, early_deadline: slot.earlyDeadline };
 }
 
 export default function LodgingClient({
@@ -74,6 +101,9 @@ export default function LodgingClient({
         feeId: fee?.id ?? null,
         dollars: fee ? centsToDollars(fee.amount_cents) : '',
         notes: fee?.notes ?? '',
+        earlyDollars:
+          fee?.early_amount_cents != null ? centsToDollars(fee.early_amount_cents) : '',
+        earlyDeadline: fee?.early_deadline ?? '',
       };
     }
     return base;
@@ -110,6 +140,14 @@ export default function LodgingClient({
         const cents = dollarsToCents(slot.dollars);
         const isEmpty = slot.dollars.trim() === '';
 
+        // Caught here as well as server-side so the secretary sees which of
+        // the three rows is wrong, rather than a bare 422 on "save".
+        const early = earlyFields(slot, cents);
+        if ('error' in early) {
+          setError(`${s.label}: ${early.error}`);
+          return;
+        }
+
         if (slot.feeId && isEmpty) {
           // remove
           const res = await fetch(`/api/shows/${showId}/fees/${slot.feeId}`, {
@@ -127,6 +165,7 @@ export default function LodgingClient({
             body: JSON.stringify({
               amount_cents: cents,
               notes: slot.notes.trim() || null,
+              ...early,
             }),
           });
           if (!res.ok) {
@@ -144,6 +183,7 @@ export default function LodgingClient({
               unit: s.unit,
               amount_cents: cents,
               notes: slot.notes.trim() || null,
+              ...early,
             }),
           });
           if (!res.ok) {
@@ -225,6 +265,40 @@ export default function LodgingClient({
                     placeholder={
                       s.code === 'camping' ? 'e.g. Includes electric hookup' : ''
                     }
+                  />
+                </label>
+              </div>
+              <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
+                <span className="text-xs" style={{ color: COLORS.muted }}>
+                  Early rate{' '}
+                  <span style={{ color: '#a08a6e' }}>
+                    (optional — cheaper if they reserve by the date)
+                  </span>
+                </span>
+                <label className="block">
+                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    Early amount ($)
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={slot.earlyDollars}
+                    onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                    style={{ borderColor: COLORS.border }}
+                    placeholder="e.g. 60.00"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    Reserve by
+                  </span>
+                  <input
+                    type="date"
+                    value={slot.earlyDeadline}
+                    onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                    style={{ borderColor: COLORS.border }}
                   />
                 </label>
               </div>

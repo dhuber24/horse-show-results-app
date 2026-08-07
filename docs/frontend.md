@@ -49,9 +49,11 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/shows/[id]/results` | Public results index (posted vs awaiting) |
 | `/shows/[id]/leaderboard` | Public high-point standings (placeholder — scoring model pending) |
 | `/shows/[id]/details` | Public show details: venue, dates, associations, policies |
-| `/shows/[id]` | Public show detail and scorekeeper class links. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCOREKEEPER; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
+| `/shows/[id]` | **Signed out:** event details plus two actions — *Register for this show* and *Contact show staff*. No class schedule; someone deciding whether to enter does not need a wall of class numbers. **Signed in:** the class list as before. Public show detail and scorekeeper class links. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCOREKEEPER; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
 | `/shows/[id]/classes/[classId]` | Public class results |
 | `/shows/[id]/classes/[classId]/scorekeeper` | Scorekeeper placing form |
+| `/shows/[id]/contact` | Public contact form for the show office. No account needed |
+| `/admin/shows/[id]/messages` | Show staff inbox for those messages (read / archive / reply by mailto) |
 | `/shows/[id]/signup` | Exhibitor show sign-up — stalls, shavings, camping. Required before class registration; forwards on if already signed up |
 | `/shows/[id]/register` | Exhibitor class registration. Renders a "sign up first" card until `/signup` is done |
 | `/scorekeeper` | Scorekeeper assigned shows |
@@ -73,6 +75,9 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/api/horse-access-requests/by-token/[token]` | Read a request from the emailed link (no session) |
 | `/api/horse-access-requests/by-token/[token]/respond` | Approve or decline from the emailed link (no session) |
 | `/api/shows/[showId]/register/signup` | Show sign-up read (`GET`) and save (`PUT`) |
+| `/api/shows/[showId]/contact` | Send a message to the show (`POST`, no session) |
+| `/api/shows/[showId]/contact/messages` | Staff inbox list |
+| `/api/shows/[showId]/contact/messages/[messageId]` | Mark a message read / archived |
 | `/api/my-shows` | Exhibitor's shows with itemized bills |
 | `/api/associations` | Affiliation registry (breed registries + club bodies); `?type=breed\|club` filters |
 | `/api/judges` | Judge registry list/create proxy — the source of judge details for show setup |
@@ -123,6 +128,7 @@ npm run build
 - `/profile` separates `Account`, `Memberships`, `My Horses`, and `Show History` into tabs via `ProfileTabs`. The Show History tab (`ShowHistoryPanel`) reads the same `/my-shows` payload the My Shows page does, so "which shows was I part of" has one answer; each row links back to the show, its results, and its schedule.
 - **Adding a horse someone else owns takes the owner's approval.** `MyHorsesPanel` handles the `409 OWNER_APPROVAL_REQUIRED` from `/linked-horses` by offering "Ask {owner} for approval" rather than dead-ending, then renders `ApprovalLinkCallout` with the link to send. Owned horses get a `HorseTransferControl` ("Transfer ownership") that offers only exhibitors with accounts — accepting a transfer requires signing in. `HorseAccessRequestsPanel` sits at the top of the tab with both directions: requests waiting on you (approve/decline in place) and requests you sent (cancel).
 - `ApprovalLinkCallout` always shows the approval URL for copy and paste, whether or not the email sent. SMTP is optional in this deployment and mail lands in spam often enough that "we emailed them" is not a plan — the link on screen is the reliable path.
+- **The add-a-horse wizard's ride mode drops both `ownerOnly` steps — Health *and* Trainer.** Neither answer would survive the backend: documents take the owner's permission, and so does naming a trainer. Steps that collect a value the server will discard are worse than absent, so `handleOwnerMode` also clears anything already staged under them when the mode flips. In ride mode the Review step omits the Trainer row for the same reason. When the create comes back `pending_owner_approval`, the wizard stops instead of calling `onCreated` — the horse exists but isn't on this profile yet — and shows the same `ApprovalLinkCallout` the link flow uses.
 - `EditAccountForm` manages user identity plus exhibitor contact/emergency/youth fields.
 - `MyHorsesPanel` supports created horses, linked horses, and owner-visible horses through dedicated `/api/exhibitors/...` routes.
 - `MyHorsesPanel` renders one card per horse showing sex/SPB/role badges, breed · color · age, sire/dam pedigree, owner and trainer, association registration chips, and **readiness flags**. Flags call out what would block an entry: no association registration, a Coggins problem, and other documents that are expired or expiring within 45 days. For the non-Coggins types only the newest document of each type is evaluated, so a superseded vaccination record does not raise a false alarm. Actions sit in their own footer row so cards stay aligned regardless of flag count.

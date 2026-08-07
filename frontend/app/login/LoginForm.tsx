@@ -4,9 +4,13 @@ import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { safeNextPath } from '@/lib/safe-next';
 
-export default function LoginForm() {
+export default function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
+  // Sanitized on the server that passed it in; re-checked here so a bad value
+  // can only ever mean "go home".
+  const destination = safeNextPath(next) ?? '/';
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,7 +35,7 @@ export default function LoginForm() {
         setError('Invalid email or password.');
       }
     } else {
-      router.push('/');
+      router.push(destination);
       router.refresh();
     }
   };

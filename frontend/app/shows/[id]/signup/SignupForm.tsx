@@ -9,7 +9,17 @@ export type FeeOption = {
   code: string;
   label: string;
   unit: string;
+  /** The standard (post-deadline) rate. */
   amount_cents: number;
+  /** What *this* exhibitor is charged per unit: their locked-in rate if they
+   *  already booked this line, today's rate otherwise. The only number to
+   *  multiply by a quantity — quoting `amount_cents` while the backend bills
+   *  the early rate is exactly the disagreement billing.py exists to prevent. */
+  rate_cents: number;
+  early_amount_cents: number | null;
+  early_deadline: string | null;
+  /** Whether a booking made today would still get the early rate. */
+  early_rate_open: boolean;
   notes: string | null;
 };
 
@@ -71,6 +81,49 @@ function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+function formatDeadline(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+/**
+ * The early-bird line under a fee.
+ *
+ * Three states, and they are genuinely different to the exhibitor: the
+ * discount is still open, the deadline has passed but they already hold the
+ * rate from an earlier booking, or the deadline has passed and the standard
+ * rate is what they'll pay. The open case is checked first because while the
+ * deadline stands, booked and unbooked pay the same thing.
+ */
+function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
+  if (fee.early_amount_cents == null || fee.early_deadline == null) return null;
+
+  if (fee.early_rate_open) {
+    return (
+      <div className="text-xs mt-0.5 font-medium" style={{ color: '#15803d' }}>
+        {formatMoney(fee.early_amount_cents)} per {noun} if you reserve by{' '}
+        {formatDeadline(fee.early_deadline)}.
+      </div>
+    );
+  }
+  if (fee.rate_cents === fee.early_amount_cents) {
+    return (
+      <div className="text-xs mt-0.5" style={{ color: '#15803d' }}>
+        ✓ Early rate held from your reservation — the deadline has passed, but
+        yours still counts.
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs mt-0.5" style={{ color: '#a08a6e' }}>
+      Early rate ended {formatDeadline(fee.early_deadline)}.
+    </div>
+  );
+}
+
 export default function SignupForm({ showId, data }: { showId: string; data: SignupData }) {
   const router = useRouter();
   const { show, exhibitor, fee_options, signup } = data;
@@ -97,7 +150,7 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
   );
 
   const reservationTotal = fee_options.reduce(
-    (sum, fee) => sum + fee.amount_cents * (quantities[fee.id] ?? 0),
+    (sum, fee) => sum + fee.rate_cents * (quantities[fee.id] ?? 0),
     0,
   );
 
@@ -213,9 +266,16 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
                           {fee.label}
                         </div>
                         <div className="text-xs" style={{ color: '#8b7355' }}>
-                          {fee.amount_cents > 0 ? `${formatMoney(fee.amount_cents)} per ${noun}` : 'No charge'}
+                          {fee.rate_cents > 0 ? `${formatMoney(fee.rate_cents)} per ${noun}` : 'No charge'}
+                          {fee.rate_cents !== fee.amount_cents && (
+                            <>
+                              {' '}
+                              <s>{formatMoney(fee.amount_cents)}</s>
+                            </>
+                          )}
                           {fee.notes && <> · {fee.notes}</>}
                         </div>
+                        <EarlyRateNote fee={fee} noun={noun} />
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button

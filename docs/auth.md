@@ -109,6 +109,20 @@ Show staff read health paperwork to **verify** it — the secretary at the entry
 
 Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents — acceptable for roles that already see exhibitor contact details, entries, and back numbers.
 
+### Who May Change A Horse
+
+`_check_horse_access` in [backend/routers/people.py](../backend/routers/people.py) is the gate on the horse itself: **`ADMIN`, or the exhibitor in `horses.owner_exhibitor_id`.** Riding a horse, or having added its record, is not the same as owning it. It covers `PATCH /horses/{id}`, the registration endpoints, and both rider endpoints, so two things are the owner's alone:
+
+- **Who rides it.** `POST` / `DELETE /horses/{id}/riders` write `exhibitor_horses`, the table that decides whose show-registration picker the horse appears in.
+- **Who trains it.** `trainer_id` and the free-text fallback move only through `PATCH /horses/{id}`. This matters beyond the horse's own record: naming a trainer who isn't on file **creates** a `trainers` registry row (see the "Other" trainer flow above), so an open trainer field is a way to mint people.
+
+Creation follows the same rule rather than sidestepping it — `POST /exhibitors/{id}/created-horses` drops the trainer fields unless the caller is claiming the horse, and routes profile attachment through `horse_access_requests` when the owner named has an account. See the Horse Access section in [show-workflow.md](show-workflow.md).
+
+Two deliberate exceptions:
+
+- **Show staff at the desk.** `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` creates a horse *owned by the exhibitor standing in front of them*, scoped to that show's roster, with `created_by_user_id` recording the staff member — the owner's instruction typed by staff, not staff acting on their own, and they cannot `PATCH` it afterwards. `StaffHorseCreate` still inherits the trainer fields from the shared base, so the endpoint would accept one; `StaffAddHorseForm` has no trainer input, so nothing sends one today.
+- **A trainer disowning a false claim.** `DELETE /trainers/me/horses/{horse_id}` clears `trainer_id` when the horse currently names the calling trainer. It only ever removes an assertion someone else made about them.
+
 ## Sharp Edges
 
 - Do not trust client-provided role or user IDs from browser code. Only server-side Next route handlers should attach backend auth headers.

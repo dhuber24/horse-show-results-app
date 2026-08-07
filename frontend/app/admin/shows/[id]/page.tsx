@@ -42,6 +42,12 @@ const tiles = (showId: string) => [
     description: 'Manage Show Secretaries and Scorekeepers assigned to this show.',
     icon: '👥',
   },
+  {
+    href: `/admin/shows/${showId}/messages`,
+    title: 'Messages',
+    description: 'Questions sent from the show page, including from people without an account.',
+    icon: '✉️',
+  },
 ];
 
 const scoringTile = (showId: string) => ({
@@ -79,6 +85,21 @@ async function fetchScorekeeperNames(
   return rows.map((r) => r.full_name);
 }
 
+/** Just the badge number — the dashboard has no business pulling every
+ *  message body to render a count. */
+async function fetchUnreadMessageCount(
+  showId: string,
+  headers: Record<string, string>,
+): Promise<number> {
+  const res = await fetch(`${API_URL}/shows/${showId}/contact/messages/unread-count`, {
+    headers,
+    cache: 'no-store',
+  });
+  if (!res.ok) return 0;
+  const json = await res.json();
+  return json.unread ?? 0;
+}
+
 async function getAqhaValidation(showId: string, headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/shows/${showId}/aqha-validation`, {
     headers,
@@ -97,6 +118,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
 
   let scorekeeperNames: string[] = [];
   let aqhaValidation: AqhaValidationData | null = null;
+  let unreadMessages = 0;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
     const headers = {
@@ -105,7 +127,10 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'X-User-Id': user.id,
       'X-User-Role': user.role ?? '',
     };
-    scorekeeperNames = await fetchScorekeeperNames(id, headers);
+    [scorekeeperNames, unreadMessages] = await Promise.all([
+      fetchScorekeeperNames(id, headers),
+      fetchUnreadMessageCount(id, headers),
+    ]);
     if (show.show_type_code === 'AQHA') {
       aqhaValidation = await getAqhaValidation(id, headers);
     }
@@ -172,8 +197,16 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             <div className="flex items-start gap-4">
               <div className="text-3xl" aria-hidden>{tile.icon}</div>
               <div>
-                <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+                <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#2c1810' }}>
                   {tile.title}
+                  {tile.title === 'Messages' && unreadMessages > 0 && (
+                    <span
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                      style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+                    >
+                      {unreadMessages} new
+                    </span>
+                  )}
                 </h2>
                 <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
                   {tile.description}

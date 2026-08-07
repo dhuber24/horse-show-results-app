@@ -70,11 +70,10 @@ export async function fetchExhibitors(
   return res.json();
 }
 
-export async function fetchShowBackNumbers(showId: string) {
-  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/`);
-  if (!res.ok) return [];
-  return res.json();
-}
+// fetchShowBackNumbers() was removed: it called the staff-only
+// /shows/{id}/back-numbers/ endpoint with no auth headers from public pages,
+// so it always 422'd and silently returned []. Back numbers now come resolved
+// off the entries and program-index endpoints — see backend/backnumbers.py.
 
 export async function fetchExhibitorHorses(exhibitorId: string) {
   const res = await fetch(`${API_URL}/exhibitors/${exhibitorId}/horses`);

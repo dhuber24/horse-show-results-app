@@ -603,6 +603,10 @@ class ShowFeeCreate(BaseModel):
     unit: FeeUnit
     notes: Optional[str] = Field(default=None, max_length=500)
     sort_order: int = 0
+    # Early-bird pair. The router rejects one without the other, and rejects an
+    # early rate above the standard rate — see routers/show_fees.py.
+    early_amount_cents: Optional[int] = Field(default=None, ge=0)
+    early_deadline: Optional[date] = None
 
 
 class ShowFeeUpdate(BaseModel):
@@ -612,6 +616,8 @@ class ShowFeeUpdate(BaseModel):
     unit: Optional[FeeUnit] = None
     notes: Optional[str] = Field(default=None, max_length=500)
     sort_order: Optional[int] = None
+    early_amount_cents: Optional[int] = Field(default=None, ge=0)
+    early_deadline: Optional[date] = None
 
 
 class ShowFeeOut(BaseModel):
@@ -623,6 +629,8 @@ class ShowFeeOut(BaseModel):
     unit: FeeUnit
     notes: Optional[str] = None
     sort_order: int
+    early_amount_cents: Optional[int] = None
+    early_deadline: Optional[date] = None
     created_at: datetime
 
     class Config:
@@ -1252,6 +1260,22 @@ class MyHorseOut(HorseOut):
             for d in docs
         ]
         return data
+
+
+class CreatedHorseResult(MyHorseOut):
+    """The horse an exhibitor just filed, plus — when they filed it against
+    somebody else's account — the request now waiting on that owner.
+
+    A rider naming an owner who is already on the platform does not get the
+    horse on their profile outright; the owner is asked first, the same way
+    linking an existing horse is. `approval_url` is always returned alongside
+    the emailed copy, because delivery is best-effort (see `mailer.py`) and a
+    silent SMTP failure must not strand the horse.
+    """
+    pending_owner_approval: bool = False
+    approval_url: Optional[str] = None
+    approver_name: Optional[str] = None
+    approval_email_sent: Optional[bool] = None
 
 
 class HorseSearchMatch(BaseModel):

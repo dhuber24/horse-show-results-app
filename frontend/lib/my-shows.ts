@@ -21,7 +21,12 @@ export type BillReservationLine = {
   label: string;
   unit: string;
   quantity: number;
+  /** The rate actually charged — the early rate when this line was booked
+   *  before the fee's deadline, otherwise the standard rate. */
   amount_cents: number;
+  standard_amount_cents: number;
+  is_early_rate: boolean;
+  reserved_at: string;
   line_total_cents: number;
 };
 

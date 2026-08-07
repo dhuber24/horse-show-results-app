@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from typing import Optional
 
+from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, safe_uuid
 from models import (
@@ -108,11 +109,30 @@ def _raise_for_validation_errors(issues: list[dict]) -> None:
 
 @router.get("/", response_model=list[EntryOut])
 async def list_entries(show_id: UUID, class_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Entries in a class, with the back number actually assigned to each
+    exhibitor.
+
+    The number lives on `show_entries`, not on the entry row — see
+    `backend/backnumbers.py`. Returning the raw `Entry.back_number` here left
+    every consumer of this endpoint (the public class page, the scorekeeper
+    form, the admin entry list) showing a dash for exhibitors who very much had
+    a back number.
+    """
     await _get_class_or_404(show_id, class_id, db)
-    result = await db.execute(
-        select(Entry).where(Entry.class_id == class_id).order_by(Entry.back_number)
-    )
-    return result.scalars().all()
+    result = await db.execute(select(Entry).where(Entry.class_id == class_id))
+    entries = list(result.scalars().all())
+
+    by_exhibitor = await back_numbers_for_show(show_id, db)
+    out = [
+        EntryOut.model_validate(entry, from_attributes=True).model_copy(
+            update={"back_number": resolve_back_number(entry, by_exhibitor)}
+        )
+        for entry in entries
+    ]
+    # Ordering moved out of SQL for the same reason: sorting by a column that
+    # is always NULL is not an ordering.
+    out.sort(key=lambda e: sort_key(e.back_number))
+    return out
 
 
 @router.post("/", response_model=EntryOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])

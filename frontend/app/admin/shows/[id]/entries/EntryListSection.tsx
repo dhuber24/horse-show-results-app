@@ -105,10 +105,6 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
           <span className="ml-1.5 text-xs font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700">DQ</span>
         )}
       </td>
-      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{horseName}</td>
-      <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{entry.owner_name || '—'}</td>
-      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.sire_name || '—'}</td>
-      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.dam_name || '—'}</td>
       <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
         {exhibitorName}
         {entry.apha_division && (
@@ -125,6 +121,10 @@ function EntryRow({ entry, showId, exhibitorEntryCount, onDeleted }: {
           </span>
         )}
       </td>
+      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{horseName}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{entry.owner_name || '—'}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.sire_name || '—'}</td>
+      <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{entry.dam_name || '—'}</td>
       <td className="py-1.5 text-right whitespace-nowrap">
         {error && <span className="text-xs text-red-600 mr-2">{error}</span>}
         {entry.horse_id && (
@@ -355,11 +355,11 @@ export default function EntryListSection({ showId, entriesByClass }: Props) {
                           <thead>
                             <tr className="text-xs uppercase tracking-wide" style={{ color: '#8b4513' }}>
                               <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Back #</th>
+                              <th className="text-left font-semibold pb-1 pr-3">Exhibitor</th>
                               <th className="text-left font-semibold pb-1 pr-3">Horse</th>
                               <th className="text-left font-semibold pb-1 pr-3">Owner</th>
                               <th className="text-left font-semibold pb-1 pr-3">Sire</th>
                               <th className="text-left font-semibold pb-1 pr-3">Dam</th>
-                              <th className="text-left font-semibold pb-1 pr-3">Exhibitor</th>
                               <th className="pb-1"><span className="sr-only">Actions</span></th>
                             </tr>
                           </thead>

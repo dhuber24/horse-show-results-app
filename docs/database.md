@@ -120,6 +120,73 @@ If a manual migration file is applied outside the runner, also insert its filena
 
 ## Recent Schema Updates
 
+### Early-bird rate on a show fee (migration 092)
+
+Show bills price stalls, shavings and camping two ways — one number if you
+reserve by a date, a higher one after — because the office has to know how much
+of the barn to hold before it can plan the grounds. `show_fees` could store only
+one number.
+
+`show_fees` gains a **pair**:
+
+- `early_amount_cents INTEGER NULL` — the discounted per-unit price
+- `early_deadline DATE NULL` — last day it is available, inclusive
+
+A discount is live only when *both* are set. One without the other is a
+half-finished edit in the fee editor, not a price, so it is ignored by
+[backend/billing.py](../backend/billing.py) and rejected outright by
+`POST`/`PATCH /shows/{id}/fees` — a secretary who filled in an amount and no
+deadline believes the discount is live, and the exhibitor screen would say
+otherwise. `amount_cents` remains the standard (post-deadline) rate, so every
+existing fee bills exactly as it did before.
+
+The columns sit on `show_fees` generally, but only **reservations** consume
+them, so the router also rejects an early rate on a unit outside
+`RESERVABLE_FEE_UNITS`. Class entry fees live on `classes.entry_fee_cents` and
+are never reserved — an early rate on a `per_entry` row would have nothing to
+apply to.
+
+`show_entry_reservations` gains `reserved_at DATE NOT NULL DEFAULT
+CURRENT_DATE` (backfilled from `created_at`, so existing rows are dated when
+they were actually booked). **That date, never "today", decides the rate.**
+Pricing off the current date would silently reprice a booking the moment a
+deadline passed, which is the one thing an early rate promises not to do.
+
+`reserved_at` is set once when a line is first created and **preserved** when
+the exhibitor amends their sign-up — which is why `PUT /shows/{id}/register/signup`
+updates existing reservation lines in place instead of replacing them wholesale.
+Recreating the rows would re-date them, so an exhibitor who reserved stalls in
+April would lose the early rate the moment they came back in July to change
+their arrival date. The deliberate consequence: raising the quantity on a line
+booked before the deadline keeps the early rate on the whole line, which is how
+a show office behaves anyway. Removing a line and re-adding it later does not —
+that is a new booking, dated today.
+
+Both the date the reservation is stamped with and the deadline it is compared
+against are plain dates in the server's timezone (UTC in the containers), like
+every other date gate in this app. Secretaries should set deadlines with a day
+of slack rather than expecting a to-the-hour cutoff.
+
+### New table: `show_contact_messages` (migration 091)
+
+An inbox for the public contact form, so a visitor with no account can reach a
+show. Deliberately **stored, not forwarded**: `mailer.py` is best-effort and
+returns None with no SMTP configured, so an email-only contact form would
+accept a message, tell the sender it was sent, and lose it.
+
+Columns: `id`, `show_id` (CASCADE), `sender_name`, `sender_email`,
+`sender_phone`, `subject`, `message`, `status` (`new` / `read` / `archived`),
+`handled_by_user_id` (SET NULL), `handled_at`, `created_at`. Indexed on
+`(show_id, created_at DESC)` for the inbox and a partial index on
+`show_id WHERE status = 'new'` for the unread badge.
+
+**Everything about the sender is self-reported and unverified** — the feature
+exists for people without accounts, so no column here is joined back to
+`users`. Never treat `sender_email` as an identity.
+
+Numbered 091 because the repo already had a `090_show_paperwork_verification.sql`;
+"migration 090" elsewhere in the docs means `show_verifications`.
+
 ### New table: `show_verifications` + `horses.created_by_user_id` (migration 090)
 
 The show office's record of paperwork it has **physically inspected**. Three

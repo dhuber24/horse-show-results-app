@@ -2,6 +2,31 @@
 
 ## August 2026
 
+### Shows Can Reward Reserving Early
+
+Show bills price stalls, shavings and camping two ways — one number if you reserve by a date, a higher one after — because the office has to know how much of the barn to hold before it can plan the grounds. `show_fees` stored one number, so a show running early pricing collected stall reservations off-app and retyped them. **Migration 092** gives a reservable fee a second price and a deadline.
+
+- **It's a pair, or it's nothing.** `early_amount_cents` without `early_deadline` (or the reverse) is a half-finished edit in the fee editor, not a price. Both editors and the API reject it rather than storing it, because a secretary who filled in a discount and no date believes the discount is live while the exhibitor screen says otherwise. `amount_cents` stays the standard rate, so every existing fee bills exactly as it did before.
+- **The rate is decided by when you booked, never by today.** `show_entry_reservations.reserved_at` is what `fee_rate_cents()` compares against the deadline. Pricing off the current date would have silently repriced a reservation the moment the deadline passed — the one thing an early rate promises not to do.
+- **Which is why sign-up stopped replacing reservations wholesale.** `PUT /register/signup` kept the same semantics (the body is the complete booking) but now updates surviving lines in place. Recreating the rows re-dates them, so an exhibitor who reserved stalls in April would have lost their early rate by coming back in July to change their arrival date. The deliberate consequence: raising a quantity on a line booked before the deadline keeps the rate on the whole line, which is how a show office behaves anyway.
+- **The quote and the bill read the same number.** `GET /register/signup` returns a per-exhibitor `rate_cents` next to the standard `amount_cents`, and that is the only figure the sign-up screen multiplies by a quantity. Quoting `amount_cents` while `build_bill()` charged the early rate is exactly the disagreement `billing.py` was created to prevent.
+- **Only reservations can carry one.** An early rate on a `per_entry` row would be inert — class entry fees live on `classes.entry_fee_cents` and are never reserved — so the API rejects it instead of storing a discount with nothing to apply to.
+
+### The Visitor Show Page Stops Talking About Shavings
+
+Someone browsing shows is deciding whether to enter. Whether outside shavings are allowed matters when they're packing the trailer, and it already appears on the sign-up screen next to the bags they order there — so it was one more line of operational detail between a stranger and the two things they can act on.
+
+### Riders And Trainers Are The Owner's Call, Including At Creation Time
+
+`_check_horse_access` already limited the horse's own endpoints to ADMIN or the registered owner — the rider endpoints and `PATCH /horses/{id}` both 403 for anyone else. But `POST /exhibitors/{id}/created-horses` reached the same outcomes by a different door, and a permission rule with a way around it is not a rule.
+
+In ride mode a caller could file a horse naming somebody else as owner, and in the same request pick that horse's trainer and put it on their own profile. Reproduced before the fix: one exhibitor created a horse owned by another, with a trainer of their choosing, without the owner involved at all.
+
+- **The trainer is dropped unless the caller claims the horse.** Not cosmetic: naming a trainer who isn't on file *creates* a `trainers` registry row, so an open trainer field on someone else's horse is a way to mint people. That `DELETE /trainers/me/horses/{id}` already exists — "lets a trainer remove a horse that an exhibitor wrongly linked to them" — says this was happening.
+- **Self-attachment goes through the consent flow that already exists.** When the owner named has an account, `created_by_exhibitor_id` stays NULL and a pending `link` request is opened in the same transaction, so the horse and the question land together or not at all. Approving writes the `exhibitor_horses` row through the same `_apply_decision` the link flow uses.
+- **When there is nobody to ask, nothing changes.** A brand-new standalone owner record has no user account and could never approve, so asking would only strand the horse. The rule is consent from people who can actually give it — the same test `create_request` applies.
+- **The wizard stops collecting what the server discards.** Ride mode already dropped the Health step; Trainer joins it, and both clear anything staged under them when the mode flips. On a pending create the wizard doesn't call `onCreated` — the horse exists but isn't on this profile yet — and shows the same `ApprovalLinkCallout` as every other approval path, because SMTP is optional and the link has to be on screen.
+
 ### The Show Office Can Say What It Actually Looked At
 
 The app stored registration numbers, membership numbers, and foaling dates, but kept no record that anyone had ever picked up the document behind them. "Did we verify this horse's age?" was answerable only by asking whoever worked the desk that morning. **Migration 090** gives the office somewhere to put the answer.
@@ -25,6 +50,33 @@ An exhibitor arriving with a horse that was never added to their profile had no 
 ### The Read-Only Banner Only Warns People Who Could Have Been Scoring
 
 Every visitor to a non-`ACTIVE` show read "Read-only — results can only be entered when the show is Active." Exhibitors and spectators can never enter results at all, so it announced a restriction that was not about them and read like something had gone wrong with the show. It is now shown only to the roles with a scoring screen to be locked out of.
+
+### A Show Page That Works For People Who Aren't Members Yet
+
+A visitor who found a show got the same screen as an entered exhibitor: a class schedule. It answered a question they hadn't asked and left out the two they had — can I enter, and how do I reach these people?
+
+- **Signed out, `/shows/[id]` is now event details plus two actions**: *Register for this show* and *Contact show staff*. The classes fetch is skipped entirely for them rather than fetched and hidden.
+- **The gate is on the browsing path only.** `/live`, `/schedule` and `/results` stay open, because they are the at-the-rail screens people reach by QR code mid-show — favorites live in `localStorage` precisely because those readers have no account. Closing them would have broken a deliberate design to satisfy a different one; since the show page no longer links to the schedule for visitors, the funnel works without that.
+- **Register keeps its destination.** `?next=` was already being passed by several `redirect('/login?next=...')` call sites and silently ignored — both forms pushed to `/`. They now honour it, carry it across the login ↔ register cross-links, and sanitize it through `safeNextPath()`: same-origin absolute paths only. A redirect target from a URL a stranger composes is an open redirect waiting to happen, and `//evil.com` looks like a path until a browser reads it.
+
+### The Contact Form Is An Inbox, Not A Relay
+
+The obvious build is "email the secretary and manager". This deployment has no SMTP configured, so `mailer.py` returns None and logs — every message would have been accepted, reported as sent, and lost. A contact form that loses messages is worse than no contact form.
+
+- **`show_contact_messages` (migration 091)** stores them; staff read the show's inbox at `/admin/shows/[id]/messages`, with an unread badge on the dashboard tile and a `mailto:` reply link. A notification layer on top is additive and changes none of this.
+- **The one endpoint strangers can write to is treated as such**: rate limited to 5/minute per IP, message length capped, and shows that aren't publicly visible return 404 — identically to shows that don't exist, so probing ids reveals no drafts. Reading and triage are staff-only via `_assert_show_access`.
+- Every sender field is self-reported and joined to nothing. The people this serves have no account by definition, so `sender_email` is a string to reply to, never an identity.
+- One bug worth recording: `from __future__ import annotations` plus slowapi's `@limit` decorator produces a `PydanticUserError` at *request* time, not import time — the rewrapped signature loses the module globals FastAPI needs to resolve `UUID`. `auth.py` omits the future import for the same reason.
+
+### Back Numbers Were Being Read From The Wrong Column
+
+Assigning a back number wrote it to `show_entries.back_number` — correctly — and then four screens read `entries.back_number`, a legacy per-entry column that nothing has written since assignment moved to the show level. It is NULL on every recent entry, so the screens rendered a dash. No error, no warning, no log line: the exact shape of bug that survives review, because the code reads like it works.
+
+Reported against the class schedule; it was also live on the scorekeeper form, the admin entry list, and the gate screen — where the steward calls exhibitors by the number that wasn't there.
+
+- **`backend/backnumbers.py` is now the one resolver**: prefer the show-level number, fall back to the legacy column. `GET /classes/{id}/entries/` and the gate endpoints resolve server-side, so every consumer is fixed without touching the pages. Ordering moved with it — the entry list had been `ORDER BY entries.back_number`, which is not an ordering when the column is uniformly NULL.
+- **A second, separate bug on the public class page**: it overlaid back numbers from `/shows/{id}/back-numbers/`, a staff-only endpoint, called with no auth headers. Every request 422'd, `fetchShowBackNumbers` swallowed it with `if (!res.ok) return []`, and the page silently fell back to the NULL column. The helper is deleted rather than fixed — a public page has no business calling an access-gated endpoint, and a fetch helper that turns an auth failure into an empty list will hide the next one too.
+- The public schedule's program listing was already correct: `program-index` resolved `show_entries` properly. One read path getting it right while four got it wrong is the argument for the shared resolver.
 
 ### The Schedule Tells An Exhibitor Which Classes Are Theirs
 

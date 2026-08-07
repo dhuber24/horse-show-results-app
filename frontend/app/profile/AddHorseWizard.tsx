@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import ApprovalLinkCallout from '@/components/ApprovalLinkCallout';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
 import TrainerSelect from '@/components/TrainerSelect';
 import { DOC_TYPES, HEALTH_DOC_TYPES, MAX_DOC_BYTES } from '@/components/HorseDocuments';
@@ -40,18 +41,31 @@ type StepKey = 'owner' | 'horse' | 'trainer' | 'health' | 'registrations' | 'rev
  * Only Owner and Horse gate creation; everything else can be skipped and filled
  * in later from the horse's own page. Step order mirrors the tabs on that page.
  *
- * `ownerOnly` steps are dropped in ride mode: the documents endpoint only lets
- * the horse's registered owner upload, so offering Health to a rider would 403
- * after the horse had already been created.
+ * `ownerOnly` steps are dropped in ride mode, where the backend would discard
+ * the answer anyway: the documents endpoint only lets the horse's registered
+ * owner upload, and the trainer is the owner's to name — a horse you only ride
+ * has its trainer set from the owner's side.
  */
 const STEPS: { key: StepKey; label: string; optional?: boolean; ownerOnly?: boolean }[] = [
   { key: 'owner', label: 'Owner' },
   { key: 'horse', label: 'Horse' },
-  { key: 'trainer', label: 'Trainer', optional: true },
+  { key: 'trainer', label: 'Trainer', optional: true, ownerOnly: true },
   { key: 'health', label: 'Health', optional: true, ownerOnly: true },
   { key: 'registrations', label: 'Registrations', optional: true },
   { key: 'review', label: 'Review' },
 ];
+
+/**
+ * What `POST /exhibitors/{id}/created-horses` returns: the horse, plus the
+ * request waiting on its owner when the horse was filed against somebody who
+ * already has an account. See `CreatedHorseResult` in the backend schemas.
+ */
+type CreatedHorseResult = MyHorse & {
+  pending_owner_approval?: boolean;
+  approval_url?: string | null;
+  approver_name?: string | null;
+  approval_email_sent?: boolean | null;
+};
 
 /** A health document staged in the browser. It can only be uploaded once the
  *  horse exists, so the wizard queues these and posts them after creation. */
@@ -157,6 +171,14 @@ export default function AddHorseWizard({
   // Set once the horse row exists. Creation must not be offered again after
   // this point — a retry would create a duplicate horse.
   const [createdHorseId, setCreatedHorseId] = useState<string | null>(null);
+  // Same rule, other ending: the horse was filed against an owner who has to
+  // approve before it reaches this profile.
+  const [pendingApproval, setPendingApproval] = useState<{
+    horseName: string;
+    approverName: string;
+    url: string;
+    emailSent: boolean | null;
+  } | null>(null);
 
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
@@ -248,13 +270,18 @@ export default function AddHorseWizard({
   const handleOwnerMode = (mode: OwnerMode) => {
     setOwner((prev) => ({ ...prev, mode }));
     setStepError(null);
-    // A rider can't upload documents for a horse they don't own, so anything
-    // staged under the Health step is dropped along with the step itself.
+    // Both owner-only steps disappear in ride mode, so drop what was staged
+    // under them rather than posting values the backend will discard.
     if (mode === 'ride') {
       setPendingDocs([]);
       setDocDraft(emptyDocDraft);
       setDocFile(null);
       setDocError(null);
+      setForm((prev) => ({
+        ...prev,
+        trainer_id: '', trainer_name: '', trainer_first_name: '',
+        trainer_last_name: '', trainer_email: '',
+      }));
     }
     // Switching modes restarts the ride-mode search so a stale result set can't
     // leak into the other branch.
@@ -502,7 +529,22 @@ export default function AddHorseWizard({
       return;
     }
 
-    const horse: MyHorse = await res.json();
+    const horse: CreatedHorseResult = await res.json();
+
+    // Filed against an owner who is already on the platform: the record exists,
+    // but it doesn't reach this profile until they say yes. Stop here rather
+    // than handing the caller a horse the list won't show.
+    if (horse.pending_owner_approval) {
+      setSaving(false);
+      setPendingApproval({
+        horseName: horse.name,
+        approverName: horse.approver_name ?? 'the owner',
+        url: horse.approval_url ?? '',
+        emailSent: horse.approval_email_sent ?? null,
+      });
+      return;
+    }
+
     const failed = pendingDocs.length > 0 ? await uploadQueuedDocs(horse.id) : [];
     setSaving(false);
 
@@ -642,7 +684,8 @@ export default function AddHorseWizard({
                 <input placeholder="Owner last name *" value={owner.lastName} onChange={(e) => setOwner((p) => ({ ...p, lastName: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
                 <input type="email" placeholder="Owner email *" value={owner.email} onChange={(e) => setOwner((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm sm:col-span-2" style={{ borderColor: '#d4b896' }} />
                 <p className="text-xs sm:col-span-2" style={{ color: '#8b7355' }}>
-                  If the owner already has an account, their existing profile will be linked automatically.
+                  If the owner already has an account, we&rsquo;ll ask them to confirm you ride
+                  this horse, and it joins your list once they approve.
                 </p>
               </div>
             </div>
@@ -995,7 +1038,9 @@ export default function AddHorseWizard({
             <ReviewRow label="Breeds" value={breedLabel} skipped={!breedLabel} />
             <ReviewRow label="Color" value={colors.find((c) => c.id === form.color_id)?.name} skipped={!form.color_id} />
             <ReviewRow label="SPB" value={form.is_solid_paint_bred ? 'Yes' : 'No'} />
-            <ReviewRow label="Trainer" value={trainerLabel} skipped={!trainerLabel} />
+            {owner.mode === 'self' && (
+              <ReviewRow label="Trainer" value={trainerLabel} skipped={!trainerLabel} />
+            )}
             {owner.mode === 'self' && (
               <ReviewRow
                 label="Health Records"
@@ -1015,10 +1060,25 @@ export default function AddHorseWizard({
       {stepError && <p className="text-red-600 text-xs">{stepError}</p>}
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
+      {pendingApproval && (
+        <div className="space-y-2">
+          <p className="text-sm" style={{ color: '#2c1810' }}>
+            <strong>{pendingApproval.horseName}</strong> was added, and{' '}
+            {pendingApproval.approverName} has been asked to confirm you ride it. It
+            joins your horses once they approve.
+          </p>
+          <ApprovalLinkCallout
+            url={pendingApproval.url}
+            emailSent={pendingApproval.emailSent}
+            approverName={pendingApproval.approverName}
+          />
+        </div>
+      )}
+
       {/* Footer nav */}
       <div className="flex flex-wrap items-center gap-2 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
         <div className="flex flex-wrap gap-2 pt-3">
-          {createdHorseId ? (
+          {pendingApproval ? null : createdHorseId ? (
             <Link
               href={`/profile/horses/${createdHorseId}?section=health`}
               className="px-4 py-2 rounded text-sm font-medium"
@@ -1051,7 +1111,7 @@ export default function AddHorseWizard({
           )}
         </div>
         <button onClick={onCancel} className="ml-auto mt-3 text-xs hover:underline" style={{ color: '#8b7355' }}>
-          {createdHorseId ? 'Back to My Horses' : 'Cancel'}
+          {createdHorseId || pendingApproval ? 'Back to My Horses' : 'Cancel'}
         </button>
       </div>
     </div>

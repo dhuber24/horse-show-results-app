@@ -1,7 +1,20 @@
 import LoginForm from './LoginForm';
 import Link from 'next/link';
+import { safeNextPath } from '@/lib/safe-next';
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  // Where the visitor was headed before they hit the sign-in wall — usually a
+  // show's sign-up page. Carried onto the register link too, so choosing
+  // "create an account" doesn't lose it.
+  const nextPath = safeNextPath(next);
+  const withNext = (href: string) =>
+    nextPath ? `${href}?next=${encodeURIComponent(nextPath)}` : href;
+
   return (
     <main className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: '#faf7f2' }}>
@@ -12,12 +25,12 @@ export default function LoginPage() {
           <p className="text-sm mt-1" style={{ color: '#8b7355' }}>Sign in to your account</p>
         </div>
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <LoginForm />
+          <LoginForm next={nextPath ?? undefined} />
         </div>
         <div className="text-center text-sm mt-4 space-y-1">
           <p style={{ color: '#8b7355' }}>
             New exhibitor?{' '}
-            <Link href="/register" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+            <Link href={withNext('/register')} className="font-medium hover:underline" style={{ color: '#8b4513' }}>
               Create an account
             </Link>
           </p>

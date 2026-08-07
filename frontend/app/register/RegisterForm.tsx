@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { safeNextPath } from '@/lib/safe-next';
 
-export default function RegisterForm() {
+export default function RegisterForm({ next }: { next?: string }) {
   const router = useRouter();
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export default function RegisterForm() {
       return;
     }
     await signIn('credentials', { email: form.email, password: form.password, redirect: false });
-    router.push('/');
+    router.push(safeNextPath(next) ?? '/');
     router.refresh();
   };
 

@@ -12,9 +12,11 @@ import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
+from routers.horse_access import approval_url, build_access_request, notify_request
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association
 from schemas import (
     UserCreate, UserOut,
+    CreatedHorseResult,
     HorseCreate, HorseCreateWithRegistrations, HorseWithRegistrationsBase,
     HorseUpdate, HorseOut, MyHorseOut, HorseSearchMatch,
     HorseRegistrationCreate, HorseRegistrationOut,
@@ -1290,21 +1292,35 @@ async def unlink_horse_from_self(
     await db.commit()
 
 
-@exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=MyHorseOut, status_code=201)
+@exhibitors_router.post("/{exhibitor_id}/created-horses", response_model=CreatedHorseResult, status_code=201)
 async def create_horse_for_exhibitor(
     exhibitor_id: UUID,
     body: HorseCreateWithRegistrations,
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a horse profile via self-service. The caller must be the owner of the horse —
-    they cannot create a profile for a horse owned by someone else. Optional registrations
-    are validated and inserted in the same transaction so a bad number never leaves an
-    orphaned horse behind."""
+    """Create a horse profile via self-service, either claiming it or filing one
+    the caller only rides. Optional registrations are validated and inserted in
+    the same transaction so a bad number never leaves an orphaned horse behind.
+
+    Filing a horse against somebody else does not carry an owner's authority.
+    Two things follow, both matching what the caller would hit on the horse
+    itself afterwards (`_check_horse_access`), so creating the record is not a
+    way around either rule:
+
+      - The trainer is the owner's to name, so trainer fields are dropped
+        unless the caller is claiming the horse.
+      - Putting the horse on the caller's own profile is the question
+        `horse_access_requests` exists to ask. When the named owner is already
+        on the platform they are asked; when they are not — a brand-new owner
+        record with no account — there is nobody to ask and the caller is
+        attached as before.
+    """
     result = await db.execute(
         select(Exhibitor).where(Exhibitor.id == exhibitor_id, Exhibitor.user_id == safe_uuid(user_id))
     )
-    if not result.scalar_one_or_none():
+    caller = result.scalar_one_or_none()
+    if not caller:
         raise HTTPException(403, "You can only create horses for your own profile")
 
     # Resolve owner from whichever mode was chosen.
@@ -1350,16 +1366,48 @@ async def create_horse_for_exhibitor(
     else:
         raise HTTPException(400, "Specify an owner: claim ownership, select an existing owner, or enter owner details.")
 
+    claiming = resolved_owner_id == exhibitor_id
+
+    # Somebody who can actually answer: an owner record with no user account
+    # behind it — the standalone row the owner-details branch above just wrote —
+    # could never approve anything, so asking would only strand the horse.
+    approver: Optional[Exhibitor] = None
+    if not claiming and resolved_owner_id is not None:
+        owner = await db.get(Exhibitor, resolved_owner_id)
+        if owner is not None and owner.user_id is not None:
+            approver = owner
+
+    if not claiming:
+        # Naming a trainer on a horse you don't own is the same edit the horse's
+        # own endpoint refuses, and it can mint a registry row: dropped here so
+        # the create path can't be used to make it.
+        body = body.model_copy(update={
+            "trainer_id": None,
+            "trainer_name": None,
+            "trainer_phone": None,
+            "trainer_first_name": None,
+            "trainer_last_name": None,
+            "trainer_email": None,
+        })
+
     # Pre-validate every registration before inserting anything.
     await assert_registrations_available(body.registrations, db)
 
     horse = await build_horse_with_registrations(
         body,
         owner_exhibitor_id=resolved_owner_id,
-        created_by_exhibitor_id=exhibitor_id,
+        # Profile membership reads created_by_exhibitor_id or an
+        # exhibitor_horses link, so while approval is pending this stays NULL —
+        # approving writes the link. `created_by_user_id` still records who
+        # filed the record.
+        created_by_exhibitor_id=None if approver is not None else exhibitor_id,
         created_by_user_id=safe_uuid(user_id),
         db=db,
     )
+
+    request = None
+    if approver is not None:
+        request = await build_access_request("link", horse, caller, approver, db)
 
     try:
         await db.commit()
@@ -1370,7 +1418,23 @@ async def create_horse_for_exhibitor(
             "One of the registrations conflicts with an existing record. Please verify and try again.",
         )
 
-    return await load_my_horse(horse.id, exhibitor_id, db)
+    # Rebuilt through CreatedHorseResult rather than returned as MyHorseOut:
+    # a parent instance would be revalidated against this response model and
+    # re-enter the ORM projection in MyHorseOut.compute_derived.
+    horse_out = await load_my_horse(horse.id, exhibitor_id, db)
+    if request is None:
+        return CreatedHorseResult(**horse_out.model_dump())
+
+    # After the commit: the request stands whether or not the mail goes out, and
+    # the link comes back either way.
+    await notify_request(request, db)
+    return CreatedHorseResult(
+        **horse_out.model_dump(),
+        pending_owner_approval=True,
+        approval_url=approval_url(request.token),
+        approver_name=request.approver_name,
+        approval_email_sent=request.email_sent,
+    )
 
 
 @exhibitors_router.post("/{exhibitor_id}/horses", response_model=HorseOut, status_code=201, dependencies=[Depends(require_admin)])

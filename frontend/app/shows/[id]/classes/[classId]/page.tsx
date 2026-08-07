@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor, fetchShowBackNumbers } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor } from '@/lib/api';
 import { auth } from '@/auth';
 
 // Standard US horse show placement ribbon colors
@@ -71,17 +71,19 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const role = (session?.user as any)?.role;
   const canEnterPlacings = role === 'ADMIN' || role === 'SCOREKEEPER';
 
-  const [show, classes, entries, results, backNumbers] = await Promise.all([
+  const [show, classes, entries, results] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchEntries(id, classId),
     fetchResults(id, classId),
-    fetchShowBackNumbers(id),
   ]);
 
   const cls = classes.find((c: any) => c.id === classId);
-  const backNumberMap = Object.fromEntries(backNumbers.map((b: any) => [b.exhibitor_id, b.back_number]));
 
+  // back_number comes resolved off the entries endpoint. This page used to
+  // overlay it from /back-numbers/, which is staff-only and was being called
+  // with no auth headers — it 422'd on every request, the helper swallowed it,
+  // and the column fell back to the always-NULL entries.back_number column.
   const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const enriched = await Promise.all(
     entries.map(async (entry: any) => {
@@ -93,7 +95,6 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
         ...entry,
         exhibitorName: exhibitor.full_name,
         horseName: horse?.name ?? '—',
-        back_number: backNumberMap[entry.exhibitor_id] ?? entry.back_number,
       };
     })
   );

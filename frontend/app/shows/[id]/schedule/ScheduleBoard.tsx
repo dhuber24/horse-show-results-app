@@ -259,11 +259,11 @@ export default function ScheduleBoard({
         <thead>
           <tr style={{ color: '#8b4513' }}>
             <th className="text-left font-semibold py-1 pr-3 whitespace-nowrap">Back #</th>
+            <th className="text-left font-semibold py-1 pr-3">Exhibitor</th>
             <th className="text-left font-semibold py-1 pr-3">Horse</th>
             <th className="text-left font-semibold py-1 pr-3">Owner</th>
             <th className="text-left font-semibold py-1 pr-3">Sire</th>
-            <th className="text-left font-semibold py-1 pr-3">Dam</th>
-            <th className="text-left font-semibold py-1">Exhibitor</th>
+            <th className="text-left font-semibold py-1">Dam</th>
           </tr>
         </thead>
         <tbody>
@@ -275,11 +275,11 @@ export default function ScheduleBoard({
                   <span className="ml-1 font-normal" style={{ color: '#b91c1c' }}>DQ</span>
                 )}
               </td>
+              <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{e.exhibitor_name}</td>
               <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{e.horse_name || '—'}</td>
               <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{e.owner_name || '—'}</td>
               <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{e.sire_name || '—'}</td>
-              <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{e.dam_name || '—'}</td>
-              <td className="py-1.5" style={{ color: '#5a3e2b' }}>{e.exhibitor_name}</td>
+              <td className="py-1.5" style={{ color: '#8b7355' }}>{e.dam_name || '—'}</td>
             </tr>
           ))}
         </tbody>

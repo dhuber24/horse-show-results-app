@@ -23,6 +23,8 @@ interface ShowFee {
   unit: Unit;
   notes: string | null;
   sort_order: number;
+  early_amount_cents: number | null;
+  early_deadline: string | null;
 }
 
 interface Props {
@@ -52,6 +54,12 @@ const BOARDING_UNIT_OPTIONS: Unit[] = [
   'per_class_per_horse',
 ];
 
+/** Units an exhibitor books a quantity of at sign-up. Only these can carry an
+ *  early rate — nothing else produces a reservation for a discount to apply
+ *  to, and the backend rejects one on any other unit. Mirrors
+ *  RESERVABLE_FEE_UNITS in backend/billing.py. */
+const RESERVABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag', 'per_night']);
+
 function dollarsFromCents(cents: number): string {
   return (cents / 100).toFixed(2);
 }
@@ -63,27 +71,71 @@ function centsFromDollars(input: string): number | null {
   return Math.round(parseFloat(trimmed) * 100);
 }
 
+type Draft = {
+  label: string;
+  amount: string;
+  unit: Unit;
+  early: string;
+  earlyDeadline: string;
+};
+
+function draftFromFee(f: ShowFee): Draft {
+  return {
+    label: f.label,
+    amount: dollarsFromCents(f.amount_cents),
+    unit: f.unit,
+    early: f.early_amount_cents != null ? dollarsFromCents(f.early_amount_cents) : '',
+    earlyDeadline: f.early_deadline ?? '',
+  };
+}
+
+type EarlyFields = { early_amount_cents: number | null; early_deadline: string | null };
+
+/** The early-bird half of a fee payload, or the reason it can't be sent.
+ *  Checked here as well as server-side so the secretary is told which row is
+ *  wrong instead of getting a bare 422 from the save button. */
+function earlyFields(draft: Draft, standardCents: number): EarlyFields | { error: string } {
+  const hasAmount = draft.early.trim() !== '';
+  const hasDeadline = draft.earlyDeadline.trim() !== '';
+  // Switching a row to a non-reservable unit clears its early rate rather than
+  // erroring — the secretary changed what the fee *is*, and the discount no
+  // longer has a reservation to attach to.
+  if ((!hasAmount && !hasDeadline) || !RESERVABLE_UNITS.has(draft.unit)) {
+    return { early_amount_cents: null, early_deadline: null };
+  }
+  if (hasAmount !== hasDeadline) {
+    return { error: 'An early rate needs both a discounted amount and a "reserve by" date.' };
+  }
+  const cents = centsFromDollars(draft.early);
+  if (cents === null) return { error: 'Invalid early rate amount.' };
+  if (cents > standardCents) {
+    return { error: 'The early rate must be lower than the standard rate.' };
+  }
+  return { early_amount_cents: cents, early_deadline: draft.earlyDeadline };
+}
+
 export default function BoardingFeesEditor({ showId, initialFees }: Props) {
   const router = useRouter();
   const [fees, setFees] = useState(initialFees);
-  const [drafts, setDrafts] = useState<Record<string, { label: string; amount: string; unit: Unit }>>(
-    Object.fromEntries(
-      initialFees.map((f) => [f.id, { label: f.label, amount: dollarsFromCents(f.amount_cents), unit: f.unit }]),
-    ),
+  const [drafts, setDrafts] = useState<Record<string, Draft>>(
+    Object.fromEntries(initialFees.map((f) => [f.id, draftFromFee(f)])),
   );
   const [adding, setAdding] = useState(false);
-  const [newRow, setNewRow] = useState({ code: '', label: '', amount: '', unit: 'per_stall' as Unit });
+  const [newRow, setNewRow] = useState({
+    code: '',
+    label: '',
+    amount: '',
+    unit: 'per_stall' as Unit,
+    early: '',
+    earlyDeadline: '',
+  });
   const [showAddForm, setShowAddForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const refreshDrafts = (next: ShowFee[]) => {
-    setDrafts(
-      Object.fromEntries(
-        next.map((f) => [f.id, { label: f.label, amount: dollarsFromCents(f.amount_cents), unit: f.unit }]),
-      ),
-    );
+    setDrafts(Object.fromEntries(next.map((f) => [f.id, draftFromFee(f)])));
   };
 
   const seedDefaults = async () => {
@@ -106,12 +158,14 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     const draft = drafts[fee.id];
     const cents = centsFromDollars(draft.amount);
     if (cents === null) { setError(`Invalid amount for ${fee.label}.`); return; }
+    const early = earlyFields(draft, cents);
+    if ('error' in early) { setError(`${fee.label}: ${early.error}`); return; }
     setBusyId(fee.id);
     setError(null);
     const res = await fetch(`/api/shows/${showId}/fees/${fee.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: draft.label, amount_cents: cents, unit: draft.unit }),
+      body: JSON.stringify({ label: draft.label, amount_cents: cents, unit: draft.unit, ...early }),
     });
     setBusyId(null);
     if (res.ok) {
@@ -142,21 +196,32 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     if (!newRow.label.trim()) { setError('Label is required.'); return; }
     const cents = centsFromDollars(newRow.amount);
     if (cents === null) { setError('Invalid amount.'); return; }
+    const early = earlyFields(
+      {
+        label: newRow.label,
+        amount: newRow.amount,
+        unit: newRow.unit,
+        early: newRow.early,
+        earlyDeadline: newRow.earlyDeadline,
+      },
+      cents,
+    );
+    if ('error' in early) { setError(early.error); return; }
     setAdding(true);
     setError(null);
     const code = newRow.code.trim() || newRow.label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 64);
     const res = await fetch(`/api/shows/${showId}/fees`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, label: newRow.label.trim(), amount_cents: cents, unit: newRow.unit, sort_order: fees.length }),
+      body: JSON.stringify({ code, label: newRow.label.trim(), amount_cents: cents, unit: newRow.unit, sort_order: fees.length, ...early }),
     });
     setAdding(false);
     if (res.ok) {
       const created: ShowFee = await res.json();
       const merged = [...fees, created];
       setFees(merged);
-      setDrafts((prev) => ({ ...prev, [created.id]: { label: created.label, amount: dollarsFromCents(created.amount_cents), unit: created.unit } }));
-      setNewRow({ code: '', label: '', amount: '', unit: 'per_stall' });
+      setDrafts((prev) => ({ ...prev, [created.id]: draftFromFee(created) }));
+      setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '' });
       setShowAddForm(false);
       router.refresh();
     } else {
@@ -201,12 +266,24 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
       ) : (
         <ul className="divide-y" style={{ borderColor: '#e8d5b7' }}>
           {fees.map((fee) => {
-            const draft = drafts[fee.id] ?? { label: fee.label, amount: dollarsFromCents(fee.amount_cents), unit: fee.unit };
+            const draft = drafts[fee.id] ?? draftFromFee(fee);
             const cents = centsFromDollars(draft.amount);
             const invalid = cents === null;
-            const dirty = !invalid && (cents !== fee.amount_cents || draft.label !== fee.label || draft.unit !== fee.unit);
+            const early = earlyFields(draft, cents ?? 0);
+            const earlyChanged =
+              !('error' in early) &&
+              (early.early_amount_cents !== fee.early_amount_cents ||
+                (early.early_deadline ?? null) !== fee.early_deadline);
+            const dirty =
+              !invalid &&
+              (cents !== fee.amount_cents ||
+                draft.label !== fee.label ||
+                draft.unit !== fee.unit ||
+                'error' in early ||
+                earlyChanged);
             return (
-              <li key={fee.id} className="flex items-center flex-wrap gap-2 py-2">
+              <li key={fee.id} className="py-2">
+              <div className="flex items-center flex-wrap gap-2">
                 <input
                   value={draft.label}
                   onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, label: e.target.value } }))}
@@ -252,6 +329,40 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                     Remove
                   </button>
                 )}
+              </div>
+              {RESERVABLE_UNITS.has(draft.unit) && (
+                <div className="flex items-center flex-wrap gap-2 mt-1.5 pl-1">
+                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                    Early rate
+                  </span>
+                  <div className="relative w-24">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                    <input
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      value={draft.early}
+                      onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, early: e.target.value } }))}
+                      className="w-full border rounded pl-5 pr-2 py-1 text-sm"
+                      style={{ borderColor: '#d4b896' }}
+                      aria-label={`Early rate for ${fee.label}`}
+                    />
+                  </div>
+                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                    if reserved by
+                  </span>
+                  <input
+                    type="date"
+                    value={draft.earlyDeadline}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, earlyDeadline: e.target.value } }))}
+                    className="border rounded px-2 py-1 text-sm"
+                    style={{ borderColor: '#d4b896' }}
+                    aria-label={`Early rate deadline for ${fee.label}`}
+                  />
+                  {'error' in early && (
+                    <span className="text-xs text-red-600">{early.error}</span>
+                  )}
+                </div>
+              )}
               </li>
             );
           })}
@@ -298,13 +409,39 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
               {adding ? 'Adding…' : 'Add'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewRow({ code: '', label: '', amount: '', unit: 'per_stall' }); }}
+              onClick={() => { setShowAddForm(false); setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '' }); }}
               className="text-xs hover:underline"
               style={{ color: '#8b7355' }}
             >
               Cancel
             </button>
           </div>
+          {RESERVABLE_UNITS.has(newRow.unit) && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs" style={{ color: '#8b7355' }}>Early rate (optional)</span>
+              <div className="relative w-24">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                <input
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={newRow.early}
+                  onChange={(e) => setNewRow((p) => ({ ...p, early: e.target.value }))}
+                  className="w-full border rounded pl-5 pr-2 py-1 text-sm"
+                  style={{ borderColor: '#d4b896' }}
+                  aria-label="Early rate for the new fee"
+                />
+              </div>
+              <span className="text-xs" style={{ color: '#8b7355' }}>if reserved by</span>
+              <input
+                type="date"
+                value={newRow.earlyDeadline}
+                onChange={(e) => setNewRow((p) => ({ ...p, earlyDeadline: e.target.value }))}
+                className="border rounded px-2 py-1 text-sm"
+                style={{ borderColor: '#d4b896' }}
+                aria-label="Early rate deadline for the new fee"
+              />
+            </div>
+          )}
         </div>
       )}
     </section>

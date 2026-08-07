@@ -1037,6 +1037,12 @@ class ShowFee(Base):
     unit = Column(Text, nullable=False)
     notes = Column(Text, nullable=True)
     sort_order = Column(Integer, nullable=False, server_default="0")
+    # Early-bird rate (migration 092). A pair: both set = the discount is live,
+    # either alone is an unfinished edit and is ignored. `amount_cents` remains
+    # the standard rate. Read these through billing.fee_rate_cents, never
+    # directly — see RESERVABLE_FEE_UNITS for what an early rate can apply to.
+    early_amount_cents = Column(Integer, nullable=True)
+    early_deadline = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="fees")
@@ -1134,6 +1140,11 @@ class ShowEntryReservation(Base):
         UUID(as_uuid=True), ForeignKey("show_fees.id", ondelete="CASCADE"), nullable=False
     )
     quantity = Column(Integer, nullable=False, server_default="0")
+    # When this line was first booked (migration 092). Decides which of the
+    # fee's two rates applies, and is deliberately preserved when the exhibitor
+    # amends their sign-up — an exhibitor who reserved before the deadline
+    # keeps the early rate they were quoted.
+    reserved_at = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -1145,6 +1156,47 @@ class ShowEntryReservation(Base):
 
     show_entry = relationship("ShowEntry", back_populates="reservations")
     show_fee = relationship("ShowFee")
+
+
+class ShowContactMessage(Base):
+    """A message sent to a show from its public page (migration 090).
+
+    An inbox, not an email relay: `mailer.py` is best-effort and silently does
+    nothing without SMTP, and a contact form that loses messages is worse than
+    no contact form. Staff read these on the show's Messages screen.
+
+    Everything about the sender is self-reported and unverified — the feature
+    exists for visitors with no account, so none of it is joined to `users`.
+    """
+    __tablename__ = "show_contact_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    sender_name = Column(Text, nullable=False)
+    sender_email = Column(Text, nullable=False)
+    sender_phone = Column(Text, nullable=True)
+    subject = Column(Text, nullable=True)
+    message = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default="new")
+    handled_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    handled_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Declared here as well as in the migration, and named to match: startup
+    # create_all races the migration runner, and constraints that live only in
+    # the SQL are lost on databases where the app created the table first
+    # (see migration 089).
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('new', 'read', 'archived')",
+            name="ck_show_contact_messages_status",
+        ),
+    )
+
+    show = relationship("Show")
+    handled_by = relationship("User")
 
 
 class ShowSecretaryCertification(Base):

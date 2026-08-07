@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
 from dependencies import INTERNAL_API_KEY, safe_uuid
 from models import (
@@ -72,10 +73,13 @@ async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession) -> 
     return class_
 
 
-def _serialize_entry(e: Entry) -> dict:
+def _serialize_entry(e: Entry, by_exhibitor: dict[UUID, int] | None = None) -> dict:
     return {
         "id": e.id,
-        "back_number": e.back_number,
+        # From show_entries, not the entry row — see backend/backnumbers.py. The
+        # gate calls exhibitors by back number, so reading the always-NULL
+        # per-entry column left the steward with a screen full of dashes.
+        "back_number": resolve_back_number(e, by_exhibitor or {}),
         "exhibitor_name": e.exhibitor.full_name if e.exhibitor else "",
         "horse_name": e.horse.name if e.horse else None,
         "is_disqualified": e.is_disqualified,
@@ -84,14 +88,34 @@ def _serialize_entry(e: Entry) -> dict:
     }
 
 
-async def _load_class_entries(class_id: UUID, db: AsyncSession) -> list[Entry]:
+async def _load_class_entries(
+    class_id: UUID, db: AsyncSession, show_id: UUID | None = None
+) -> tuple[list[Entry], dict[UUID, int]]:
+    """Entries for one class plus this show's back numbers, ordered the way the
+    gate reads them: explicit order of go first, then by back number.
+
+    Returns both because every caller that renders an entry needs the number
+    map too, and fetching it separately is how the two drift apart.
+    """
     result = await db.execute(
         select(Entry)
         .where(Entry.class_id == class_id, Entry.status != "WITHDRAWN")
         .options(selectinload(Entry.exhibitor), selectinload(Entry.horse))
-        .order_by(Entry.gate_order.nulls_last(), Entry.back_number.nulls_last())
     )
-    return list(result.scalars().all())
+    entries = list(result.scalars().all())
+
+    if show_id is None:
+        class_ = await db.get(Class, class_id)
+        show_id = class_.show_id if class_ else None
+    by_exhibitor = await back_numbers_for_show(show_id, db) if show_id else {}
+
+    entries.sort(
+        key=lambda e: (
+            (1, 0) if e.gate_order is None else (0, e.gate_order),
+            sort_key(resolve_back_number(e, by_exhibitor)),
+        )
+    )
+    return entries, by_exhibitor
 
 
 @router.get("/classes/{class_id}/entries", response_model=list[GateEntryOut])
@@ -105,7 +129,8 @@ async def list_gate_entries(
 ):
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_class_or_404(show_id, class_id, db)
-    return [_serialize_entry(e) for e in await _load_class_entries(class_id, db)]
+    entries, back_numbers = await _load_class_entries(class_id, db, show_id)
+    return [_serialize_entry(e, back_numbers) for e in entries]
 
 
 @router.put("/classes/{class_id}/order", response_model=list[GateEntryOut])
@@ -123,7 +148,7 @@ async def set_gate_order(
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_class_or_404(show_id, class_id, db)
 
-    entries = await _load_class_entries(class_id, db)
+    entries, _ = await _load_class_entries(class_id, db, show_id)
     by_id = {e.id: e for e in entries}
     if set(body.entry_ids) != set(by_id) or len(body.entry_ids) != len(by_id):
         raise HTTPException(422, "entry_ids must contain each entry in this class exactly once")
@@ -131,7 +156,8 @@ async def set_gate_order(
     for position, entry_id in enumerate(body.entry_ids, start=1):
         by_id[entry_id].gate_order = position
     await db.commit()
-    return [_serialize_entry(e) for e in await _load_class_entries(class_id, db)]
+    entries, back_numbers = await _load_class_entries(class_id, db, show_id)
+    return [_serialize_entry(e, back_numbers) for e in entries]
 
 
 @router.patch("/classes/{class_id}/entries/{entry_id}/check-in", response_model=GateCheckInResult)
@@ -187,12 +213,16 @@ async def set_gate_check_in(
     entry.gate_checked_in = body.checked_in
 
     if class_.gate_status in ("pending", "ready"):
-        all_entries = await _load_class_entries(class_id, db)
+        all_entries, _ = await _load_class_entries(class_id, db, show_id)
         all_in = len(all_entries) > 0 and all(e.gate_checked_in for e in all_entries)
         class_.gate_status = "ready" if all_in else "pending"
 
     await db.commit()
-    return {"entry": _serialize_entry(entry), "class_gate_status": class_.gate_status}
+    back_numbers = await back_numbers_for_show(show_id, db)
+    return {
+        "entry": _serialize_entry(entry, back_numbers),
+        "class_gate_status": class_.gate_status,
+    }
 
 
 @router.post("/classes/{class_id}/reset", response_model=list[GateEntryOut])
@@ -208,12 +238,13 @@ async def reset_gate_class(
     returns the class to pending. Recovery hatch for steward mistakes."""
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
-    entries = await _load_class_entries(class_id, db)
+    entries, _ = await _load_class_entries(class_id, db, show_id)
     for e in entries:
         e.gate_checked_in = False
     class_.gate_status = "pending"
     await db.commit()
-    return [_serialize_entry(e) for e in await _load_class_entries(class_id, db)]
+    entries, back_numbers = await _load_class_entries(class_id, db, show_id)
+    return [_serialize_entry(e, back_numbers) for e in entries]
 
 
 @router.patch("/classes/{class_id}/status", status_code=204)

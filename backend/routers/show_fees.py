@@ -1,8 +1,11 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 
+from billing import RESERVABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import Show, ShowFee
@@ -37,6 +40,48 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
     return show
 
 
+def _assert_early_rate_valid(
+    *,
+    unit: str,
+    amount_cents: int,
+    early_amount_cents: int | None,
+    early_deadline: date | None,
+) -> None:
+    """Check the early-bird pair against the values the row will end up with.
+
+    Takes the merged values rather than the ORM object because PATCH is
+    partial and must be checked before anything is mutated: lowering
+    `amount_cents` below an early rate already on the row has to fail the same
+    way as setting a too-high early rate in the first place.
+
+    A half-set pair is rejected outright instead of quietly ignored — a
+    secretary who filled in a discount and no deadline believes the discount is
+    live, and the exhibitor screen would say otherwise.
+    """
+    has_amount = early_amount_cents is not None
+    has_deadline = early_deadline is not None
+    if has_amount != has_deadline:
+        raise HTTPException(
+            422,
+            "An early rate needs both a discounted amount and a deadline. "
+            "Clear both to remove it.",
+        )
+    if not has_amount:
+        return
+    if early_amount_cents > amount_cents:
+        raise HTTPException(
+            422,
+            "The early rate must be no more than the standard rate — it is a "
+            "discount for reserving early.",
+        )
+    if unit not in RESERVABLE_FEE_UNITS:
+        raise HTTPException(
+            422,
+            "An early rate only applies to fees exhibitors reserve a quantity "
+            "of at sign-up (per stall, per bag, per night).",
+        )
+
+
 @router.get("/", response_model=list[ShowFeeOut])
 async def list_show_fees(
     show_id: UUID,
@@ -66,6 +111,12 @@ async def create_show_fee(
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
+    _assert_early_rate_valid(
+        unit=body.unit,
+        amount_cents=body.amount_cents,
+        early_amount_cents=body.early_amount_cents,
+        early_deadline=body.early_deadline,
+    )
     fee = ShowFee(show_id=show_id, **body.model_dump())
     db.add(fee)
     await db.commit()
@@ -124,7 +175,14 @@ async def update_show_fee(
     fee = await db.get(ShowFee, fee_id)
     if not fee or fee.show_id != show_id:
         raise HTTPException(404, "Fee not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    _assert_early_rate_valid(
+        unit=updates.get("unit", fee.unit),
+        amount_cents=updates.get("amount_cents", fee.amount_cents),
+        early_amount_cents=updates.get("early_amount_cents", fee.early_amount_cents),
+        early_deadline=updates.get("early_deadline", fee.early_deadline),
+    )
+    for k, v in updates.items():
         setattr(fee, k, v)
     await db.commit()
     await db.refresh(fee)

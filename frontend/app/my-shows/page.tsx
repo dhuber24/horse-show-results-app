@@ -263,6 +263,17 @@ function ReservationLine({ line }: { line: BillReservationLineProps }) {
         <span className="text-xs" style={{ color: '#8b7355' }}>
           {' '}({line.quantity} × {formatMoney(line.amount_cents)})
         </span>
+        {line.is_early_rate && (
+          <span
+            className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
+            style={{ backgroundColor: '#dcfce7', color: '#15803d' }}
+            title={`Early rate — reserved ${line.reserved_at}. Standard rate is ${formatMoney(
+              line.standard_amount_cents,
+            )}.`}
+          >
+            early rate
+          </span>
+        )}
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
     </>

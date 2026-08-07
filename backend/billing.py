@@ -11,6 +11,7 @@ secretary's numbers, reported back.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Iterable, Optional
 
 # NSBA Sanction Fees rule: 6% of entry fee, minimum $3, charged on every
@@ -23,6 +24,38 @@ NSBA_SANCTION_RATE = 0.06
 # Keyed on unit rather than a list of codes so a show that adds its own
 # per-stall or per-night fee is offered without a code change here.
 RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night")
+
+
+def has_early_rate(fee) -> bool:
+    """Whether this fee actually offers an early rate.
+
+    The discounted amount and the deadline are a pair. One without the other is
+    a half-finished edit in the fee editor, not a price — treating it as one
+    would either give the discount away forever or never.
+    """
+    return fee.early_amount_cents is not None and fee.early_deadline is not None
+
+
+def early_rate_is_open(fee, on: Optional[date] = None) -> bool:
+    """Whether a booking made on `on` (default today) still gets the early rate.
+
+    This is the *quoting* question — what an exhibitor would pay if they
+    reserved right now. What an existing booking pays is settled by
+    `fee_rate_cents` against the date it was booked.
+    """
+    return has_early_rate(fee) and (on or date.today()) <= fee.early_deadline
+
+
+def fee_rate_cents(fee, booked_on: Optional[date] = None) -> int:
+    """Price of one unit of this fee for a booking dated `booked_on`.
+
+    `booked_on` is `show_entry_reservations.reserved_at` — the day the
+    exhibitor actually reserved — and defaults to today only when quoting a
+    booking that doesn't exist yet. Never pass today's date for a booking that
+    already exists: the point of an early rate is that it does not change out
+    from under someone once the deadline passes.
+    """
+    return fee.early_amount_cents if early_rate_is_open(fee, booked_on) else fee.amount_cents
 
 
 def show_is_nsba_sanctioned(show) -> bool:
@@ -103,7 +136,12 @@ def build_bill(
         fee = reservation.show_fee
         if fee is None or reservation.quantity <= 0:
             continue
-        line_total = fee.amount_cents * reservation.quantity
+        # Priced off the day this line was booked, not today — see
+        # fee_rate_cents. `amount_cents` is what the exhibitor is charged;
+        # `standard_amount_cents` is kept alongside it so the bill can show
+        # what the early rate saved them.
+        rate = fee_rate_cents(fee, reservation.reserved_at)
+        line_total = rate * reservation.quantity
         reservation_lines.append(
             {
                 "show_fee_id": fee.id,
@@ -111,7 +149,10 @@ def build_bill(
                 "label": fee.label,
                 "unit": fee.unit,
                 "quantity": reservation.quantity,
-                "amount_cents": fee.amount_cents,
+                "amount_cents": rate,
+                "standard_amount_cents": fee.amount_cents,
+                "is_early_rate": rate != fee.amount_cents,
+                "reserved_at": reservation.reserved_at,
                 "line_total_cents": line_total,
             }
         )
