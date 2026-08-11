@@ -21,7 +21,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -144,4 +144,70 @@ async def list_my_shows(
     return {
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "shows": payload,
+    }
+
+
+@router.get("/{show_id}")
+async def my_standing_at_show(
+    show_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Where the caller stands at one show: signed up, back number, classes in.
+
+    What the show page needs to stop telling someone who has already signed up
+    to sign up. Deliberately **not** status-scoped, unlike everything under
+    `/shows/{id}/register`: those endpoints 403 once a show leaves PUBLISHED
+    because they are about *changing* a registration, and this is about
+    reporting one. "You are entered in 6 classes" is still the right thing to
+    say on a show that has started.
+
+    Always answers with a shape rather than 404-ing. A staff member or a
+    signed-in visitor opening a show page is not an error, they simply have no
+    standing at it — and the caller renders the same "not signed up" branch
+    either way.
+    """
+    none_out = {
+        "show_id": str(show_id),
+        "signed_up": False,
+        "registered_at": None,
+        "back_number": None,
+        "entry_count": 0,
+        "arrival_date": None,
+        "departure_date": None,
+    }
+
+    exhibitor_result = await db.execute(
+        select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id))
+    )
+    exhibitor = exhibitor_result.scalar_one_or_none()
+    if not exhibitor:
+        return none_out
+
+    show_entry_result = await db.execute(
+        select(ShowEntry).where(
+            ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor.id
+        )
+    )
+    show_entry = show_entry_result.scalar_one_or_none()
+
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(Entry)
+        .join(Class, Entry.class_id == Class.id)
+        .where(Class.show_id == show_id, Entry.exhibitor_id == exhibitor.id)
+    )
+
+    return {
+        "show_id": str(show_id),
+        # A `show_entries` row with a NULL `registered_at` is the shell a
+        # secretary creates while adding a late entry by hand — the office has
+        # no stall or shavings numbers for this person, so they have not signed
+        # up and the screen should still ask them to.
+        "signed_up": bool(show_entry and show_entry.registered_at is not None),
+        "registered_at": show_entry.registered_at if show_entry else None,
+        "back_number": show_entry.back_number if show_entry else None,
+        "entry_count": count_result.scalar_one(),
+        "arrival_date": show_entry.arrival_date if show_entry else None,
+        "departure_date": show_entry.departure_date if show_entry else None,
     }

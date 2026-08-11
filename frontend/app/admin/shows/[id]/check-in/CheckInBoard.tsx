@@ -4,12 +4,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import CheckRow, { type VerificationCheck, type VerificationKind } from './CheckRow';
 import StaffAddHorseForm, { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
 
+/**
+ * Health paperwork read off the documents on file, judged against the show's
+ * last day. Deliberately not a `VerificationCheck`: there is nothing to sign
+ * off here. The desk cannot attest to a Coggins that has expired, and one that
+ * has not needs no attesting — so this line is shown, never actioned, and does
+ * not count toward the exhibitor's outstanding checks.
+ */
+interface HorseHealthCheck {
+  code: string;
+  label: string;
+  status: 'valid' | 'missing' | 'undated' | 'expired';
+  message: string;
+  expiry_date: string | null;
+}
+
 interface VerificationHorse {
   horse_id: string;
   horse_name: string;
   barn_name: string | null;
   age_check: VerificationCheck;
   registrations: VerificationCheck[];
+  health?: HorseHealthCheck[];
 }
 
 interface VerificationExhibitor {
@@ -311,6 +327,18 @@ export default function CheckInBoard({
                           </span>
                         )}
                       </p>
+
+                      {(horse.health ?? [])
+                        .filter((check) => check.status !== 'valid')
+                        .map((check) => (
+                          <p
+                            key={check.code}
+                            className="text-xs mb-2 rounded px-2 py-1"
+                            style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}
+                          >
+                            ⚠ {check.message}
+                          </p>
+                        ))}
 
                       {(() => {
                         const subject: Subject = { kind: 'horse_age', horse_id: horse.horse_id };

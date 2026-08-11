@@ -4,6 +4,27 @@
  * one thing in one place and something else in the other.
  */
 
+/**
+ * `GET /my-shows/{show_id}` — where the signed-in user stands at one show.
+ *
+ * Separate from `MyShow` on purpose: this one is answered for *anyone* signed
+ * in, including staff and exhibitors with no standing at the show, so every
+ * field has a meaningful "nothing here" value and the caller never has to
+ * branch on a missing record.
+ */
+export type MyShowStanding = {
+  show_id: string;
+  /** True only when sign-up was actually completed. A `show_entries` row with
+   *  no `registered_at` is the shell a secretary creates when adding a late
+   *  entry by hand — the office has no stall numbers, so it does not count. */
+  signed_up: boolean;
+  registered_at: string | null;
+  back_number: number | null;
+  entry_count: number;
+  arrival_date: string | null;
+  departure_date: string | null;
+};
+
 export type BillClassLine = {
   entry_id: string;
   class_id: string;

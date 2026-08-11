@@ -39,7 +39,6 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
   const [horsesLoading, setHorsesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [cogginsWarning, setCogginsWarning] = useState<string | null>(null);
   const [showPapers, setShowPapers] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
@@ -69,10 +68,18 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
   const showRelationship =
     isAphaShow && RELATIONSHIP_REQUIRED_DIVISIONS.has(form.apha_division);
 
-  const submitEntry = async (skipCoggins: boolean) => {
+  const handleSubmit = async () => {
+    if (!form.classId || !form.exhibitor_id || !form.horse_id) {
+      setError('Class, exhibitor, and horse are required.');
+      return;
+    }
+    if (showSpbWarning) {
+      setError('Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).');
+      return;
+    }
+
     setSaving(true);
     setError(null);
-    setCogginsWarning(null);
     setShowPapers(false);
 
     const body: Record<string, unknown> = {
@@ -85,7 +92,6 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
     };
     if (isAphaShow && form.apha_division) body.apha_division = form.apha_division;
     if (isAphaShow && form.relationship_to_owner) body.relationship_to_owner = form.relationship_to_owner;
-    if (skipCoggins) body.skipCoggins = true;
 
     const res = await fetch('/api/entries', {
       method: 'POST',
@@ -99,25 +105,8 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
       setForm({ classId: '', exhibitor_id: '', horse_id: '', back_number: '', apha_division: '', relationship_to_owner: '', is_disqualified: false });
     } else {
       const err = await res.json().catch(() => ({}));
-      const detail = err.detail;
-      if (res.status === 422 && detail?.code === 'COGGINS_EXPIRED') {
-        setCogginsWarning(detail.message);
-      } else {
-        setError(formatBackendDetail(detail, 'Failed to add entry. May already exist.'));
-      }
+      setError(formatBackendDetail(err.detail, 'Failed to add entry. May already exist.'));
     }
-  };
-
-  const handleSubmit = async () => {
-    if (!form.classId || !form.exhibitor_id || !form.horse_id) {
-      setError('Class, exhibitor, and horse are required.');
-      return;
-    }
-    if (showSpbWarning) {
-      setError('Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).');
-      return;
-    }
-    await submitEntry(false);
   };
 
   if (!isOpen) {
@@ -137,7 +126,7 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
       <div className="flex items-center justify-between -mt-1">
         <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Add Entry</h3>
         <button
-          onClick={() => { setIsOpen(false); setError(null); setCogginsWarning(null); }}
+          onClick={() => { setIsOpen(false); setError(null); setShowPapers(false); }}
           className="text-xs hover:underline"
           style={{ color: '#8b7355' }}
         >
@@ -231,23 +220,20 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
         </div>
       )}
 
-      {cogginsWarning && (
-        <div className="rounded border border-yellow-300 bg-yellow-50 p-3 text-sm" style={{ color: '#92400e' }}>
-          <p className="font-medium mb-1">⚠ {cogginsWarning}</p>
-          <p className="mb-2">
-            Check what is on file below, or override if you have physically inspected
-            the exhibitor&rsquo;s Coggins and confirmed it has not expired.
-          </p>
-
+      {/* Health paperwork does not gate the entry, so this is a look, not a
+          checkpoint — anything short shows up on the Entries page health flags
+          and stays there until the exhibitor fixes it. */}
+      {form.horse_id && (
+        <div className="pt-1">
           <button
             onClick={() => setShowPapers((v) => !v)}
-            className="text-sm font-medium hover:underline mb-2"
+            className="text-sm font-medium hover:underline"
             style={{ color: '#8b4513' }}
           >
             {showPapers ? 'Hide health documents' : 'View health documents on file'}
           </button>
           {showPapers && (
-            <div className="mb-3 rounded border bg-white p-3" style={{ borderColor: '#e8d5b7' }}>
+            <div className="mt-2 rounded border bg-white p-3" style={{ borderColor: '#e8d5b7' }}>
               <HorseDocuments
                 horseId={form.horse_id}
                 types={HEALTH_DOC_TYPES}
@@ -256,34 +242,14 @@ export default function CreateEntryForm({ showId, classes, exhibitors, isAphaSho
               />
             </div>
           )}
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => submitEntry(true)}
-              disabled={saving}
-              className="px-3 py-1 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: '#92400e', color: '#fff' }}
-              title="Records the entry despite the Coggins on file — for staff who have seen the paper document"
-            >
-              I inspected it — add entry
-            </button>
-            <button
-              onClick={() => { setCogginsWarning(null); setShowPapers(false); }}
-              className="text-sm hover:underline"
-              style={{ color: '#8b7355' }}
-            >
-              Cancel
-            </button>
-          </div>
         </div>
       )}
+
       {error && <p className="text-red-600 text-sm">{error}</p>}
-      {!cogginsWarning && (
-        <button onClick={handleSubmit} disabled={saving || showSpbWarning}
-          className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
-          {saving ? 'Adding...' : 'Add Entry'}
-        </button>
-      )}
+      <button onClick={handleSubmit} disabled={saving || showSpbWarning}
+        className="bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 disabled:opacity-50">
+        {saving ? 'Adding...' : 'Add Entry'}
+      </button>
     </div>
   );
 }

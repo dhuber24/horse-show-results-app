@@ -1,6 +1,6 @@
 """What the show office does at the desk, on someone else's records.
 
-Two jobs, one file, because both are gated the same way — staff with access to
+Three jobs, one file, because they are gated the same way — staff with access to
 *this* show, acting only on people who are on *this* show's roster:
 
   * **Paperwork verification** (migration 090). Registration papers and
@@ -10,19 +10,31 @@ Two jobs, one file, because both are gated the same way — staff with access to
     numbers. A sign-off snapshots the value it was held against, so a later edit
     makes the check read back as stale instead of staying quietly green.
 
+  * **Health flags.** Which entered horses do not have health paperwork that
+    covers the show. Derived from the documents on file, not signed off and not
+    stored — see below.
+
   * **Creating a horse for an exhibitor.** Someone shows up at the desk with a
     horse that was never added to their profile. Staff can create it for them,
     but only for an exhibitor already on this show's roster — this is a
     show-office convenience, not a general licence to write to strangers'
     profiles.
 
-Verification records what the office saw; it does not gate anything. The Coggins
-gate in `routers/entries.py` is the one hard stop on entry, and deliberately
-stays the only one — an office that has not finished its paperwork sweep must
-still be able to run its show.
+**Nothing in this file gates entry, and neither does anything else.** Coggins
+standing used to be a hard stop: a horse whose record was missing, undated, or
+lapsed could not be entered at all, by the exhibitor or by the secretary. That
+block never made a single horse compliant — it just moved the discovery to the
+worst possible moment, and pushed staff through an override that recorded a
+bypass instead of a to-do. Entry is now open and the shortfall surfaces here,
+early, as something the office can chase while there is still time to fix it.
+
+Health flags are computed on read rather than stored, which is what makes them
+self-clearing: the exhibitor uploads a current Coggins and the flag is simply
+gone the next time anyone looks. There is no row to remember to close.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 from uuid import UUID
 
@@ -43,9 +55,16 @@ from models import (
     ExhibitorRegistration,
     Horse,
     HorseRegistration,
+    Show,
     ShowEntry,
     ShowVerification,
     User,
+)
+from routers.horse_documents import (
+    COGGINS_VALID,
+    coggins_health,
+    load_coggins_expiries,
+    paperwork_deadline,
 )
 from routers.people import (
     assert_registrations_available,
@@ -55,6 +74,7 @@ from routers.people import (
 from routers.shows import _assert_show_access
 from schemas import (
     MyHorseOut,
+    ShowHealthFlagsOut,
     ShowVerificationCreate,
     ShowVerificationOut,
     StaffHorseCreate,
@@ -86,6 +106,13 @@ class _Roster:
         # Horses each exhibitor has entered, keyed so a horse entered in several
         # classes is only listed once.
         self.horses: dict[UUID, dict[UUID, Horse]] = {}
+        # How many classes each horse is in, across every exhibitor riding it.
+        # Sizes the problem when the office is deciding who to call first.
+        self.entry_counts: dict[UUID, int] = {}
+
+    def horse_ids(self) -> list[UUID]:
+        """Every distinct horse entered in this show."""
+        return list({hid for by_horse in self.horses.values() for hid in by_horse})
 
 
 async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
@@ -130,8 +157,38 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
         # entry without a horse is expected and simply has no papers to check.
         if entry.horse is not None:
             roster.horses.setdefault(entry.exhibitor_id, {})[entry.horse_id] = entry.horse
+            roster.entry_counts[entry.horse_id] = roster.entry_counts.get(entry.horse_id, 0) + 1
 
     return roster
+
+
+# ── Health paperwork ───────────────────────────────────────────────────────────
+
+
+async def _health_by_horse(
+    horse_ids: list[UUID], show: Show, db: AsyncSession
+) -> dict[UUID, list[dict]]:
+    """Health checks per horse, judged against this show's deadline.
+
+    Coggins is the only one for now; the list shape is what lets a second
+    document type (a state health certificate, say) be added without every
+    caller changing.
+    """
+    if not horse_ids:
+        return {}
+    expiries = await load_coggins_expiries(horse_ids, db)
+    deadline = paperwork_deadline(show)
+    return {
+        horse_id: [coggins_health(expiries.get(horse_id, []), deadline)]
+        for horse_id in horse_ids
+    }
+
+
+async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
+    show = await db.get(Show, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    return show
 
 
 # ── Checklist ──────────────────────────────────────────────────────────────────
@@ -196,7 +253,9 @@ async def get_verification_checklist(
 ):
     """The paperwork sweep for this show, by exhibitor."""
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
     roster = await _load_roster(show_id, db)
+    health = await _health_by_horse(roster.horse_ids(), show, db)
 
     verification_result = await db.execute(
         select(ShowVerification).where(ShowVerification.show_id == show_id)
@@ -254,6 +313,7 @@ async def get_verification_checklist(
                 "barn_name": horse.barn_name,
                 "age_check": age_check,
                 "registrations": horse_regs,
+                "health": health.get(horse.id, []),
             })
 
         # Outstanding is what is left at *this person's* desk visit, so a shared
@@ -279,6 +339,86 @@ async def get_verification_checklist(
         totals[status] += 1
 
     return {"show_id": show_id, "exhibitors": exhibitors_out, "totals": totals}
+
+
+@router.get(
+    "/health-flags",
+    response_model=ShowHealthFlagsOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def get_health_flags(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Entered horses whose health paperwork will not carry them through the show.
+
+    The office's chase list. Entry does not wait on any of this, so this is how
+    staff find out early enough to do something — a phone call, or a Coggins
+    pulled on the way. Horses that are fine are left out entirely: the useful
+    length of this list is the number of problems, not the number of horses.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
+    roster = await _load_roster(show_id, db)
+
+    horse_ids = roster.horse_ids()
+    health = await _health_by_horse(horse_ids, show, db)
+
+    # Who to call about each horse. A horse ridden by two exhibitors is one flag
+    # carrying both names rather than two flags about one piece of paper.
+    riders: dict[UUID, list[dict]] = {}
+    horses_by_id: dict[UUID, Horse] = {}
+    for exhibitor_id, by_horse in roster.horses.items():
+        for horse_id, horse in by_horse.items():
+            horses_by_id[horse_id] = horse
+            exhibitor = roster.exhibitors.get(exhibitor_id)
+            riders.setdefault(horse_id, []).append({
+                "exhibitor_id": exhibitor_id,
+                "exhibitor_name": exhibitor.full_name if exhibitor else "(unknown)",
+                "back_number": roster.back_numbers.get(exhibitor_id),
+            })
+
+    totals = {
+        "horses": len(horse_ids),
+        "flagged": 0,
+        "missing": 0,
+        "undated": 0,
+        "expired": 0,
+    }
+    flagged = []
+    for horse_id in horse_ids:
+        for check in health.get(horse_id, []):
+            if check["status"] == COGGINS_VALID:
+                continue
+            totals["flagged"] += 1
+            totals[check["status"]] += 1
+            horse = horses_by_id[horse_id]
+            flagged.append({
+                "horse_id": horse_id,
+                "horse_name": horse.name,
+                "barn_name": horse.barn_name,
+                "check": check,
+                "entry_count": roster.entry_counts.get(horse_id, 0),
+                "exhibitors": sorted(
+                    riders.get(horse_id, []),
+                    key=lambda r: (r["exhibitor_name"] or "").lower(),
+                ),
+            })
+
+    # Nothing on file first, then no date, then lapsed — roughly the order of how
+    # much work each one is for the exhibitor to put right.
+    severity = {"missing": 0, "undated": 1, "expired": 2}
+    flagged.sort(key=lambda f: (severity.get(f["check"]["status"], 9), (f["horse_name"] or "").lower()))
+
+    return {
+        "show_id": show_id,
+        "as_of": paperwork_deadline(show),
+        "flagged": flagged,
+        "totals": totals,
+    }
 
 
 # ── Signing off ────────────────────────────────────────────────────────────────

@@ -1,7 +1,10 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
-import { fetchShow, fetchClasses } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchMyShowStanding } from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import { auth } from '@/auth';
+import type { MyShowStanding } from '@/lib/my-shows';
+import ExhibitorStatusBanner from './_components/ExhibitorStatusBanner';
 import VisitorShowView from './_components/VisitorShowView';
 
 function formatClassDate(dateStr: string): string {
@@ -27,8 +30,16 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
     return <VisitorShowView showId={id} show={show} />;
   }
 
-  const [show, classes] = await Promise.all([fetchShow(id), fetchClasses(id)]);
-  const registrationOpen = show.status === 'PUBLISHED';
+  const headers = canSelfRegister ? await getAuthHeaders() : null;
+  const [show, classes, standing] = await Promise.all([
+    fetchShow(id),
+    fetchClasses(id),
+    // Only exhibitors have a standing to report, and only they see the banner
+    // it feeds — nobody else pays for the round trip.
+    canSelfRegister
+      ? (fetchMyShowStanding(id, headers || undefined) as Promise<MyShowStanding | null>)
+      : Promise.resolve(null),
+  ]);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -55,34 +66,8 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      {canSelfRegister && registrationOpen && (
-        <div
-          className="mb-4 px-4 py-3 rounded border flex items-center justify-between gap-3"
-          style={{ backgroundColor: '#f0e8d8', borderColor: '#d4b896' }}
-        >
-          <div className="text-sm" style={{ color: '#5d4a37' }}>
-            Registration is open. Sign up for the show — stalls, shavings and camping — then pick
-            your classes.
-          </div>
-          {/* Sign-up is the single entry point: it is required before classes,
-              and it forwards anyone already signed up straight to the class
-              picker rather than making them re-enter the same numbers. */}
-          <Link
-            href={`/shows/${id}/signup`}
-            className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
-            style={{ backgroundColor: '#8b4513' }}
-          >
-            Sign up →
-          </Link>
-        </div>
-      )}
-      {canSelfRegister && !registrationOpen && show.status !== 'DRAFT' && (
-        <div
-          className="mb-4 px-4 py-3 rounded border text-sm"
-          style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
-        >
-          Online registration is closed. Contact the show secretary to be added to classes.
-        </div>
+      {canSelfRegister && (
+        <ExhibitorStatusBanner showId={id} showStatus={show.status} standing={standing} />
       )}
 
       {/* Only for people who could otherwise be entering scores. An exhibitor or

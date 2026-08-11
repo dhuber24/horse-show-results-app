@@ -2,6 +2,34 @@
 
 ## August 2026
 
+### The Show Page Stopped Asking Signed-Up Exhibitors To Sign Up
+
+Coming back to `/shows/[id]` after completing sign-up still showed "Registration is open — Sign up", identical to what a stranger to the show saw. Telling someone to do a thing they have just done is how you make them wonder whether it worked.
+
+`ExhibitorStatusBanner` now reports their own standing first: signed up (with back number and class count), entered by the office but never signed up, or nothing yet. It is fed by a new `GET /my-shows/{show_id}` which is **not** status-scoped, unlike everything under `/shows/{id}/register` — those 403 outside PUBLISHED because they change a registration, and this only reports one, so "entered in 6 classes" still shows on a show that has already started. The fetch is `no-store` on purpose: serving it from the data cache would put the sign-up prompt back in front of the person it was written for.
+
+The shell-row case is handled rather than collapsed into "not signed up": a secretary adding a late entry by hand creates a `show_entries` row with no `registered_at`, so that exhibitor has classes while the office has no stall or shavings numbers for them. They are told exactly that, and still offered the form.
+
+### Health Records Became A Flag Instead Of A Locked Door
+
+A horse whose Coggins was missing, undated, or lapsed could not be entered at all — the exhibitor got a 422 and so did the secretary. The rule was well meant and did nothing useful: turning the entry away made the horse no more compliant, it just moved the discovery to the desk with the trailer already parked outside, and it pushed staff through an "override" that recorded a *bypass* when what the office actually wanted was a *to-do*. Entry is now open on both paths, and the shortfall surfaces to show staff early enough to act on it.
+
+- **The deadline is the show's last day, not today.** `coggins_status(expiries, as_of)` takes the day the paperwork has to be good for, and every show-scoped caller passes `show.end_date`. A Coggins expiring between now and the show is the exact case worth chasing, and the old today-based check called it valid right up until it was too late — verified against a document valid on the day and lapsed by the show, which the old rule waved through and the flag catches. Last day rather than first, because the horse is on the grounds all week.
+- **Nothing is stored, which is what makes it self-clearing.** Flags are derived on read from `horse_documents`, so uploading a current Coggins removes the flag with no row for anyone to remember to close. `GET /shows/{id}/health-flags` sorts worst first (`missing` → `undated` → `expired`) and names the exhibitors to call, their back numbers, and how many classes the horse is in. A horse shared by two exhibitors is one flag with both names on it, because it is one piece of paper.
+- **It is deliberately not a `show_verifications` kind.** The desk cannot attest to a Coggins that has expired, and one that has not needs no attesting. The check-in checklist carries the derived line per horse and excludes it from `outstanding` and `totals`, which count sign-offs the desk still owes.
+- **The all-clear is a line, not an absence.** `HealthFlagPanel` renders a green "paperwork is current for all N horses through *date*" rather than disappearing: staff cannot otherwise tell a clean show from one nobody has entered yet.
+- **`coggins_override_audit` is kept, read-only.** An override needs a block to override, so nothing writes it now — but shows run under the old rule keep their trail. An audit that vanishes when the rule changes was never an audit. `skip_coggins_check` is gone from the API and the route handler rather than left as a no-op parameter.
+- **The exhibitor still gets told.** Their registration screen lists the same horses, says the show office has the same list, and links to the upload form; the picker marks them `⚠ records due` but leaves them selectable. The `/profile` horse card stops saying "blocks entry" — it now says what a show will ask for, because nothing is refused. It remains the one place evaluating against today, having no show in hand.
+
+### The Horse Health Section Stopped Asking The Same Question Twice
+
+`HorseDocuments` put a type filter directly above an upload form whose first field was also a type dropdown — same three labels, same widget, stacked. Choosing "Coggins" to narrow the list and then "Coggins" again to upload one read as the app not listening.
+
+- The filter is now a row of chips: visibly a filter rather than a form field, and hidden entirely until there is a list worth narrowing.
+- It seeds the upload form's type, so the answer is given once.
+- Uploading a type the list is filtered away from clears the filter. Saving a document into a view that hides it reads as the upload having failed.
+- The "complete these fields" hint names only the fields actually blank, instead of listing "document type" at a control already filled in.
+
 ### Shows Can Reward Reserving Early
 
 Show bills price stalls, shavings and camping two ways — one number if you reserve by a date, a higher one after — because the office has to know how much of the barn to hold before it can plan the grounds. `show_fees` stored one number, so a show running early pricing collected stall reservations off-app and retyped them. **Migration 092** gives a reservable fee a second price and a deadline.

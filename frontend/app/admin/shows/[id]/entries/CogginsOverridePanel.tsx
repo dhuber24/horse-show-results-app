@@ -10,6 +10,15 @@ interface CogginsOverride {
   created_at: string;
 }
 
+/**
+ * Historical record of the old Coggins entry gate.
+ *
+ * Health paperwork no longer blocks an entry, so nothing writes these rows any
+ * more and this panel is empty for any show run since — but shows that ran
+ * under the old rule keep their audit trail, which is why the component stays.
+ * Current shortfalls live in `HealthFlagPanel`.
+ */
+
 /** Matches the COGGINS_* statuses in backend/routers/horse_documents.py. */
 const STATUS_LABEL: Record<string, string> = {
   missing: 'No Coggins on file',
@@ -51,15 +60,16 @@ export default function CogginsOverridePanel({ showId }: { showId: string }) {
         className="flex items-center gap-2 text-sm font-semibold"
         style={{ color: '#92400e' }}
       >
-        <span>⚠ Coggins overrides ({overrides.length})</span>
+        <span>⚠ Coggins overrides — historical ({overrides.length})</span>
         <span className="text-xs font-normal">{open ? 'Hide' : 'Show'}</span>
       </button>
 
       {open && (
         <>
           <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
-            Entries added by staff who confirmed the Coggins by inspecting the paper
-            document, when the record on file would otherwise have blocked them.
+            From when a lapsed Coggins blocked an entry outright: staff confirmed the paper
+            document and recorded the bypass. Entry no longer waits on health records, so
+            nothing is added here any more — outstanding paperwork is flagged above.
           </p>
           <div className="overflow-x-auto mt-3">
             <table className="w-full text-sm border-collapse">

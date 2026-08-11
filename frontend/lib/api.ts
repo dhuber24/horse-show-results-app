@@ -187,6 +187,31 @@ export async function fetchDivisions(showId: string) {
   return res.json();
 }
 
+/**
+ * Where the signed-in caller stands at one show — signed up, back number,
+ * classes entered.
+ *
+ * Falls back to "no standing" rather than throwing. This decorates the show
+ * page; a hiccup here should change the banner, never blank the page the
+ * classes are on.
+ */
+export async function fetchMyShowStanding(showId: string, headers?: HeadersInit) {
+  try {
+    // Explicitly uncached. The entire point of this call is that the banner
+    // changes the moment someone signs up — serving it from the data cache
+    // would put "Registration is open, sign up" back in front of a person who
+    // just did, which is the bug it exists to fix.
+    const res = await fetch(`${API_URL}/my-shows/${showId}`, {
+      cache: 'no-store',
+      ...(headers ? { headers } : {}),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchStandardDisciplines(showTypeId?: string) {
   const url = showTypeId
     ? `${API_URL}/standard-setup/disciplines?show_type_id=${encodeURIComponent(showTypeId)}`

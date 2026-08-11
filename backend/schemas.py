@@ -1493,12 +1493,37 @@ class VerificationCheckOut(BaseModel):
     note: Optional[str] = None
 
 
+HealthStatus = Literal["valid", "missing", "undated", "expired"]
+
+
+class HorseHealthCheckOut(BaseModel):
+    """A horse's health paperwork standing at one show.
+
+    Deliberately *not* a `VerificationCheckOut`. Nobody signs this off: it is
+    read straight off the documents on file, judged against the show's last day,
+    and clears itself the moment a current document is uploaded. A stale
+    sign-off would be worse than no sign-off here, because the thing being
+    checked has an expiry date of its own.
+    """
+
+    code: str
+    label: str
+    status: HealthStatus
+    message: str
+    # The furthest-out expiry on file, so a screen can name the date it is
+    # complaining about. None when nothing on file carries one.
+    expiry_date: Optional[date] = None
+
+
 class VerificationHorseOut(BaseModel):
     horse_id: UUID
     horse_name: str
     barn_name: Optional[str] = None
     age_check: VerificationCheckOut
     registrations: list[VerificationCheckOut] = Field(default_factory=list)
+    # Derived, and excluded from `outstanding` / `totals` below — those count
+    # sign-offs the desk still owes, and this is not one of them.
+    health: list[HorseHealthCheckOut] = Field(default_factory=list)
 
 
 class VerificationExhibitorOut(BaseModel):
@@ -1525,6 +1550,44 @@ class VerificationChecklistOut(BaseModel):
     show_id: UUID
     exhibitors: list[VerificationExhibitorOut] = Field(default_factory=list)
     totals: VerificationTotalsOut = Field(default_factory=VerificationTotalsOut)
+
+
+# ── Health flags ───────────────────────────────────────────────────────────────
+# Horses entered in a show whose health paperwork will not carry them through
+# it. Entry does not depend on this — the flag exists so the office finds out
+# while there is still time to do something about it.
+
+class HealthFlagExhibitorOut(BaseModel):
+    exhibitor_id: UUID
+    exhibitor_name: str
+    back_number: Optional[int] = None
+
+
+class HealthFlagOut(BaseModel):
+    horse_id: UUID
+    horse_name: str
+    barn_name: Optional[str] = None
+    check: HorseHealthCheckOut
+    entry_count: int = 0
+    # A horse shared between exhibitors is one flag with both names on it —
+    # it is one piece of paper, and chasing it twice would be chasing it twice.
+    exhibitors: list[HealthFlagExhibitorOut] = Field(default_factory=list)
+
+
+class HealthFlagTotalsOut(BaseModel):
+    horses: int = 0
+    flagged: int = 0
+    missing: int = 0
+    undated: int = 0
+    expired: int = 0
+
+
+class ShowHealthFlagsOut(BaseModel):
+    show_id: UUID
+    # The day the paperwork has to be good for — the show's last day.
+    as_of: date
+    flagged: list[HealthFlagOut] = Field(default_factory=list)
+    totals: HealthFlagTotalsOut = Field(default_factory=HealthFlagTotalsOut)
 
 
 class StaffHorseCreate(HorseWithRegistrationsBase):

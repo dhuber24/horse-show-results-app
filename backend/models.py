@@ -918,13 +918,21 @@ class ResultAudit(Base):
 
 
 class CogginsOverrideAudit(Base):
-    """One row per effective show-staff bypass of the Coggins entry gate.
+    """One row per effective show-staff bypass of the old Coggins entry gate.
 
-    Written only when the override actually mattered — passing
-    `skip_coggins_check` for a horse that already holds a valid Coggins
-    overrides nothing and records nothing. `horse_name` and
-    `overridden_by_name` are denormalized snapshots so a row stays readable
-    after the horse or the staff account is deleted (migration 082).
+    **Historical.** Nothing writes this any more: an override only means
+    something while there is a block to override, and health paperwork no longer
+    gates entry — a horse with a missing, undated, or lapsed Coggins is entered
+    and turns up on the show's health flags instead (`routers/show_office.py`).
+    The rows already here describe real bypasses of the rule as it stood, so
+    they are kept and stay readable; an audit trail that vanishes when the rule
+    changes was never an audit trail.
+
+    Rows were written only when the override actually mattered — passing the
+    flag for a horse that already held a valid Coggins recorded nothing.
+    `horse_name` and `overridden_by_name` are denormalized snapshots so a row
+    stays readable after the horse or the staff account is deleted
+    (migration 082).
     """
 
     __tablename__ = "coggins_override_audit"

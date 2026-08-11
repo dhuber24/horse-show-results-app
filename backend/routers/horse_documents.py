@@ -20,10 +20,15 @@ VALID_DOC_TYPES = {'COGGINS', 'VACCINATION', 'HEALTH_CERTIFICATE', 'REGISTRATION
 
 
 # --- Coggins evaluation -----------------------------------------------------
-# One implementation, shared by the secretary entry path (routers/entries.py)
-# and exhibitor self-registration (routers/show_registration.py). These used to
-# carry separate copies of the same `any()` expression, which is how they drifted
-# from the readiness flags on the exhibitor's horse card.
+# One implementation, shared by the show-office health flags
+# (routers/show_office.py), exhibitor self-registration
+# (routers/show_registration.py), and the horse card. These used to carry
+# separate copies of the same `any()` expression, which is how they drifted
+# from each other.
+#
+# This **classifies**; it does not gate. Coggins standing used to be a hard stop
+# on entry, and no longer is — see the module docstring in
+# `routers/show_office.py` for why the block became a flag.
 
 COGGINS_VALID = "valid"
 COGGINS_MISSING = "missing"
@@ -39,22 +44,35 @@ COGGINS_MESSAGES = {
     COGGINS_EXPIRED: "The Coggins on file has expired",
 }
 
+# The same four outcomes, phrased for a horse entered in a specific show. These
+# are deliberately date-free — the caller sends `expiry_date` alongside so the
+# screen can say "expired Mar 3" without this module guessing at a locale or a
+# platform-specific strftime.
+COGGINS_SHOW_MESSAGES = {
+    COGGINS_VALID: "Coggins valid through the show",
+    COGGINS_MISSING: "No Coggins on file — needed before the show",
+    COGGINS_UNDATED: "Coggins on file has no expiration date — needed before the show",
+    COGGINS_EXPIRED: "Coggins does not cover the show dates — needs renewing",
+}
 
-def coggins_status(expiry_dates: list[Optional[date]], today: Optional[date] = None) -> str:
+
+def coggins_status(expiry_dates: list[Optional[date]], as_of: Optional[date] = None) -> str:
     """Classify a horse's Coggins paperwork from the expiry dates on file.
 
-    A Coggins clears a horse for entry only when it carries an expiration date
-    that has not passed. An undated row is deliberately **not** valid: with no
-    date there is nothing to verify, and a horse whose paperwork cannot be
-    verified should not be quietly entered. Show staff who have physically
-    inspected the document override the block via `skip_coggins_check` on the
-    entry endpoint — that is the intended escape hatch when the record is thin
-    but the paper is good.
+    A Coggins covers a horse only when it carries an expiration date that has
+    not passed. An undated row is deliberately **not** valid: with no date there
+    is nothing to verify.
+
+    `as_of` is the day the paperwork has to be good for. It defaults to today —
+    right for "is this horse's record in order now?" on the profile — but the
+    show office passes the **last day of the show**, because a Coggins that
+    lapses the week before the show is the exact case staff need to chase, and
+    evaluating it against today would call it valid until it was too late.
     """
     if not expiry_dates:
         return COGGINS_MISSING
-    today = today or date.today()
-    if any(d is not None and d >= today for d in expiry_dates):
+    as_of = as_of or date.today()
+    if any(d is not None and d >= as_of for d in expiry_dates):
         return COGGINS_VALID
     # Report the undated case ahead of the expired one: it names the fixable
     # data problem, where "expired" would send the exhibitor after a new test
@@ -62,6 +80,16 @@ def coggins_status(expiry_dates: list[Optional[date]], today: Optional[date] = N
     if any(d is None for d in expiry_dates):
         return COGGINS_UNDATED
     return COGGINS_EXPIRED
+
+
+def latest_coggins_expiry(expiry_dates: list[Optional[date]]) -> Optional[date]:
+    """The furthest-out expiry on file, or None when nothing is dated.
+
+    Paired with the status so a screen can name the date it is complaining
+    about; on its own it says nothing about whether the horse is covered.
+    """
+    dated = [d for d in expiry_dates if d is not None]
+    return max(dated) if dated else None
 
 
 async def load_coggins_expiries(
@@ -92,23 +120,33 @@ async def get_coggins_status(horse_id: UUID, db: AsyncSession) -> str:
     return coggins_status(expiries.get(horse_id, []))
 
 
-def coggins_error(status: str) -> HTTPException:
-    """The 422 raised for a horse that fails the gate.
+def paperwork_deadline(show) -> date:
+    """The day a horse's health papers have to still be good for at this show.
 
-    The error `code` stays `COGGINS_EXPIRED` across all outcomes because the
-    entry form and the self-registration screen branch on it; the message
-    carries the distinction between missing, undated, and expired.
+    The last day, not the first: a Coggins that lapses on the Saturday of a
+    Friday-to-Sunday show does not cover the horse for the whole time it is on
+    the grounds. Lives here, with the evaluation it feeds, so the exhibitor's
+    registration screen and the show office cannot end up judging the same
+    paperwork against two different deadlines.
     """
-    return HTTPException(
-        422, {"code": "COGGINS_EXPIRED", "message": COGGINS_MESSAGES[status]}
-    )
+    return show.end_date or show.start_date
 
 
-async def assert_coggins_valid(horse_id: UUID, db: AsyncSession) -> None:
-    """Raise 422 unless the horse holds an unexpired, dated Coggins."""
-    status = await get_coggins_status(horse_id, db)
-    if status != COGGINS_VALID:
-        raise coggins_error(status)
+def coggins_health(expiry_dates: list[Optional[date]], as_of: Optional[date] = None) -> dict:
+    """One horse's Coggins standing, in the shape every screen renders.
+
+    Shared so the exhibitor's registration screen and the show office's flag
+    list can never disagree about a horse — they are looking at the same
+    paperwork and, when `as_of` is the show's last day, at the same deadline.
+    """
+    status = coggins_status(expiry_dates, as_of)
+    return {
+        "code": "COGGINS",
+        "label": "Coggins Test (EIA)",
+        "status": status,
+        "message": COGGINS_SHOW_MESSAGES[status],
+        "expiry_date": latest_coggins_expiry(expiry_dates),
+    }
 
 
 def _detect_mime(data: bytes) -> str | None:

@@ -14,18 +14,19 @@ type PreviewClass = {
   nsba_sanction_cents: number;
 };
 
-type RegistrationRequirement = {
+type HealthCheck = {
   code: string;
   label: string;
   status: 'valid' | 'missing' | 'undated' | 'expired';
   message: string;
+  expiry_date: string | null;
 };
 
 type PreviewHorse = {
   id: string;
   name: string;
-  can_register?: boolean;
-  registration_requirements?: RegistrationRequirement[];
+  /** Advisory, never a gate — see `healthWarnings` below. */
+  health?: HealthCheck[];
 };
 
 type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
@@ -74,14 +75,19 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function horseBlockers(horse: PreviewHorse): string[] {
-  return (horse.registration_requirements ?? [])
-    .filter((req) => req.status !== 'valid')
-    .map((req) => req.message);
-}
-
-function canRegisterHorse(horse: PreviewHorse): boolean {
-  return horse.can_register ?? horseBlockers(horse).length === 0;
+/**
+ * What this horse still needs before the show — not before registering.
+ *
+ * A lapsed Coggins used to stop the entry going in at all, which helped nobody:
+ * the paperwork was no more current for the horse having been turned away, and
+ * the show office only found out when the trailer arrived. The entry goes
+ * through, the exhibitor sees this, and the office sees the same list on its
+ * own screen with time to chase it.
+ */
+function healthWarnings(horse: PreviewHorse): string[] {
+  return (horse.health ?? [])
+    .filter((check) => check.status !== 'valid')
+    .map((check) => check.message);
 }
 
 /**
@@ -199,13 +205,8 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     for (const h of horses) m.set(h.id, h.name);
     return m;
   }, [horses]);
-  const horseById = useMemo(() => {
-    const m = new Map<string, PreviewHorse>();
-    for (const h of horses) m.set(h.id, h);
-    return m;
-  }, [horses]);
-  const unavailableHorses = useMemo(
-    () => horses.filter((h) => !canRegisterHorse(h)),
+  const horsesNeedingRecords = useMemo(
+    () => horses.filter((h) => healthWarnings(h).length > 0),
     [horses],
   );
 
@@ -285,20 +286,6 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     }));
     if (entries.length === 0) {
       setError('Pick a horse for at least one class to register.');
-      return;
-    }
-    const unavailableEntry = entries.find((entry) => {
-      const horse = horseById.get(entry.horse_id);
-      return horse && !canRegisterHorse(horse);
-    });
-    if (unavailableEntry) {
-      const horse = horseById.get(unavailableEntry.horse_id);
-      const blocker = horse ? horseBlockers(horse)[0] : null;
-      setError(
-        blocker
-          ? `${horse?.name ?? 'This horse'} cannot be registered yet: ${blocker}.`
-          : `${horse?.name ?? 'This horse'} cannot be registered yet.`,
-      );
       return;
     }
     setSubmitting(true);
@@ -438,30 +425,34 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
         </section>
       )}
 
-      {unavailableHorses.length > 0 && (
+      {horsesNeedingRecords.length > 0 && (
         <div
           className="mt-3 rounded-lg border p-3 space-y-2"
-          style={{ borderColor: '#fca5a5', backgroundColor: '#fef2f2' }}
+          style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb' }}
         >
-          <p className="text-sm font-medium" style={{ color: '#991b1b' }}>
-            {unavailableHorses.length === 1 ? '1 horse is' : `${unavailableHorses.length} horses are`} not eligible to enter — resolve the issues below, then refresh this page.
+          <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+            {horsesNeedingRecords.length === 1 ? '1 horse needs' : `${horsesNeedingRecords.length} horses need`} health records updated before the show
+          </p>
+          <p className="text-xs" style={{ color: '#92400e' }}>
+            You can still enter these classes now. The show office is sent the same list and will
+            expect current paperwork by the time you ship in.
           </p>
           <ul className="space-y-1.5">
-            {unavailableHorses.map((h) => {
-              const blockers = horseBlockers(h);
+            {horsesNeedingRecords.map((h) => {
+              const warnings = healthWarnings(h);
               return (
                 <li key={h.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span style={{ color: '#7f1d1d' }}>
+                  <span style={{ color: '#7c2d12' }}>
                     <span className="font-medium">{h.name}</span>
                     {' — '}
-                    {blockers[0] ?? 'documents required'}
+                    {warnings[0] ?? 'documents needed'}
                   </span>
                   <Link
                     href={`/profile/horses/${h.id}`}
                     className="shrink-0 text-xs font-medium hover:underline"
                     style={{ color: '#8b4513' }}
                   >
-                    Manage documents →
+                    Upload documents →
                   </Link>
                 </li>
               );
@@ -543,11 +534,13 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
                           <option value="">— skip —</option>
                           {horses.map((h) => {
                             const already = existingHorseIds.includes(h.id);
-                            const blockers = horseBlockers(h);
-                            const blocked = !canRegisterHorse(h);
+                            // Only "entered" disables an option. A health
+                            // warning is marked, not enforced — the banner
+                            // above says what is outstanding.
+                            const needsRecords = healthWarnings(h).length > 0;
                             return (
-                              <option key={h.id} value={h.id} disabled={already || blocked}>
-                                {h.name}{already ? ' (entered)' : blocked ? ` (${blockers[0] ?? 'documents required'})` : ''}
+                              <option key={h.id} value={h.id} disabled={already}>
+                                {h.name}{already ? ' (entered)' : needsRecords ? ' ⚠ records due' : ''}
                               </option>
                             );
                           })}

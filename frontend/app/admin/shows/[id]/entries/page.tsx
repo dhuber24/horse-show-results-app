@@ -9,6 +9,7 @@ import {
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import CreateEntryForm from '../CreateEntryForm';
 import EntryListSection from './EntryListSection';
+import HealthFlagPanel from './HealthFlagPanel';
 import CogginsOverridePanel from './CogginsOverridePanel';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
@@ -80,6 +81,8 @@ export default async function ShowEntriesPage({ params }: { params: Promise<{ id
       <section>
         <CreateEntryForm showId={id} classes={classes} exhibitors={selectableExhibitors} isAphaShow={show.show_type_code === 'APHA'} />
       </section>
+
+      <HealthFlagPanel showId={id} />
 
       <CogginsOverridePanel showId={id} />
 

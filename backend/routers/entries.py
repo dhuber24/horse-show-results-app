@@ -1,14 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
-from typing import Optional
 
 from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin, safe_uuid
+from dependencies import require_admin_or_show_admin
 from models import (
     AqhaStandardClass,
     Class,
@@ -18,10 +17,8 @@ from models import (
     Exhibitor,
     Horse,
     Show,
-    User,
 )
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
-from routers.horse_documents import COGGINS_VALID, coggins_error, get_coggins_status
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
 
@@ -140,12 +137,19 @@ async def create_entry(
     show_id: UUID,
     class_id: UUID,
     body: EntryCreate,
-    skip_coggins_check: bool = Query(False),
     x_api_key: str = Header(...),
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
+    """Add an entry on behalf of an exhibitor.
+
+    Health paperwork is **not** checked here. A horse with a missing, undated,
+    or lapsed Coggins is entered like any other and turns up on this show's
+    health flags (`GET /shows/{show_id}/health-flags`) for the office to chase
+    before the show. Refusing the entry never made the horse compliant; it only
+    meant the office found out at the desk instead of in advance.
+    """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
@@ -160,26 +164,6 @@ async def create_entry(
     _RELATIONSHIP_REQUIRED = {"AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"}
     if body.apha_division in _RELATIONSHIP_REQUIRED and not body.relationship_to_owner:
         raise HTTPException(400, f"relationship_to_owner is required for {body.apha_division} division entries")
-
-    # skip_coggins_check is the show-staff override: a secretary or manager who
-    # has physically inspected the paper Coggins can enter the horse even when
-    # the uploaded record is missing, undated, or lapsed. The endpoint is already
-    # limited to ADMIN / SHOW_SECRETARY / SHOW_MANAGER with access to this show,
-    # so exhibitors cannot reach it. Self-registration has no equivalent.
-    #
-    # The status is evaluated either way so the override can be audited. Passing
-    # the flag for a horse that already holds a valid Coggins overrides nothing
-    # and is deliberately not recorded — the audit counts real bypasses, not
-    # flag usage.
-    overridden_status: Optional[str] = None
-    override_actor: Optional[User] = None
-    if body.horse_id:
-        status = await get_coggins_status(body.horse_id, db)
-        if status != COGGINS_VALID:
-            if not skip_coggins_check:
-                raise coggins_error(status)
-            overridden_status = status
-            override_actor = await db.get(User, safe_uuid(x_user_id))
 
     # Pattern classes (showmanship/horsemanship/trail) can have the same
     # exhibitor entered on multiple horses; rail classes cannot.
@@ -208,21 +192,6 @@ async def create_entry(
 
     db.add(entry)
     try:
-        if overridden_status:
-            # Written in the same transaction as the entry: an entry that
-            # bypassed the gate must never exist without the row explaining why.
-            # The flush is what assigns entry.id.
-            await db.flush()
-            db.add(CogginsOverrideAudit(
-                show_id=show_id,
-                entry_id=entry.id,
-                class_id=class_id,
-                horse_id=horse.id if horse else None,
-                horse_name=horse.name if horse else "(unknown horse)",
-                coggins_status=overridden_status,
-                overridden_by=override_actor.id if override_actor else None,
-                overridden_by_name=override_actor.full_name if override_actor else None,
-            ))
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -289,8 +258,12 @@ async def delete_entry(
     await db.commit()
 
 
-# Show-level, so the audit can be read without picking a class first. Kept in
-# this module because create_entry above is what writes the rows.
+# Historical, and read-only for good. Nothing writes `coggins_override_audit`
+# any more: an override only means something while there is a block to override,
+# and entry no longer checks health paperwork. The rows already written describe
+# real bypasses of the old gate, so they stay readable rather than being dropped
+# — an audit trail that disappears when the rule changes was never an audit
+# trail. Kept in this module because create_entry is what used to write them.
 coggins_audit_router = APIRouter(prefix="/shows/{show_id}", tags=["Entries"])
 
 
@@ -306,7 +279,11 @@ async def list_coggins_overrides(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Every effective Coggins bypass recorded for this show, newest first."""
+    """Every effective Coggins bypass recorded for this show, newest first.
+
+    Only ever returns rows from before the entry gate became a flag; the list is
+    empty for any show run since.
+    """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     result = await db.execute(
         select(CogginsOverrideAudit)

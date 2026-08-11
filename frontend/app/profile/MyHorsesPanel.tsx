@@ -48,18 +48,22 @@ function daysUntil(isoDate: string): number {
 
 type CogginsStatus = 'valid' | 'missing' | 'undated' | 'expired';
 
-const COGGINS_BLOCKER_TEXT: Record<Exclude<CogginsStatus, 'valid'>, string> = {
-  missing: 'No Coggins on file — blocks entry',
-  undated: 'Coggins has no expiration date — blocks entry',
-  expired: 'Coggins expired — blocks entry',
+const COGGINS_PROBLEM_TEXT: Record<Exclude<CogginsStatus, 'valid'>, string> = {
+  missing: 'No Coggins on file — shows will ask for one',
+  undated: 'Coggins has no expiration date — shows will ask for one',
+  expired: 'Coggins expired — shows will ask for a current one',
 };
 
 /**
  * Mirrors `coggins_status()` in `backend/routers/horse_documents.py`. Keep the
- * two in step: this is what tells the exhibitor whether a horse can be entered,
- * and the backend is what actually enforces it. A Coggins clears the horse only
- * when it carries an expiration date that has not passed, so an undated one is a
- * blocker rather than a pass — there is nothing on it to verify.
+ * two in step: this and the show office's health flags are meant to be the same
+ * verdict on the same paperwork. A Coggins clears the horse only when it carries
+ * an expiration date that has not passed, so an undated one is a problem rather
+ * than a pass — there is nothing on it to verify.
+ *
+ * This is advice, not a gate. Entry does not check any of it; a show sees the
+ * shortfall on its own screen and follows up. The wording says what a show will
+ * ask for, not what is refused, because nothing is refused.
  */
 function cogginsCheck(docs: HorseDocumentBrief[]): { status: CogginsStatus; daysLeft: number | null } {
   const coggins = docs.filter((d) => d.document_type === 'COGGINS');
@@ -74,8 +78,8 @@ function cogginsCheck(docs: HorseDocumentBrief[]): { status: CogginsStatus; days
 }
 
 /**
- * What would stop this horse from being entered at a show — missing paperwork
- * and expiring documents. Document status is only returned by the API for horses
+ * What this horse still needs before it competes — missing paperwork and
+ * expiring documents. Document status is only returned by the API for horses
  * the caller owns, so non-owned horses only get the registration check.
  */
 function readinessFlags(horse: MyHorse, isOwner: boolean): ReadinessFlag[] {
@@ -87,11 +91,11 @@ function readinessFlags(horse: MyHorse, isOwner: boolean): ReadinessFlag[] {
 
   const docs = horse.documents ?? [];
 
-  // Coggins is an entry gate, not just an expiry warning, so it gets the
-  // backend's rule and a danger tone rather than the generic handling below.
+  // Coggins is the document every show asks after, so it gets the backend's
+  // rule and a danger tone rather than the generic handling below.
   const coggins = cogginsCheck(docs);
   if (coggins.status !== 'valid') {
-    flags.push({ tone: 'danger', text: COGGINS_BLOCKER_TEXT[coggins.status] });
+    flags.push({ tone: 'danger', text: COGGINS_PROBLEM_TEXT[coggins.status] });
   } else if (coggins.daysLeft !== null && coggins.daysLeft <= EXPIRY_WARNING_DAYS) {
     flags.push({
       tone: 'warn',

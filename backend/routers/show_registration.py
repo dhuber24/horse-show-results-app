@@ -14,7 +14,12 @@ Registration is two steps, in order:
    point — the office wants stall counts *before* it has a ring full of horses.
 
 Each class entry creates one `entries` row per (class, horse) pair and runs the
-same association/Coggins validation as the secretary entry path.
+same association validation as the secretary entry path.
+
+Health paperwork does **not** gate any of this. A horse whose Coggins is
+missing, undated, or lapsed by the show's last day is entered like any other and
+shows up on the screen — and on the show office's health flags — as something to
+sort out before shipping in.
 
 The exhibitor is derived from the authenticated user — never trusted from the
 request body — so a logged-in EXHIBITOR can only register themselves.
@@ -59,13 +64,7 @@ from models import (
     ShowEntryReservation,
     ShowFee,
 )
-from routers.horse_documents import (
-    COGGINS_MESSAGES,
-    COGGINS_VALID,
-    assert_coggins_valid,
-    coggins_status,
-    load_coggins_expiries,
-)
+from routers.horse_documents import coggins_health, load_coggins_expiries, paperwork_deadline
 from routers.shows import get_aqha_association_id
 from rules import get_rules
 from schemas import EntryOut
@@ -263,23 +262,15 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
     return context
 
 
-def _coggins_requirement(expiry_dates: list[date | None]) -> dict:
-    """Requirement row for the self-registration screen.
+def _horse_health(expiry_dates: list[date | None], show: Show) -> dict:
+    """Health standing for one horse, as of this show's paperwork deadline.
 
-    Shares `coggins_status` with the secretary entry path so the screen can
-    never say a horse is clear to register while the entry endpoint rejects it.
+    Advisory only. This used to decide whether the horse could be entered at
+    all; it now tells the exhibitor what to sort out before they ship in, and
+    the same evaluation reaches the show office through
+    `GET /shows/{id}/health-flags` so staff can chase it.
     """
-    status = coggins_status(expiry_dates)
-    return {
-        "code": "COGGINS",
-        "label": "Coggins Test (EIA)",
-        "status": status,
-        "message": (
-            "Valid Coggins on file"
-            if status == COGGINS_VALID
-            else COGGINS_MESSAGES[status]
-        ),
-    }
+    return coggins_health(expiry_dates, paperwork_deadline(show))
 
 
 # ── Sign-up ───────────────────────────────────────────────────────────────────
@@ -503,17 +494,13 @@ async def preview_registration(
             }
             for c in classes
         ],
+        # `health` is a warning, never a gate: every horse on the profile can be
+        # entered. The show office sees the same flags and follows up.
         "horses": [
             {
                 "id": str(h.id),
                 "name": h.name,
-                "can_register": (
-                    _coggins_requirement(coggins_expiries_by_horse.get(h.id, []))["status"]
-                    == "valid"
-                ),
-                "registration_requirements": [
-                    _coggins_requirement(coggins_expiries_by_horse.get(h.id, []))
-                ],
+                "health": [_horse_health(coggins_expiries_by_horse.get(h.id, []), show)],
             }
             for h in horses
         ],
@@ -637,8 +624,6 @@ async def register_for_show(
                     f"({cls.class_name}) once.",
                 )
             batch_non_pattern_classes.add(cls.id)
-
-        await assert_coggins_valid(item.horse_id, db)
 
         entry = Entry(
             class_id=item.class_id,

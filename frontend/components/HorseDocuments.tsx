@@ -139,7 +139,14 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
   // With a single allowed type there is nothing to pick or filter by — preselect it
   // and drop both controls rather than making the user restate the obvious.
   const singleType = allowedTypes.length === 1 ? allowedTypes[0].value : null;
-  const freshForm = () => ({ ...emptyUpload, document_type: singleType ?? '' });
+
+  // The upload form starts on whatever the list is filtered to. The list filter
+  // and the upload type used to be two identical-looking dropdowns stacked in
+  // the Health section, so picking "Coggins" to narrow the list and then picking
+  // "Coggins" again to upload one read as the app asking the same question
+  // twice. The filter is now a row of chips (visibly a filter, not a form
+  // field) and it seeds this, so the answer is only ever given once.
+  const freshForm = () => ({ ...emptyUpload, document_type: singleType ?? filterType });
 
   const canUpload = (uploadForm: typeof form, uploadFile: File | null) =>
     !!uploadFile && !!uploadForm.document_type && !!uploadForm.issue_date && !!uploadForm.expiry_date;
@@ -164,7 +171,11 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     if (res.ok) {
       const created = await res.json();
       setDocs((prev) => [...prev, created]);
-      setForm(freshForm());
+      // Uploading a type the list is filtered away from would otherwise save the
+      // document into a view that hides it, which reads as the upload failing.
+      const nextFilter = filterType && filterType !== created.document_type ? '' : filterType;
+      setFilterType(nextFilter);
+      setForm({ ...emptyUpload, document_type: singleType ?? nextFilter });
       setFile(null);
       setExtraction(null);
       setShowForm(false);
@@ -246,21 +257,42 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
 
   const visibleDocs = filterType ? scopedDocs.filter((d) => d.document_type === filterType) : scopedDocs;
 
+  const missingFields = [
+    !form.document_type && 'document type',
+    !form.issue_date && 'issue date',
+    !form.expiry_date && 'expiry date',
+  ].filter((label): label is string => Boolean(label));
+
   return (
     <div className="space-y-4">
-      {allowedTypes.length > 1 && (
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896', color: '#2c1810' }}
-        >
-          <option value="">All documents ({scopedDocs.length})</option>
-          {allowedTypes.map((t) => {
-            const count = scopedDocs.filter((d) => d.document_type === t.value).length;
-            return <option key={t.value} value={t.value}>{t.label} ({count})</option>;
+      {/* Only worth showing once there is a list to narrow. Chips rather than a
+          select: this filters what is displayed, and a second dropdown sitting
+          above the upload form's type dropdown read as a second question. */}
+      {allowedTypes.length > 1 && scopedDocs.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter documents by type">
+          {[{ value: '', label: 'All' }, ...allowedTypes].map((t) => {
+            const count = t.value
+              ? scopedDocs.filter((d) => d.document_type === t.value).length
+              : scopedDocs.length;
+            const active = filterType === t.value;
+            return (
+              <button
+                key={t.value || 'all'}
+                type="button"
+                onClick={() => setFilterType(t.value)}
+                aria-pressed={active}
+                className="text-xs px-2 py-1 rounded-full border transition-colors"
+                style={{
+                  borderColor: active ? '#8b4513' : '#e8d5b7',
+                  backgroundColor: active ? '#8b4513' : '#ffffff',
+                  color: active ? '#ffffff' : '#8b7355',
+                }}
+              >
+                {t.label} ({count})
+              </button>
+            );
           })}
-        </select>
+        </div>
       )}
 
       {visibleDocs.length === 0 ? (
@@ -469,9 +501,12 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
           {error && <p className="text-red-600 text-sm">{error}</p>}
           {!error && !reading && file && !uploading && !canUpload(form, file) && (
             <p className="text-xs" style={{ color: '#8b7355' }}>
+              {/* Names only what is actually missing. Listing "document type"
+                  when the filter already supplied it sends people looking for a
+                  field that is filled in. */}
               {extraction
-                ? `Fill in ${singleType ? '' : 'document type, '}issue date, and expiry date, then save.`
-                : `Complete ${singleType ? '' : 'document type, '}issue date, and expiry date to auto-upload.`}
+                ? `Fill in ${missingFields.join(', ')}, then save.`
+                : `Complete ${missingFields.join(', ')} to auto-upload.`}
             </p>
           )}
           {uploading && (
