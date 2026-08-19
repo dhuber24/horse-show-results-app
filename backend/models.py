@@ -408,6 +408,13 @@ class User(Base):
     last_login_at = Column(TIMESTAMP(timezone=True), nullable=True)
     is_approved = Column(Boolean, nullable=False, default=True)
     aqha_management_workshop_completed_at = Column(Date, nullable=True)
+    # Self-serve password reset. question/hash are a pair (DB CHECK); the two
+    # throttle columns gate the reset route only, never the password login.
+    security_question = Column(Text, nullable=True)
+    security_answer_hash = Column(Text, nullable=True)
+    security_answer_set_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    security_answer_failed_attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    security_answer_locked_until = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")

@@ -10,7 +10,7 @@ export default function ForgotPasswordPage() {
           <span className="text-5xl">🐴</span>
           <h1 className="text-2xl font-bold mt-3" style={{ color: '#2c1810' }}>Reset Password</h1>
           <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-            Enter your email and current password to set a new one.
+            Answer your security question to set a new password.
           </p>
         </div>
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>

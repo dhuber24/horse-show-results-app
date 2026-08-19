@@ -7,12 +7,13 @@ from sqlalchemy.orm import selectinload, load_only
 from uuid import UUID
 from typing import Optional
 from pydantic import BaseModel, EmailStr
-from datetime import date
+from datetime import date, datetime, timezone
 import bcrypt
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
 from routers.horse_access import approval_url, build_access_request, notify_request
+from routers.auth import clear_security_answer_throttle, hash_security_answer
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association
 from schemas import (
     UserCreate, UserOut,
@@ -194,6 +195,12 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class SecurityQuestionSet(BaseModel):
+    question: str
+    answer: str
+    current_password: str
+
+
 @users_router.get("/me", response_model=UserOut)
 async def get_current_user(
     user_id: str = Depends(require_authenticated),
@@ -255,6 +262,78 @@ async def change_current_user_password(
     await db.commit()
 
 
+@users_router.get("/me/security-question")
+async def get_current_user_security_question(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The question only, never the answer — there is nothing to return for the
+    answer, since only its bcrypt hash is stored. Kept off UserOut on purpose: a
+    question people write themselves tends to hint at its own answer, and UserOut
+    is what the admin user list renders."""
+    user = await db.get(User, safe_uuid(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    return {
+        "question": user.security_question,
+        "set_at": user.security_answer_set_at,
+    }
+
+
+@users_router.put("/me/security-question", status_code=204)
+async def set_current_user_security_question(
+    body: SecurityQuestionSet,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Setting the question needs the current password, for the same reason
+    changing the email does: this is a second way into the account. Without the
+    check, anyone who found an unlocked laptop could install a question they know
+    the answer to and own the account from anywhere, later."""
+    question = body.question.strip()
+    answer = body.answer.strip()
+    if len(question) < 8:
+        raise HTTPException(400, "Write a question of at least 8 characters")
+    if not question.endswith("?"):
+        raise HTTPException(400, "Write the prompt as a question, ending in '?'")
+    if len(answer) < 3:
+        raise HTTPException(400, "Answer must be at least 3 characters")
+
+    user = await db.get(User, safe_uuid(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    if not user.hashed_password or not bcrypt.checkpw(body.current_password.encode(), user.hashed_password.encode()):
+        raise HTTPException(400, "Current password is incorrect")
+    # An answer that *is* the password turns one secret into two copies of itself:
+    # the reset route would then accept the password in a field that is stored,
+    # displayed unmasked while typing, and guessed against with a 5-try budget.
+    if bcrypt.checkpw(answer.encode(), user.hashed_password.encode()):
+        raise HTTPException(400, "Your answer can't be your password")
+
+    user.security_question = question
+    user.security_answer_hash = hash_security_answer(answer)
+    user.security_answer_set_at = datetime.now(timezone.utc)
+    clear_security_answer_throttle(user)
+    await db.commit()
+
+
+@users_router.delete("/me/security-question", status_code=204)
+async def clear_current_user_security_question(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Removing the question closes the self-serve reset route for this account,
+    which is a legitimate thing to want — it is one more way in."""
+    user = await db.get(User, safe_uuid(user_id))
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.security_question = None
+    user.security_answer_hash = None
+    user.security_answer_set_at = None
+    clear_security_answer_throttle(user)
+    await db.commit()
+
+
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
 async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSession = Depends(get_db)):
     user = await db.get(User, user_id)
@@ -287,6 +366,43 @@ async def reset_user_password(user_id: UUID, body: PasswordReset, db: AsyncSessi
     if not user:
         raise HTTPException(404, "User not found")
     user.hashed_password = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    # The admin has just handed them a working password, so any security-answer
+    # lockout has served its purpose. Leaving it set would strand the user on the
+    # reset route the next time they need it, for a guessing spree that is over.
+    clear_security_answer_throttle(user)
+    await db.commit()
+
+
+@users_router.get("/{user_id}/security-question", dependencies=[Depends(require_admin)])
+async def get_user_security_question_status(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Whether the account has a question and whether its reset route is locked —
+    deliberately *not* the question text. An admin never needs to read it, and a
+    self-written question usually hints at its own answer; admins can already
+    reset the password outright, so showing it would add a leak and no capability."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    return {
+        "has_question": user.security_question is not None,
+        "set_at": user.security_answer_set_at,
+        "failed_attempts": user.security_answer_failed_attempts or 0,
+        "locked_until": user.security_answer_locked_until,
+    }
+
+
+@users_router.delete("/{user_id}/security-question", status_code=204, dependencies=[Depends(require_admin)])
+async def clear_user_security_question(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    """For the user who forgot their *answer*. Clearing beats editing: an admin
+    setting a replacement question would have to know the new answer too, which
+    hands a second credential for someone else's account to whoever is at the
+    keyboard. Cleared, the user sets their own on next sign-in."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.security_question = None
+    user.security_answer_hash = None
+    user.security_answer_set_at = None
+    clear_security_answer_throttle(user)
     await db.commit()
 
 

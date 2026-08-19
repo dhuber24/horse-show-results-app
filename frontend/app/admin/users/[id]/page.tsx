@@ -5,6 +5,7 @@ import { API_URL } from '@/lib/backend-fetch';
 import EditUserForm from './EditUserForm';
 import ChangeRoleForm from './ChangeRoleForm';
 import ResetPasswordForm from './ResetPasswordForm';
+import SecurityQuestionPanel from './SecurityQuestionPanel';
 import DeleteUserButton from './DeleteUserButton';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import AdminTrainerDetail from '@/app/admin/trainers/[id]/AdminTrainerDetail';
@@ -184,6 +185,11 @@ export default async function UserDetailPage({
       <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
         <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Reset Password</h2>
         <ResetPasswordForm userId={user.id} />
+      </section>
+
+      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Security Question</h2>
+        <SecurityQuestionPanel userId={user.id} />
       </section>
 
       <section className="p-5 rounded-lg border" style={{ borderColor: '#fca5a5', backgroundColor: '#fff9f9' }}>

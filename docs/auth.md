@@ -76,6 +76,40 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 - New self-registered Show Secretaries, Show Managers, Trainers, and Exhibitors are currently auto-approved. The `is_approved` column remains as an account lock gate.
 - Show Managers create shows directly via `/admin/shows/new`; `POST /shows/` auto-links them via `show_managers`. There is no per-show approval gate.
 
+## Password Reset
+
+Three routes back into an account, in the order a user should meet them.
+
+**1. Security question (self-serve, the normal path).** `/forgot-password` asks for an email, `POST /auth/password-reset/question` returns the question that account set, and `POST /auth/password-reset/answer` takes the answer plus the new password in one request. Both are public and rate-limited — the caller cannot sign in, which is the point.
+
+There is no emailed token because this app cannot depend on email: `mailer.py` returns `None` whenever `SMTP_HOST` is unset and never raises. A mailed-token reset would accept the request, say "check your email", and silently drop it. Every other flow here that mails a link also hands the link back for copy/paste; a reset token is the one thing that must *not* be shown to whoever asked for it, so there is no equivalent fallback.
+
+There is no intermediate token between the two steps either. A token pays for itself when the steps happen in different places — a mailed link, a second device. Here both halves are typed on the same screen a second apart, so a token table would add something to expire, clean up, and secure, and buy nothing.
+
+**2. Current password (fallback).** `POST /auth/reset-password` still takes email + current password + new password. It is a sound check and a useless one for someone who has genuinely forgotten — it stays for accounts with no question set, which is every account created before migration 102.
+
+**3. Admin reset (backstop).** `PATCH /users/{id}/password` on `/admin/users/[id]`, unchanged, for the user who forgot their answer too.
+
+### Setting the question
+
+`GET|PUT|DELETE /users/me/security-question`, surfaced on the profile Account tab. The `PUT` requires `current_password` for the same reason changing the email does: the question is a second way into the account, so an unlocked laptop must not be enough to install one whose answer the attacker knows.
+
+Two refusals worth knowing about: the prompt must end in `?` (a question people can answer, not a label), and the answer may not be the account password — that would put the password into a field which is stored separately, shown unmasked while typing, and guessable with a five-try budget.
+
+Answers are compared **normalized** — trimmed, lowercased, inner whitespace collapsed — then bcrypt-hashed. `Dusty Rose` and `  dusty   rose ` match, because the difference is one the user cannot see and could never debug. Nothing else is stripped.
+
+### Throttling
+
+The question is a single self-written prompt, which at a horse show is often guessable ("first horse's name" is printed on the entry form). Unlimited guesses against a guessable question is not authentication, so `users.security_answer_failed_attempts` counts consecutive misses and `security_answer_locked_until` closes the route for 15 minutes after 5. Per-IP rate limiting sits in front of both, but cannot carry this on its own — it resets when the attacker changes address, and the counter is a property of the account, not of where the guess came from.
+
+While locked, the **question is withheld too**, not just the answer check: the prompt is the half that hints at the answer.
+
+The lock covers the reset route only. Signing in with the password still works and **clears the counter** — someone who remembers their password must never be locked out by a stranger guessing at their question. An admin password reset clears it for the same reason.
+
+### Admin view
+
+`GET /users/{id}/security-question` reports `has_question`, `set_at`, `failed_attempts`, and `locked_until` — deliberately **not** the question text. Admins can already reset the password outright, so showing a self-written question (which usually hints at its own answer) would add exposure and no capability. `DELETE` clears it for a user who forgot their answer; the user then sets their own. An admin cannot *set* a replacement, because that would mean knowing the answer to someone else's account.
+
 ## Backend Guards
 
 Common guards live in `backend/dependencies.py`:
@@ -141,4 +175,7 @@ Two deliberate exceptions:
 - When changing an `EXHIBITOR` user to another role, the linked exhibitor data is preserved but the exhibitor dashboard no longer applies.
 - When changing a `TRAINER` user to another role, the linked trainer registry row is preserved but the trainer profile panel no longer applies.
 - `PATCH /users/me` requires `current_password` when changing `email` because email is the login identifier.
+- `PUT /users/me/security-question` requires `current_password` for the same reason: it installs a second way into the account.
+- A security-answer lockout closes the **reset route**, never the login. Signing in clears the counter, so a stranger guessing at someone's question cannot lock the owner out of their own account.
+- The security question is never returned to an admin — only whether one is set. Admins can reset the password outright, so reading a self-written question would add exposure without adding capability.
 - Admin user deletion is safer after migration `039_user_delete_set_null_fks.sql`, but deleting users can still affect ownership/audit attribution semantics (`SET NULL` references).

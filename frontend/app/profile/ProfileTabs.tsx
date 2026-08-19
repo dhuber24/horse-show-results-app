@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import EditAccountForm from './EditAccountForm';
 import ChangePasswordForm from './ChangePasswordForm';
+import SecurityQuestionForm from './SecurityQuestionForm';
 import MyHorsesPanel, { MyHorse } from './MyHorsesPanel';
 import TrainerHorsesPanel from './TrainerHorsesPanel';
 import TrainerProfileForm, { TrainerProfile } from './TrainerProfileForm';
@@ -140,6 +141,11 @@ export default function ProfileTabs({
           <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
             <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Change Password</h2>
             <ChangePasswordForm />
+          </div>
+
+          <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+            <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Security Question</h2>
+            <SecurityQuestionForm />
           </div>
         </div>
       )}

@@ -2,6 +2,24 @@
 
 ## August 2026
 
+### Forgot Password Now Means Forgot
+
+`/forgot-password` asked for your current password. That is a sound identity check and a useless one on that page: anyone who can supply the current password has not forgotten it. The only real route back into a locked-out account was an admin typing a new password — fine for a staff account, hopeless for an exhibitor at 6am on a show morning trying to find out what ring they are in.
+
+Accounts can now carry **one security question**, written by the user, answered by the user (migration 102). The reset page asks for an email, hands back that account's question, and takes the answer plus the new password in one request.
+
+**Why not an emailed link.** `mailer.py` returns `None` whenever `SMTP_HOST` is unset and never raises, so a mailed-token reset would accept the request, say "check your email", and drop it. Every other flow here that mails a link also returns the link for copy/paste — and a reset token is precisely the thing that must not be handed to whoever asked for it, so there is no equivalent fallback. Nor is there an intermediate token between the two steps: a token earns its complexity when the halves happen in different places, and here they are typed on one screen a second apart.
+
+**The throttle is the feature.** One self-written question is weaker than two, and at a horse show the obvious question is often answerable from the entry form. So the answer is bcrypt-hashed and compared normalized (case and stray spacing ignored — a difference the user cannot see and could never debug), and the account counts consecutive misses: five wrong answers close the reset route for fifteen minutes. Per-IP rate limiting sits in front but cannot carry it alone, because that resets when the attacker changes address and the risk belongs to the account, not the address. While locked the question is withheld too — the prompt is the half that hints at the answer.
+
+**The lock never touches the login.** Signing in with the password works throughout and clears the counter; so does an admin password reset. Locking the account itself would let anyone lock anyone out with five guesses — an outage handed to strangers, on the screen that exists to end outages.
+
+Setting the question lives on the profile Account tab and requires the current password, for the same reason changing the email does: it installs a second way in, and an unlocked laptop should not be enough. The prompt must end in a `?`, and the answer may not be the account password — that would copy the password into a field stored separately, shown unmasked while typing, and guessed against with a five-try budget.
+
+Admins see whether a question is set, when, and whether it is locked — never the question text. They can already reset the password outright, so showing a self-written question (which usually hints at its own answer) would add exposure and no capability. They can clear a forgotten one; they cannot set a replacement, since that would mean knowing the answer to someone else's account.
+
+The old current-password route stays as a fallback. Every account predating this has no question, and taking away the one self-serve path those users had would have made the feature a net loss on day one.
+
 ### Setting A Show Up Is One Flow Again
 
 The setup wizard walked a secretary through judges, sanctioning, lodging, fees, and paperwork — and then left the two biggest jobs sitting on the dashboard as tiles of their own. **Show Staff** and **Add / Modify Classes** were things you had to know to go and do. Nothing in the wizard mentioned them, and a show could reach the end of setup with a full fee schedule, no classes, and nobody assigned to score them.
