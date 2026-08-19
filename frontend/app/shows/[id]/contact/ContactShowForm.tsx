@@ -11,17 +11,30 @@ import Link from 'next/link';
  * best-effort and does nothing without SMTP configured, and the one failure a
  * contact form must not have is accepting a message, saying "sent", and losing
  * it. The success copy therefore promises what actually happened.
+ *
+ * When the sender *is* signed in the route handler forwards the session and
+ * the backend stamps who they are (migration 103). Nothing in this form says
+ * so, because nothing in this form can affect it — the identity is not one of
+ * the fields.
  */
 export default function ContactShowForm({
   showId,
   showName,
+  defaultName = '',
+  defaultEmail = '',
 }: {
   showId: string;
   showName: string;
+  /** Prefilled from the signed-in account. Editable rather than locked: the
+   *  reply-to address a person wants is not always the one they signed up
+   *  with, and the backend stamps the real identity from the session anyway —
+   *  so what they type here is a contact preference, not a claim. */
+  defaultName?: string;
+  defaultEmail?: string;
 }) {
   const [form, setForm] = useState({
-    sender_name: '',
-    sender_email: '',
+    sender_name: defaultName,
+    sender_email: defaultEmail,
     sender_phone: '',
     subject: '',
     message: '',

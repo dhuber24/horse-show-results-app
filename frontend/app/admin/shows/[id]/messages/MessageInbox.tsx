@@ -11,6 +11,14 @@ export type ContactMessage = {
   subject: string | null;
   message: string;
   status: 'new' | 'read' | 'archived';
+  /** Set when the sender was signed in. The backend stamps it from the
+   *  session, never from the message body, so unlike everything else here it
+   *  is not self-reported. */
+  sender_exhibitor_id: string | null;
+  /** Their back number at *this* show, when they have one. */
+  sender_back_number: number | null;
+  /** They have a `show_entries` row here — signed up or entered by the office. */
+  sender_is_registered: boolean;
   handled_at: string | null;
   created_at: string | null;
 };
@@ -25,10 +33,18 @@ function formatWhen(iso: string | null): string {
 }
 
 /**
- * The show's inbox. Messages arrive from the public contact form, including
- * from people with no account — so every field here is self-reported text and
- * is rendered as such. Replying happens in the reader's own mail client via
- * the mailto link; the app does not send mail.
+ * The show's inbox. Messages arrive from the contact form, including from
+ * people with no account — so every field the sender typed is self-reported
+ * text and is rendered as such. Replying happens in the reader's own mail
+ * client via the mailto link; the app does not send mail.
+ *
+ * The one exception is the entrant badge. `sender_is_registered` and
+ * `sender_back_number` come from the session the message was sent under, not
+ * from anything typed, which is the entire point: a secretary reading "Sarah
+ * Mitchell" cannot otherwise tell the Sarah Mitchell holding back number 42
+ * from someone who has never been here, and the answer to the question usually
+ * depends on that. An unbadged message is not suspicious — it is the ordinary
+ * case of a stranger asking about stalls.
  */
 export default function MessageInbox({
   showId,
@@ -151,9 +167,31 @@ export default function MessageInbox({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-                      {m.sender_name} · {m.sender_email}
-                      {m.sender_phone && <> · {m.sender_phone}</>}
+                    <p className="text-xs mt-0.5 flex items-center flex-wrap gap-1.5"
+                      style={{ color: '#8b7355' }}>
+                      <span>
+                        {m.sender_name} · {m.sender_email}
+                        {m.sender_phone && <> · {m.sender_phone}</>}
+                      </span>
+                      {m.sender_is_registered ? (
+                        <span
+                          className="px-1.5 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: '#dcfce7', color: '#166534' }}
+                          title="Signed in when they sent this, and entered at this show."
+                        >
+                          {m.sender_back_number != null
+                            ? `Back #${m.sender_back_number}`
+                            : 'Entered here'}
+                        </span>
+                      ) : m.sender_exhibitor_id ? (
+                        <span
+                          className="px-1.5 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}
+                          title="Signed in when they sent this, but has no entry at this show."
+                        >
+                          Has an account
+                        </span>
+                      ) : null}
                     </p>
                     <p className="text-xs" style={{ color: '#8b7355' }}>{formatWhen(m.created_at)}</p>
                   </div>

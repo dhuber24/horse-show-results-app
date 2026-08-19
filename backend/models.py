@@ -1162,6 +1162,11 @@ class ShowEntry(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id"), nullable=False)
     back_number = Column(Integer, nullable=True)
+    # What the exhibitor asked for (migration 104), as against `back_number`,
+    # which is what the show issued. Granted into `back_number` at the moment
+    # of asking when nothing else at the show holds it; kept afterwards so the
+    # desk can see "asked for 42, has 87" once the office renumbers.
+    preferred_back_number = Column(Integer, nullable=True)
     # Set when the exhibitor completes show sign-up (migration 088). NULL means
     # this is a shell row a secretary created while adding an entry by hand —
     # the exhibitor has not signed up and cannot self-register for classes.
@@ -1299,6 +1304,16 @@ class ShowContactMessage(Base):
     subject = Column(Text, nullable=True)
     message = Column(Text, nullable=False)
     status = Column(Text, nullable=False, server_default="new")
+    # Who sent it, when the app knows (migration 103). NULL is the original
+    # case and still the common one — a visitor with no account. Written from
+    # the session on the server, never from the request body, so a sender
+    # cannot claim to be an entrant they are not.
+    sender_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    sender_exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="SET NULL"), nullable=True
+    )
     handled_by_user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -1317,7 +1332,13 @@ class ShowContactMessage(Base):
     )
 
     show = relationship("Show")
-    handled_by = relationship("User")
+    # foreign_keys is required, not decorative: since migration 103 this table
+    # has two FKs to `users` — who sent it and who dealt with it — and without
+    # it SQLAlchemy raises AmbiguousForeignKeysError at mapper configuration,
+    # which takes the whole app down on its first ORM query rather than here.
+    handled_by = relationship("User", foreign_keys=[handled_by_user_id])
+    sender_user = relationship("User", foreign_keys=[sender_user_id])
+    sender_exhibitor = relationship("Exhibitor", foreign_keys=[sender_exhibitor_id])
 
 
 class ShowSecretaryCertification(Base):

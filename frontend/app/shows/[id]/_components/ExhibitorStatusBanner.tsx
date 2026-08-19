@@ -55,8 +55,21 @@ export default function ExhibitorStatusBanner({
         </div>
         <p className="text-xs mt-1" style={{ color: '#15803d' }}>
           {entryCount > 0 ? `Entered in ${classesLabel}.` : 'No classes entered yet.'}
+          {/* Only while they can still do something about it. The link is the
+              point of the sentence — telling someone to enter a number
+              without saying where is worse than saying nothing. */}
           {standing.back_number == null && registrationOpen && (
-            <> The secretary assigns your back number once the show begins.</>
+            <>
+              {' '}
+              <Link
+                href={`/shows/${showId}/register`}
+                className="underline"
+                style={{ color: '#15803d' }}
+              >
+                Ensure you enter your preferred back number
+              </Link>{' '}
+              or one will be assigned to you.
+            </>
           )}
         </p>
         {/* Signing is on the sign-up screen, so this is a nudge with a

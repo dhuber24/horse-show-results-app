@@ -14,6 +14,10 @@ from schemas import ShowFeeCreate, ShowFeeOut, ShowFeeUpdate
 
 router = APIRouter(prefix="/shows/{show_id}/fees", tags=["Show Fees"])
 
+# A show has to be publicly visible before its price list is. Matches
+# `show_contact.PUBLIC_SHOW_STATUSES` — same question, same answer.
+PUBLIC_SHOW_STATUSES = ("PUBLISHED", "ACTIVE", "COMPLETED")
+
 
 # Default starter fee items seeded when a secretary clicks "Seed common fees".
 # Amounts are zero — the secretary fills in the real numbers. Labels and units
@@ -92,6 +96,33 @@ async def list_show_fees(
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
+    result = await db.execute(
+        select(ShowFee)
+        .where(ShowFee.show_id == show_id)
+        .order_by(ShowFee.sort_order, ShowFee.created_at)
+    )
+    return result.scalars().all()
+
+
+@router.get("/public", response_model=list[ShowFeeOut])
+async def list_show_fees_public(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """The show's fee schedule, no auth — what the show bill prints.
+
+    Stalls, shavings, camping, late fees and their early-bird rates are the
+    published price list: an exhibitor reads them to decide whether to enter,
+    and a show bill that quotes a number the app is keeping behind a login is
+    two sources of truth waiting to disagree. The staff endpoint above stays
+    for editing; this is the read.
+
+    Gated on the show being publicly visible for the same reason as the contact
+    form — a DRAFT show is not offering anything to anyone yet. Declared above
+    `/{fee_id}` so "public" is never parsed as one.
+    """
+    show = await _get_show_or_404(show_id, db)
+    if show.status not in PUBLIC_SHOW_STATUSES:
+        # Same answer as a missing show: a stranger probing ids should not
+        # learn which drafts exist.
+        raise HTTPException(404, "Show not found")
     result = await db.execute(
         select(ShowFee)
         .where(ShowFee.show_id == show_id)

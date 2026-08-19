@@ -13,11 +13,20 @@ Two flows, one table, one approve/decline path:
 `approver_exhibitor_id` is always "whoever must press the button", which is why
 both flows share `respond_to_request` below.
 
-Authorization on the approve page is the token, matching `user_invites`: it is
-emailed to the approver and also handed to the requester for copy/paste,
-because SMTP is optional here (see `mailer.py`) and an undelivered email must
-not be the reason a sale can't be recorded. The token is single-use with a
-short TTL, and it grants exactly one decision about one horse.
+The token says *which* request is being answered. It does not say who may
+answer it. It is emailed to the approver and also handed to the requester for
+copy/paste, because SMTP is optional here (see `mailer.py`) and an undelivered
+email must not be the reason a sale can't be recorded — and that copy/paste is
+exactly why holding the link cannot be the permission. The requester holds it,
+so treating the token as authorization lets somebody approve their own request
+to take a horse they do not own, which is the single thing this table exists to
+prevent.
+
+So the approve page requires the caller to be signed in as
+`approver_exhibitor_id`. The link still travels by whatever route works — text
+message, email, read down the phone — and is still single-use with a short TTL.
+It picks the request out of the table; the session decides whether you may
+answer it.
 """
 from __future__ import annotations
 
@@ -48,8 +57,9 @@ def _now() -> datetime:
 
 
 def _generate_token() -> str:
-    # 32 url-safe chars (~192 bits). The token IS the authorization, so it is
-    # sized to be unguessable; the short TTL and single use bound the exposure.
+    # 32 url-safe chars (~192 bits). Not the authorization — that is the
+    # signed-in approver — but it is still a capability to *find* one request
+    # out of the table, so it is sized to be unguessable and bounded by the TTL.
     return secrets.token_urlsafe(32)
 
 
@@ -79,6 +89,56 @@ def _expire_if_stale(request: HorseAccessRequest) -> None:
     a request only becomes 'expired' the next time somebody looks at it."""
     if request.status == "pending" and request.expires_at < _now():
         request.status = "expired"
+
+
+async def _exhibitor_for_user(
+    user_id: Optional[str], db: AsyncSession
+) -> Optional[Exhibitor]:
+    """The caller's exhibitor row, or None — including for a signed-in user who
+    has no exhibitor record at all, such as show staff."""
+    if not user_id:
+        return None
+    result = await db.execute(
+        select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id))
+    )
+    return result.scalar_one_or_none()
+
+
+async def _assert_token_caller_is_approver(
+    request: HorseAccessRequest,
+    x_user_id: Optional[str],
+    db: AsyncSession,
+) -> None:
+    """Holding the link is not consent.
+
+    The link is handed to the *requester* on purpose, so an undelivered email
+    never strands a horse. That is precisely why possessing it proves nothing
+    about whose horse this is — only being signed in as the approver does.
+    """
+    if not x_user_id:
+        raise HTTPException(
+            401,
+            {
+                "code": "SIGN_IN_REQUIRED",
+                "message": (
+                    "Sign in to answer this request. Only the owner of the horse "
+                    "can approve it, so the app has to know who you are."
+                ),
+            },
+        )
+    exhibitor = await _exhibitor_for_user(x_user_id, db)
+    if exhibitor is None or exhibitor.id != request.approver_exhibitor_id:
+        raise HTTPException(
+            403,
+            {
+                "code": "NOT_YOUR_REQUEST",
+                "message": (
+                    "This request is not yours to answer — it is waiting on the "
+                    "owner of the horse. Ask them to open the link while signed "
+                    "in to their own account."
+                ),
+            },
+        )
 
 
 # ── Request / response schemas ────────────────────────────────────────────────
@@ -288,6 +348,19 @@ async def create_request(
     if not approver:
         raise HTTPException(404, "The person who needs to approve this was not found")
 
+    # Approval is authorized by *being* the approver, so an approver with no
+    # account can never give it. The transfer branch above already refuses for
+    # its own reason; this catches the link case, where the owner of record may
+    # be a standalone exhibitor row somebody typed at the desk. Opening the
+    # request anyway would produce one nobody on earth could answer.
+    if approver.user_id is None:
+        raise HTTPException(
+            400,
+            "The owner of this horse doesn't have an account here, so there is "
+            "nobody who can approve the request. The show office can add the "
+            "horse to your entry at the desk.",
+        )
+
     request = await build_access_request(
         body.kind, horse, requester, approver, db, message=body.message
     )
@@ -395,16 +468,25 @@ async def cancel_request(
     response_model=HorseAccessRequestByToken,
     dependencies=[Depends(require_api_key)],
 )
-async def get_request_by_token(token: str, db: AsyncSession = Depends(get_db)):
-    """Render the decision page. Needs only the internal API key — the approver
-    may not have signed in, and for a transfer they may not have visited the app
-    before at all."""
+async def get_request_by_token(
+    token: str,
+    x_user_id: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Render the decision page, for the approver signed in as themselves.
+
+    The token picks the request; the session says who is answering. See the
+    module docstring for why the link on its own is not enough.
+    """
     result = await db.execute(
         select(HorseAccessRequest).where(HorseAccessRequest.token == token)
     )
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(404, "Request not found")
+    # Ahead of the lazy expiry below, so a caller who may not answer this
+    # request cannot write a status change as a side effect of looking at it.
+    await _assert_token_caller_is_approver(request, x_user_id, db)
     before = request.status
     _expire_if_stale(request)
     if request.status != before:
@@ -484,10 +566,15 @@ async def _apply_decision(
 async def respond_to_request_by_token(
     token: str,
     body: HorseAccessRespondBody,
+    x_user_id: Optional[str] = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Approve or decline from the emailed link. Single-use: the status guard
-    makes a replayed link a 409 rather than a second transfer."""
+    """Approve or decline from the emailed link, signed in as the approver.
+
+    Single-use: the status guard makes a replayed link a 409 rather than a
+    second transfer. The signed-in check is what makes the *first* use safe —
+    the requester is handed this link too.
+    """
     result = await db.execute(
         select(HorseAccessRequest)
         .options(selectinload(HorseAccessRequest.horse))
@@ -496,6 +583,7 @@ async def respond_to_request_by_token(
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(404, "Request not found")
+    await _assert_token_caller_is_approver(request, x_user_id, db)
     return await _apply_decision(request, body.action, db)
 
 

@@ -22,6 +22,12 @@ const TILES = [
     description: 'High-point standings across the show.',
   },
   {
+    slug: 'showbill',
+    icon: '📄',
+    title: 'Show Bill',
+    description: 'Classes, judges, fees and rules — print it or save a PDF.',
+  },
+  {
     slug: 'details',
     icon: 'ℹ️',
     title: 'Show Details',

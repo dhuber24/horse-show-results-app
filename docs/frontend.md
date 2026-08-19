@@ -59,15 +59,17 @@ Public spectator screens skip route handlers entirely: they are server component
 | --- | --- |
 | `/` | Public home: Active Shows entry button + upcoming show list |
 | `/shows/active` | Public list of `ACTIVE`-status shows |
-| `/shows/[id]/live` | Public active-show hub: buttons for Schedule, Results, Leaderboard, Details |
+| `/shows/[id]/live` | Public active-show hub: buttons for Schedule, Results, Leaderboard, Show Bill, Details |
 | `/shows/[id]/schedule` | Public class schedule: day tabs, per-ring grouping, live gate badges, per-class expandable program listing (back #, horse, owner, sire, dam, exhibitor), whole-show search across classes *and* entries (horse, exhibitor, owner, sire, dam, back #), and two filters — **Favorites** (per-device starred classes) and **Registered** (exhibitors only) |
 | `/shows/[id]/results` | Public results index (posted vs awaiting) |
 | `/shows/[id]/leaderboard` | Public high-point standings (placeholder — scoring model pending) |
-| `/shows/[id]/details` | Public show details: venue, dates, associations, policies |
-| `/shows/[id]` | **Signed out:** event details plus two actions — *Register for this show* and *Contact show staff*. No class schedule; someone deciding whether to enter does not need a wall of class numbers. **Signed in:** the class list as before. Exhibitors get `ExhibitorStatusBanner` reporting their own standing (see below). Public show detail and scribe class links. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCRIBE; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
+| `/shows/[id]/details` | Show details: venue, dates, show type, **club sanctioning**, shavings policy. Signed-in exhibitors also get two buttons — *My registration* and *What I owe* |
+| `/shows/[id]/showbill` | The show bill, generated from the show's own records: masthead, judges, class schedule by day, fee schedule with early rates, and rules. **Download / print show bill** is `window.print()` against a print stylesheet, so every browser's Save-as-PDF produces the document; a second button saves the class list as CSV for spreadsheet work |
+| `/shows/[id]/my-bill` | One show's itemized bill for the signed-in exhibitor — class lines with horse names, reservations, office charge, total. Reads `GET /my-shows/` and picks this show out of it, so the number is byte-for-byte the one on My Shows |
+| `/shows/[id]` | **Signed out:** event details plus two actions — *Register for this show* and *Contact show staff*. No class schedule; someone deciding whether to enter does not need a wall of class numbers. **Signed in and unable to score:** `ExhibitorShowHub` — `ExhibitorStatusBanner` over tiles for Sign Up / My Registration, Class Schedule, Show Bill, Show Details, Results, and Message the Show Office. **ADMIN / SCRIBE:** the class list, because for them each row is a link into a scribe screen. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCRIBE; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
 | `/shows/[id]/classes/[classId]` | Public class results |
 | `/shows/[id]/classes/[classId]/scribe` | Scribe placing form |
-| `/shows/[id]/contact` | Public contact form for the show office. No account needed |
+| `/shows/[id]/contact` | Contact form for the show office. No account needed — but a signed-in sender gets their name and email prefilled, is told the office will see who they are, and has the message stamped with their identity server-side |
 | `/admin/shows/[id]/messages` | Show staff inbox for those messages (read / archive / reply by mailto) |
 | `/shows/[id]/signup` | Exhibitor show sign-up — stalls, shavings, camping. Required before class registration; forwards on if already signed up. Once signed up, also carries `WaiverSignatures` — the entry blank and releases, read and signed here |
 | `/admin/shows/[id]/setup/paperwork` | Redirects to `/desk/paperwork` — paperwork is a registration question, not a setup step |
@@ -76,7 +78,7 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/scribe` | Scribe assigned shows |
 | `/dashboard` | Exhibitor entries dashboard ("My Show Entries") — per-show buttons to the show page and full class schedule |
 | `/my-shows` | Exhibitor "My Shows": itemized bill per show (classes, NSBA sanction, office charge, stalls/shavings/camping) plus outstanding total. This is what the navbar **My Shows** button opens |
-| `/horse-requests/[token]` | Approve or decline a horse link / ownership transfer. No session required — the token is the authorization |
+| `/horse-requests/[token]` | Approve or decline a horse link / ownership transfer. **A session is required, as the approver** — four branches: 401 offers sign-in carrying `?next=` back here, 403 explains who has to open it, 404 is a bad or withdrawn link, 200 is the decision card. The token names the request; it does not authorize the answer |
 | `/profile` | User account, memberships, horses, and show history tabbed view (`?tab=account|memberships|horses|history`) |
 | `/profile/horses/new` | Add-a-horse wizard (static segment, wins over `[id]`); seeds from `?name=` / `?association_id=&registration_number=` |
 | `/profile/horses/[id]` | Exhibitor horse record in four tabs — Details, People (owner/trainer/riders), Health & Documentation, Associations (`?section=details\|people\|health\|associations` selects a tab, plus the legacy `documents` alias for `health`) |
@@ -89,8 +91,8 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/api/horse-access-requests` | List / create horse link + ownership-transfer requests |
 | `/api/horse-access-requests/[requestId]` | Cancel a request you sent |
 | `/api/horse-access-requests/[requestId]/respond` | Approve or decline while signed in as the approver |
-| `/api/horse-access-requests/by-token/[token]` | Read a request from the emailed link (no session) |
-| `/api/horse-access-requests/by-token/[token]/respond` | Approve or decline from the emailed link (no session) |
+| `/api/horse-access-requests/by-token/[token]` | Read a request from the emailed link. Forwards the session when there is one; the backend 401s without it |
+| `/api/horse-access-requests/by-token/[token]/respond` | Approve or decline from the emailed link, signed in as the approver |
 | `/admin/shows/[id]/financials` | Show-office money **summary**: billed / collected / outstanding / settled, plus side pot money (reported separately). Two buttons lead to the working screens — **Exhibitors** (carrying an "N owing" badge) and **Reports**. Registration counts and revenue-by-category are deliberately *not* here — both are reports. Show-office tier only — not `SCRIBE` or `GATE_STEWARD` |
 | `/admin/shows/[id]/financials/exhibitors` | Per-exhibitor accounts: itemized bill, payment history, and the record-a-payment form. The list the office scrolls and types into, kept off the summary so the totals stay readable at a glance |
 | `/admin/shows/[id]/financials/reports` | Report index, listed from the backend registry rather than hardcoded here |

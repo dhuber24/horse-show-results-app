@@ -333,6 +333,14 @@ export default function ExhibitorPanel({
                 className="w-24 border rounded px-2 py-1.5 text-lg font-mono text-center"
                 style={{ borderColor: COLORS.border, backgroundColor: COLORS.surfaceSoft, color: COLORS.text }}
               />
+              {/* Only when the two disagree. Repeating a granted request back
+                  at staff would be noise on every row. */}
+              {exhibitor.preferred_back_number != null
+                && exhibitor.preferred_back_number !== exhibitor.back_number && (
+                <p className="text-xs mt-1 text-center" style={{ color: '#92400e' }}>
+                  asked for {exhibitor.preferred_back_number}
+                </p>
+              )}
             </div>
             <button
               type="button"

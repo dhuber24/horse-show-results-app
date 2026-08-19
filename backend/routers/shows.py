@@ -83,6 +83,21 @@ def _serialize(show: Show) -> dict:
             }
             for a in (show.affiliations or [])
         ],
+        # Club sanctioning (NSBA, WSCA, ...). Program information — it is on the
+        # front of every show bill, and an exhibitor deciding whether to enter
+        # needs it to know which of their memberships earn points here. Distinct
+        # from `affiliations`, which is breed show types; see the note in
+        # Claude.md on why clubs are not `show_types`. Both relationships are
+        # lazy="selectin" on the model, so this adds no options to any caller.
+        "sanctioning": [
+            {
+                "association_id": str(s.association_id),
+                "code": s.association.code if s.association else "",
+                "name": s.association.name if s.association else "",
+                "per_class_fee_cents": s.per_class_fee_cents,
+            }
+            for s in (show.sanctioning or [])
+        ],
         "created_at": show.created_at,
     }
 

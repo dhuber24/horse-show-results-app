@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { fetchShow, fetchClasses, fetchProgramIndex } from '@/lib/api';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import ShowHubHeader from '../_components/ShowHubHeader';
+import { showHubBack } from '../_components/showHubBack';
 import ScheduleBoard, { type ScheduleClass, type ProgramEntry } from './ScheduleBoard';
 
 /**
@@ -35,19 +36,20 @@ export default async function ShowSchedulePage({ params }: { params: Promise<{ i
   const session = await auth();
   const isExhibitor = (session?.user as { role?: string } | undefined)?.role === 'EXHIBITOR';
 
-  const [show, classes, programIndex, registeredClassIds] = await Promise.all([
+  const [show, classes, programIndex, registeredClassIds, back] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchProgramIndex(id),
     isExhibitor
       ? fetchRegisteredClassIds(id, (session!.user as { id: string }).id)
       : Promise.resolve([]),
+    showHubBack(id),
   ]);
   const visible: ScheduleClass[] = classes.filter((c: ScheduleClass) => c.status !== 'DRAFT');
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <ShowHubHeader show={show} backHref={`/shows/${id}/live`} backLabel="Back to Show Menu" />
+      <ShowHubHeader show={show} backHref={back.backHref} backLabel={back.backLabel} />
 
       <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Class Schedule</h2>
 

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import BackNumberRequest from './BackNumberRequest';
 
 type PreviewClass = {
   id: string;
@@ -43,6 +44,9 @@ type Signup = {
   show_entry_id: string;
   registered_at: string;
   back_number: number | null;
+  /** What they asked for. Diverges from `back_number` once the office
+   *  renumbers, which is the case the screen calls out. */
+  preferred_back_number: number | null;
   arrival_date: string | null;
   departure_date: string | null;
   notes: string | null;
@@ -403,8 +407,8 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
         className="mt-4 rounded-lg border p-3 text-sm"
         style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
       >
-        Pick a horse for each class you want to enter. The show secretary assigns your back number
-        once the show begins. Fees shown are informational — payment is collected at the show.
+        Choose your horse from the drop-down menu in each class you want to register for. Fees
+        shown are informational — payment is collected at the end of the show.
         <div className="mt-2">
           <Link
             href={`/shows/${showId}/signup`}
@@ -415,6 +419,15 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
           </Link>
         </div>
       </div>
+
+      {/* Above the class picker on purpose: people who ride the same number
+          every year come here to claim it, and burying it under forty classes
+          would mean they only remember at the desk. */}
+      <BackNumberRequest
+        showId={showId}
+        backNumber={preview.signup.back_number}
+        preferredBackNumber={preview.signup.preferred_back_number}
+      />
 
       {existing_entries.length > 0 && (
         <section

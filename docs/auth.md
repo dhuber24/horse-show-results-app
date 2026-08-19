@@ -163,6 +163,18 @@ Two things the payment endpoint refuses to take from the client, for the same re
 
 Creation follows the same rule rather than sidestepping it — `POST /exhibitors/{id}/created-horses` drops the trainer fields unless the caller is claiming the horse, and routes profile attachment through `horse_access_requests` when the owner named has an account. See the Horse Access section in [show-workflow.md](show-workflow.md).
 
+### Answering A Horse Access Request
+
+The approval link is **not** the authorization. `/horse-requests/[token]` and both `by-token` endpoints require the caller to be signed in as `approver_exhibitor_id`:
+
+- no session → `401` with `code: SIGN_IN_REQUIRED`, and the page offers sign-in / register carrying `?next=` back to the same request;
+- signed in as anyone else → `403` with `code: NOT_YOUR_REQUEST`;
+- signed in as the approver → the decision card, and `POST .../respond` goes through `_apply_decision` like the in-app path.
+
+This follows from the mailer being optional. Because the link is handed to the **requester** for copy/paste — so an undelivered email never strands a horse — possession of it proves nothing about whose horse it is. Treating it as consent meant a requester could follow their own link and approve their own request to put someone else's horse on their profile, which is the single outcome `horse_access_requests` exists to prevent. The link still travels by whatever route works and is still single-use with a 30-day TTL; it identifies one request rather than granting anything.
+
+The consequence worth knowing: a `link` request naming an owner with **no user account** is now refused at creation (`400`), because nobody could ever sign in to answer it. The show office can put the horse on an exhibitor's entry at the desk instead. `POST /exhibitors/{id}/created-horses` already worked this way — it only opens a request when the owner it resolved has an account.
+
 Two deliberate exceptions:
 
 - **Show staff at the desk.** `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` creates a horse *owned by the exhibitor standing in front of them*, scoped to that show's roster, with `created_by_user_id` recording the staff member — the owner's instruction typed by staff, not staff acting on their own, and they cannot `PATCH` it afterwards. `StaffHorseCreate` still inherits the trainer fields from the shared base, so the endpoint would accept one; `StaffAddHorseForm` has no trainer input, so nothing sends one today.

@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_URL } from '@/lib/backend-fetch';
+import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
-// Public-ish: no NextAuth session required. The person approving may never
-// have signed in — a horse can be transferred to someone whose first contact
-// with the app is this link. The token is the authorization; the internal API
-// key still gates the backend.
+// The session is forwarded when there is one, and the request goes through
+// either way: the backend answers an anonymous caller with a 401 carrying
+// SIGN_IN_REQUIRED, which is what the page renders its "sign in to answer"
+// branch from. Deciding here instead would put the same rule in two places.
+//
+// The token no longer authorizes anything on its own — it is handed to the
+// *requester* so an undelivered email can't strand a horse, which is exactly
+// why possessing it cannot be the permission. See the backend module docstring.
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
+  const authHeaders = await getAuthHeaders();
   const res = await fetch(
     `${API_URL}/horse-access-requests/by-token/${encodeURIComponent(token)}`,
     {
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': INTERNAL_API_KEY },
+      headers: authHeaders ?? { 'Content-Type': 'application/json', 'X-API-Key': INTERNAL_API_KEY },
       cache: 'no-store',
     },
   );

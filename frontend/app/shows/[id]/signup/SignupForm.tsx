@@ -224,12 +224,26 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
         )}
       </div>
 
-      {show.shavings_ban_outside && (
+      {/* Stated both ways, always. Only rendering the ban left the permissive
+          case saying nothing at all, and "nothing" is not an answer to "do I
+          need to load six bags into the trailer or not?" — the exhibitor is
+          packing either way, and silence just moves the question to a phone
+          call to the show office. */}
+      {show.shavings_ban_outside ? (
         <div
           className="mt-3 rounded-lg border p-3 text-sm"
           style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
         >
-          <strong>Outside shavings are not allowed at this show.</strong> Order the bags you need here.
+          <strong>Outside shavings are not allowed at this show.</strong> You&apos;ll need to buy
+          your bedding from the show — order the bags you need below.
+        </div>
+      ) : (
+        <div
+          className="mt-3 rounded-lg border p-3 text-sm"
+          style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac', color: '#166534' }}
+        >
+          <strong>You may bring your own shavings to this show.</strong> Ordering bags below is
+          optional — they&apos;ll be waiting at your stall if you&apos;d rather not haul your own.
         </div>
       )}
 
@@ -250,7 +264,22 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
               style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
             >
               <h2 className="font-semibold" style={{ color: '#2c1810' }}>{group.heading}</h2>
-              <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>{group.blurb}</p>
+              <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
+                {group.blurb}
+                {/* Repeated next to the number they're about to type. The
+                    callout at the top of the form is read once; this is the
+                    line they're looking at when they decide on a quantity. */}
+                {group.key === 'bedding' && (
+                  <span
+                    className="font-medium"
+                    style={{ color: show.shavings_ban_outside ? '#92400e' : '#166534' }}
+                  >
+                    {show.shavings_ban_outside
+                      ? ' Outside shavings are not allowed — bedding must be bought here.'
+                      : ' Outside shavings are allowed, so this is optional.'}
+                  </span>
+                )}
+              </p>
               <ul className="space-y-2">
                 {group.fees.map((fee) => {
                   const qty = quantities[fee.id] ?? 0;

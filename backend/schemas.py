@@ -177,6 +177,11 @@ class ShowOut(BaseModel):
     vaccination_valid_days: int = 365
     vaccination_notes: Optional[str] = None
     affiliations: list[ShowAffiliationOut] = []
+    # Club sanctioning (NSBA, WSCA, ...), for the show bill and the exhibitor's
+    # show-details screen. Forward-referenced because ShowSanctioningOut belongs
+    # in the sanctioning section below rather than up here; Pydantic resolves it
+    # from the module namespace on first use.
+    sanctioning: list["ShowSanctioningOut"] = []
     created_at: datetime
 
     class Config:
@@ -2670,6 +2675,11 @@ class ShowDeskExhibitorOut(BaseModel):
     # before offering either.
     show_entry_id: Optional[UUID] = None
     back_number: Optional[int] = None
+    # What the exhibitor asked for at registration (migration 104). The desk
+    # renders it only when it differs from `back_number` — a granted request
+    # needs no comment, an overridden one is worth seeing before the exhibitor
+    # asks about it at the counter.
+    preferred_back_number: Optional[int] = None
     signed_up: bool = False
     entries: list[ShowDeskEntryOut] = Field(default_factory=list)
     side_pot_ids: list[UUID] = Field(default_factory=list)

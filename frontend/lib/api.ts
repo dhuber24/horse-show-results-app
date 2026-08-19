@@ -48,6 +48,19 @@ export async function fetchShowJudgesPublic(showId: string) {
   return res.json();
 }
 
+/**
+ * The show's fee schedule — stalls, shavings, camping, late fees — no auth.
+ *
+ * What the show bill prints. Returns [] rather than throwing: a showbill with
+ * no price list is still a usable showbill, and a fee lookup should not be able
+ * to take the class schedule down with it.
+ */
+export async function fetchShowFeesPublic(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/fees/public`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchResultsIndex(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}/results-index`);
   if (!res.ok) return {} as Record<string, unknown[]>;

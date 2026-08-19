@@ -40,7 +40,14 @@ async def get_back_numbers(
         select(ShowEntry).where(ShowEntry.show_id == show_id).order_by(ShowEntry.back_number)
     )
     entries = result.scalars().all()
-    return [{"exhibitor_id": str(e.exhibitor_id), "back_number": e.back_number} for e in entries]
+    return [
+        {
+            "exhibitor_id": str(e.exhibitor_id),
+            "back_number": e.back_number,
+            "preferred_back_number": e.preferred_back_number,
+        }
+        for e in entries
+    ]
 
 
 @router.get("/exhibitors")
@@ -82,13 +89,22 @@ async def list_back_number_exhibitors(
             ShowEntry.exhibitor_id.in_(exhibitor_ids),
         )
     )
-    back_number_by_exhibitor = {se.exhibitor_id: se.back_number for se in show_entries_result.scalars().all()}
+    show_entry_by_exhibitor = {se.exhibitor_id: se for se in show_entries_result.scalars().all()}
 
     return [
         {
             "exhibitor_id": str(eid),
             "full_name": exhibitors_by_id[eid].full_name,
-            "back_number": back_number_by_exhibitor.get(eid),
+            "back_number": (
+                show_entry_by_exhibitor[eid].back_number
+                if eid in show_entry_by_exhibitor else None
+            ),
+            # What they asked for at registration. Shown next to the field so
+            # staff renumbering a show can see whose number was a request.
+            "preferred_back_number": (
+                show_entry_by_exhibitor[eid].preferred_back_number
+                if eid in show_entry_by_exhibitor else None
+            ),
         }
         for eid in exhibitor_ids
         if eid in exhibitors_by_id
@@ -154,6 +170,23 @@ async def auto_assign_back_numbers(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
+    """Give every entered exhibitor a number, honouring the ones they asked for.
+
+    Requested numbers (`preferred_back_number`, migration 104) are claimed
+    first, then everyone else is filled in from the lowest number still free.
+    Numbering straight through 1..N instead would undo every request in one
+    click, which makes asking for a number pointless — and the office would
+    only find out at the desk, from the exhibitor.
+
+    Two collisions have to be avoided, and both are why this clears the field
+    before it fills it:
+
+      * Numbers held by roster rows *outside* this run — someone on the show
+        roster with no class entry yet — are reserved, not overwritten.
+      * Reassigning in place can swap two numbers, and Postgres checks the
+        unique constraint per statement, so the halfway state raises. Nulling
+        the whole target set first and flushing removes that window.
+    """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await db.get(Show, show_id)
     if not show:
@@ -164,23 +197,53 @@ async def auto_assign_back_numbers(
             Entry.class_
         ).where(Entry.class_.has(show_id=show_id)).distinct()
     )
-    exhibitor_ids = result.scalars().all()
+    exhibitor_ids = list(result.scalars().all())
 
-    # Fetch all existing ShowEntry rows for this show in one query
-    existing_result = await db.execute(
-        select(ShowEntry).where(
-            ShowEntry.show_id == show_id,
-            ShowEntry.exhibitor_id.in_(exhibitor_ids),
-        )
+    # Every roster row for the show, not only the ones being numbered: the rest
+    # hold numbers this run must not hand out twice.
+    all_rows_result = await db.execute(
+        select(ShowEntry).where(ShowEntry.show_id == show_id)
     )
-    existing_by_exhibitor = {se.exhibitor_id: se for se in existing_result.scalars().all()}
+    all_rows = list(all_rows_result.scalars().all())
+    rows_by_exhibitor = {se.exhibitor_id: se for se in all_rows}
 
-    for i, exhibitor_id in enumerate(exhibitor_ids, start=1):
-        show_entry = existing_by_exhibitor.get(exhibitor_id)
-        if show_entry:
-            show_entry.back_number = i
+    targets = []
+    for exhibitor_id in exhibitor_ids:
+        row = rows_by_exhibitor.get(exhibitor_id)
+        if row is None:
+            row = ShowEntry(show_id=show_id, exhibitor_id=exhibitor_id)
+            db.add(row)
+            rows_by_exhibitor[exhibitor_id] = row
+        targets.append(row)
+
+    target_ids = {id(row) for row in targets}
+    reserved = {
+        se.back_number
+        for se in all_rows
+        if se.back_number is not None and id(se) not in target_ids
+    }
+
+    for row in targets:
+        row.back_number = None
+    await db.flush()
+
+    # Requests first, so a sequential fill can never take a number somebody
+    # asked for out from under them.
+    unassigned = []
+    for row in targets:
+        wanted = row.preferred_back_number
+        if wanted is not None and wanted not in reserved:
+            row.back_number = wanted
+            reserved.add(wanted)
         else:
-            db.add(ShowEntry(show_id=show_id, exhibitor_id=exhibitor_id, back_number=i))
+            unassigned.append(row)
+
+    next_number = 1
+    for row in unassigned:
+        while next_number in reserved:
+            next_number += 1
+        row.back_number = next_number
+        reserved.add(next_number)
 
     await db.commit()
-    return {"assigned": len(exhibitor_ids)}
+    return {"assigned": len(targets)}

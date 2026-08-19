@@ -166,6 +166,9 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             "exhibitor_name": exhibitor.full_name,
             "show_entry_id": show_entry.id if show_entry else None,
             "back_number": show_entry.back_number if show_entry else None,
+            "preferred_back_number": (
+                show_entry.preferred_back_number if show_entry else None
+            ),
             "signed_up": bool(show_entry and show_entry.registered_at is not None),
             "registered_at": show_entry.registered_at if show_entry else None,
             "entry_count": len(exhibitor_entries),

@@ -226,6 +226,9 @@ def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
         "show_entry_id": str(show_entry.id),
         "registered_at": show_entry.registered_at,
         "back_number": show_entry.back_number,
+        # What they asked for, which is not always what they hold — the office
+        # can renumber. The screen shows both when they differ.
+        "preferred_back_number": show_entry.preferred_back_number,
         "arrival_date": show_entry.arrival_date,
         "departure_date": show_entry.departure_date,
         "notes": show_entry.registration_notes,
@@ -400,6 +403,106 @@ async def save_signup(
         "signup": _signup_out(show_entry),
         "reservation_total_cents": reservation_total,
     }
+
+
+# ── Back number ──────────────────────────────────────────────
+
+class BackNumberRequestBody(BaseModel):
+    """`null` clears the request. Bounded because a back number is worn on a
+    person's back — four digits is already generous for a cloth number."""
+
+    preferred_back_number: Optional[int] = Field(default=None, ge=1, le=9999)
+
+
+def _back_number_taken(wanted: int) -> HTTPException:
+    return HTTPException(
+        409,
+        {
+            "code": "BACK_NUMBER_TAKEN",
+            "message": (
+                f"Back number {wanted} is already taken at this show. "
+                "Pick a different one."
+            ),
+        },
+    )
+
+
+@router.put("/back-number")
+async def request_back_number(
+    show_id: UUID,
+    body: BackNumberRequestBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask for a back number, and get it when nothing else at the show holds it.
+
+    This grants outright rather than queueing a request for the office to
+    approve. A number nobody else wants is not a decision anyone needs to make,
+    and a "preference" that still leaves the exhibitor waiting on a secretary
+    is the workflow this replaces, with an extra table. The office keeps every
+    power it had: the desk can renumber anyone, and `preferred_back_number`
+    survives that so staff can still see what was asked for.
+
+    Only while the show is PUBLISHED. `_load_published_show_or_403` closes this
+    the moment the show goes ACTIVE, which is the right boundary — by then
+    numbers are printed, hanging on backs, and written on the judge's cards.
+
+    Clearing (`null`) drops the *wish*, never the number already issued. Giving
+    a number back is not something anyone asks for at a horse show, and
+    releasing an assignment the office may have made independently would be a
+    surprising thing for an empty text box to do.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    show_entry = await _load_show_entry(show.id, exhibitor.id, db)
+    if show_entry is None or show_entry.registered_at is None:
+        raise HTTPException(
+            409,
+            {
+                "code": "SHOW_SIGNUP_REQUIRED",
+                "message": (
+                    "Sign up for this show before choosing a back number."
+                ),
+            },
+        )
+
+    wanted = body.preferred_back_number
+
+    if wanted is not None and wanted != show_entry.back_number:
+        # Checked before writing so the common collision gets a message naming
+        # the number, rather than an IntegrityError we can only report vaguely.
+        # The constraint is still what makes it safe — see the except below.
+        clash = await db.execute(
+            select(ShowEntry.id).where(
+                ShowEntry.show_id == show.id,
+                ShowEntry.back_number == wanted,
+                ShowEntry.id != show_entry.id,
+            )
+        )
+        if clash.first() is not None:
+            raise _back_number_taken(wanted)
+
+    show_entry.preferred_back_number = wanted
+    if wanted is not None:
+        show_entry.back_number = wanted
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two exhibitors asking for the same free number in the same instant.
+        # The unique constraint on (show_id, back_number) is the real guard,
+        # and this is it firing. Only reachable when a number was written:
+        # clearing the wish touches no constrained column.
+        await db.rollback()
+        raise _back_number_taken(wanted) from None
+
+    show_entry = await _load_show_entry(show.id, exhibitor.id, db)
+    return {"signup": _signup_out(show_entry)}
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────

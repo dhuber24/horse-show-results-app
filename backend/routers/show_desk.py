@@ -190,6 +190,10 @@ async def get_desk(
             "exhibitor_name": account["exhibitor_name"],
             "show_entry_id": account["show_entry_id"],
             "back_number": account["back_number"],
+            # What they asked for at registration. The desk shows it only when
+            # it differs from what they hold, so a granted request is silent
+            # and an overridden one is visible.
+            "preferred_back_number": account["preferred_back_number"],
             "signed_up": account["signed_up"],
             "entries": entries_by_exhibitor.get(exhibitor_id, []),
             "side_pot_ids": pot_ids_by_show_entry.get(account["show_entry_id"], []),

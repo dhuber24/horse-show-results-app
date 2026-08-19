@@ -155,7 +155,11 @@ function ShowGroups({ entries }: { entries: EntryRow[] }) {
         <div className="rounded-lg border px-4 py-3 flex items-center gap-3" style={{ borderColor: '#bfdbfe', backgroundColor: '#eff6ff' }}>
           <span className="text-blue-600 text-lg">📋</span>
           <p className="text-sm" style={{ color: '#1e40af' }}>
-            You have been added to {newCount} new class{newCount > 1 ? 'es' : ''} in the past week.
+            {/* Still only counts entries from the last seven days — that window is what
+                makes this a transient notice rather than a permanent restatement of the
+                entry count. It just isn't worth saying out loud: "4 new classes" is the
+                news, and "in the past week" reads like a qualification on it. */}
+            You have been added to {newCount} new class{newCount > 1 ? 'es' : ''}.
           </p>
         </div>
       )}

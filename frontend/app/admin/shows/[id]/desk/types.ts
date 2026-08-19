@@ -122,6 +122,10 @@ export interface DeskExhibitor {
    *  entry both hang off that row, which is why the desk creates one first. */
   show_entry_id: string | null;
   back_number: number | null;
+  /** What the exhibitor asked for at registration (migration 104). Shown only
+   *  when it differs from `back_number` — a granted request needs no comment,
+   *  an overridden one is worth staff seeing before somebody asks at the desk. */
+  preferred_back_number: number | null;
   signed_up: boolean;
   entries: DeskEntry[];
   side_pot_ids: string[];

@@ -2,6 +2,62 @@
 
 ## August 2026
 
+### "Can I Have 42 Again?"
+
+The commonest question a show office fields in the weeks before a show, and the app had no answer for it. Back numbers were assigned by staff, full stop: the exhibitor emailed and asked, a secretary wrote it on a list, and later keyed it into the back-number screen by hand. That is exactly the workflow this app exists to remove, and at a ranch or western show it is not a fringe request — people ride the same number year after year, and families like to keep a block together.
+
+Migration 104 adds `show_entries.preferred_back_number`, and the class registration screen asks for one. **It grants rather than queues**: if nothing else at that show holds the number, it is issued on the spot. A "preference" that still leaves the exhibitor waiting on a secretary would have been the old workflow with an extra table in front of it, and a number nobody else wants is not a decision anyone needs to make. A number that *is* taken returns `409 BACK_NUMBER_TAKEN` naming it, so they pick another while they are still on the screen rather than finding out at the desk.
+
+**Two columns, because they answer different questions.** `preferred_back_number` is what was asked for; `back_number` is what the show issued. They agree in the ordinary case and diverge the moment the office renumbers — and that divergence is the useful part. The desk renders "asked for 42" under the back-number field, so staff see it before the exhibitor raises it at the counter, and the registration screen tells the exhibitor which number to actually wear.
+
+The office keeps every power it had. The desk renumbers anyone; the endpoint closes when the show leaves `PUBLISHED`, since by then numbers are printed, hanging on backs, and written on judges' cards; and clearing the request drops the wish rather than the number already issued — handing a number back is not something anyone asks for, and an empty text box releasing an assignment would be a surprising thing for it to do.
+
+**`auto-assign` had to change or the feature was theatre.** It numbered every entered exhibitor straight through 1..N, which would undo every request in one click, and the office would learn about it at the desk from the exhibitor. It now claims requested numbers first and fills the rest from the lowest number still free. Two collisions came out of that: numbers held by roster rows outside the run (someone with no class entry yet) are reserved rather than overwritten, and the whole target set is nulled before it is refilled — Postgres checks `UNIQUE (show_id, back_number)` per statement, so reassigning in place can raise on a halfway state where two rows have swapped.
+
+The status banner's old line, "the secretary assigns your back number once the show begins", now reads "**Ensure you enter your preferred back number** or one will be assigned to you" and links to the screen that does it. Telling someone to enter a number without saying where is worse than saying nothing.
+
+### Holding The Link Was Not Consent
+
+Asking to put somebody else's horse on your profile opens a `horse_access_request`, and the owner approves it. The approve page authorized on the token alone — matching `user_invites`, and reasonable on its face, since the recipient of an *ownership transfer* may never have used the app before.
+
+It was wrong here, and the reason is one flow up. The mailer is optional: `mailer.py` does nothing without SMTP, so every flow that mails a link also hands the link back to the sender for copy/paste, precisely so an undelivered email never strands a horse. That means **the requester holds the approval link**. Any design where the link is the permission therefore lets a requester follow their own link and approve their own request — the exact outcome the table exists to prevent, reached by clicking the button the app gave them.
+
+So the token now names the request and the session authorizes the answer. `/horse-requests/[token]` and both `by-token` endpoints require the caller to be signed in as `approver_exhibitor_id`: 401 `SIGN_IN_REQUIRED` with no session, 403 `NOT_YOUR_REQUEST` for anyone else, and the page grew branches for both — the 401 offers sign-in and register carrying `?next=` back to the same request, and the 403 explains that passing the link on is fine but the approval has to be the owner's. The copy on `ApprovalLinkCallout` says so up front, because a requester who follows their own link and hits "not yours to answer" should have been warned.
+
+One consequence, taken deliberately: a `link` request naming an owner with **no account** is refused at creation rather than opened. Under the old rule the only person who could answer it was whoever held the token — which is to say, the requester. Under the new one nobody can, so opening it would produce a request that can only expire. `POST /exhibitors/{id}/created-horses` already worked this way; this makes the two paths agree.
+
+### The Show Page Became A Menu
+
+Opening a show as an exhibitor gave you a status banner and then forty rows of class numbers. That is the right screen for a scribe, for whom each row is a link into a scoring form. For everyone else it answered a question nobody had asked and buried the four they had: what is this show, what does it cost, when does my class run, how do I get in.
+
+`/shows/[id]` now renders `ExhibitorShowHub` for anyone who cannot score — the same status banner over tiles for **Sign Up** (or **My Registration** once they are in, in the same slot so it does not move mid-show), **Class Schedule**, **Show Bill**, **Show Details**, **Results**, and **Message the Show Office**. `ADMIN` and `SCRIBE` keep the class list untouched.
+
+**Show Details** grew the two things that are about the reader: club sanctioning — which of their memberships earn points here, previously visible nowhere outside the setup wizard — and buttons to *My registration* and *What I owe*. The latter is a new per-show bill page that reads `GET /my-shows/` and picks this show out of it. That is a row or two of waste over the wire and buys the thing that matters: the number is byte-for-byte the one on My Shows, because it is the same payload. A second endpoint summing the same fees would be faster and would eventually disagree.
+
+### A Show Bill You Can Actually Take With You
+
+Every show in the sport publishes a show bill — classes, judges, fees, rules — and this app had all of it and printed none of it. `/shows/[id]/showbill` generates one: masthead, judging panel, class schedule by day with numbers and entry fees, the fee schedule with early-bird rates called out, and the rules that change what you pack.
+
+**Generated rather than uploaded**, which is the whole design. An uploaded PDF is a second source of truth that goes stale the first time a secretary adds a class — and worse than having none, because people trust the copy they printed. Downloading is the browser's print dialog against a print stylesheet, so Save-as-PDF produces a real paginated document without the app carrying a PDF renderer it would then have to keep looking like the web version. A second button saves the class list as CSV, because a barn manager building a run sheet wants to sort it and a PDF is the wrong shape for that.
+
+This needed `GET /shows/{id}/fees/public` — the fee schedule had been staff-only, so the bill could not quote the prices the app itself charges from. Gated on the show being publicly visible, same as the contact form: a DRAFT show is not offering anything to anyone.
+
+### The Office Can Tell Who Is Asking
+
+`show_contact_messages` was built for visitors with no account, so everything about the sender is self-reported text joined to nothing. That is still right for a stranger asking about stall availability. It was wrong for the exhibitor entered in nine classes asking whether their Coggins arrived — and worse, that exhibitor had no route to the form at all, since it was only linked from the signed-out show view. Signing in took the contact form away.
+
+It is now a tile on the show hub, a button on every My Shows card (past shows included — "you charged me for four stalls" arrives after the weekend, not during it), and a link from Show Details, the show bill and the per-show bill page. Signed-in senders get their name and email prefilled.
+
+Migration 103 adds `sender_user_id` / `sender_exhibitor_id`, **stamped from the session and never from the request body**. A secretary reading a name in a free-text field cannot tell the exhibitor holding back number 42 from somebody who has never been to the show, and the answer to the question usually depends on which it is. Asking the sender to type their back number would have been a self-reported answer to an identity question — the same hole with an extra step. The inbox badges *Back #42*, *Entered here*, or *Has an account*; no badge is the ordinary case, not a suspicious one. Being signed in does not gate sending: an anonymous message is a NULL stamp, not a rejection.
+
+### Smaller Things
+
+- **The shavings policy is stated both ways.** `shows.shavings_ban_outside` only ever rendered when it was `true`, so a show that allowed outside shavings said nothing at all — and silence does not answer "do I need to load six bags into the trailer?". Both states now appear on the sign-up screen, once as a callout and again on the Shavings group next to the quantity box, plus on Show Details and the show bill. It stays off the signed-out show view, which is for picking a show rather than packing for one.
+- **Class registration copy.** "Pick a horse for each class… the show secretary assigns your back number once the show begins" became "Choose your horse from the drop-down menu in each class you want to register for", and payment is now described as collected *at the end of* the show. The back-number sentence moved to the status banner, where it has since been rewritten around the request field — see "Can I Have 42 Again?".
+- **"In the past week" left the dashboard's new-classes notice.** The seven-day window still decides whether the notice appears — that is what keeps it transient rather than a permanent restatement of the entry count — but "4 new classes" is the news and the qualification read like a hedge on it.
+- **`ShowBillBreakdown`** was extracted from the My Shows card so the card and the new per-show bill page cannot quote different totals for the same weekend.
+
+
 ### Forgot Password Now Means Forgot
 
 `/forgot-password` asked for your current password. That is a sound identity check and a useless one on that page: anyone who can supply the current password has not forgotten it. The only real route back into a locked-out account was an admin typing a new password — fine for a staff account, hopeless for an exhibitor at 6am on a show morning trying to find out what ring they are in.

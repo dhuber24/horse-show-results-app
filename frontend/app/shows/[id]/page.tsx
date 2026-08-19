@@ -4,7 +4,7 @@ import { fetchShow, fetchClasses, fetchMyShowStanding } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import { auth } from '@/auth';
 import type { MyShowStanding } from '@/lib/my-shows';
-import ExhibitorStatusBanner from './_components/ExhibitorStatusBanner';
+import ExhibitorShowHub from './_components/ExhibitorShowHub';
 import VisitorShowView from './_components/VisitorShowView';
 import AutoRefresh from '@/components/AutoRefresh';
 
@@ -42,6 +42,23 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
       : Promise.resolve(null),
   ]);
 
+  // Anyone who isn't entering scores gets a menu, not a class list. For a
+  // scribe or an admin on an active show the class numbers *are* the menu —
+  // every row is a link into a scribe screen — so they keep the list below.
+  // Everybody else was landing on forty rows of something to read rather than
+  // the four things they came to do.
+  if (!canScore) {
+    return (
+      <ExhibitorShowHub
+        showId={id}
+        show={show}
+        standing={standing}
+        classCount={classes.filter((cls: any) => cls.status !== 'DRAFT').length}
+        canSelfRegister={canSelfRegister}
+      />
+    );
+  }
+
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <Link href="/" className="text-sm hover:underline" style={{ color: '#8b4513' }}>← Back to Shows</Link>
@@ -67,9 +84,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      {canSelfRegister && (
-        <ExhibitorStatusBanner showId={id} showStatus={show.status} standing={standing} />
-      )}
+      {/* The exhibitor status banner used to sit here. It has moved to
+          ExhibitorShowHub, which is where an exhibitor now lands — reaching
+          this branch means the caller can score, and no account is both a
+          scribe and a self-registering exhibitor. */}
 
       {/* Only for people who could otherwise be entering scores. An exhibitor or
           spectator reading the class schedule has no scoring screen to be locked
