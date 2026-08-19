@@ -18,9 +18,33 @@ export async function fetchEntries(showId: string, classId: string) {
   return res.json();
 }
 
-export async function fetchResults(showId: string, classId: string) {
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/results/`);
+/**
+ * Placings for a class.
+ *
+ * Pass `headers` (from `getAuthHeaders()`) when the caller is show staff — the
+ * backend returns an empty list for a class whose results have not been posted
+ * yet, so the scribe's own entry form must identify itself or it will render a
+ * blank card over a draft it is halfway through typing.
+ */
+export async function fetchResults(showId: string, classId: string, headers?: HeadersInit) {
+  const res = await fetch(
+    `${API_URL}/shows/${showId}/classes/${classId}/results/`,
+    headers ? { headers, cache: 'no-store' } : {},
+  );
   if (!res.ok) throw new Error('Failed to fetch results');
+  return res.json();
+}
+
+/**
+ * The show's judging panel, names only — no auth required.
+ *
+ * Placings are recorded per judge, so both the scribe screen and the public
+ * class page need the panel to label the cards. Contact details stay behind
+ * the staff endpoint; this returns what the show bill already prints.
+ */
+export async function fetchShowJudgesPublic(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/judges/public`, { cache: 'no-store' });
+  if (!res.ok) return [];
   return res.json();
 }
 

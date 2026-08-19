@@ -52,6 +52,9 @@ from routers.horse_access import router as horse_access_router
 from routers.my_shows import router as my_shows_router
 from routers.show_contact import router as show_contact_router
 from routers.show_office import router as show_office_router
+from routers.show_financials import router as show_financials_router
+from routers.show_desk import router as show_desk_router
+from routers.show_waivers import router as show_waivers_router
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +143,9 @@ app.include_router(horse_access_router)
 app.include_router(my_shows_router)
 app.include_router(show_contact_router)
 app.include_router(show_office_router)
+app.include_router(show_financials_router)
+app.include_router(show_desk_router)
+app.include_router(show_waivers_router)
 
 
 @app.get("/", tags=["Health"])

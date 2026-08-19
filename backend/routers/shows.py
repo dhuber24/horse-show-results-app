@@ -18,15 +18,17 @@ from models import (
     Show,
     ShowAffiliation,
     ShowSecretary,
-    ShowScorekeeper,
+    ShowScribe,
     ShowGateSteward,
     ShowManager,
     Entry,
     Class,
     Horse,
     Exhibitor,
+    Judge,
     Result,
     ShowEntry,
+    ShowJudge,
     HorseRegistration,
     ShowType,
     User,
@@ -63,6 +65,16 @@ def _serialize(show: Show) -> dict:
         "office_charge_cents": show.office_charge_cents,
         "office_charge_basis": show.office_charge_basis,
         "shavings_ban_outside": show.shavings_ban_outside,
+        # Which health papers this show requires (migration 097). Serialized
+        # here rather than left to ShowOut's defaults: this function builds the
+        # payload by hand, so a column missing from it reads back as the schema
+        # default and a show that requires a CVI would report that it does not.
+        "requires_coggins": show.requires_coggins,
+        "requires_health_certificate": show.requires_health_certificate,
+        "health_certificate_valid_days": show.health_certificate_valid_days,
+        "requires_vaccination": show.requires_vaccination,
+        "vaccination_valid_days": show.vaccination_valid_days,
+        "vaccination_notes": show.vaccination_notes,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),
@@ -112,13 +124,13 @@ async def list_shows(
             .where(ShowManager.user_id == safe_uuid(x_user_id))
             .order_by(Show.start_date)
         )
-    elif is_authenticated and x_user_role == "SCOREKEEPER" and x_user_id:
-        # Scorekeepers see their assigned shows, but not DRAFTs
+    elif is_authenticated and x_user_role == "SCRIBE" and x_user_id:
+        # Scribes see their assigned shows, but not DRAFTs
         query = (
             select(Show)
             .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
-            .join(ShowScorekeeper, ShowScorekeeper.show_id == Show.id)
-            .where(ShowScorekeeper.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
+            .join(ShowScribe, ShowScribe.show_id == Show.id)
+            .where(ShowScribe.user_id == safe_uuid(x_user_id), Show.status != "DRAFT")
             .order_by(Show.start_date)
         )
     elif is_authenticated and x_user_role == "GATE_STEWARD" and x_user_id:
@@ -182,16 +194,23 @@ async def get_show(show_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.get("/{show_id}/results-index")
 async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
     """Lightweight per-class participant index that powers the public Results
-    search. For every placed result in a non-DRAFT class, returns the placing
-    plus the exhibitor/horse names and back number, grouped by class id, so the
-    Results page can filter classes by horse, exhibitor, back number, place, or
-    class number/name without one round trip per class.
+    search. For every placed result in a non-DRAFT, **posted** class, returns
+    the placing plus the exhibitor/horse names and back number, grouped by
+    class id, so the Results page can filter classes by horse, exhibitor, back
+    number, place, or class number/name without one round trip per class.
 
-    Public, mirroring the other read endpoints backing the Results page.
+    Public, mirroring the other read endpoints backing the Results page — which
+    is why it filters on `results_published_at`: a class the scribe is still
+    entering is a draft, and this endpoint has no authenticated caller to make
+    an exception for.
     """
     if not await db.get(Show, show_id):
         raise HTTPException(404, "Show not found")
 
+    # One row per placing per judge (migration 095). A class judged by a panel
+    # legitimately lists the same horse once per card, so each row carries the
+    # judge's name — collapsing to one row would have to pick a winner between
+    # cards that disagree, which is not this app's job.
     rows = await db.execute(
         select(
             Class.id,
@@ -201,22 +220,40 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             ShowEntry.back_number,
             Exhibitor.full_name,
             Horse.name,
+            Judge.first_name,
+            Judge.last_name,
         )
         .join(Result, Result.class_id == Class.id)
         .join(Entry, Entry.id == Result.entry_id)
         .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
         .outerjoin(Horse, Horse.id == Entry.horse_id)
+        .outerjoin(ShowJudge, ShowJudge.id == Result.judge_id)
+        .outerjoin(Judge, Judge.id == ShowJudge.judge_id)
         .outerjoin(
             ShowEntry,
             (ShowEntry.show_id == show_id)
             & (ShowEntry.exhibitor_id == Entry.exhibitor_id),
         )
-        .where(Class.show_id == show_id, Class.status != "DRAFT")
-        .order_by(Result.place)
+        .where(
+            Class.show_id == show_id,
+            Class.status != "DRAFT",
+            Class.results_published_at.isnot(None),
+        )
+        .order_by(ShowJudge.sort_order.nulls_first(), Result.place)
     )
 
     by_class: dict[str, list[dict]] = {}
-    for class_id, place, is_tie, entry_bn, show_bn, exhibitor_name, horse_name in rows:
+    for (
+        class_id,
+        place,
+        is_tie,
+        entry_bn,
+        show_bn,
+        exhibitor_name,
+        horse_name,
+        judge_first,
+        judge_last,
+    ) in rows:
         by_class.setdefault(str(class_id), []).append(
             {
                 "place": place,
@@ -224,6 +261,7 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 "back_number": show_bn if show_bn is not None else entry_bn,
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,
+                "judge_name": f"{judge_first} {judge_last}" if judge_first else None,
             }
         )
     return by_class
@@ -411,7 +449,7 @@ async def delete_show(
             selectinload(Show.rings),
             selectinload(Show.divisions),
             selectinload(Show.show_secretaries),
-            selectinload(Show.show_scorekeepers),
+            selectinload(Show.show_scribes),
             selectinload(Show.show_entries),
         )
         .where(Show.id == show_id)

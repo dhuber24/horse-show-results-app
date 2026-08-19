@@ -317,6 +317,7 @@ EXHIBITORS = [
 
 
 # One horse per exhibitor, in the same order as EXHIBITORS above.
+# See SECOND_HORSES below for the one exhibitor who has two.
 HORSES = [
     {
         "name": "Sheza Lopin Asset",
@@ -432,6 +433,32 @@ HORSES = [
 ]
 
 
+# One exhibitor keeps a second horse, because "one horse per exhibitor" is not
+# what a horse show looks like and it made a real case untestable: a *pattern*
+# class is judged run by run, so one exhibitor may show two horses in it —
+# showmanship on both, two runs, two scores, two entry fees. The backend has
+# always allowed that (`entries.py` only blocks a repeat entry when
+# `score_type != 'pattern'`), but with every seeded exhibitor owning exactly one
+# horse there was no way to walk the path.
+#
+# Keyed by owner email rather than by position, so adding another one later does
+# not depend on staying in step with EXHIBITORS.
+SECOND_HORSES = [
+    {
+        "owner_email": "sofia.delgado@example.com",
+        "name": "Chexy Little Lena",
+        "barn_name": "Roxy",
+        "sire_name": "Smart Chex Olena",
+        "dam_name": "Little Peppy Doll",
+        "foaling_date": date(2019, 4, 12),
+        "sex": "Mare",
+        "breed": "American Quarter Horse",
+        "color": "Sorrel",
+        "registration": ("AQHA", "X0812655"),
+    },
+]
+
+
 async def _lookup(db: AsyncSession, model, column, values: set[str]) -> dict[str, object]:
     if not values:
         return {}
@@ -448,10 +475,10 @@ async def seed(db: AsyncSession) -> None:
         Association.code,
         {code for t in TRAINERS for code, *_ in t["registrations"]}
         | {code for e in EXHIBITORS for code, *_ in e["registrations"]}
-        | {h["registration"][0] for h in HORSES},
+        | {h["registration"][0] for h in HORSES + SECOND_HORSES},
     )
-    breeds = await _lookup(db, Breed, Breed.name, {h["breed"] for h in HORSES})
-    colors = await _lookup(db, HorseColor, HorseColor.name, {h["color"] for h in HORSES})
+    breeds = await _lookup(db, Breed, Breed.name, {h["breed"] for h in HORSES + SECOND_HORSES})
+    colors = await _lookup(db, HorseColor, HorseColor.name, {h["color"] for h in HORSES + SECOND_HORSES})
 
     missing: list[str] = []
     for label, wanted, found in (
@@ -459,11 +486,11 @@ async def seed(db: AsyncSession) -> None:
             "association",
             {code for t in TRAINERS for code, *_ in t["registrations"]}
             | {code for e in EXHIBITORS for code, *_ in e["registrations"]}
-            | {h["registration"][0] for h in HORSES},
+            | {h["registration"][0] for h in HORSES + SECOND_HORSES},
             associations,
         ),
-        ("breed", {h["breed"] for h in HORSES}, breeds),
-        ("color", {h["color"] for h in HORSES}, colors),
+        ("breed", {h["breed"] for h in HORSES + SECOND_HORSES}, breeds),
+        ("color", {h["color"] for h in HORSES + SECOND_HORSES}, colors),
     ):
         for name in sorted(wanted - set(found)):
             missing.append(f"{label}: {name}")
@@ -594,9 +621,14 @@ async def seed(db: AsyncSession) -> None:
 
     # --- Horses -------------------------------------------------------------
     rng = random.Random(RNG_SEED)
-    for spec, exhibitor in zip(HORSES, exhibitor_rows):
-        trainer = rng.choice(trainer_rows)
 
+    async def add_horse(spec: dict, exhibitor, trainer) -> None:
+        """Create one horse for one exhibitor, or skip it if it is already there.
+
+        Ownership alone does not put a horse on someone's profile list — that
+        reads `created_by_exhibitor_id` **or** an `exhibitor_horses` link — so
+        both are set here, the same as the app's own add-a-horse path.
+        """
         existing_horse = (
             await db.execute(
                 select(Horse).where(
@@ -607,7 +639,7 @@ async def seed(db: AsyncSession) -> None:
         ).scalar_one_or_none()
         if existing_horse:
             created["skipped"].append(f"horse {spec['name']}")
-            continue
+            return
 
         horse = Horse(
             name=spec["name"],
@@ -638,6 +670,19 @@ async def seed(db: AsyncSession) -> None:
 
         created["horses"] += 1
         print(f"  {spec['name']:<26} owner={exhibitor.full_name:<22} trainer={trainer.name}")
+
+    for spec, exhibitor in zip(HORSES, exhibitor_rows):
+        await add_horse(spec, exhibitor, rng.choice(trainer_rows))
+
+    exhibitors_by_email = {
+        e["email"]: row for e, row in zip(EXHIBITORS, exhibitor_rows)
+    }
+    for spec in SECOND_HORSES:
+        owner = exhibitors_by_email.get(spec["owner_email"])
+        if owner is None:
+            created["skipped"].append(f"horse {spec['name']} (owner not seeded)")
+            continue
+        await add_horse(spec, owner, rng.choice(trainer_rows))
 
     await db.commit()
 

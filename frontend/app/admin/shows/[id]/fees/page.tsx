@@ -16,10 +16,10 @@ const tiles = (showId: string) => [
     icon: '🏕️',
   },
   {
-    href: `/admin/shows/${showId}/side-pots`,
-    title: 'Side Pots',
-    description: 'Divisional jackpots that span multiple classes.',
-    icon: '💰',
+    href: `/admin/shows/${showId}/financials`,
+    title: 'Financials',
+    description: 'What these fees have actually billed, what has been collected, and what is still owed.',
+    icon: '💵',
   },
 ];
 

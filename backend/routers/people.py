@@ -25,7 +25,7 @@ from schemas import (
     ExhibitorRegistrationCreate, ExhibitorRegistrationOut,
 )
 
-VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCOREKEEPER", "GATE_STEWARD", "EXHIBITOR", "TRAINER"}
+VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER"}
 
 
 def _normalize_email(email: str) -> str:
@@ -133,13 +133,13 @@ async def create_user_with_password(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    ADMIN can create any role. SHOW_SECRETARY can only create SCOREKEEPER accounts.
+    ADMIN can create any role. SHOW_SECRETARY can only create SCRIBE accounts.
     """
     from dependencies import INTERNAL_API_KEY
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    if x_user_role == "SHOW_SECRETARY" and body.role != "SCOREKEEPER":
-        raise HTTPException(status_code=403, detail="Show Secretaries can only create Scorekeeper accounts")
+    if x_user_role == "SHOW_SECRETARY" and body.role != "SCRIBE":
+        raise HTTPException(status_code=403, detail="Show Secretaries can only create Scribe accounts")
     if x_user_role == "SHOW_MANAGER" and body.role != "SHOW_SECRETARY":
         raise HTTPException(status_code=403, detail="Show Managers can only create Show Secretary accounts")
     if x_user_role not in ("ADMIN", "SHOW_SECRETARY", "SHOW_MANAGER"):

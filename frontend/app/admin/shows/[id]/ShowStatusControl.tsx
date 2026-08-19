@@ -27,7 +27,7 @@ const STATUS_OPTIONS: { value: ShowStatus; label: string; warning: string }[] = 
   {
     value: 'ACTIVE',
     label: 'In Progress',
-    warning: 'Activating the show opens scoring for scorekeepers.',
+    warning: 'Activating the show opens scoring for scribes.',
   },
   {
     value: 'COMPLETED',

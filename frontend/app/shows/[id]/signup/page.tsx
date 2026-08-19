@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import SignupForm, { type SignupData } from './SignupForm';
+import WaiverSignatures from './WaiverSignatures';
 
 async function loadSignup(
   showId: string,
@@ -44,7 +45,15 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
           {error ?? 'Sign-up is not available for this show right now.'}
         </div>
       ) : (
-        <SignupForm showId={id} data={data} />
+        <>
+          <SignupForm showId={id} data={data} />
+          {/* Only once they are on the roster. Signing is scoped to people
+              competing at this show, and the roster row is what sign-up
+              creates — offering the form first would just 403. */}
+          {data.signup && (
+            <WaiverSignatures showId={id} exhibitorName={data.exhibitor.full_name} />
+          )}
+        </>
       )}
     </main>
   );

@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import type { MyShowStanding } from '@/lib/my-shows';
 import ExhibitorStatusBanner from './_components/ExhibitorStatusBanner';
 import VisitorShowView from './_components/VisitorShowView';
+import AutoRefresh from '@/components/AutoRefresh';
 
 function formatClassDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -18,7 +19,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const session = await auth();
   const role = (session?.user as any)?.role;
-  const canScore = (role === 'ADMIN' || role === 'SCOREKEEPER');
+  const canScore = (role === 'ADMIN' || role === 'SCRIBE');
   const canSelfRegister = role === 'EXHIBITOR';
 
   // A visitor with no account gets the event details and the two things they
@@ -87,12 +88,27 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
       {classes.length === 0 ? (
         <p style={{ color: '#8b7355' }}>No classes found.</p>
       ) : (() => {
-        const visible = classes.filter((cls: any) => !(canScore && show.status === 'ACTIVE' && cls.status === 'CLOSED'));
-        return (
+        // Scribes working an active show care about what is left to score, so
+        // finished classes fold away — but they are not hidden. A scribe
+        // correcting a posted placing has to be able to reach a CLOSED class,
+        // and a list that silently starts at 14 reads like broken numbering.
+        // Classes close underneath the scribe as the show runs — the gate
+        // steward closes one, and it should roll into the finished group
+        // without anyone reloading. Only polls in this case: on a finished or
+        // unstarted show nothing moves, so refreshing would be pure waste.
+        const foldFinished = canScore && show.status === 'ACTIVE';
+        const finished = foldFinished
+          ? classes.filter((cls: any) => cls.status === 'CLOSED')
+          : [];
+        const remaining = foldFinished
+          ? classes.filter((cls: any) => cls.status !== 'CLOSED')
+          : classes;
+
+        const renderList = (list: any[]) => (
           <ul className="space-y-3">
-            {visible.map((cls: any, index: number) => (
+            {list.map((cls: any, index: number) => (
               <Fragment key={cls.id}>
-                {(index === 0 || visible[index - 1].class_date !== cls.class_date) && (
+                {(index === 0 || list[index - 1].class_date !== cls.class_date) && (
                   <li className={`${index > 0 ? 'pt-4' : ''} pb-1`}>
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-px" style={{ backgroundColor: '#e8d5b7' }} />
@@ -108,7 +124,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
                   <Link
                     href={
                       canScore && show.status === 'ACTIVE'
-                        ? `/shows/${id}/classes/${cls.id}/scorekeeper`
+                        ? `/shows/${id}/classes/${cls.id}/scribe`
                         : `/shows/${id}/classes/${cls.id}`
                     }
                     className="flex-1 block p-4 rounded-lg border transition hover:bg-amber-50"
@@ -151,6 +167,34 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
               </Fragment>
             ))}
           </ul>
+        );
+
+        return (
+          <>
+            {foldFinished && <AutoRefresh />}
+            {finished.length > 0 && (
+              // <details> rather than a client component: this page is server
+              // rendered and the toggle needs no JS to work.
+              <details className="mb-4 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
+                <summary
+                  className="cursor-pointer select-none px-4 py-3 text-sm font-medium"
+                  style={{ color: '#8b4513' }}
+                >
+                  {finished.length} finished {finished.length === 1 ? 'class' : 'classes'} — show
+                </summary>
+                <div className="px-4 pb-4 pt-1">{renderList(finished)}</div>
+              </details>
+            )}
+            {remaining.length === 0 ? (
+              <p style={{ color: '#8b7355' }}>
+                {finished.length > 0
+                  ? 'Every class has been run.'
+                  : 'No classes found.'}
+              </p>
+            ) : (
+              renderList(remaining)
+            )}
+          </>
         );
       })()}
     </main>

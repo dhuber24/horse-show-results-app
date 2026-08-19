@@ -21,7 +21,7 @@ INSERT INTO classes (id, show_id, ring_id, division_id, class_number, class_name
 
 INSERT INTO users (id, role, full_name, email) VALUES
 ('55555555-5555-5555-5555-555555555551', 'ADMIN', 'Show Admin', 'admin@horseshow.test'),
-('55555555-5555-5555-5555-555555555552', 'SCOREKEEPER', 'Official Scorekeeper', 'scorekeeper@horseshow.test');
+('55555555-5555-5555-5555-555555555552', 'SCRIBE', 'Official Scribe', 'scribe@horseshow.test');
 
 INSERT INTO exhibitors (id, full_name) VALUES
 ('66666666-6666-6666-6666-666666666661', 'Emma Larson'),

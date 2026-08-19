@@ -34,7 +34,7 @@ async def get_exhibitor_dashboard(
         .options(
             selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.venue_rel),
             selectinload(Entry.horse),
-            selectinload(Entry.result),
+            selectinload(Entry.results),
         )
     )
     entries = entries_result.scalars().all()
@@ -44,7 +44,11 @@ async def get_exhibitor_dashboard(
         class_ = entry.class_
         show = class_.show if class_ else None
         horse = entry.horse
-        result_row = entry.result
+        # A class can now be placed by several judges (migration 095), so this
+        # entry may hold one card per judge. The dashboard shows a single number
+        # per class, so report the best of them — identical to the old value on
+        # the single-judge shows this screen was built for.
+        result_row = min(entry.results, key=lambda r: r.place) if entry.results else None
 
         output.append({
             "entry_id": str(entry.id),

@@ -64,7 +64,7 @@ from models import (
     ShowEntryReservation,
     ShowFee,
 )
-from routers.horse_documents import coggins_health, load_coggins_expiries, paperwork_deadline
+from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
 from schemas import EntryOut
@@ -262,17 +262,6 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
     return context
 
 
-def _horse_health(expiry_dates: list[date | None], show: Show) -> dict:
-    """Health standing for one horse, as of this show's paperwork deadline.
-
-    Advisory only. This used to decide whether the horse could be entered at
-    all; it now tells the exhibitor what to sort out before they ship in, and
-    the same evaluation reaches the show office through
-    `GET /shows/{id}/health-flags` so staff can chase it.
-    """
-    return coggins_health(expiry_dates, paperwork_deadline(show))
-
-
 # ── Sign-up ───────────────────────────────────────────────────────────────────
 
 class ReservationItem(BaseModel):
@@ -442,13 +431,19 @@ async def preview_registration(
 
     horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
     horses: list[Horse] = []
-    coggins_expiries_by_horse: dict[UUID, list[date | None]] = {}
+    # Advisory only. This used to decide whether the horse could be entered at
+    # all; it now tells the exhibitor what to sort out before they ship in, and
+    # the same evaluation reaches the show office through the desk and
+    # `GET /shows/{id}/health-flags` so staff can chase it. Shared with the
+    # office so the two can never disagree about a horse — same documents, same
+    # requirements, same deadline.
+    health_by_horse_id: dict[UUID, list[dict]] = {}
     if horse_ids:
         horses_result = await db.execute(
             select(Horse).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
         )
         horses = horses_result.scalars().all()
-        coggins_expiries_by_horse = await load_coggins_expiries(list(horse_ids), db)
+        health_by_horse_id = await health_by_horse(list(horse_ids), show, db)
 
     existing_result = await db.execute(
         select(Entry)
@@ -484,6 +479,11 @@ async def preview_registration(
                 "class_number": c.class_number,
                 "class_name": c.class_name,
                 "class_date": c.class_date,
+                # The screen needs this to know where a second horse is
+                # allowed: a pattern class is judged run by run, so one
+                # exhibitor may show two horses in it. Everything else is
+                # once per exhibitor and the POST enforces that.
+                "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
                 "is_nsba_approved": _class_is_nsba(show, c),
                 "nsba_sanction_cents": (
@@ -500,7 +500,13 @@ async def preview_registration(
             {
                 "id": str(h.id),
                 "name": h.name,
-                "health": [_horse_health(coggins_expiries_by_horse.get(h.id, []), show)],
+                # `file_snapshot` is the desk's staleness bookkeeping and
+                # means nothing to an exhibitor. The staff endpoints drop it via
+                # their response_model; this one has none, so it is dropped here.
+                "health": [
+                    {k: v for k, v in check.items() if k != "file_snapshot"}
+                    for check in health_by_horse_id.get(h.id, [])
+                ],
             }
             for h in horses
         ],

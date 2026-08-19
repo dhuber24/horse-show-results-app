@@ -3,49 +3,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-
-type ScoreType = 'placement' | 'pattern' | 'time';
-type ScoringMethod = 'sum_placings' | 'sum_scores';
-type EligibilityRule = 'all_classes' | 'any_class';
-type Status = 'open' | 'closed' | 'settled';
-
-interface ClassItem {
-  id: string;
-  class_number: string;
-  class_name: string;
-  class_date: string;
-  score_type: ScoreType;
-}
-
-interface PotClass {
-  class_id: string;
-  class_number: string;
-  class_name: string;
-  score_type: ScoreType;
-}
-
-interface SidePot {
-  id: string;
-  name: string;
-  description: string | null;
-  entry_fee_cents: number;
-  payback_percent: number;
-  scoring_method: ScoringMethod;
-  eligibility_rule: EligibilityRule;
-  status: Status;
-  classes: PotClass[];
-  entry_count: number;
-  paid_count: number;
-}
-
-const STATUS_BADGE: Record<Status, { label: string; bg: string; fg: string }> = {
-  open: { label: 'Open', bg: '#dcebd5', fg: '#3f6b2f' },
-  closed: { label: 'Closed', bg: '#f0e8d8', fg: '#8b4513' },
-  settled: { label: 'Settled', bg: '#d4d4d4', fg: '#404040' },
-};
-
-const formatCents = (cents: number) =>
-  `$${(cents / 100).toFixed(2)}`;
+import {
+  StatusPill,
+  formatCents,
+  type ClassItem,
+  type EligibilityRule,
+  type ScoringMethod,
+  type SidePot,
+} from './pot-shared';
 
 export default function SidePotsManager({
   showId,
@@ -108,20 +73,12 @@ export default function SidePotsManager({
                         >
                           {pot.name}
                         </span>
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-full"
-                          style={{
-                            backgroundColor: STATUS_BADGE[pot.status].bg,
-                            color: STATUS_BADGE[pot.status].fg,
-                          }}
-                        >
-                          {STATUS_BADGE[pot.status].label}
-                        </span>
+                        <StatusPill status={pot.status} />
                         <span
                           className="text-xs"
                           style={{ color: '#8b7355' }}
                         >
-                          · {formatCents(pot.entry_fee_cents)} entry
+                          · {formatCents(pot.entry_fee_cents)} buy-in
                         </span>
                         <span
                           className="text-xs"
@@ -153,9 +110,8 @@ export default function SidePotsManager({
                       >
                         {pot.classes.length} class
                         {pot.classes.length === 1 ? '' : 'es'} ·{' '}
-                        {pot.entry_count} opt-in
-                        {pot.entry_count === 1 ? '' : 's'} ({pot.paid_count}{' '}
-                        paid)
+                        {pot.entry_count} {pot.entry_count === 1 ? 'entry' : 'entries'}{' '}
+                        ({pot.paid_count} paid)
                       </p>
                     </div>
                     <span className="text-sm" style={{ color: '#8b7355' }}>
@@ -237,7 +193,7 @@ function CreatePotForm({
     }
     const feeCents = Math.round(parseFloat(feeDollars || '0') * 100);
     if (Number.isNaN(feeCents) || feeCents < 0) {
-      setError('Entry fee must be a non-negative number.');
+      setError('Buy-in must be a non-negative number.');
       return;
     }
     const payback = parseInt(paybackPercent, 10);
@@ -315,7 +271,7 @@ function CreatePotForm({
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="text-sm text-gray-500 block mb-1">
-              Entry fee ($)
+              Buy-in ($)
             </label>
             <input
               type="number"
@@ -324,6 +280,7 @@ function CreatePotForm({
               value={feeDollars}
               onChange={(e) => setFeeDollars(e.target.value)}
               className="w-full border rounded px-3 py-2"
+              title="What each back number pays to join this pot"
             />
           </div>
           <div className="flex-1">

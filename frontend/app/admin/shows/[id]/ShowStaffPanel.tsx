@@ -18,8 +18,13 @@ export type PendingInvite = {
 type Props = {
   showId: string;
   currentUserRole: string;
+  initialManagers?: User[];
+  /** Approved SHOW_MANAGER accounts, from `/users/by-role`. Not filtered out of
+   *  `allUsers` because that list is ADMIN-only and includes unapproved people. */
+  availableManagers?: User[];
   initialAdmins: User[];
-  initialScorekeepers: User[];
+  availableSecretaries?: User[];
+  initialScribes: User[];
   initialGateStewards?: User[];
   allUsers: User[];
   isAdmin: boolean;
@@ -27,28 +32,39 @@ type Props = {
 };
 
 const emptyInviteForm = { first_name: '', last_name: '', email: '' };
+const emptySecretaryForm = { first_name: '', last_name: '', email: '', password: '' };
 
 export default function ShowStaffPanel({
   showId,
+  initialManagers = [],
+  availableManagers = [],
   initialAdmins,
-  initialScorekeepers,
+  availableSecretaries = [],
+  initialScribes,
   initialGateStewards = [],
   allUsers,
   isAdmin,
   initialPendingInvites = [],
 }: Props) {
+  const [managers, setManagers] = useState<User[]>(initialManagers);
   const [admins, setAdmins] = useState<User[]>(initialAdmins);
-  const [scorekeepers, setScorekeepers] = useState<User[]>(initialScorekeepers);
+  const [scribes, setScribes] = useState<User[]>(initialScribes);
   const [gateStewards, setGateStewards] = useState<User[]>(initialGateStewards);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(initialPendingInvites);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const [confirmRemoveManagerId, setConfirmRemoveManagerId] = useState<string | null>(null);
   const [confirmRemoveAdminId, setConfirmRemoveAdminId] = useState<string | null>(null);
-  const [confirmRemoveKeeperId, setConfirmRemoveKeeperId] = useState<string | null>(null);
+  const [confirmRemoveScribeId, setConfirmRemoveScribeId] = useState<string | null>(null);
   const [confirmRemoveStewardId, setConfirmRemoveStewardId] = useState<string | null>(null);
 
+  const [showAddManagerForm, setShowAddManagerForm] = useState(false);
+  const [selectedManagerId, setSelectedManagerId] = useState('');
   const [showAddAdminForm, setShowAddAdminForm] = useState(false);
+  const [adminMode, setAdminMode] = useState<'pick' | 'create'>('pick');
+  const [newSecretary, setNewSecretary] = useState(emptySecretaryForm);
+  const [secretaryCreateError, setSecretaryCreateError] = useState('');
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [showAssignStewardForm, setShowAssignStewardForm] = useState(false);
@@ -62,19 +78,56 @@ export default function ShowStaffPanel({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const [selectedAdminId, setSelectedAdminId] = useState('');
-  const [selectedKeeperId, setSelectedKeeperId] = useState('');
+  const [selectedScribeId, setSelectedScribeId] = useState('');
 
-  const availableShowAdmins = allUsers.filter(
-    u => u.role === 'SHOW_SECRETARY' && !admins.find(a => a.id === u.id)
+  // `allUsers` is only fetched for ADMIN. The by-role lists are readable by a
+  // Show Manager too, so prefer them and fall back to the full list.
+  const secretaryPool =
+    availableSecretaries.length > 0
+      ? availableSecretaries
+      : allUsers.filter(u => u.role === 'SHOW_SECRETARY');
+  const availableShowAdmins = secretaryPool.filter(u => !admins.find(a => a.id === u.id));
+  const availableShowManagers = availableManagers.filter(
+    u => !managers.find(m => m.id === u.id)
   );
-  const availableScorekeepers = allUsers.filter(
-    u => u.role === 'SCOREKEEPER' && !scorekeepers.find(s => s.id === u.id)
+  const availableScribes = allUsers.filter(
+    u => u.role === 'SCRIBE' && !scribes.find(s => s.id === u.id)
   );
   const availableGateStewards = allUsers.filter(
     u => u.role === 'GATE_STEWARD' && !gateStewards.find(s => s.id === u.id)
   );
-  const scorekeeperInvites = pendingInvites.filter(i => i.role === 'SCOREKEEPER');
+  const scribeInvites = pendingInvites.filter(i => i.role === 'SCRIBE');
   const stewardInvites = pendingInvites.filter(i => i.role === 'GATE_STEWARD');
+
+  async function addManager(userId: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/managers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setError(json.detail || 'Failed to add manager'); return; }
+      setManagers(prev => [...prev, json]);
+    } finally { setBusy(false); }
+  }
+
+  async function removeManager(userId: string) {
+    setError('');
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/managers/${userId}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => null);
+        // 409 is the last-manager guard, and its message is the useful one.
+        setError(j?.detail || 'Failed to remove manager');
+        return;
+      }
+      setManagers(prev => prev.filter(m => m.id !== userId));
+    } finally { setBusy(false); }
+  }
 
   async function addAdmin(userId: string) {
     setError('');
@@ -101,28 +154,83 @@ export default function ShowStaffPanel({
     } finally { setBusy(false); }
   }
 
-  async function addScorekeeper(userId: string) {
+  /** Create the account and assign it in one go. A show secretary is hired for
+   *  the show, so the person setting up the show is usually the one who has to
+   *  make them an account — sending them to User Management and back loses the
+   *  thread. Invites are the scribe/steward equivalent; a secretary needs a
+   *  working login before the show, so this one hands over a password. */
+  async function createAndAssignSecretary(e: React.FormEvent) {
+    e.preventDefault();
+    setSecretaryCreateError('');
+    if (newSecretary.password.length < 8) {
+      setSecretaryCreateError('Password must be at least 8 characters.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const userRes = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: newSecretary.first_name.trim(),
+          last_name: newSecretary.last_name.trim(),
+          email: newSecretary.email.trim(),
+          password: newSecretary.password,
+          role: 'SHOW_SECRETARY',
+        }),
+      });
+      const userJson = await userRes.json().catch(() => null);
+      if (!userRes.ok) {
+        setSecretaryCreateError(userJson?.detail || 'Failed to create secretary account.');
+        return;
+      }
+      const assignRes = await fetch(`/api/shows/${showId}/admins`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userJson.id }),
+      });
+      if (!assignRes.ok && assignRes.status !== 409) {
+        const j = await assignRes.json().catch(() => null);
+        setSecretaryCreateError(j?.detail || 'Secretary created, but assigning to this show failed.');
+        return;
+      }
+      setAdmins(prev => [
+        ...prev,
+        {
+          id: userJson.id,
+          full_name: `${newSecretary.first_name.trim()} ${newSecretary.last_name.trim()}`,
+          email: newSecretary.email.trim(),
+          role: 'SHOW_SECRETARY',
+        },
+      ]);
+      setNewSecretary(emptySecretaryForm);
+      setAdminMode('pick');
+      setShowAddAdminForm(false);
+    } finally { setBusy(false); }
+  }
+
+  async function addScribe(userId: string) {
     setError('');
     setBusy(true);
     try {
-      const res = await fetch(`/api/shows/${showId}/scorekeepers`, {
+      const res = await fetch(`/api/shows/${showId}/scribes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
       });
       const json = await res.json();
-      if (!res.ok) { setError(json.detail || 'Failed to add scorekeeper'); return; }
-      setScorekeepers(prev => [...prev, json]);
+      if (!res.ok) { setError(json.detail || 'Failed to add scribe'); return; }
+      setScribes(prev => [...prev, json]);
     } finally { setBusy(false); }
   }
 
-  async function removeScorekeeper(userId: string) {
+  async function removeScribe(userId: string) {
     setError('');
     setBusy(true);
     try {
-      const res = await fetch(`/api/shows/${showId}/scorekeepers/${userId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/shows/${showId}/scribes/${userId}`, { method: 'DELETE' });
       if (!res.ok) { const j = await res.json(); setError(j.detail || 'Failed'); return; }
-      setScorekeepers(prev => prev.filter(s => s.id !== userId));
+      setScribes(prev => prev.filter(s => s.id !== userId));
     } finally { setBusy(false); }
   }
 
@@ -204,7 +312,7 @@ export default function ShowStaffPanel({
           first_name: inviteForm.first_name.trim(),
           last_name: inviteForm.last_name.trim(),
           email: inviteForm.email.trim(),
-          role: 'SCOREKEEPER',
+          role: 'SCRIBE',
           show_id: showId,
         }),
       });
@@ -304,12 +412,97 @@ export default function ShowStaffPanel({
         </div>
       )}
 
-      {isAdmin && (
-        <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+        <h2 className="text-base font-semibold mb-1" style={{ color: '#2c1810' }}>Show Managers</h2>
+        <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
+          Whoever created this show manages it. Add a co-manager here — they get the
+          same access to setup, staff, and the desk.
+        </p>
+
+        {managers.length === 0 && (
+          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
+            No manager assigned — this show was created by an admin.
+          </p>
+        )}
+        <ul className="space-y-1 mb-4">
+          {managers.map(m => (
+            <li key={m.id} className="flex items-center justify-between text-sm py-1 gap-2">
+              <span style={{ color: '#2c1810' }}>{m.full_name} <span style={{ color: '#8b7355' }}>({m.email})</span></span>
+              <button
+                disabled={busy || managers.length === 1}
+                title={managers.length === 1 ? 'A show cannot be left without a manager — add another first.' : undefined}
+                onClick={() => setConfirmRemoveManagerId(m.id)}
+                className="text-xs text-red-600 hover:underline disabled:opacity-30 shrink-0">
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        {confirmRemoveManagerId && (
+          <ConfirmDialog
+            title="Remove Show Manager"
+            message={`Remove ${managers.find(m => m.id === confirmRemoveManagerId)?.full_name} as a manager of this show? They will no longer see it in their shows.`}
+            confirmLabel="Yes, remove"
+            destructive
+            confirming={busy}
+            onConfirm={async () => {
+              await removeManager(confirmRemoveManagerId);
+              setConfirmRemoveManagerId(null);
+            }}
+            onCancel={() => setConfirmRemoveManagerId(null)}
+          />
+        )}
+
+        {!showAddManagerForm ? (
+          <button onClick={() => setShowAddManagerForm(true)}
+            className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+            + Add Show Manager
+          </button>
+        ) : availableShowManagers.length > 0 ? (
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedManagerId}
+              onChange={(e) => setSelectedManagerId(e.target.value)}
+              aria-label="Show Manager"
+              className={`${inputClass} flex-1`}
+              style={inputStyle}
+            >
+              <option value="" disabled>Select a Show Manager…</option>
+              {availableShowManagers.map(u => (
+                <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+              ))}
+            </select>
+            <button disabled={busy || !selectedManagerId}
+              onClick={() => { if (selectedManagerId) { addManager(selectedManagerId); setSelectedManagerId(''); setShowAddManagerForm(false); } }}
+              className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
+              style={{ backgroundColor: '#8b4513' }}>
+              {busy ? 'Adding…' : 'Add'}
+            </button>
+            <button type="button" onClick={() => { setShowAddManagerForm(false); setSelectedManagerId(''); }}
+              className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-xs" style={{ color: '#8b7355' }}>
+              No other Show Manager accounts available. Create one in{' '}
+              <Link href="/admin/users" className="underline">User Management</Link>.
+            </p>
+            <button type="button" onClick={() => setShowAddManagerForm(false)}
+              className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </section>
+
+      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
           <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Secretaries</h2>
 
           {admins.length === 0 && (
-            <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No show admins assigned.</p>
+            <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No secretary assigned yet.</p>
           )}
           <ul className="space-y-1 mb-4">
             {admins.map(a => (
@@ -343,51 +536,126 @@ export default function ShowStaffPanel({
               className="text-sm hover:underline" style={{ color: '#8b4513' }}>
               + Add Show Secretary
             </button>
-          ) : availableShowAdmins.length > 0 ? (
-            <div className="flex items-center gap-2">
-              <select value={selectedAdminId} onChange={(e) => setSelectedAdminId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
-                <option value="" disabled>Select a Show Secretary…</option>
-                {availableShowAdmins.map(u => (
-                  <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
-                ))}
-              </select>
-              <button disabled={busy}
-                onClick={() => { if (selectedAdminId) { addAdmin(selectedAdminId); setSelectedAdminId(''); setShowAddAdminForm(false); } }}
-                className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}>
-                {busy ? 'Adding…' : 'Add'}
-              </button>
-              <button type="button" onClick={() => { setShowAddAdminForm(false); setSelectedAdminId(''); }}
-                className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
-                Cancel
-              </button>
-            </div>
           ) : (
-            <div className="space-y-1">
-              <p className="text-xs" style={{ color: '#8b7355' }}>
-                No additional Show Secretaries available. Create one in{' '}
-                <Link href="/admin/users" className="underline">User Management</Link>.
-              </p>
-              <button type="button" onClick={() => setShowAddAdminForm(false)}
-                className="text-xs hover:underline" style={{ color: '#8b7355' }}>
-                Cancel
-              </button>
+            <div className="space-y-3">
+              {isAdmin && (
+                <div className="flex gap-2 flex-wrap">
+                  {(['pick', 'create'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setAdminMode(m); setSecretaryCreateError(''); }}
+                      aria-pressed={adminMode === m}
+                      className="text-sm rounded px-3 py-1.5 border"
+                      style={{
+                        borderColor: adminMode === m ? '#5c3d1e' : '#d4b896',
+                        backgroundColor: adminMode === m ? '#fdf8eb' : '#fff',
+                        color: adminMode === m ? '#5c3d1e' : '#2c1810',
+                        fontWeight: adminMode === m ? 600 : 400,
+                      }}
+                    >
+                      {m === 'pick' ? 'Pick existing' : 'Create new'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {adminMode === 'pick' && (
+                availableShowAdmins.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedAdminId}
+                      onChange={(e) => setSelectedAdminId(e.target.value)}
+                      aria-label="Show Secretary"
+                      className={`${inputClass} flex-1`}
+                      style={inputStyle}
+                    >
+                      <option value="" disabled>Select a Show Secretary…</option>
+                      {availableShowAdmins.map(u => (
+                        <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
+                      ))}
+                    </select>
+                    <button disabled={busy || !selectedAdminId}
+                      onClick={() => { if (selectedAdminId) { addAdmin(selectedAdminId); setSelectedAdminId(''); setShowAddAdminForm(false); } }}
+                      className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
+                      style={{ backgroundColor: '#8b4513' }}>
+                      {busy ? 'Adding…' : 'Add'}
+                    </button>
+                    <button type="button" onClick={() => { setShowAddAdminForm(false); setSelectedAdminId(''); }}
+                      className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-xs" style={{ color: '#8b7355' }}>
+                      {isAdmin
+                        ? 'Every Show Secretary account is already on this show — use "Create new" for someone else.'
+                        : <>No additional Show Secretaries available. Create one in{' '}
+                          <Link href="/admin/users" className="underline">User Management</Link>.</>}
+                    </p>
+                    <button type="button" onClick={() => setShowAddAdminForm(false)}
+                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+                      Cancel
+                    </button>
+                  </div>
+                )
+              )}
+
+              {isAdmin && adminMode === 'create' && (
+                <form onSubmit={createAndAssignSecretary} className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <input required placeholder="First name" className={`${inputClass} w-full`} style={inputStyle}
+                      value={newSecretary.first_name}
+                      onChange={e => setNewSecretary(f => ({ ...f, first_name: e.target.value }))} />
+                    <input required placeholder="Last name" className={`${inputClass} w-full`} style={inputStyle}
+                      value={newSecretary.last_name}
+                      onChange={e => setNewSecretary(f => ({ ...f, last_name: e.target.value }))} />
+                  </div>
+                  <input required type="email" placeholder="Email" autoComplete="off"
+                    className={`${inputClass} w-full`} style={inputStyle}
+                    value={newSecretary.email}
+                    onChange={e => setNewSecretary(f => ({ ...f, email: e.target.value }))} />
+                  <input required type="password" placeholder="Initial password (≥ 8 characters)"
+                    autoComplete="new-password"
+                    className={`${inputClass} w-full font-mono`} style={inputStyle}
+                    value={newSecretary.password}
+                    onChange={e => setNewSecretary(f => ({ ...f, password: e.target.value }))} />
+                  {secretaryCreateError && <p className="text-xs text-red-600">{secretaryCreateError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={busy}
+                      className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
+                      style={{ backgroundColor: '#8b4513' }}>
+                      {busy ? 'Creating…' : 'Create & assign'}
+                    </button>
+                    <button type="button"
+                      onClick={() => {
+                        setShowAddAdminForm(false);
+                        setNewSecretary(emptySecretaryForm);
+                        setSecretaryCreateError('');
+                      }}
+                      className="px-3 py-1 rounded text-sm border"
+                      style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
         </section>
-      )}
 
       <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Scorekeepers</h2>
+        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Scribes</h2>
 
-        {scorekeepers.length === 0 && (
-          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No scorekeepers assigned.</p>
+        {scribes.length === 0 && (
+          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No scribes assigned.</p>
         )}
         <ul className="space-y-1 mb-4">
-          {scorekeepers.map(s => (
+          {scribes.map(s => (
             <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
               <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
-              <button disabled={busy} onClick={() => setConfirmRemoveKeeperId(s.id)}
+              <button disabled={busy} onClick={() => setConfirmRemoveScribeId(s.id)}
                 className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
                 Remove
               </button>
@@ -395,31 +663,31 @@ export default function ShowStaffPanel({
           ))}
         </ul>
 
-        {confirmRemoveKeeperId && (
+        {confirmRemoveScribeId && (
           <ConfirmDialog
-            title="Remove Scorekeeper"
-            message={`Remove ${scorekeepers.find(s => s.id === confirmRemoveKeeperId)?.full_name} as a scorekeeper? This cannot be undone.`}
+            title="Remove Scribe"
+            message={`Remove ${scribes.find(s => s.id === confirmRemoveScribeId)?.full_name} as a scribe? This cannot be undone.`}
             confirmLabel="Yes, remove"
             destructive
             confirming={busy}
             onConfirm={async () => {
-              await removeScorekeeper(confirmRemoveKeeperId);
-              setConfirmRemoveKeeperId(null);
+              await removeScribe(confirmRemoveScribeId);
+              setConfirmRemoveScribeId(null);
             }}
-            onCancel={() => setConfirmRemoveKeeperId(null)}
+            onCancel={() => setConfirmRemoveScribeId(null)}
           />
         )}
 
-        {scorekeeperInvites.length > 0 && (
+        {scribeInvites.length > 0 && (
           <div
             className="rounded border p-3 mb-3 space-y-2"
             style={{ borderColor: '#e8d5b7', backgroundColor: '#fdf8eb' }}
           >
             <p className="text-xs font-medium" style={{ color: '#5c3d1e' }}>
-              Pending scorekeeper invites
+              Pending scribe invites
             </p>
             <ul className="space-y-1">
-              {scorekeeperInvites.map((inv) => (
+              {scribeInvites.map((inv) => (
                 <li
                   key={inv.id}
                   className="flex items-center justify-between gap-2 text-sm"
@@ -445,49 +713,49 @@ export default function ShowStaffPanel({
         {/* Assign / invite — collapsed behind buttons */}
         {!showAssignForm && !showInviteForm && (
           <div className="flex flex-wrap gap-3">
-            {isAdmin && availableScorekeepers.length > 0 && (
+            {isAdmin && availableScribes.length > 0 && (
               <button onClick={() => setShowAssignForm(true)}
                 className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-                + Assign existing scorekeeper
+                + Assign existing scribe
               </button>
             )}
             <button onClick={() => setShowInviteForm(true)}
               className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-              + Invite a scorekeeper
+              + Invite a scribe
             </button>
           </div>
         )}
 
-        {/* Assign existing scorekeeper — ADMIN only */}
+        {/* Assign existing scribe — ADMIN only */}
         {isAdmin && showAssignForm && (
           <div className="flex items-center gap-2 mb-3">
-            <select value={selectedKeeperId} onChange={(e) => setSelectedKeeperId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
-              <option value="" disabled>Select a scorekeeper…</option>
-              {availableScorekeepers.map(u => (
+            <select value={selectedScribeId} onChange={(e) => setSelectedScribeId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
+              <option value="" disabled>Select a scribe…</option>
+              {availableScribes.map(u => (
                 <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
               ))}
             </select>
             <button disabled={busy}
-              onClick={() => { if (selectedKeeperId) { addScorekeeper(selectedKeeperId); setSelectedKeeperId(''); setShowAssignForm(false); } }}
+              onClick={() => { if (selectedScribeId) { addScribe(selectedScribeId); setSelectedScribeId(''); setShowAssignForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
               style={{ backgroundColor: '#8b4513' }}>
               {busy ? 'Assigning…' : 'Assign'}
             </button>
-            <button type="button" onClick={() => { setShowAssignForm(false); setSelectedKeeperId(''); }}
+            <button type="button" onClick={() => { setShowAssignForm(false); setSelectedScribeId(''); }}
               className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
               Cancel
             </button>
           </div>
         )}
 
-        {/* Invite a scorekeeper — first/last/email only; backend issues a token */}
+        {/* Invite a scribe — first/last/email only; backend issues a token */}
         {showInviteForm && (
           <form onSubmit={sendInvite} className="mt-3 space-y-3">
             <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
-              Invite a Scorekeeper
+              Invite a Scribe
             </p>
             <p className="text-xs" style={{ color: '#8b7355' }}>
-              We&apos;ll generate an invite link. The scorekeeper opens the link,
+              We&apos;ll generate an invite link. The scribe opens the link,
               picks a password, and lands ready to score this show.
             </p>
             <div className="grid sm:grid-cols-2 gap-3">

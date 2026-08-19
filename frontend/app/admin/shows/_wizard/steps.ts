@@ -6,6 +6,10 @@ export type WizardStepsInput = {
   sanctioningCount: number;
   lodgingFeeCount: number;
   feesCount: number;
+  /** Classes on the schedule. Building them is the biggest job in setting up a
+   *  show, so it is a step in the wizard rather than an errand you are expected
+   *  to remember from the dashboard. */
+  classCount: number;
 };
 
 export function buildSteps({
@@ -14,11 +18,12 @@ export function buildSteps({
   sanctioningCount,
   lodgingFeeCount,
   feesCount,
+  classCount,
 }: WizardStepsInput): StepDef[] {
   return [
     {
       key: 'basic',
-      label: '1. Basics',
+      label: '1. Basics & Staff',
       href: `/admin/shows/${showId}/edit`,
       done: true,
     },
@@ -46,6 +51,20 @@ export function buildSteps({
       href: `/admin/shows/${showId}/setup/fees`,
       done: feesCount > 0,
     },
+    // Classes keep their own URL rather than moving under /setup, the same way
+    // Step 1 stays on /edit — the class wizard is deep-linked from the schedule
+    // and the dashboard, and a step is a position in the flow, not a folder.
+    {
+      key: 'classes',
+      label: '6. Classes',
+      href: `/admin/shows/${showId}/classes`,
+      done: classCount > 0,
+    },
+    // Paperwork is deliberately not a step. What a show requires of an exhibitor
+    // — health documents, the entry blank, the release — is answered during
+    // registration, so it lives at `/admin/shows/{id}/desk/paperwork` beside the
+    // desk that checks it. Setting it up once and never reopening it is exactly
+    // the failure mode; the desk reads it every time somebody registers.
   ];
 }
 

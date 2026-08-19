@@ -23,6 +23,10 @@ export type MyShowStanding = {
   entry_count: number;
   arrival_date: string | null;
   departure_date: string | null;
+  /** Required waivers with no signature yet, by either route. Optional ones are
+   *  excluded — a permanent nag about something nobody has to sign teaches
+   *  people to ignore the banner. */
+  waivers_outstanding: number;
 };
 
 export type BillClassLine = {

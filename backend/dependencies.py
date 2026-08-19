@@ -52,15 +52,15 @@ async def require_admin_or_show_manager(
         raise HTTPException(status_code=403, detail="Admin or Show Manager access required")
 
 
-async def require_admin_or_scorekeeper(
+async def require_admin_or_scribe(
     x_api_key: str = Header(...),
     x_user_role: str = Header(...),
 ):
-    """Requires a valid API key and ADMIN or SCOREKEEPER role."""
+    """Requires a valid API key and ADMIN or SCRIBE role."""
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    if x_user_role not in ("ADMIN", "SCOREKEEPER"):
-        raise HTTPException(status_code=403, detail="Admin or scorekeeper access required")
+    if x_user_role not in ("ADMIN", "SCRIBE"):
+        raise HTTPException(status_code=403, detail="Admin or scribe access required")
 
 
 async def require_authenticated(

@@ -32,6 +32,7 @@ export default function ExhibitorStatusBanner({
   const entryCount = standing?.entry_count ?? 0;
 
   const classesLabel = `${entryCount} class${entryCount === 1 ? '' : 'es'}`;
+  const unsigned = standing?.waivers_outstanding ?? 0;
 
   if (standing?.signed_up) {
     return (
@@ -58,6 +59,15 @@ export default function ExhibitorStatusBanner({
             <> The secretary assigns your back number once the show begins.</>
           )}
         </p>
+        {/* Signing is on the sign-up screen, so this is a nudge with a
+            destination rather than a second place to do it. Only required
+            waivers count — see `waivers_outstanding`. */}
+        {unsigned > 0 && (
+          <p className="text-xs mt-1 font-medium" style={{ color: '#92400e' }}>
+            {unsigned === 1 ? '1 release still to sign' : `${unsigned} releases still to sign`} —
+            you can also sign a paper copy at the show office.
+          </p>
+        )}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm font-medium">
           {registrationOpen && (
             <>
@@ -65,7 +75,7 @@ export default function ExhibitorStatusBanner({
                 {entryCount > 0 ? 'Add or remove classes →' : 'Pick your classes →'}
               </Link>
               <Link href={`/shows/${showId}/signup`} className="hover:underline" style={{ color: '#8b4513' }}>
-                Change stalls, shavings or camping →
+                {unsigned > 0 ? 'Sign releases, change stalls →' : 'Change stalls, shavings or camping →'}
               </Link>
             </>
           )}

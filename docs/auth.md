@@ -50,9 +50,9 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 | Role | Purpose |
 | --- | --- |
 | `ADMIN` | Full system access, user management, venues, configuration, all shows |
-| `SHOW_MANAGER` | Requests and manages hosted shows; can assign show secretaries and scorekeepers |
+| `SHOW_MANAGER` | Requests and manages hosted shows; can assign show secretaries and scribes |
 | `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration |
-| `SCOREKEEPER` | Enters placings for assigned shows |
+| `SCRIBE` | Enters placings for assigned shows |
 | `GATE_STEWARD` | Runs the warm-up side of the in-gate for assigned shows: per-class order-of-go, exhibitor check-in at the gate, and class gate progression (pending → ready → in progress → done). Admins, Show Managers, and Show Secretaries can also perform gate functions |
 | `EXHIBITOR` | Views own entries/results and manages profile/horses |
 | `TRAINER` | Manages a linked trainer registry profile used on horse records |
@@ -87,14 +87,14 @@ Common guards live in `backend/dependencies.py`:
 | `require_admin` | Valid API key and `ADMIN` role |
 | `require_admin_or_show_admin` | `ADMIN`, `SHOW_SECRETARY`, or `SHOW_MANAGER` |
 | `require_admin_or_show_manager` | `ADMIN` or `SHOW_MANAGER` |
-| `require_admin_or_scorekeeper` | `ADMIN` or `SCOREKEEPER` |
+| `require_admin_or_scribe` | `ADMIN` or `SCRIBE` |
 
 Show-scoped write access is usually checked with join tables:
 
 - `show_secretaries`
 - `show_managers`
 - `show_gate_stewards`
-- `show_scorekeepers`
+- `show_scribes`
 
 ### Horse Documents: Read And Write Split
 
@@ -108,6 +108,17 @@ Show-scoped write access is usually checked with join tables:
 Show staff read health paperwork to **verify** it — the secretary at the entry desk and the in-gate both need to see a Coggins. The record itself stays the owner's to maintain, so staff cannot add or remove documents on someone else's horse.
 
 Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents — acceptable for roles that already see exhibitor contact details, entries, and back numbers.
+
+### Who May See The Money
+
+Financials (`backend/routers/show_financials.py`) is the **show-office tier**: `require_admin_or_show_admin` on the router plus `_assert_show_access` per endpoint, so it is ADMIN, or the `SHOW_SECRETARY` / `SHOW_MANAGER` assigned to *that* show. Covers the overview, the payment endpoints, and the report registry — the report *list* is not sensitive, but nothing under a show should answer to a caller with no rights to that show.
+
+`SCRIBE` and `GATE_STEWARD` are show staff and are deliberately **excluded**. Both work the ring; neither has any reason to read revenue or an exhibitor's balance. "Show staff" is ambiguous in this app — it names roles as well as a general tier — so check which one is meant before widening a money endpoint.
+
+Two things the payment endpoint refuses to take from the client, for the same reason `POST /shows/{id}/verifications` refuses to take a verified value:
+
+- **Who recorded it.** `recorded_by` / `recorded_by_name` come from the caller's headers, so a client cannot attribute a payment to another staff member.
+- **Who it is for.** The exhibitor must already be on that show's roster (`_assert_exhibitor_on_roster`, shared with the desk endpoints in `show_office.py`), so staff cannot post a payment against a stranger's account at a show they have nothing to do with.
 
 ### Who May Change A Horse
 

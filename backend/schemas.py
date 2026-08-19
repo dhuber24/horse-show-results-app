@@ -124,6 +124,15 @@ class ShowUpdate(BaseModel):
     office_charge_cents: Optional[int] = Field(default=None, ge=0)
     office_charge_basis: Optional[Literal["per_back_number", "per_horse"]] = None
     shavings_ban_outside: Optional[bool] = None
+    # Which health papers this show requires (migration 097). Coggins is
+    # universal; a CVI follows from crossing a state line and vaccinations from
+    # the venue, so those two are opt-in per show.
+    requires_coggins: Optional[bool] = None
+    requires_health_certificate: Optional[bool] = None
+    health_certificate_valid_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    requires_vaccination: Optional[bool] = None
+    vaccination_valid_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -161,6 +170,12 @@ class ShowOut(BaseModel):
     office_charge_cents: int = 0
     office_charge_basis: str = "per_back_number"
     shavings_ban_outside: bool = False
+    requires_coggins: bool = True
+    requires_health_certificate: bool = False
+    health_certificate_valid_days: int = 30
+    requires_vaccination: bool = False
+    vaccination_valid_days: int = 365
+    vaccination_notes: Optional[str] = None
     affiliations: list[ShowAffiliationOut] = []
     created_at: datetime
 
@@ -247,7 +262,7 @@ class UserInviteCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=100)
     last_name: str = Field(min_length=1, max_length=100)
     email: EmailStr
-    role: Literal["SCOREKEEPER", "GATE_STEWARD"] = "SCOREKEEPER"
+    role: Literal["SCRIBE", "GATE_STEWARD"] = "SCRIBE"
     show_id: Optional[UUID] = None
 
 class UserInviteOut(BaseModel):
@@ -573,6 +588,7 @@ class ClassOut(BaseModel):
     score_type: str = "placement"
     entry_fee_cents: int = 0
     gate_status: str = "pending"
+    results_published_at: Optional[datetime] = None
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -688,6 +704,23 @@ class ShowJudgeCreate(BaseModel):
 
 class ShowJudgeUpdate(BaseModel):
     sort_order: Optional[int] = None
+
+
+class PublicShowJudgeOut(BaseModel):
+    """A show's judges as the program lists them — names only.
+
+    Placings are published per judge, so the public results screens need to
+    label the columns. That needs the name and nothing else: email and phone
+    stay on the staff endpoint.
+    """
+    id: UUID
+    judge_id: UUID
+    first_name: str
+    last_name: str
+    sort_order: Optional[int] = None
+
+    class Config:
+        from_attributes = True
 
 
 class ShowJudgeOut(BaseModel):
@@ -1434,7 +1467,17 @@ class CogginsOverrideAuditOut(BaseModel):
 
 # ── Show office paperwork verification (migration 090) ─────────────────────────
 
-VerificationKind = Literal["horse_age", "horse_registration", "exhibitor_membership"]
+VerificationKind = Literal[
+    "horse_age",
+    "horse_registration",
+    "exhibitor_membership",
+    # The office physically inspected a Coggins, CVI, or vaccination record
+    # (migration 098). Keyed on the horse and the document type rather than
+    # on an uploaded row, because the paper is often not in the app at all.
+    "horse_health_document",
+]
+
+HealthDocumentType = Literal["COGGINS", "VACCINATION", "HEALTH_CERTIFICATE"]
 
 # How a single check reads back to the office:
 #   verified    — signed off, and the value on file still matches the sign-off.
@@ -1453,6 +1496,14 @@ class ShowVerificationCreate(BaseModel):
     horse_id: Optional[UUID] = None
     exhibitor_id: Optional[UUID] = None
     association_id: Optional[UUID] = None
+    # Which paper was inspected, for horse_health_document only.
+    document_type: Optional[HealthDocumentType] = None
+    # The expiry printed on the document the office was handed. The one value in
+    # this request the backend does not derive, because there is nothing to
+    # derive it from when the paper was never uploaded. Optional — recording an
+    # inspection of an illegible or lapsed document is still worth doing, and
+    # leaves the horse flagged.
+    attested_expiry: Optional[date] = None
     note: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -1463,6 +1514,8 @@ class ShowVerificationOut(BaseModel):
     horse_id: Optional[UUID]
     exhibitor_id: Optional[UUID]
     association_id: Optional[UUID]
+    document_type: Optional[str] = None
+    attested_expiry: Optional[date] = None
     verified_value: str
     note: Optional[str]
     verified_by: Optional[UUID]
@@ -1496,14 +1549,39 @@ class VerificationCheckOut(BaseModel):
 HealthStatus = Literal["valid", "missing", "undated", "expired"]
 
 
+class HealthInspectionOut(BaseModel):
+    """Whether the office physically looked at this horse's paper.
+
+    Separate from the health status above because they answer different
+    questions and can disagree in both directions. The file says whether the
+    date is still good; only a person at the counter says whether the paper is
+    genuine, present, and describes *this* horse. A current Coggins nobody has
+    seen and a lapsed one the office has in its hand are different situations,
+    and the desk needs to tell them apart.
+    """
+
+    # unverified — nobody has signed off.
+    # verified   — signed off, and nothing has changed since.
+    # stale      — signed off, but the documents on file have moved since.
+    status: Literal["unverified", "verified", "stale"] = "unverified"
+    verification_id: Optional[UUID] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    # What the expiry said on the paper staff were handed, when they recorded
+    # it. This is what lets an inspection clear a flag rather than merely
+    # noting that somebody looked.
+    attested_expiry: Optional[date] = None
+    note: Optional[str] = None
+
+
 class HorseHealthCheckOut(BaseModel):
     """A horse's health paperwork standing at one show.
 
-    Deliberately *not* a `VerificationCheckOut`. Nobody signs this off: it is
-    read straight off the documents on file, judged against the show's last day,
-    and clears itself the moment a current document is uploaded. A stale
-    sign-off would be worse than no sign-off here, because the thing being
-    checked has an expiry date of its own.
+    Two facts on one line. `status` is derived from the documents on file and
+    clears itself the moment a current one is uploaded — there is no row to
+    remember to close. `inspection` is the office's sign-off that it saw the
+    paper, which is a claim about a physical document and cannot be derived
+    from anything.
     """
 
     code: str
@@ -1513,6 +1591,18 @@ class HorseHealthCheckOut(BaseModel):
     # The furthest-out expiry on file, so a screen can name the date it is
     # complaining about. None when nothing on file carries one.
     expiry_date: Optional[date] = None
+    # True when this reads `valid` because the office inspected paper rather
+    # than because a document is uploaded. Screens must not imply the app holds
+    # a scan it has never been shown — and the next show, which has not seen
+    # that paper, will flag the horse again.
+    attested: bool = False
+    # The show office's own words on what it requires — vaccinations only, and
+    # only when the show filled it in.
+    notes: Optional[str] = None
+    # Absent on the exhibitor's own screens: whether staff have inspected the
+    # paper is the office's business, and showing it would read as a second
+    # thing the exhibitor has to do something about.
+    inspection: Optional[HealthInspectionOut] = None
 
 
 class VerificationHorseOut(BaseModel):
@@ -1521,9 +1611,58 @@ class VerificationHorseOut(BaseModel):
     barn_name: Optional[str] = None
     age_check: VerificationCheckOut
     registrations: list[VerificationCheckOut] = Field(default_factory=list)
-    # Derived, and excluded from `outstanding` / `totals` below — those count
-    # sign-offs the desk still owes, and this is not one of them.
+    # Required health papers only — a show that does not ask for a CVI gets no
+    # CVI line. The derived `status` on each is excluded from `outstanding`;
+    # the `inspection` on each is counted, because that one is a sign-off the
+    # desk still owes.
     health: list[HorseHealthCheckOut] = Field(default_factory=list)
+
+
+class WaiverCheckOut(BaseModel):
+    """One waiver, and whether this exhibitor has signed it.
+
+    Not a `VerificationCheckOut`: there is no value to hold a signature against
+    and nothing for it to go stale against. A signature is either there or it
+    is not.
+    """
+
+    waiver_id: UUID
+    title: str
+    is_required: bool = True
+    status: Literal["signed", "unsigned"] = "unsigned"
+    signed_name: Optional[str] = None
+    signed_at: Optional[datetime] = None
+    # True when staff recorded a paper blank rather than the exhibitor typing.
+    on_paper: bool = False
+    signed_by_guardian: bool = False
+    guardian_relationship: Optional[str] = None
+    recorded_by_name: Optional[str] = None
+
+
+class ExhibitorEmergencyContactUpdate(BaseModel):
+    """A contact taken over the counter and written to the exhibitor's profile.
+
+    Both halves or neither. A name with no number still reads as missing
+    everywhere it is checked, so accepting one would let staff type something,
+    press save, and watch the row go on saying "no emergency contact" — which
+    reads as the save having failed. Sending both empty clears the contact.
+    """
+
+    name: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=30)
+
+
+class EmergencyContactOut(BaseModel):
+    """Who the show calls if something happens to this exhibitor.
+
+    Read straight off the exhibitor profile (migration 041) rather than copied
+    per show — a second copy would be a second, staler answer to the only
+    question that matters here.
+    """
+
+    status: Literal["on_file", "missing"] = "missing"
+    name: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class VerificationExhibitorOut(BaseModel):
@@ -1535,6 +1674,8 @@ class VerificationExhibitorOut(BaseModel):
     signed_up: bool = False
     memberships: list[VerificationCheckOut] = Field(default_factory=list)
     horses: list[VerificationHorseOut] = Field(default_factory=list)
+    waivers: list[WaiverCheckOut] = Field(default_factory=list)
+    emergency_contact: EmergencyContactOut = Field(default_factory=EmergencyContactOut)
     outstanding: int = 0
 
 
@@ -1544,6 +1685,10 @@ class VerificationTotalsOut(BaseModel):
     stale: int = 0
     unverified: int = 0
     not_on_file: int = 0
+    # Counted apart from the sign-offs above because they are different jobs
+    # with different fixes: chasing a signature is not chasing a document.
+    waivers_outstanding: int = 0
+    contacts_missing: int = 0
 
 
 class VerificationChecklistOut(BaseModel):
@@ -1588,6 +1733,72 @@ class ShowHealthFlagsOut(BaseModel):
     as_of: date
     flagged: list[HealthFlagOut] = Field(default_factory=list)
     totals: HealthFlagTotalsOut = Field(default_factory=HealthFlagTotalsOut)
+
+
+# ── Waivers ────────────────────────────────────────────────────────────────────
+# What a show asks exhibitors to sign, and who has signed it. Free text on the
+# way in because the words come from the venue's insurer or the fair board.
+
+class ShowWaiverCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=20000)
+    is_required: bool = True
+    sort_order: int = Field(default=0, ge=0)
+
+
+class ShowWaiverUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    body: Optional[str] = Field(default=None, min_length=1, max_length=20000)
+    is_required: Optional[bool] = None
+    sort_order: Optional[int] = Field(default=None, ge=0)
+
+
+class ShowWaiverOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    title: str
+    body: str
+    is_required: bool
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WaiverSignatureCreate(BaseModel):
+    """A signature. `signed_name` is the one value here the app does not derive —
+    a signature is a claim a person makes, not a fact already on file."""
+
+    signed_name: str = Field(min_length=1, max_length=200)
+    signed_by_guardian: bool = False
+    guardian_relationship: Optional[str] = Field(default=None, max_length=100)
+
+
+class StaffWaiverSignatureCreate(WaiverSignatureCreate):
+    """Staff recording a paper blank handed in at the counter. Same fact, other
+    route — `on_paper` is set by the endpoint, not by the caller."""
+
+
+class WaiverSignatureOut(BaseModel):
+    id: UUID
+    waiver_id: UUID
+    exhibitor_id: UUID
+    signed_name: str
+    signed_by_guardian: bool
+    guardian_relationship: Optional[str] = None
+    signed_at: datetime
+    on_paper: bool
+    recorded_by_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ShowWaiverForExhibitorOut(ShowWaiverOut):
+    """A waiver as the person being asked to sign it sees it."""
+
+    signature: Optional[WaiverSignatureOut] = None
 
 
 class StaffHorseCreate(HorseWithRegistrationsBase):
@@ -1640,6 +1851,10 @@ class ResultCreate(BaseModel):
     raw_score: Optional[float] = None
     is_tie: bool = False
     notes: Optional[str] = Field(default=None, max_length=1000)
+    # Which judge's card this came off — a `show_judges.id`, validated against
+    # this show. Omitted means unattributed, which is what a show with no judges
+    # assigned produces (migration 095).
+    judge_id: Optional[UUID] = None
 
     @field_validator("place")
     @classmethod
@@ -1676,12 +1891,21 @@ class ResultBulkItem(BaseModel):
         return v
 
 class ResultBulkSave(BaseModel):
+    """One judge's whole card for one class.
+
+    `judge_id` sits on the envelope rather than on each item deliberately: the
+    save replaces every row it owns, and the rows it owns are exactly "this
+    class, this judge". Per-item judges would make the delete scope ambiguous
+    and let one request wipe another judge's card.
+    """
     results: list[ResultBulkItem]
+    judge_id: Optional[UUID] = None
 
 class ResultOut(BaseModel):
     id: UUID
     class_id: UUID
     entry_id: UUID
+    judge_id: Optional[UUID] = None
     place: int
     raw_score: Optional[float] = None
     is_tie: bool
@@ -1690,6 +1914,14 @@ class ResultOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Results Publish Gate ───────────────────────────────────────────────────────
+
+class ClassResultsPublishOut(BaseModel):
+    """Result of posting a class's placings to the public screens."""
+    class_id: UUID
+    results_published_at: datetime
 
 
 # ── Audit ──────────────────────────────────────────────────────────────────────
@@ -1959,8 +2191,8 @@ class ExhibitorCreateWithUser(BaseModel):
 
 # ── Side Pots ──────────────────────────────────────────────────────────────────
 # A side pot is an optional money pool that spans multiple classes within a
-# show. Exhibitors opt in at the back-number (show_entry) level and pay a flat
-# fee. The pot ranks all opt-ins by combined score across the bundled classes
+# show. Exhibitors enter at the back-number (show_entry) level and pay a flat
+# buy-in. The pot ranks its entries by combined score across the bundled classes
 # and pays out per a producer-configurable schedule.
 
 DEFAULT_SIDE_POT_PAYOUT_SCHEDULE: dict[str, list[int]] = {
@@ -2061,7 +2293,12 @@ class SidePotOut(BaseModel):
 class SidePotEntryCreate(BaseModel):
     show_entry_id: Optional[UUID] = None
     back_number: Optional[int] = None
-    paid: bool = False
+    # Being in the pot *is* owing the buy-in — pot money is settled with the
+    # rest of the exhibitor's bill at the end of the show, not collected per
+    # entry at the desk. So `paid` defaults to true and the UI no longer asks:
+    # a pot whose entries all read unpaid has a $0 pool and pays out nothing.
+    # The column and PATCH stay for pots that tracked it the old way.
+    paid: bool = True
 
     @model_validator(mode="after")
     def _require_id_or_back_number(self):
@@ -2085,6 +2322,20 @@ class SidePotEntryOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SidePotRosterEntry(BaseModel):
+    """One row of the show's roster, for the pot's exhibitor picker.
+
+    A pot entry hangs off `show_entries`, so that — not the class entry list —
+    is what the picker offers. Back number may be null: the roster exists before
+    numbers are handed out, and standings read the number live, so someone added
+    early picks theirs up as soon as it is assigned.
+    """
+
+    show_entry_id: UUID
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
 
 
 class SidePotStanding(BaseModel):
@@ -2123,3 +2374,350 @@ class SidePotPayoutOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Financials ─────────────────────────────────────────────────────────────────
+# What the show has billed, what the office recorded collecting, and what is
+# still owed. The money itself is computed in `billing.py` — these types only
+# describe the shape it comes back in.
+
+PaymentMethod = Literal["cash", "check", "card", "transfer", "other"]
+
+
+class ShowPaymentCreate(BaseModel):
+    """Record a payment the office took. `recorded_by` is read from the caller's
+    headers, never sent — the same reason a verification's value is not."""
+
+    exhibitor_id: UUID
+    # Signed: negative is a refund. Zero is rejected by the DB check and by the
+    # validator below, since it is never a payment anyone needs a row for.
+    amount_cents: int
+    method: PaymentMethod
+    reference: Optional[str] = Field(default=None, max_length=100)
+    received_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("amount_cents")
+    @classmethod
+    def _nonzero(cls, v: int) -> int:
+        if v == 0:
+            raise ValueError("A payment cannot be zero. Use a negative amount to record a refund.")
+        return v
+
+
+class ShowPaymentOut(BaseModel):
+    id: UUID
+    show_entry_id: UUID
+    amount_cents: int
+    method: PaymentMethod
+    reference: Optional[str] = None
+    received_on: date
+    note: Optional[str] = None
+    recorded_by: Optional[UUID] = None
+    recorded_by_name: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BillClassLineOut(BaseModel):
+    entry_id: UUID
+    class_id: UUID
+    class_number: int
+    class_name: str
+    class_date: Optional[date] = None
+    horse_name: Optional[str] = None
+    fee_cents: int
+    nsba_sanction_cents: int
+
+
+class BillReservationLineOut(BaseModel):
+    show_fee_id: UUID
+    code: str
+    label: str
+    unit: FeeUnit
+    quantity: int
+    # What this exhibitor is actually charged per unit, which is the early rate
+    # when they booked before the deadline. `standard_amount_cents` is kept
+    # alongside so the sheet can show what the early rate saved them.
+    amount_cents: int
+    standard_amount_cents: int
+    is_early_rate: bool
+    reserved_at: date
+    line_total_cents: int
+
+
+class BillOut(BaseModel):
+    """One exhibitor's charges, straight from `billing.build_bill`."""
+
+    class_lines: list[BillClassLineOut] = Field(default_factory=list)
+    reservation_lines: list[BillReservationLineOut] = Field(default_factory=list)
+    class_fee_total_cents: int
+    nsba_sanction_total_cents: int
+    office_charge_cents: int
+    office_charge_basis: str
+    office_charge_total_cents: int
+    reservation_total_cents: int
+    total_cents: int
+
+
+class FinancialAccountOut(BaseModel):
+    """One exhibitor's account at this show: billed, paid, and the difference."""
+
+    exhibitor_id: UUID
+    exhibitor_name: str
+    show_entry_id: Optional[UUID] = None
+    back_number: Optional[int] = None
+    # False for the shell `show_entries` row a secretary creates when adding a
+    # late entry by hand. Those accounts still owe money, so they belong here —
+    # but the office reads them differently from a completed sign-up.
+    signed_up: bool = False
+    registered_at: Optional[datetime] = None
+    entry_count: int = 0
+    horse_count: int = 0
+    bill: BillOut
+    collected_cents: int = 0
+    refunded_cents: int = 0
+    net_paid_cents: int = 0
+    # Positive means they owe the show; negative means they have overpaid.
+    balance_cents: int = 0
+    payments: list[ShowPaymentOut] = Field(default_factory=list)
+
+
+class FinancialFeeLineOut(BaseModel):
+    """How many of one fee the show sold, and for how much."""
+
+    show_fee_id: UUID
+    code: str
+    label: str
+    unit: FeeUnit
+    quantity: int
+    line_total_cents: int
+    early_rate_quantity: int = 0
+
+
+class FinancialTotalsOut(BaseModel):
+    accounts: int = 0
+    class_fee_total_cents: int = 0
+    nsba_sanction_total_cents: int = 0
+    office_charge_total_cents: int = 0
+    reservation_total_cents: int = 0
+    billed_cents: int = 0
+    collected_cents: int = 0
+    refunded_cents: int = 0
+    net_paid_cents: int = 0
+    # Outstanding is the sum of what is owed, ignoring overpayments; credit is
+    # the sum of the overpayments. Kept apart so one exhibitor paying twice
+    # cannot make the show's arrears look smaller than they are.
+    outstanding_cents: int = 0
+    credit_cents: int = 0
+    net_balance_cents: int = 0
+    accounts_outstanding: int = 0
+    accounts_paid_in_full: int = 0
+    accounts_unpaid: int = 0
+    fee_lines: list[FinancialFeeLineOut] = Field(default_factory=list)
+
+
+class FinancialRegistrationsOut(BaseModel):
+    """The registration counts behind the money."""
+
+    exhibitors: int = 0
+    signed_up: int = 0
+    # Roster rows with no completed sign-up — the shells a secretary creates
+    # while entering someone by hand.
+    staff_added: int = 0
+    entries: int = 0
+    horses: int = 0
+    classes: int = 0
+    classes_with_entries: int = 0
+
+
+class FinancialSidePotOut(BaseModel):
+    side_pot_id: UUID
+    name: str
+    status: SidePotStatus
+    entry_fee_cents: int
+    payback_percent: int
+    entry_count: int = 0
+    paid_count: int = 0
+    buy_ins_cents: int = 0
+    payout_pool_cents: int = 0
+    paid_out_cents: int = 0
+    retained_cents: int = 0
+
+
+class ShowFinancialsOut(BaseModel):
+    """The Financials overview for one show.
+
+    Side pot money is reported separately and is deliberately not folded into
+    any account balance — pot buy-ins are not part of `build_bill`, and adding
+    them here would make this screen disagree with the bill the exhibitor sees
+    on My Shows.
+    """
+
+    show_id: UUID
+    show_name: str
+    show_status: str
+    currency: str = "USD"
+    # `per_back_number` or `per_horse` — what the office charge is multiplied by,
+    # so the screen can label the line without guessing.
+    office_charge_basis: str = "per_back_number"
+    totals: FinancialTotalsOut = Field(default_factory=FinancialTotalsOut)
+    registrations: FinancialRegistrationsOut = Field(default_factory=FinancialRegistrationsOut)
+    accounts: list[FinancialAccountOut] = Field(default_factory=list)
+    side_pots: list[FinancialSidePotOut] = Field(default_factory=list)
+    side_pot_buy_ins_cents: int = 0
+    side_pot_paid_out_cents: int = 0
+    side_pot_retained_cents: int = 0
+
+
+# ── Financial reports ──────────────────────────────────────────────────────────
+# A small registry rather than an endpoint per report: a report is a title, a
+# column list, and rows of already-formatted cells, so the frontend renders any
+# of them — including ones added later — without a new page.
+
+ReportCellAlign = Literal["left", "right"]
+
+
+class ReportColumnOut(BaseModel):
+    key: str
+    label: str
+    align: ReportCellAlign = "left"
+    # Marks the column as money so the renderer can total or emphasize it.
+    is_money: bool = False
+
+
+class ReportDefinitionOut(BaseModel):
+    slug: str
+    title: str
+    description: str
+
+
+class ReportOut(BaseModel):
+    slug: str
+    title: str
+    description: str
+    show_id: UUID
+    show_name: str
+    generated_at: datetime
+    columns: list[ReportColumnOut] = Field(default_factory=list)
+    # Cell values are strings or numbers; money arrives as integer cents and is
+    # formatted by the renderer so every report formats money the same way.
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    # Column key → cents, rendered as a footer row when present.
+    totals: dict[str, Any] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+# ── Registration desk ──────────────────────────────────────────────────────────
+# One exhibitor's whole standing at one show: their number, their classes, their
+# side pots, their paperwork, and what they owe. The desk screen does all of that
+# in one conversation, so it reads it in one payload — see `routers/show_desk.py`
+# for why none of these figures are computed there.
+
+
+class ShowDeskClassOut(BaseModel):
+    """A class as the desk's entry picker needs it."""
+
+    id: UUID
+    class_number: str
+    class_name: str
+    class_date: date
+    status: str
+    score_type: str
+    entry_fee_cents: int = 0
+    # Riding style and age/skill bracket — the two axes the picker groups by.
+    discipline_name: Optional[str] = None
+    division_name: Optional[str] = None
+    entry_count: int = 0
+
+
+class ShowDeskSidePotOut(BaseModel):
+    id: UUID
+    name: str
+    # Surfaced as the buy-in: it is not the class fee and must not read as one.
+    entry_fee_cents: int = 0
+    status: str
+    entry_count: int = 0
+
+
+class ShowDeskEntryOut(BaseModel):
+    entry_id: UUID
+    class_id: UUID
+    class_number: Optional[str] = None
+    class_name: Optional[str] = None
+    class_date: Optional[date] = None
+    # Deleting a horse nulls entries.horse_id to preserve the entry history, so
+    # an entry with no horse is expected rather than a broken row.
+    horse_id: Optional[UUID] = None
+    horse_name: Optional[str] = None
+    barn_name: Optional[str] = None
+    # The program columns. A linked owner exhibitor wins over the free-text
+    # `horses.owner_name`, matching the public class schedule.
+    owner_name: Optional[str] = None
+    sire_name: Optional[str] = None
+    dam_name: Optional[str] = None
+    apha_division: Optional[str] = None
+    is_disqualified: bool = False
+
+
+class ShowDeskExhibitorOut(BaseModel):
+    exhibitor_id: UUID
+    exhibitor_name: str
+    # NULL until the exhibitor has a `show_entries` row. A back number and a
+    # side pot entry both hang off that row, which is why the desk creates one
+    # before offering either.
+    show_entry_id: Optional[UUID] = None
+    back_number: Optional[int] = None
+    signed_up: bool = False
+    entries: list[ShowDeskEntryOut] = Field(default_factory=list)
+    side_pot_ids: list[UUID] = Field(default_factory=list)
+    # The same check rows the standalone check-in sheet renders, from the same
+    # builder — "verified", "changed since sign-off", and "nothing on file" have
+    # one definition and it lives in `show_office.py`.
+    memberships: list[VerificationCheckOut] = Field(default_factory=list)
+    horses: list[VerificationHorseOut] = Field(default_factory=list)
+    waivers: list[WaiverCheckOut] = Field(default_factory=list)
+    emergency_contact: EmergencyContactOut = Field(default_factory=EmergencyContactOut)
+    paperwork_outstanding: int = 0
+    # From `build_account`, never re-derived: the running total the desk reads
+    # out has to match the bill the exhibitor sees on My Shows.
+    billed_cents: int = 0
+    net_paid_cents: int = 0
+    balance_cents: int = 0
+
+
+class ShowDeskTotalsOut(BaseModel):
+    exhibitors: int = 0
+    entries: int = 0
+    classes: int = 0
+    no_back_number: int = 0
+    no_entries: int = 0
+    paperwork_outstanding: int = 0
+    health_alerts: int = 0
+    waivers_outstanding: int = 0
+    contacts_missing: int = 0
+
+
+class ShowDeskOut(BaseModel):
+    show_id: UUID
+    show_name: str
+    show_status: str
+    show_type_code: Optional[str] = None
+    classes: list[ShowDeskClassOut] = Field(default_factory=list)
+    side_pots: list[ShowDeskSidePotOut] = Field(default_factory=list)
+    exhibitors: list[ShowDeskExhibitorOut] = Field(default_factory=list)
+    totals: ShowDeskTotalsOut = Field(default_factory=ShowDeskTotalsOut)
+
+
+class ShowDeskExhibitorAdd(BaseModel):
+    exhibitor_id: UUID
+
+
+class ShowDeskRosterRow(BaseModel):
+    show_entry_id: UUID
+    exhibitor_id: UUID
+    exhibitor_name: str
+    back_number: Optional[int] = None
+    signed_up: bool = False

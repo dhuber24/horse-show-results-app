@@ -26,12 +26,12 @@ export default auth((req) => {
     }
   }
 
-  // Protect scorekeeper routes
-  if (pathname.includes('/scorekeeper')) {
+  // Protect scribe routes
+  if (pathname.includes('/scribe')) {
     if (!session) {
       return NextResponse.redirect(new URL('/login', req.url));
     }
-    if (role !== 'SCOREKEEPER' && role !== 'ADMIN') {
+    if (role !== 'SCRIBE' && role !== 'ADMIN') {
       return NextResponse.redirect(new URL('/', req.url));
     }
   }
@@ -40,5 +40,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ['/admin/:path*', '/shows/:path*/scorekeeper', '/gate', '/gate/:path*'],
+  matcher: ['/admin/:path*', '/shows/:path*/scribe', '/gate', '/gate/:path*'],
 };

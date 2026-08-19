@@ -1,6 +1,12 @@
 import Link from 'next/link';
 
-export type WizardStepKey = 'basic' | 'judges' | 'sanctioning' | 'lodging' | 'fees';
+export type WizardStepKey =
+  | 'basic'
+  | 'judges'
+  | 'sanctioning'
+  | 'lodging'
+  | 'fees'
+  | 'classes';
 
 export type StepDef = {
   key: WizardStepKey;

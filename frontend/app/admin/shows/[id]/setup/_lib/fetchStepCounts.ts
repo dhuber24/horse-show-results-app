@@ -23,13 +23,14 @@ export async function fetchStepCounts(
   showId: string,
   officeChargeCents: number,
 ): Promise<WizardStepsInput> {
-  const [judges, sanctioning, fees] = await Promise.all([
+  const [judges, sanctioning, fees, classes] = await Promise.all([
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
       `${API_URL}/shows/${showId}/sanctioning/`,
       [],
     ),
     getJson<FeeRow[]>(`${API_URL}/shows/${showId}/fees/`, []),
+    getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/classes/`, []),
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
@@ -42,5 +43,6 @@ export async function fetchStepCounts(
     sanctioningCount: sanctioning.length,
     lodgingFeeCount,
     feesCount: feesDone ? 1 : 0,
+    classCount: classes.length,
   };
 }

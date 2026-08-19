@@ -37,8 +37,8 @@ export default async function Navbar() {
                 Gate
               </Link>
             )}
-            {session.user?.role === 'SCOREKEEPER' && (
-              <Link href="/scorekeeper"
+            {session.user?.role === 'SCRIBE' && (
+              <Link href="/scribe"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: '#3d2010', color: '#f5ede0' }}>
                 Shows

@@ -21,7 +21,7 @@ stateDiagram-v2
 | --- | --- |
 | `DRAFT` | Setup in progress; hidden from public/exhibitors |
 | `PUBLISHED` | Visible and open for registration/planning |
-| `ACTIVE` | Show is underway; scorekeepers can enter placings |
+| `ACTIVE` | Show is underway; scribes can enter placings |
 | `COMPLETED` | Show has ended |
 
 Manual status changes are guarded in `backend/routers/shows.py` and surfaced through `ShowStatusControl.tsx`:
@@ -30,25 +30,40 @@ Manual status changes are guarded in `backend/routers/shows.py` and surfaced thr
 - `ACTIVE` requires today's date to be inside the show's date range.
 - `COMPLETED` is an explicit transition after results are final.
 
-Codex note: when changing show visibility, scorekeeper access, or result entry behavior, check both the status guards in `backend/routers/shows.py` / `backend/routers/results.py` and the frontend controls that hide or disable actions by status.
+Codex note: when changing show visibility, scribe access, or result entry behavior, check both the status guards in `backend/routers/shows.py` / `backend/routers/results.py` and the frontend controls that hide or disable actions by status.
 
 ## Show Setup Wizard
 
-Show creation runs through a five-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
+Show creation runs through a six-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`, class count). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
 
-Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; the wizard's Step 1 secretary assignment writes to `show_secretaries`.
+The hub and every step page read those counts from one helper, `setup/_lib/fetchStepCounts.ts`, so the stepper on a step page and the checklist on the hub cannot disagree about what is done.
+
+Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; Step 1's staff roster is where any further assignment happens.
+
+**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit` and Step 6 is `/admin/shows/[id]/classes`, because both are deep-linked from elsewhere and were screens before the wizard existed. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below). A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all six.
 
 | Step | Route | What it does |
 | --- | --- | --- |
-| 1. Basics | `/admin/shows/new` | Name, show type, dates, venue, Show Secretary. Secretary can be picked from `GET /users/by-role?role=SHOW_SECRETARY` or inline-created via `POST /users/with-password`. Show Managers may only inline-create `SHOW_SECRETARY` accounts (extended check in `routers/people.py`). |
+| 1. Basics & Staff | `/admin/shows/new`, then `/admin/shows/[id]/edit` | Name, show type, dates, venue — and **everyone who works the show**, via `ShowStaffPanel`: managers (`show_managers`), secretaries (`show_secretaries`), scribes (`show_scribes`), gate stewards (`show_gate_stewards`). Managers and secretaries are picked from `GET /users/by-role`; a secretary can also be inline-created via `POST /users/with-password` (Show Managers may only inline-create `SHOW_SECRETARY` accounts — extended check in `routers/people.py`). Scribes and gate stewards are assigned or invited by email token. Deciding who runs a show is part of setting it up, so there is no separate Show Staff screen; `/admin/shows/[id]/staff` redirects here. |
 | 2. Judges | `/admin/shows/[id]/setup/judges` | Reuses `JudgesEditor` — **picks** judges from the `judges` registry (`GET /judges/`) and assigns them with `POST /shows/{id}/judges`. Name, contact details, and association cards are displayed read-only from the registry; show setup cannot edit them. A judge who isn't in the registry yet is added to it (`POST /judges/`) and assigned in one step. |
 | 3. Sanctioning | `/admin/shows/[id]/setup/sanctioning` | Pick zero or more `sanctioned_associations` (NSBA, WSCA, ...) and set a `per_class_fee_cents` for each. Wraps `PUT /shows/{id}/sanctioning` which replaces the full set. The "+ Request new sanctioned club" link expands the request form on demand (`POST /sanctioned-association-requests`) — admin reviews via `POST /sanctioned-association-requests/{id}/review`. |
 | 4. Lodging & Boarding | `/admin/shows/[id]/setup/lodging` | Three structured slots written into `show_fees` with codes `stall` / `shavings` / `camping`, plus a `shows.shavings_ban_outside` policy bool. Each slot also takes an optional **early rate** — a cheaper amount plus a "reserve by" date (`show_fees.early_amount_cents` / `early_deadline`, migration 092). Camping uses a free-text notes field to capture "includes electric hookup" or similar. |
 | 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus three structured slots in `show_fees` with codes `standard_class` / `jackpot` / `futurity`. Sanctioning per-class fees are read-only here and link back to Step 3. |
+| 6. Classes | `/admin/shows/[id]/classes` | Build the class schedule — the OPEN three-step class wizard documented below, or the per-association importers. Longest job in setting a show up, which is exactly why it is a step in the flow rather than an errand to remember from the dashboard. Route unchanged, so per-class deep links still work. |
 
 Sanctioning associations are distinct from breed `show_types` — see `docs/database.md`. The breed `show_type` is set once on the show row at creation and drives breed-specific rules; sanctioning is a per-show overlay that adds points eligibility (and an optional per-class fee) without changing the show's primary type.
 
-The old per-show Standard Library matrix picker (`MatrixSetupClient`, `POST /shows/{show_id}/setup/apply`) was removed when the wizard shipped. Per-show divisions, sections, division-section memberships, and classes are now created via the Classes page (`/admin/shows/[id]/classes`) — either manually or via the Schedule Builder / Standard Library quick-start documented below. The `/standard-setup/catalog` endpoint and the `standard_classes` / `standard_division_sections` tables remain in place and are still used by the Classes-page importers.
+### Paperwork Requirements Are Not A Setup Step
+
+Which health documents a show requires (`shows.requires_coggins` / `requires_health_certificate` + window / `requires_vaccination` + window + notes, migration 097) and the waivers exhibitors sign (`show_waivers`, migration 099) are set at **`/admin/shows/[id]/desk/paperwork`**, reached from a button on the registration desk. `/admin/shows/[id]/setup/paperwork` redirects there.
+
+It was briefly a wizard step and that was the wrong place. Setup is answered once and closed; this is the standing order the desk reads every time somebody registers, and it is the registration side that discovers it is wrong — the checklist asking for a document this show does not want, or not asking for one it does. Putting the switch beside the checklist means the person who notices can fix it.
+
+Coggins defaults on; CVI and vaccinations are opt-in, because they follow from state lines and venue rules rather than from the breed association. Waiver text is free-form — it comes from the venue's insurer or the fair board, and this app has no business supplying it.
+
+## Class Setup Origins
+
+The old per-show Standard Library matrix picker (`MatrixSetupClient`, `POST /shows/{show_id}/setup/apply`) was removed when the wizard shipped. Per-show divisions, sections, division-section memberships, and classes are now created via the Classes page — setup Step 6, `/admin/shows/[id]/classes` — either manually or via the Schedule Builder / Standard Library quick-start documented below. The `/standard-setup/catalog` endpoint and the `standard_classes` / `standard_division_sections` tables remain in place and are still used by the Classes-page importers.
 
 ## Show Status Lifecycle
 
@@ -95,26 +110,49 @@ The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the cli
 - Each pick already carries division name + score type from `standard_divisions`, so this endpoint skips the name-keyword classifier used by the AQHA/APHA bulk imports.
 - Disciplines or brackets that don't appear in the standard library are added on the Setup page; they'll appear here the next time the picker opens.
 
+## The Registration Desk
+
+`/admin/shows/[id]/desk` is where the show office works on an exhibitor. Back numbers, class entries, side pot buy-ins, and paperwork check-in were three screens (`/entries`, `/back-numbers`, `/check-in`) and are one conversation at the counter — somebody walks up, gets a number, says what they are riding and on what, buys into the jackpot, and hands over their papers. Splitting that across three pages meant finding the same person three times, and no page could tell you what was still outstanding on the other two. All three routes now redirect here.
+
+- **Two views, one screen.** *By exhibitor* is the desk flow: a searchable roster on the left with filter chips (no back number, paperwork to check, health flags, no classes yet), and the selected person's whole standing on the right. *By class* is the program listing — who is entered in what, grouped by show day, with owner/sire/dam. Clicking a name there jumps back to that person's panel.
+- **Entries can be added from either view**, because filling a class is its own job — a secretary working down a short class calling for more riders is thinking about the class, not about each rider's account. `AddEntryForm` is one component with one side pinned: pass the exhibitor and it offers a class picker, pass the class and it offers an exhibitor picker. Writing it twice would have meant two copies of the SPB guard, the relationship-required rule, and the horse lookup. An expanded class shows the form behind a **+ Add an exhibitor to this class** toggle (one open at a time — with *Expand all* on a 21-class show a form per class is a wall of dropdowns), and it stays open after each save so a queue of riders goes in one after another. Closed classes offer a note instead of the form.
+- **The pickers filter to what the backend would accept.** A horse can only be in a class once (`entries_class_horse_uniq`), and only `pattern` classes let one exhibitor ride several — so already-entered horses drop out of the horse list, and already-entered exhibitors drop out of the exhibitor list unless the class is `pattern`. The backend still enforces both; this is the friendlier half.
+- **One money line per exhibitor, not two.** Billed, paid, and owing sit on the panel's summary row with a *Record a payment* link straight through to `/financials/exhibitors`. A second Account block lower down the panel restated the same three figures from the same `build_account` call — two places to read one number, and the reason to scroll for it was a link that belongs next to the figures anyway. The caveat it carried, that side pot buy-ins are not part of that balance, moved to the Side pots section where the buy-ins actually are.
+- **No show-wide money figure at the top.** The header counts registration work — exhibitors, entries, missing back numbers, paperwork outstanding. What one exhibitor owes stays on their panel, since they may be paying it at this counter; "the show is owed $6,049" is a Financials question and is not part of registering anybody.
+- **One read.** `GET /shows/{id}/desk` ([backend/routers/show_desk.py](../backend/routers/show_desk.py)) returns the roster, the class schedule, the side pots, and every exhibitor's entries, pot memberships, paperwork checks, and balance. Clicking down a roster must not fire five requests per exhibitor on venue wifi.
+- **The desk computes nothing of its own.** Money comes from `_load_financials` → `billing.build_account`, so the running total read out at the desk is the same number the exhibitor sees on My Shows. Paperwork comes from `build_verification_checklist` in [backend/routers/show_office.py](../backend/routers/show_office.py), so "verified" / "changed since sign-off" / "nothing on file" has one definition. Adding a figure to this screen means calling the thing that already owns it.
+- **Nothing on the screen mutates through a desk endpoint.** Every button posts to the endpoint that already owned that job — `POST .../classes/{id}/entries`, `PATCH .../back-numbers`, `POST .../side-pots/{id}/entries`, `POST .../verifications` — so association validation, back-number uniqueness, the closed-class rule, and the settled-pot lock all still apply. A save then re-reads `/desk`.
+- **`POST /shows/{id}/desk/exhibitors` is the one exception**, and it only creates the roster row those endpoints assume. A back number lives on `show_entries` and a side pot entry points at it, so before this the desk could not give a walk-up a number or put them in a pot without first inventing a class entry for them. `registered_at` stays NULL — this is the shell row, not a sign-up, and the exhibitor still has to sign up before they can self-register for classes. Idempotent. `DELETE` is an undo for adding the wrong person and 409s once entries, pots, reservations, or payments exist.
+- **Access is the show-office tier** — ADMIN, or the SHOW_SECRETARY / SHOW_MANAGER assigned to that show. `SCRIBE` and `GATE_STEWARD` are excluded, as on Financials: the desk carries every exhibitor's balance.
+- An exhibitor's classes are listed in the order the show runs them, not by `class_number` — that column is text, so sorting on it puts class 10 ahead of class 3.
+
 ## Entries And Back Numbers
 
 - `entries` represent a class-level exhibitor/horse registration.
 - **`show_entries.back_number` is where a back number lives** — one per exhibitor per show, written by the back-number screen and protected by a unique constraint. `entries.back_number` is an older per-entry column that **nothing writes any more**; it survives only so existing rows and the entry create/update payloads keep working, and it is NULL on every entry created since assignment moved to `show_entries`.
-- **Never render `Entry.back_number` directly.** Resolve it — prefer the show-level number, fall back to the legacy column — via `back_numbers_for_show()` / `resolve_back_number()` in [backend/backnumbers.py](../backend/backnumbers.py). Reading the entry column straight through fails silently: no error, just a column of dashes where the numbers should be. That bug shipped on the public class page, the scorekeeper form, the admin entry list, and the gate screen at once, because each read path had made the same assumption independently. `GET /shows/{id}/classes/{classId}/entries/` and the gate endpoints now resolve it server-side, so their consumers get the real number without doing anything.
+- **Never render `Entry.back_number` directly.** Resolve it — prefer the show-level number, fall back to the legacy column — via `back_numbers_for_show()` / `resolve_back_number()` in [backend/backnumbers.py](../backend/backnumbers.py). Reading the entry column straight through fails silently: no error, just a column of dashes where the numbers should be. That bug shipped on the public class page, the scribe form, the admin entry list, and the gate screen at once, because each read path had made the same assumption independently. `GET /shows/{id}/classes/{classId}/entries/` and the gate endpoints now resolve it server-side, so their consumers get the real number without doing anything.
 - The public class page must not overlay back numbers from `/shows/{id}/back-numbers/` — that endpoint is staff-only (`_assert_show_access`) and returns 422 to the unauthenticated spectator pages. It is for the admin back-number screen.
 - A class with `status = "CLOSED"` rejects new entries at the backend (`backend/routers/entries.py::create_entry`); the EditClassCard status toggle is how secretaries close a class.
 - Association-specific entry validation runs in `backend/rules`. AQHA currently blocks invalid entries when the app can verify the data: missing official AQHA class code, missing AQHA horse registration, missing AQHA exhibitor membership number, youth/select DOB failures, youth stallion entries, junior/senior horse-age mismatches, ranch/VRH minimum-age failures, and 2-year-old performance classes before July 1.
 
 ## Paperwork Check-In
 
-Registration papers and membership cards are checked on paper at the desk, against the numbers the exhibitor typed into their profile. The show office records what it inspected at `/admin/shows/[id]/check-in`, backed by [backend/routers/show_office.py](../backend/routers/show_office.py) and `show_verifications` (migration 090).
+What a show secretary physically picks up and reads at the counter. The office records each inspection in the **Paperwork** section of each exhibitor's panel on [the registration desk](#the-registration-desk), plus *Paperwork to check* and *Unsigned releases* roster filters for working the sweep front to back. Backed by [backend/routers/show_office.py](../backend/routers/show_office.py), [backend/routers/show_waivers.py](../backend/routers/show_waivers.py), `show_verifications` (migrations 090, 098), and `show_waivers` (migration 099).
 
-Three checks, from the three things staff physically hold:
+Four sign-offs, from the things staff hold in their hands:
 
 | Check | Held against | Signed off per |
 | --- | --- | --- |
 | Horse age | The foaling date printed on the registration papers | Horse |
 | Horse registration | Each registration number on the papers | Horse × association |
 | Rider membership | Each membership card | Exhibitor × association |
+| Health document | The Coggins, CVI, or vaccination record itself — markings and description against the horse | Horse × document type |
+
+Trainers' cards are **not** checked here. Migration 098 added a `trainer_membership` kind and 100 reversed it: a professional's card really is what makes an amateur class an amateur class, but the trainer is not at the counter, has no entry and no back number, and their card is the association's business rather than this show's. The check sat permanently unverified and inflated every outstanding count.
+
+Plus two things that are not sign-offs: **waiver signatures** (either typed by the exhibitor at sign-up or recorded from a paper blank at the desk) and the **emergency contact** on the exhibitor's profile.
+
+The contact is editable here. Reporting it missing and leaving staff to ask the exhibitor to go and edit their own account — at a counter, with a queue — was the whole cost of not having a write path: `PATCH /exhibitors/{id}` is ADMIN-or-self, so a secretary could not do it for them. `PATCH /shows/{id}/exhibitors/{exhibitor_id}/emergency-contact` is roster-scoped, the same rule as staff creating a horse, and writes the **profile** rather than a per-show copy — who to telephone about someone is not a fact about one weekend. Both halves or neither, because a name with no number still reads as missing.
 
 - **The roster is derived, not configured.** Everyone with a `show_entries` row (sign-up, or the shell row a secretary creates when hand-adding an entry) plus everyone with a class entry. Horses come from the show's entries, so a horse only needs papers checked once it is actually competing.
 - **Sign-offs snapshot the value they were held against.** `verified_value` records what was on file at the time, so an exhibitor editing the number afterwards flips the check to `stale` rather than leaving it green. Statuses are `verified`, `stale`, `unverified`, and `not_on_file` (nothing on the profile to check against — the record has to be filled in first).
@@ -122,11 +160,22 @@ Three checks, from the three things staff physically hold:
 - **Re-signing replaces, it does not stack.** Posting the same subject twice updates the one row — that is how a stale check is cleared once staff have seen the new paper. `DELETE /shows/{id}/verifications/{id}` undoes a sign-off recorded against the wrong row.
 - **Scope is one show.** A verification is this show's attestation that its own office saw the document. The next show runs its own sweep — see [docs/database.md](database.md) for why.
 - **Nothing here gates entry — and nothing anywhere else does either.** Health paperwork used to be the one hard stop and no longer is (see [Health Records — A Flag, Not A Gate](#health-records--a-flag-not-a-gate)); an office mid-sweep must still be able to run its show. Checking is limited to ADMIN / SHOW_SECRETARY / SHOW_MANAGER with access to that show, and the subject must be on that show's roster (403 otherwise).
-- **The desk also sees each horse's health standing**, as a read-only line above its checks. It is derived, not signed off, and is not counted in `outstanding`.
+- **The health line carries two facts, not one.** A derived `status` from the documents on file, and an attested `inspection`. The derived half is excluded from `outstanding` — a lapsed Coggins is the exhibitor's job, not a sign-off the desk owes — and the attested half is counted. See [Health Records — A Flag, Not A Gate](#health-records--a-flag-not-a-gate).
+- **A health sign-off works with nothing on file.** `horse_health_document` is keyed on `(horse_id, document_type)`, not on an uploaded row, because an exhibitor handing over a paper the app has never seen is the ordinary case. `verified_value` snapshots the standing **derived from the documents on file** (`valid:2027-05-03`, or `missing:none`), so a document arriving later flips the check to stale.
+- **Inspecting clears the flag when staff record the date.** The sign-off takes `attested_expiry` — the expiry printed on the paper in their hand. When it covers the show, the horse reads `valid` and drops off the chase list; nothing else does, because the office having *looked* at a document says nothing about whether it has expired. Leave it blank for an illegible or lapsed paper and the inspection is still recorded with the horse still flagged. A cleared-by-attestation line is marked so nobody mistakes it for an upload: the app is not holding that document, and the next show will ask again.
+- **Waiver signatures are the one value the backend does not derive.** There is nothing to read a signature off, so `signed_name` is accepted from the client — and staff typing a name off a paper blank is the point. `on_paper` is still set by the endpoint rather than the caller, so the two routes stay honest about which one a row came through. Editing a waiver's text leaves existing signatures alone; deleting the waiver takes them with it.
+
+### Reading the document at the desk
+
+An exhibitor who uploaded a perfectly good Coggins and left the printout at home used to be in the same position as one who had nothing. Staff could download the file, but downloading a stranger's veterinary paperwork onto the office laptop to squint at it is not the same as looking at it.
+
+Every health row and the registration-papers block now carry a **View** button. Opening one splits the horse card into two columns — checks on the left, the scan on the right — so the checkbox and the document are on screen together. PDFs render in an `<iframe>`, images in an `<img>`, and anything else offers a download rather than a broken box. One document is open at a time across the whole panel; there is a queue behind the desk.
+
+Served by `GET /horses/{id}/documents/{doc}/download?inline=true` through the Next route `/api/horses/[id]/documents/[docId]/view` — same bytes and same access rules as the download route, only the `Content-Disposition` differs. Nothing is written to disk.
 
 ### Creating a horse for an exhibitor
 
-Someone arrives at the desk with a horse that was never added to their profile. `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` lets show staff create it for them, offered inline on the check-in screen.
+Someone arrives at the desk with a horse that was never added to their profile. `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` lets show staff create it for them, offered inline in the Paperwork section of their desk panel — and the new horse drops straight into the class picker above it, which is why they were adding it.
 
 - Limited to exhibitors **on that show's roster** — staff get this reach because the person is standing in front of them at *their* show, not as a general licence to write to strangers' profiles.
 - The exhibitor ends up owning the horse and it is linked via `exhibitor_horses`, so it appears in their own horse list and in the Add Entry picker immediately.
@@ -222,7 +271,17 @@ Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_RE
 
 This used to be a hard block on both entry paths. It was the wrong tool: refusing the entry never made a single horse compliant, it moved the discovery to the desk with the trailer already parked, and it pushed staff through an override that recorded a *bypass* where what the office actually wanted was a *to-do*. The paperwork still has to be right before the horse ships in — that is now stated, chased, and checked at the desk rather than enforced at the moment of registration.
 
-`coggins_status()` in [backend/routers/horse_documents.py](../backend/routers/horse_documents.py) is the single implementation, shared by the exhibitor's registration screen, the show office's flags, and the check-in checklist. Four states:
+### What a show requires
+
+Coggins is universal. A Certificate of Veterinary Inspection follows from crossing a state line, and which vaccinations count comes from the venue rather than the breed association — so those two are **opt-in per show** (migration 097, set at `/admin/shows/[id]/desk/paperwork`). Deriving a flat "no CVI on file" flag would light up every in-state horse at every show, and staff would learn to ignore the whole panel; the policy has to exist before the derivation is worth having.
+
+| Document | Default | How long it stays good |
+| --- | --- | --- |
+| Coggins (EIA) | Required | Whatever expiry the document itself carries. No fallback window — how long a negative test is good for is a state rule (twelve months in most, six in some) and the app does not know which state the horse is standing in. |
+| Health certificate (CVI) | Off | `shows.health_certificate_valid_days` from `issue_date`, default 30 — a CVI is written as "issued within 30 days", not "expires on". A printed expiry still wins. |
+| Vaccination records | Off | `shows.vaccination_valid_days` from `issue_date`, default 365. `vaccination_notes` says which shots, in the office's own words, and is shown to the exhibitor. |
+
+`health_status()` in [backend/routers/horse_documents.py](../backend/routers/horse_documents.py) is the single implementation, shared by the exhibitor's registration screen, the show office's flags, and the desk checklist — same documents, same requirements, same deadline, so they cannot disagree about a horse. `coggins_status()` remains as the Coggins-shaped door onto it. Four states:
 
 | Status | Meaning |
 | --- | --- |
@@ -233,19 +292,27 @@ This used to be a hard block on both entry paths. It was the wrong tool: refusin
 
 An **undated Coggins does not clear the horse.** With no date there is nothing to verify. `undated` is reported ahead of `expired` when both are present, because it names the fixable data problem rather than sending the exhibitor after a test they may not need.
 
-**Judged against the show's last day, not today.** `coggins_status(expiries, as_of)` takes the day the paperwork has to be good for. Everything show-scoped passes `show.end_date` (`_paperwork_deadline()`, defined identically in `show_office.py` and `show_registration.py`), because a Coggins that lapses the week before the show is exactly the case staff need to chase — evaluating against today would call it valid right up until it was too late. The last day rather than the first: a document expiring on the Saturday of a Friday-to-Sunday show does not cover the horse for the time it is on the grounds. The horse card on `/profile` has no show in hand and so still evaluates against today.
+**Judged against the show's last day, not today.** `health_status(expiries, as_of)` takes the day the paperwork has to be good for. Everything show-scoped passes `show.end_date` (`paperwork_deadline()`, defined once in `horse_documents.py`), because a Coggins that lapses the week before the show is exactly the case staff need to chase — evaluating against today would call it valid right up until it was too late. The last day rather than the first: a document expiring on the Saturday of a Friday-to-Sunday show does not cover the horse for the time it is on the grounds. The horse card on `/profile` has no show in hand and so still evaluates against today.
 
 **Where the flag surfaces.**
 
-- `GET /shows/{id}/health-flags` (staff, show-scoped) — every entered horse whose paperwork will not carry it through the show, worst first (`missing` → `undated` → `expired`), with the exhibitors to call, their back numbers, and how many classes the horse is in. A horse shared between two exhibitors is one flag with both names on it. Rendered as `HealthFlagPanel` on `/admin/shows/[id]/entries`, which shows a green all-clear line rather than vanishing — "no flags" and "nobody has entered yet" must not look the same.
-- The check-in checklist (`GET /shows/{id}/verifications/checklist`) carries a `health` list per horse, shown at the desk. It is **excluded** from `outstanding` and `totals`: those count sign-offs the desk still owes, and this is not one. There is no `show_verifications` kind for it either — the desk cannot attest to a Coggins that has expired, and one that has not needs no attesting.
+- `GET /shows/{id}/health-flags` (staff, show-scoped) — every entered horse whose paperwork will not carry it through the show, worst first (`missing` → `undated` → `expired`), with the exhibitors to call, their back numbers, and how many classes the horse is in. A horse shared between two exhibitors is one flag with both names on it. The desk answers the same question per person instead: a **Health flags** roster filter finds who to call, and the flag itself sits on their panel next to the phone number's owner.
+- The desk checklist (`GET /shows/{id}/verifications/checklist`, and the desk payload) carries a `health` list per horse, one entry per document the show requires. Each carries the derived `status` **and** an `inspection`. The derived half is excluded from `outstanding`; the inspection is counted.
 - The exhibitor's registration screen lists the same horses under "needs health records updated before the show", tells them the office has the same list, and links to the upload form. The horse picker marks them `⚠ records due` but leaves them selectable.
 
 **Nothing is stored.** Flags are computed on read, which is what makes them self-clearing: the exhibitor uploads a current Coggins and the flag is gone the next time anyone looks. There is no row to remember to close.
 
+### The flag and the sign-off are different questions
+
+An earlier version of this document argued there was no point signing off a health document, on the grounds that it is either current — in which case the file says so — or lapsed, in which case signing changes nothing. That collapses two questions.
+
+The file answers **is the date still good**. Only a person at the counter answers **does this paper describe this horse** — the markings and description against the animal in the trailer, on a document that is genuine and physically present. They can disagree in both directions, and the desk has to tell them apart: a current Coggins nobody has looked at and a lapsed one the office is holding are not the same situation.
+
+So `horse_health_document` (migration 098) records the second. It is keyed on the horse and the document type rather than on a `horse_documents` row, because the paper is frequently not in the app at all; `missing:none` is a perfectly good thing to have attested to, and it goes stale the moment a document arrives.
+
 **Historical.** `coggins_override_audit` (migration 082) and `GET /shows/{id}/coggins-overrides` remain, read-only. Nothing writes them — an override only means something while there is a block to override — but shows run under the old rule keep their audit trail. `CogginsOverridePanel` still renders those rows, labelled as historical, and is empty for any show since.
 
-Staff can read the paperwork itself at any point: `CreateEntryForm` has a "View health documents on file" toggle once a horse is picked, and every row on the entries list carries a **Papers** toggle. Both render `HorseDocuments` with `readOnly`, backed by the view/manage split in [docs/auth.md](auth.md#horse-documents-read-and-write-split).
+Staff can read the paperwork itself at any point — at the desk through the side-by-side viewer described above, and elsewhere through a **Papers** toggle on the entries list. Both render `HorseDocuments` with `readOnly`, backed by the view/manage split in [docs/auth.md](auth.md#horse-documents-read-and-write-split).
 
 **Upstream of the flag.** Undated Coggins records come from the upload form asking exhibitors to hand-type a date off a scan they just attached. Document extraction pre-fills that date from the document itself, and offers a one-click derived expiry when a Coggins prints only a test date — see [docs/document-extraction.md](document-extraction.md). It never writes the date on its own: the uploader confirms, and `document_extractions` records whether they accepted the reading or corrected it.
 - Fees are surfaced to the exhibitor in three layers; the app does not collect payment.
@@ -255,6 +322,7 @@ Staff can read the paperwork itself at any point: `CreateEntryForm` has a "View 
   - **Stalls, shavings and camping** from show sign-up — `show_entry_reservations.quantity ×` the fee's rate, which is `early_amount_cents` when the line was booked on or before `early_deadline` and `amount_cents` otherwise (`fee_rate_cents()`). The bill line reports both, plus `is_early_rate`, so My Shows can show what reserving early saved.
   - All four are computed by `build_bill()` in [backend/billing.py](../backend/billing.py), shared by the registration screen, the sign-up screen, and the My Shows bill, so the three cannot quote different totals.
 - Exhibitors with no horses on their profile see an empty-state nudging them to add a horse first.
+- **Two horses in one pattern class.** A pattern class is judged run by run, so showmanship on two horses is two runs, two scores, and two entry fees — and the backend has always allowed it (`score_type == 'pattern'` is the one case that escapes the once-per-exhibitor 409). The registration screen now offers it: pick a horse for a pattern class and a second select appears, labelled *add another horse*, offering only horses not already in that class. Non-pattern classes keep exactly one select. Totals are computed per **entry** rather than per class, so the second run is charged its own entry fee and NSBA sanction fee; the footer counts entries for the same reason. `entries_class_horse_uniq` still stops the same horse going in twice, which the picker reflects by disabling an already-picked horse in the other slots.
 - **Removing a class**: while the show is still `PUBLISHED`, exhibitors can take themselves back out of any class they entered (`DELETE /shows/{id}/register/entries/{entry_id}`). The registration screen lists every entered class in a panel at the top of the page, each with a labelled **Remove** button and inline confirm, and repeats the control next to the class itself — removing a class the exhibitor picked by mistake is as ordinary an action as adding one, so it is not hidden inside a badge. Removal is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
 
 ## My Shows and the Bill
@@ -267,19 +335,65 @@ Staff can read the paperwork itself at any point: `CreateEntryForm` has a "View 
 | My Show Entries | `/dashboard` | Classes and placings (via `/dashboard/exhibitor/{id}`), with buttons back to the show page and the full class schedule |
 | Show History | `/profile?tab=history` | Past shows, each linking back to the show, its results, and its schedule |
 
-The app never collects payment — the bill is what the show office will collect, reported back.
+The app never collects payment — the bill is what the show office will collect, reported back. What the office actually collected is recorded on the other side of the same money, in Financials below.
 
-## Scorekeeper Flow
+## Financials
 
-1. Scorekeeper opens `/scorekeeper`.
+`/admin/shows/[id]/financials` is the show office's view of the money: what has been billed, what has been recorded as collected, and who still owes. Backed by `GET /shows/{id}/financials` ([backend/routers/show_financials.py](../backend/routers/show_financials.py)).
+
+The landing page is a **summary**, with two buttons to the working screens — **Exhibitors** and **Reports**:
+
+| Block | Shows |
+| --- | --- |
+| Exhibitors / Reports buttons | The two working screens. Exhibitors carries an "N owing" badge |
+| Money | Billed, collected, outstanding, and how many accounts are settled |
+| Side pots | Buy-ins, payout pool, and the show's cut — reported apart from the accounts |
+
+Registration counts and the revenue-by-category breakdown are **not** on this page. Both are reports (`registrations`, `revenue-summary`) where they can also be printed and exported, and carrying a second copy on the summary meant two places to keep telling the same story.
+
+Every figure comes from `build_bill()` per account, then `summarize_accounts()`. Nothing is re-derived in SQL, so the total quoted here and the bill the exhibitor reads on My Shows are the same computation.
+
+**The figures keep themselves current.** Both Financials screens refresh on tab focus and on a 30-second interval while visible. Recording a payment already refreshes the page it was recorded on, and navigating between the two screens already refetches — this covers the case those do not: a totals screen left open at the desk while a second staff member takes money elsewhere. The Exhibitors page holds off while an account row is expanded, so the list cannot reorder under someone mid-entry.
+
+### Exhibitors — accounts and payment entry
+
+`/admin/shows/[id]/financials/exhibitors` is the working screen: every account with its itemized bill, payment history, and the record-a-payment form, filtered on Owing / Settled / All and searchable by name or back number. It reads the same `GET /shows/{id}/financials` payload as the summary, through a shared loader.
+
+Split from the summary because the two answer different questions. The summary answers "how did the show do" — a set of totals read at a glance. This answers "who do I chase, and here is the check they just handed me" — a list that is scrolled and typed into. Keeping the list under the totals meant scrolling past every exhibitor at the show to reach anything below it.
+
+Staff expand an account and record what they took: amount, method (`cash` / `check` / `card` / `transfer` / `other`), an optional reference like a check number, the day it was received, and a note. **This records a payment; it does not process one** — no card is handled and no processor is called.
+
+- The `show_entries` row is created if it does not exist. A secretary can be handed a check before back numbers are assigned, and refusing the payment until the roster catches up would push the record back onto paper.
+- **A refund is a negative amount**, entered via "Refund instead" on the same form. It stays on the account as a negative line rather than editing away the original payment, so the day still reconciles against what actually moved.
+- **Remove** is for a row typed in error, not for giving money back. It is an inline confirmation, per the project's delete convention.
+- Outstanding counts only what is owed. Overpayments are reported separately as credit and are never netted off the arrears figure — one exhibitor paying twice does not reduce what anyone else owes.
+
+### Reports
+
+`/admin/shows/[id]/financials/reports` lists what the registry in [backend/financial_reports.py](../backend/financial_reports.py) can produce: revenue summary, outstanding balances, registrations, payments received, stalls/shavings/camping sold, and side pot money. Each renders through one generic table with CSV export and print.
+
+A report is a slug, a title, and a builder returning columns and rows — so adding one is a function in `_REPORTS` and nothing else. Reports are built from the payload the overview already assembled and never query, so a report cannot quote a different number than the screen it was opened from.
+
+Because payments land on an *account* rather than on individual charges, collections cannot be split by revenue category. The revenue summary says so rather than inventing an allocation.
+
+Access is the show-office tier — ADMIN, or the SHOW_SECRETARY / SHOW_MANAGER assigned to that show. `SCRIBE` and `GATE_STEWARD` are excluded; see "Who May See The Money" in [auth.md](auth.md).
+
+## Scribe Flow
+
+1. Scribe opens `/scribe`.
 2. They see only assigned, non-draft shows.
-3. On an active show, class cards link to the scorekeeper form.
+3. On an active show, class cards link to the scribe form.
 4. The form rendered depends on the class's `score_type`:
-   - `placement` (default, rail and halter classes) - secretary types placings directly; tie support via duplicate place numbers; gap warning prompts before saving non-contiguous placings.
-   - `pattern` (showmanship, horsemanship, equitation, trail, reining, etc.) - secretary types each judge-aggregated score; the backend recomputes placings (highest score wins) on save and the UI shows derived placings live as scores are entered.
+   - `placement` (default, rail and halter classes) - scribe taps a place per horse; tie support via duplicate place numbers.
+   - `pattern` (showmanship, horsemanship, equitation, trail, reining, etc.) - scribe enters each judge-aggregated score; the backend recomputes placings (highest score wins) and the UI shows derived placings live.
    - `time` (barrels, poles, stake race) - same as pattern but lowest time wins.
-5. DQ entries are listed at the bottom and do not receive a place.
-6. Audit rows are written for `placement` classes when a place changes; pattern/time classes do not audit derived placings (the score is the editorial value, not the placing).
+5. **Entry autosaves.** There is no Save button — changes commit on a short settle, with an "All changes saved" indicator. A failed save stays on screen with the values intact.
+6. **Results are a draft until posted.** Everything entered is visible to show staff only. Nothing appears on the public `/live` and `/results` screens until the scribe presses **Post Results to Live**. Non-contiguous placings prompt a gap warning at that point — not while typing, where gaps are normal.
+7. After posting, the class reads "Live — edits post immediately": corrections go straight to the public screens and are recorded in the audit history.
+8. DQ entries are listed at the bottom and do not receive a place.
+9. Audit rows are written for `placement` classes when a place changes **on a posted class**. Draft edits are not audited (there is no published value to have changed), and pattern/time classes do not audit derived placings (the score is the editorial value, not the placing).
+
+Entry is finger-first for a tablet in the ring: rows are tap-selectable, a pad docks at the bottom, and the OS keyboard is suppressed. Placement classes get a 1..N place grid, pattern classes get half-point steppers that start from the base score of 70, and timed classes get a digit keypad.
 
 ## Class Scoring Type
 
@@ -301,14 +415,14 @@ Side pots are optional money pools that span multiple classes within a show - an
 flowchart LR
     pot["side_pots"]
     bundles["side_pot_classes"]
-    optins["side_pot_entries"]
+    potentries["side_pot_entries"]
     classes["classes"]
     results["results"]
     payouts["side_pot_payouts"]
 
     pot --> bundles --> classes
-    pot --> optins
-    optins --> results
+    pot --> potentries
+    potentries --> results
     pot -- "settle" --> payouts
 ```
 
@@ -316,8 +430,8 @@ flowchart LR
 
 | Status | Meaning |
 | --- | --- |
-| `open` | Accepting opt-ins and edits |
-| `closed` | Soft-closed; opt-ins frozen but not yet paid out (optional intermediate state) |
+| `open` | Accepting entries and edits |
+| `closed` | Soft-closed; entries frozen but not yet paid out (optional intermediate state) |
 | `settled` | Payouts written; pot is locked from further edits |
 
 Settling is one-way; reopening a pot is not currently supported.
@@ -331,10 +445,10 @@ Settling is one-way; reopening a pot is not currently supported.
 
 ### Operational Flow
 
-1. Secretary creates a pot at `/admin/shows/[id]/side-pots`, picks classes (the picker hides classes that do not match the scoring method).
-2. Secretary opts back numbers in by typing the back number, marks `paid` when cash is collected.
-3. Standings page (`/admin/shows/[id]/side-pots/[potId]`) shows live ranking + projected payouts as the underlying class results land. Refresh button re-runs the computation.
-4. Once results are final, secretary clicks **Settle**. The backend writes one `side_pot_payouts` row per eligible entry (place + cents) and locks the pot.
-5. Frozen payouts table appears in the same screen for handoff to whoever cuts checks.
+1. Secretary creates a pot at `/admin/shows/[id]/side-pots`, picks classes (the picker hides classes that do not match the scoring method). Class selection is editable afterwards on the pot's **Settings** screen.
+2. On **Side Pot Entries** (`/admin/shows/[id]/side-pots/[potId]/entries`) the secretary picks an exhibitor from the show's roster (`GET .../side-pots/{potId}/roster`, sent as `show_entry_id`). One entry covers every bundled class, and whoever is already in is filtered out of the picker. There is no paid tick: buy-ins settle with the exhibitor's bill at the end of the show, so `paid` defaults to true and everyone in the pot funds the pool.
+3. **Standings** (`/admin/shows/[id]/side-pots/[potId]/standings`) shows live ranking + projected payouts as the underlying class results land. Refresh button re-runs the computation.
+4. Once results are final, secretary clicks **Settle** on that same Standings screen — it freezes exactly the table above the button. The backend writes one `side_pot_payouts` row per eligible entry (place + cents) and locks the pot.
+5. The frozen payouts table then appears below the ranking for handoff to whoever cuts checks.
 
-The total pool is `entry_fee_cents * paid count`; payout pool applies `payback_percent` to the total. Unpaid opt-ins still appear in standings (flagged "Unpaid") but contribute no money to the pool.
+The total pool is `entry_fee_cents * paid count`; payout pool applies `payback_percent` to the total. Since `paid` now defaults to true, that is every entry in the pot. The column, the "Unpaid" flag in standings, and `PATCH .../entries/{id}` all remain for pots created while the desk ticked buy-ins off one at a time — an unpaid row is ranked but funds nothing.

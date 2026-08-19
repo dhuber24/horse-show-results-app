@@ -3,22 +3,31 @@
 Three jobs, one file, because they are gated the same way — staff with access to
 *this* show, acting only on people who are on *this* show's roster:
 
-  * **Paperwork verification** (migration 090). Registration papers and
-    membership cards are checked on paper against the numbers the exhibitor
-    typed into their profile. The office signs off on the horse's age, each of
-    the horse's registration numbers, and each of the rider's membership
-    numbers. A sign-off snapshots the value it was held against, so a later edit
-    makes the check read back as stale instead of staying quietly green.
+  * **Paperwork verification** (migrations 090, 098, 099). What a show
+    secretary physically inspects at the counter: the horse's age and
+    registration papers, the rider's membership cards, the health documents,
+    and the signed entry blank. The office signs each off, and
+    a sign-off snapshots the value it was held against, so a later edit makes
+    the check read back as stale instead of staying quietly green.
+
+    Health documents are signed off on the *situation* rather than on a stored
+    row, because the paper is frequently not in the app — an exhibitor hands
+    over a physical Coggins at the desk and there is nothing to point at.
+    Requiring an upload would break the sign-off in the exact case it exists
+    for.
 
   * **Health flags.** Which entered horses do not have health paperwork that
     covers the show. Derived from the documents on file, not signed off and not
     stored — see below.
 
-  * **Creating a horse for an exhibitor.** Someone shows up at the desk with a
-    horse that was never added to their profile. Staff can create it for them,
-    but only for an exhibitor already on this show's roster — this is a
-    show-office convenience, not a general licence to write to strangers'
-    profiles.
+  * **Filling in what the exhibitor has not.** Someone shows up at the desk
+    with a horse that was never added to their profile, or with no emergency
+    contact on file. Staff can write both for them, but only for an exhibitor
+    already on this show's roster — this is a show-office convenience, not a
+    general licence to write to strangers' profiles. Both write to the
+    *profile*, not to a per-show copy: an emergency contact is who to telephone
+    about that person, and a second copy per show would be a second, staler
+    answer to the only question that matters.
 
 **Nothing in this file gates entry, and neither does anything else.** Coggins
 standing used to be a hard stop: a horse whose record was missing, undated, or
@@ -31,6 +40,12 @@ early, as something the office can chase while there is still time to fix it.
 Health flags are computed on read rather than stored, which is what makes them
 self-clearing: the exhibitor uploads a current Coggins and the flag is simply
 gone the next time anyone looks. There is no row to remember to close.
+
+The flag and the sign-off answer different questions and can disagree in both
+directions. The file says whether the date is still good; only a person at the
+counter says whether the paper is genuine, present, and describes *this* horse.
+A current Coggins nobody has looked at and a lapsed one the office is holding
+are different situations, and the desk has to be able to tell them apart.
 """
 from __future__ import annotations
 
@@ -58,13 +73,18 @@ from models import (
     Show,
     ShowEntry,
     ShowVerification,
+    ShowWaiver,
+    ShowWaiverSignature,
     User,
 )
 from routers.horse_documents import (
-    COGGINS_VALID,
-    coggins_health,
-    load_coggins_expiries,
+    HEALTH_VALID,
+    document_health,
+    health_by_horse,
+    health_snapshot,
+    load_health_documents,
     paperwork_deadline,
+    requirement_for,
 )
 from routers.people import (
     assert_registrations_available,
@@ -73,6 +93,8 @@ from routers.people import (
 )
 from routers.shows import _assert_show_access
 from schemas import (
+    EmergencyContactOut,
+    ExhibitorEmergencyContactUpdate,
     MyHorseOut,
     ShowHealthFlagsOut,
     ShowVerificationCreate,
@@ -84,7 +106,6 @@ from schemas import (
 router = APIRouter(prefix="/shows/{show_id}", tags=["Show Office"])
 
 # Which subject columns each kind uses. Mirrors ck_show_verifications_subject.
-_HORSE_KINDS = {"horse_age", "horse_registration"}
 _ASSOCIATION_KINDS = {"horse_registration", "exhibitor_membership"}
 
 
@@ -165,25 +186,6 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
 # ── Health paperwork ───────────────────────────────────────────────────────────
 
 
-async def _health_by_horse(
-    horse_ids: list[UUID], show: Show, db: AsyncSession
-) -> dict[UUID, list[dict]]:
-    """Health checks per horse, judged against this show's deadline.
-
-    Coggins is the only one for now; the list shape is what lets a second
-    document type (a state health certificate, say) be added without every
-    caller changing.
-    """
-    if not horse_ids:
-        return {}
-    expiries = await load_coggins_expiries(horse_ids, db)
-    deadline = paperwork_deadline(show)
-    return {
-        horse_id: [coggins_health(expiries.get(horse_id, []), deadline)]
-        for horse_id in horse_ids
-    }
-
-
 async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
     show = await db.get(Show, show_id)
     if not show:
@@ -196,11 +198,65 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
 
 def _verification_key(
     kind: str,
-    horse_id: Optional[UUID],
-    exhibitor_id: Optional[UUID],
-    association_id: Optional[UUID],
+    horse_id: Optional[UUID] = None,
+    exhibitor_id: Optional[UUID] = None,
+    association_id: Optional[UUID] = None,
+    document_type: Optional[str] = None,
 ) -> tuple:
-    return (kind, horse_id, exhibitor_id, association_id)
+    """Everything that identifies one sign-off. Every subject column appears,
+    including the ones a given kind leaves NULL — two kinds that agreed on the
+    columns they use would otherwise collide in the lookup."""
+    return (kind, horse_id, exhibitor_id, association_id, document_type)
+
+
+def _inspection_status(snapshot: str, verification: Optional[ShowVerification]) -> str:
+    """Whether the office's sign-off still describes what is on file."""
+    if verification is None:
+        return "unverified"
+    return "verified" if verification.verified_value == snapshot else "stale"
+
+
+def _build_inspection(snapshot: str, verification: Optional[ShowVerification]) -> dict:
+    return {
+        "status": _inspection_status(snapshot, verification),
+        "verification_id": verification.id if verification else None,
+        "verified_by_name": verification.verified_by_name if verification else None,
+        "verified_at": verification.created_at if verification else None,
+        # What staff read off the paper, when they recorded it. The health
+        # status above may already be `valid` *because* of this — see
+        # `attested_health` in routers/horse_documents.py.
+        "attested_expiry": verification.attested_expiry if verification else None,
+        "note": verification.note if verification else None,
+    }
+
+
+def _build_waiver_check(waiver: ShowWaiver, signature: Optional[ShowWaiverSignature]) -> dict:
+    """A signature is either there or it is not — there is no value to hold it
+    against, so nothing here can go stale the way a number can."""
+    return {
+        "waiver_id": waiver.id,
+        "title": waiver.title,
+        "is_required": waiver.is_required,
+        "status": "signed" if signature else "unsigned",
+        "signed_name": signature.signed_name if signature else None,
+        "signed_at": signature.signed_at if signature else None,
+        "on_paper": bool(signature.on_paper) if signature else False,
+        "signed_by_guardian": bool(signature.signed_by_guardian) if signature else False,
+        "guardian_relationship": signature.guardian_relationship if signature else None,
+        "recorded_by_name": signature.recorded_by_name if signature else None,
+    }
+
+
+def _build_emergency_contact(exhibitor: Exhibitor) -> dict:
+    """Read off the profile, never copied per show: a second copy would be a
+    second, staler answer to the only question that matters here."""
+    name = (exhibitor.emergency_contact_name or "").strip() or None
+    phone = (exhibitor.emergency_contact_phone or "").strip() or None
+    return {
+        "status": "on_file" if (name and phone) else "missing",
+        "name": name,
+        "phone": phone,
+    }
 
 
 def _build_check(
@@ -239,30 +295,38 @@ def _build_check(
     }
 
 
-@router.get(
-    "/verifications/checklist",
-    response_model=VerificationChecklistOut,
-    dependencies=[Depends(require_admin_or_show_admin)],
-)
-async def get_verification_checklist(
-    show_id: UUID,
-    x_api_key: str = Header(...),
-    x_user_id: str = Header(...),
-    x_user_role: str = Header(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """The paperwork sweep for this show, by exhibitor."""
-    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
+    """The paperwork sweep for this show, by exhibitor.
+
+    Split out from the route so the desk screen can fold the same checks into
+    its per-exhibitor panel without a second implementation of what "verified",
+    "stale", and "nothing on file" mean. Access is the caller's to assert.
+    """
     show = await _get_show_or_404(show_id, db)
     roster = await _load_roster(show_id, db)
-    health = await _health_by_horse(roster.horse_ids(), show, db)
+    health = await health_by_horse(roster.horse_ids(), show, db)
 
     verification_result = await db.execute(
         select(ShowVerification).where(ShowVerification.show_id == show_id)
     )
     by_key: dict[tuple, ShowVerification] = {
-        _verification_key(v.kind, v.horse_id, v.exhibitor_id, v.association_id): v
+        _verification_key(
+            v.kind, v.horse_id, v.exhibitor_id, v.association_id, v.document_type
+        ): v
         for v in verification_result.scalars().all()
+    }
+
+    waiver_result = await db.execute(
+        select(ShowWaiver).where(ShowWaiver.show_id == show_id).order_by(ShowWaiver.sort_order)
+    )
+    waivers = list(waiver_result.scalars().all())
+    signature_result = await db.execute(
+        select(ShowWaiverSignature).join(
+            ShowWaiver, ShowWaiverSignature.waiver_id == ShowWaiver.id
+        ).where(ShowWaiver.show_id == show_id)
+    )
+    signatures: dict[tuple, ShowWaiverSignature] = {
+        (sig.waiver_id, sig.exhibitor_id): sig for sig in signature_result.scalars().all()
     }
 
     # A horse entered by two exhibitors is listed under both, but its checks are
@@ -281,7 +345,11 @@ async def get_verification_checklist(
             exhibitor.registrations or [],
             key=lambda r: (r.association.code if r.association else ""),
         ):
-            key = _verification_key("exhibitor_membership", None, exhibitor_id, reg.association_id)
+            key = _verification_key(
+                "exhibitor_membership",
+                exhibitor_id=exhibitor_id,
+                association_id=reg.association_id,
+            )
             memberships.append(record(key, _build_check(
                 "exhibitor_membership", reg.member_number, by_key.get(key), reg.association,
             )))
@@ -290,7 +358,7 @@ async def get_verification_checklist(
         for horse in sorted(
             roster.horses.get(exhibitor_id, {}).values(), key=lambda h: h.name or ""
         ):
-            age_key = _verification_key("horse_age", horse.id, None, None)
+            age_key = _verification_key("horse_age", horse.id)
             age_check = record(age_key, _build_check(
                 "horse_age",
                 horse.foaling_date.isoformat() if horse.foaling_date else None,
@@ -302,10 +370,25 @@ async def get_verification_checklist(
                 horse.registrations or [],
                 key=lambda r: (r.association.code if r.association else ""),
             ):
-                key = _verification_key("horse_registration", horse.id, None, reg.association_id)
+                key = _verification_key(
+                    "horse_registration", horse.id, association_id=reg.association_id
+                )
                 horse_regs.append(record(key, _build_check(
                     "horse_registration", reg.registration_number, by_key.get(key), reg.association,
                 )))
+
+            # Each health line carries both facts: what the documents on file
+            # say, and whether anyone has looked at the paper. They are computed
+            # apart because they can disagree in both directions.
+            health_out = []
+            for check in health.get(horse.id, []):
+                key = _verification_key(
+                    "horse_health_document", horse.id, document_type=check["code"]
+                )
+                verification = by_key.get(key)
+                inspection = _build_inspection(health_snapshot(check), verification)
+                distinct_status[key] = inspection["status"]
+                health_out.append({**check, "inspection": inspection})
 
             horses_out.append({
                 "horse_id": horse.id,
@@ -313,14 +396,29 @@ async def get_verification_checklist(
                 "barn_name": horse.barn_name,
                 "age_check": age_check,
                 "registrations": horse_regs,
-                "health": health.get(horse.id, []),
+                "health": health_out,
             })
+
+        waiver_checks = [
+            _build_waiver_check(w, signatures.get((w.id, exhibitor_id))) for w in waivers
+        ]
+        emergency_contact = _build_emergency_contact(exhibitor)
 
         # Outstanding is what is left at *this person's* desk visit, so a shared
         # horse counts for each exhibitor who has to present it.
         all_checks = memberships + [h["age_check"] for h in horses_out]
         for h in horses_out:
             all_checks.extend(h["registrations"])
+
+        outstanding = sum(1 for c in all_checks if c["status"] != "verified")
+        # The health *status* is not counted — a lapsed Coggins is the
+        # exhibitor's job, not a sign-off the desk owes. The inspection is.
+        outstanding += sum(
+            1 for h in horses_out for c in h["health"] if c["inspection"]["status"] != "verified"
+        )
+        outstanding += sum(1 for w in waiver_checks if w["is_required"] and w["status"] != "signed")
+        if emergency_contact["status"] == "missing":
+            outstanding += 1
 
         exhibitors_out.append({
             "exhibitor_id": exhibitor_id,
@@ -329,16 +427,50 @@ async def get_verification_checklist(
             "signed_up": roster.signed_up.get(exhibitor_id, False),
             "memberships": memberships,
             "horses": horses_out,
-            "outstanding": sum(1 for c in all_checks if c["status"] != "verified"),
+            "waivers": waiver_checks,
+            "emergency_contact": emergency_contact,
+            "outstanding": outstanding,
         })
 
     exhibitors_out.sort(key=lambda e: (e["exhibitor_name"] or "").lower())
 
-    totals = {"checks": len(distinct_status), "verified": 0, "stale": 0, "unverified": 0, "not_on_file": 0}
+    totals = {
+        "checks": len(distinct_status),
+        "verified": 0,
+        "stale": 0,
+        "unverified": 0,
+        "not_on_file": 0,
+        # Counted apart from the sign-offs: chasing a signature is a different
+        # job with a different fix than chasing a document.
+        "waivers_outstanding": sum(
+            1 for e in exhibitors_out for w in e["waivers"]
+            if w["is_required"] and w["status"] != "signed"
+        ),
+        "contacts_missing": sum(
+            1 for e in exhibitors_out if e["emergency_contact"]["status"] == "missing"
+        ),
+    }
     for status in distinct_status.values():
         totals[status] += 1
 
     return {"show_id": show_id, "exhibitors": exhibitors_out, "totals": totals}
+
+
+@router.get(
+    "/verifications/checklist",
+    response_model=VerificationChecklistOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def get_verification_checklist(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The paperwork sweep for this show, by exhibitor."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    return await build_verification_checklist(show_id, db)
 
 
 @router.get(
@@ -365,7 +497,7 @@ async def get_health_flags(
     roster = await _load_roster(show_id, db)
 
     horse_ids = roster.horse_ids()
-    health = await _health_by_horse(horse_ids, show, db)
+    health = await health_by_horse(horse_ids, show, db)
 
     # Who to call about each horse. A horse ridden by two exhibitors is one flag
     # carrying both names rather than two flags about one piece of paper.
@@ -391,7 +523,7 @@ async def get_health_flags(
     flagged = []
     for horse_id in horse_ids:
         for check in health.get(horse_id, []):
-            if check["status"] == COGGINS_VALID:
+            if check["status"] == HEALTH_VALID:
                 continue
             totals["flagged"] += 1
             totals[check["status"]] += 1
@@ -468,20 +600,39 @@ async def _assert_exhibitor_on_roster(
     raise HTTPException(403, "That exhibitor is not registered for this show")
 
 
-async def _current_value_for(
-    show_id: UUID, body: ShowVerificationCreate, db: AsyncSession
-) -> str:
-    """Read what is on file for the subject being signed off.
+def _assert_subject_shape(body: ShowVerificationCreate) -> None:
+    """Reject subject columns that do not belong to the kind being signed off.
 
-    Derived here rather than taken from the request: a caller able to name the
-    value it "verified" could attest to a number nobody has on file.
+    Mirrors ck_show_verifications_subject. The database would refuse the row
+    anyway, but a 422 naming the field beats a 500 naming a constraint.
     """
     if body.kind in _ASSOCIATION_KINDS and body.association_id is None:
         raise HTTPException(422, "association_id is required for this verification")
     if body.kind not in _ASSOCIATION_KINDS and body.association_id is not None:
         raise HTTPException(422, "association_id does not apply to this verification")
 
-    if body.kind in _HORSE_KINDS:
+    if body.kind == "horse_health_document" and body.document_type is None:
+        raise HTTPException(422, "document_type is required for this verification")
+    if body.kind != "horse_health_document" and body.document_type is not None:
+        raise HTTPException(422, "document_type does not apply to this verification")
+    # Mirrors ck_show_verifications_attested_expiry. Only a health document has
+    # an expiry to read off it.
+    if body.kind != "horse_health_document" and body.attested_expiry is not None:
+        raise HTTPException(422, "attested_expiry does not apply to this verification")
+
+
+async def _current_value_for(
+    show: Show, body: ShowVerificationCreate, db: AsyncSession
+) -> str:
+    """Read what is on file for the subject being signed off.
+
+    Derived here rather than taken from the request: a caller able to name the
+    value it "verified" could attest to a number nobody has on file.
+    """
+    _assert_subject_shape(body)
+    show_id = show.id
+
+    if body.kind in {"horse_age", "horse_registration", "horse_health_document"}:
         if body.horse_id is None:
             raise HTTPException(422, "horse_id is required for this verification")
         if body.exhibitor_id is not None:
@@ -496,6 +647,22 @@ async def _current_value_for(
                     "registration papers first, then verify it.",
                 )
             return horse.foaling_date.isoformat()
+
+        if body.kind == "horse_health_document":
+            # Signed off against the standing, not against an uploaded row: the
+            # office is frequently holding a paper the app has never been shown,
+            # and refusing to record that would break the sign-off in the one
+            # case it exists for. "missing:none" is a perfectly good thing to
+            # have attested to — and it goes stale the moment a document
+            # arrives, which is correct.
+            requirement = requirement_for(show, body.document_type)
+            documents = await load_health_documents([horse.id], [body.document_type], db)
+            check = document_health(
+                requirement,
+                documents.get(horse.id, {}).get(body.document_type, []),
+                paperwork_deadline(show),
+            )
+            return health_snapshot(check)
 
         result = await db.execute(
             select(HorseRegistration).where(
@@ -545,9 +712,17 @@ async def record_verification(
 
     Re-signing an existing check replaces it rather than stacking a second row —
     that is how a stale check is cleared once staff have seen the new paper.
+
+    For a health document the caller may also send `attested_expiry`: the date
+    printed on the paper in the secretary's hand. Given, and covering the show,
+    it clears the horse's health flag — an office that has just inspected a
+    valid Coggins should not still be told to go and find one. Omitted, the
+    inspection is still recorded and the horse stays flagged, which is the right
+    outcome for a document that was illegible or genuinely lapsed.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    current_value = await _current_value_for(show_id, body, db)
+    show = await _get_show_or_404(show_id, db)
+    current_value = await _current_value_for(show, body, db)
 
     actor = await db.get(User, safe_uuid(x_user_id))
     # The unused subject columns are NULL for this kind, and `== None` is what
@@ -560,6 +735,7 @@ async def record_verification(
             ShowVerification.horse_id == body.horse_id,
             ShowVerification.exhibitor_id == body.exhibitor_id,
             ShowVerification.association_id == body.association_id,
+            ShowVerification.document_type == body.document_type,
         )
     )
     verification = existing_result.scalar_one_or_none()
@@ -571,9 +747,14 @@ async def record_verification(
             horse_id=body.horse_id,
             exhibitor_id=body.exhibitor_id,
             association_id=body.association_id,
+            document_type=body.document_type,
         )
         db.add(verification)
 
+    # Taken from the request, unlike `verified_value` beside it. There is
+    # nothing to derive it from: the document is frequently paper the app has
+    # never been shown, which is the whole reason this sign-off exists.
+    verification.attested_expiry = body.attested_expiry
     verification.verified_value = current_value
     verification.note = body.note
     verification.verified_by = actor.id if actor else None
@@ -611,6 +792,58 @@ async def delete_verification(
         raise HTTPException(404, "Verification not found")
     await db.delete(verification)
     await db.commit()
+
+
+# ── Emergency contact ──────────────────────────────────────────────────────────
+
+
+@router.patch(
+    "/exhibitors/{exhibitor_id}/emergency-contact",
+    response_model=EmergencyContactOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def set_emergency_contact(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    body: ExhibitorEmergencyContactUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take an emergency contact over the counter and put it on the profile.
+
+    The desk checks that the show has somebody to telephone, and until now could
+    only report that it did not — leaving staff to ask the exhibitor to go and
+    edit their own account, at a counter, with a queue behind them. `PATCH
+    /exhibitors/{id}` is ADMIN-or-self, so a secretary could not do it for them.
+
+    Written to the exhibitor's profile rather than to a per-show copy, on
+    purpose. Who to call if something happens to this person is not a fact about
+    one weekend, and a per-show duplicate would be a second answer that goes
+    stale the moment they change their phone number.
+
+    Scoped to this show's roster, the same rule as staff creating a horse: the
+    reach exists because the person is standing in front of them at *their*
+    show, not because of staff rank.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    exhibitor = await _assert_exhibitor_on_roster(show_id, exhibitor_id, db)
+
+    name = (body.name or "").strip() or None
+    phone = (body.phone or "").strip() or None
+    if bool(name) != bool(phone):
+        raise HTTPException(
+            422,
+            "An emergency contact needs both a name and a phone number — "
+            "one without the other still reads as missing.",
+        )
+
+    exhibitor.emergency_contact_name = name
+    exhibitor.emergency_contact_phone = phone
+    await db.commit()
+    await db.refresh(exhibitor)
+    return _build_emergency_contact(exhibitor)
 
 
 # ── Creating a horse for an exhibitor ──────────────────────────────────────────

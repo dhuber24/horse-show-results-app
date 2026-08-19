@@ -111,7 +111,7 @@ async def list_entries(show_id: UUID, class_id: UUID, db: AsyncSession = Depends
 
     The number lives on `show_entries`, not on the entry row — see
     `backend/backnumbers.py`. Returning the raw `Entry.back_number` here left
-    every consumer of this endpoint (the public class page, the scorekeeper
+    every consumer of this endpoint (the public class page, the scribe
     form, the admin entry list) showing a dash for exhibitors who very much had
     a back number.
     """

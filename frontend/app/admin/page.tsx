@@ -7,7 +7,7 @@ const adminTiles = [
   { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where shows are held.', icon: 'V' },
   { href: '/admin/horses', title: 'Horses', description: 'Add and edit horses in the system.', icon: 'H' },
   { href: '/admin/trainers', title: 'Trainers', description: 'Manage trainer registry records used on horse profiles.', icon: 'R' },
-  { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scorekeepers.', icon: 'U' },
+  { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scribes.', icon: 'U' },
 ];
 
 const showSecretaryTiles = [

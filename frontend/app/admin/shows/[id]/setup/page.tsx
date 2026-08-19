@@ -1,22 +1,9 @@
 import Link from 'next/link';
 import { fetchShow } from '@/lib/api';
-import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import WizardStepper from '../../_wizard/WizardStepper';
-import { buildSteps } from '../../_wizard/steps';
-
-async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
-  const headers = await getAuthHeaders();
-  if (!headers) return fallback;
-  const res = await fetch(url, { headers, cache: 'no-store' });
-  if (!res.ok) return fallback;
-  return res.json();
-}
-
-type FeeRow = { id: string; code: string; label: string; amount_cents: number; unit: string };
-
-const LODGING_CODES = new Set(['stall', 'shavings', 'camping']);
-const FEE_CODES = new Set(['standard_class', 'jackpot', 'futurity']);
+import WizardStepper, { type WizardStepKey } from '../../_wizard/WizardStepper';
+import { buildSteps, type WizardStepsInput } from '../../_wizard/steps';
+import { fetchStepCounts } from './_lib/fetchStepCounts';
 
 const COLORS = {
   text: '#2c1810',
@@ -36,26 +23,10 @@ export default async function SetupHubPage({
   const { id } = await params;
   const show = await fetchShow(id);
 
-  const [judges, sanctioning, fees] = await Promise.all([
-    fetchAuthed<{ id: string }[]>(`${API_URL}/shows/${id}/judges/`, []),
-    fetchAuthed<{ association_id: string }[]>(
-      `${API_URL}/shows/${id}/sanctioning/`,
-      [],
-    ),
-    fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
-  ]);
-
-  const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
-  const otherFeeCount = fees.filter((f) => FEE_CODES.has(f.code)).length;
-  const feesDone = otherFeeCount > 0 || (show.office_charge_cents ?? 0) > 0;
-
-  const steps = buildSteps({
-    showId: id,
-    judgeCount: judges.length,
-    sanctioningCount: sanctioning.length,
-    lodgingFeeCount,
-    feesCount: feesDone ? 1 : 0,
-  });
+  // One source for what each step has on file — the step pages read the same
+  // helper, so the hub and the stepper can never disagree about what is done.
+  const counts = await fetchStepCounts(id, show.office_charge_cents ?? 0);
+  const steps = buildSteps(counts);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -95,12 +66,7 @@ export default async function SetupHubPage({
                     {step.label}
                   </h2>
                   <p className="text-sm mt-0.5" style={{ color: COLORS.muted }}>
-                    {stepHint(step.key, {
-                      judgeCount: judges.length,
-                      sanctioningCount: sanctioning.length,
-                      lodgingFeeCount,
-                      feesDone,
-                    })}
+                    {stepHint(step.key, counts)}
                   </p>
                 </div>
                 {/* A configured step is still a link, so the badge names what
@@ -123,33 +89,29 @@ export default async function SetupHubPage({
   );
 }
 
-function stepHint(
-  key: 'basic' | 'judges' | 'sanctioning' | 'lodging' | 'fees',
-  ctx: {
-    judgeCount: number;
-    sanctioningCount: number;
-    lodgingFeeCount: number;
-    feesDone: boolean;
-  },
-): string {
+function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
   switch (key) {
     case 'basic':
-      return 'Name, dates, venue, show secretary.';
+      return 'Name, dates, venue, and show staff — managers, secretaries, scribes, gate stewards.';
     case 'judges':
-      return ctx.judgeCount === 0
+      return counts.judgeCount === 0
         ? 'No judges added yet.'
-        : `${ctx.judgeCount} judge${ctx.judgeCount === 1 ? '' : 's'} added.`;
+        : `${counts.judgeCount} judge${counts.judgeCount === 1 ? '' : 's'} added.`;
     case 'sanctioning':
-      return ctx.sanctioningCount === 0
+      return counts.sanctioningCount === 0
         ? 'No sanctioning associations selected. Skip if none apply.'
-        : `${ctx.sanctioningCount} sanctioning association${ctx.sanctioningCount === 1 ? '' : 's'}.`;
+        : `${counts.sanctioningCount} sanctioning association${counts.sanctioningCount === 1 ? '' : 's'}.`;
     case 'lodging':
-      return ctx.lodgingFeeCount === 0
+      return counts.lodgingFeeCount === 0
         ? 'Stall, shavings, and camping fees not configured.'
-        : `${ctx.lodgingFeeCount} lodging fee${ctx.lodgingFeeCount === 1 ? '' : 's'} configured.`;
+        : `${counts.lodgingFeeCount} lodging fee${counts.lodgingFeeCount === 1 ? '' : 's'} configured.`;
     case 'fees':
-      return ctx.feesDone
+      return counts.feesCount > 0
         ? 'Office charge and class fees configured.'
         : 'Office charge, standard class fee, jackpot, and futurity fees.';
+    case 'classes':
+      return counts.classCount === 0
+        ? 'No classes yet — build the schedule from disciplines and divisions.'
+        : `${counts.classCount} class${counts.classCount === 1 ? '' : 'es'} on the schedule.`;
   }
 }

@@ -1,84 +1,38 @@
 import Link from 'next/link';
-import { fetchShow, fetchClasses, fetchEntries, fetchResults, fetchHorse, fetchExhibitor } from '@/lib/api';
+import {
+  fetchShow,
+  fetchClasses,
+  fetchEntries,
+  fetchResults,
+  fetchHorse,
+  fetchExhibitor,
+  fetchShowJudgesPublic,
+} from '@/lib/api';
+import { getAuthHeaders } from '@/lib/backend-fetch';
 import { auth } from '@/auth';
+import PlacingsTable, { type CardColumn, type PlacingRow } from './PlacingsTable';
 
-// Standard US horse show placement ribbon colors
-const RIBBON_COLORS: Record<number, { main: string; dark: string; text: string; name: string }> = {
-  1: { main: '#2563eb', dark: '#1e3a8a', text: '#ffffff', name: 'Blue' },
-  2: { main: '#dc2626', dark: '#7f1d1d', text: '#ffffff', name: 'Red' },
-  3: { main: '#facc15', dark: '#a16207', text: '#1a1a1a', name: 'Yellow' },
-  4: { main: '#f1f5f9', dark: '#94a3b8', text: '#1e293b', name: 'White' },
-  5: { main: '#f472b6', dark: '#9d174d', text: '#ffffff', name: 'Pink' },
-  6: { main: '#16a34a', dark: '#14532d', text: '#ffffff', name: 'Green' },
-  7: { main: '#7c3aed', dark: '#3b0764', text: '#ffffff', name: 'Purple' },
-  8: { main: '#b45309', dark: '#451a03', text: '#ffffff', name: 'Brown' },
-};
-
-const DEFAULT_RIBBON = { main: '#6b7280', dark: '#1f2937', text: '#ffffff', name: 'Gray' };
-
-function placeOrdinal(n: number) {
-  if (n === 1) return '1st';
-  if (n === 2) return '2nd';
-  if (n === 3) return '3rd';
-  return `${n}th`;
-}
-
-function Ribbon({ place }: { place: number }) {
-  const { main, dark, text } = RIBBON_COLORS[place] ?? DEFAULT_RIBBON;
-  const cx = 22, cy = 22;
-
-  // Scalloped rosette: small alternating circles around the outer ring
-  const numPetals = 14;
-  const petalR = 18;
-  const petals = Array.from({ length: numPetals }, (_, i) => {
-    const angle = (i / numPetals) * 2 * Math.PI - Math.PI / 2;
-    return { x: cx + petalR * Math.cos(angle), y: cy + petalR * Math.sin(angle) };
-  });
-
-  return (
-    <svg width="44" height="62" viewBox="0 0 44 62" aria-hidden="true">
-      {/* Tails */}
-      <polygon points={`14,37 9,62 22,53`} fill={dark} />
-      <polygon points={`30,37 35,62 22,53`} fill={dark} />
-      {/* Scalloped petal ring */}
-      {petals.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={5.5} fill={i % 2 === 0 ? main : dark} />
-      ))}
-      {/* Base circle */}
-      <circle cx={cx} cy={cy} r={14} fill={main} />
-      {/* Inner button ring */}
-      <circle cx={cx} cy={cy} r={10} fill={dark} />
-      {/* Center fill */}
-      <circle cx={cx} cy={cy} r={8} fill={main} />
-      {/* Place number */}
-      <text
-        x={cx} y={cy + 4}
-        textAnchor="middle"
-        fill={text}
-        fontSize="10"
-        fontWeight="bold"
-        fontFamily="system-ui, sans-serif"
-      >
-        {place}
-      </text>
-    </svg>
-  );
-}
+const NO_JUDGE = '__none__';
 
 export default async function ClassPage({ params }: { params: Promise<{ id: string; classId: string }> }) {
   const { id, classId } = await params;
   const session = await auth();
   const role = (session?.user as any)?.role;
-  const canEnterPlacings = role === 'ADMIN' || role === 'SCOREKEEPER';
+  const canEnterPlacings = role === 'ADMIN' || role === 'SCRIBE';
 
-  const [show, classes, entries, results] = await Promise.all([
+  // Staff see a class's placings before it is posted; the public does not.
+  // Passing headers is what distinguishes the two — see fetchResults.
+  const staffHeaders = canEnterPlacings ? await getAuthHeaders() : null;
+  const [show, classes, entries, results, judges] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchEntries(id, classId),
-    fetchResults(id, classId),
+    fetchResults(id, classId, staffHeaders ?? undefined),
+    fetchShowJudgesPublic(id),
   ]);
 
   const cls = classes.find((c: any) => c.id === classId);
+  const isPosted = Boolean(cls?.results_published_at);
 
   // back_number comes resolved off the entries endpoint. This page used to
   // overlay it from /back-numbers/, which is staff-only and was being called
@@ -99,14 +53,40 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
     })
   );
 
-  const resultsByEntryId = Object.fromEntries(results.map((r: any) => [r.entry_id, r]));
-  const hasTies = results.some((r: any) => r.is_tie);
+  // placings[entryId][cardKey] — one placing per judge who has filed a card.
+  const placingsByEntry: Record<string, PlacingRow['placings']> = {};
+  for (const r of results) {
+    const key = r.judge_id ?? NO_JUDGE;
+    (placingsByEntry[r.entry_id] ??= {})[key] = { place: r.place, is_tie: Boolean(r.is_tie) };
+  }
 
-  // Collect which ribbon places actually appear, for the legend
-  const placesUsed = [...new Set<number>(results.map((r: any) => r.place as number))].sort((a, b) => a - b);
+  // A column per card that actually holds placings. Judges who have not filed
+  // are left off rather than shown as a row of dashes; the unattributed card
+  // (results entered before a panel was assigned) gets a plain "Placing".
+  const filedKeys = new Set<string>(results.map((r: any) => r.judge_id ?? NO_JUDGE));
+  const judgeColumns: CardColumn[] = judges
+    .filter((j: any) => filedKeys.has(j.id))
+    .map((j: any, i: number) => ({
+      key: j.id,
+      label: `${j.first_name} ${j.last_name}`,
+      shortLabel: `J${i + 1}`,
+    }));
+  if (filedKeys.has(NO_JUDGE)) {
+    judgeColumns.push({ key: NO_JUDGE, label: 'Placing', shortLabel: '' });
+  }
+
+  const rows: PlacingRow[] = enriched.map((e: any) => ({
+    id: e.id,
+    back_number: e.back_number ?? null,
+    exhibitorName: e.exhibitorName,
+    horseName: e.horseName,
+    placings: placingsByEntry[e.id] ?? {},
+  }));
+
+  const multiJudge = judgeColumns.length > 1;
 
   return (
-    <main className="max-w-2xl mx-auto p-4 md:p-6">
+    <main className={`${multiJudge ? 'max-w-5xl' : 'max-w-2xl'} mx-auto p-4 md:p-6`}>
       <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
         ← Back to {show.name}
       </Link>
@@ -121,7 +101,7 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
           </p>
         </div>
         {canEnterPlacings && (
-          <Link href={`/shows/${id}/classes/${classId}/scorekeeper`}
+          <Link href={`/shows/${id}/classes/${classId}/scribe`}
             className="text-sm px-4 py-2 rounded font-medium whitespace-nowrap"
             style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
             Enter Placings
@@ -129,72 +109,48 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
         )}
       </div>
 
+      {/* Staff-only: an unposted class looks identical to an unjudged one from
+          the outside, so say which it is rather than leaving the office to
+          guess whether the scribe has started. */}
+      {canEnterPlacings && results.length > 0 && !isPosted && (
+        <div
+          className="mt-3 px-3 py-2 rounded text-sm"
+          style={{ backgroundColor: '#faf7f2', border: '1px solid #d4b896', color: '#8b7355' }}
+        >
+          ○ <span className="font-medium" style={{ color: '#2c1810' }}>Not posted</span> — these
+          placings are visible to show staff only.{' '}
+          <Link
+            href={`/shows/${id}/classes/${classId}/scribe`}
+            className="font-medium hover:underline"
+            style={{ color: '#8b4513' }}
+          >
+            Post them
+          </Link>
+        </div>
+      )}
+
       <div className="mt-6 rounded-lg border overflow-hidden" style={{ borderColor: '#d4b896' }}>
         {enriched.length === 0 ? (
           <p className="p-4" style={{ color: '#8b7355' }}>No entries found.</p>
         ) : (
-          <table className="w-full">
-            <thead>
-              <tr style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
-                <th className="py-3 px-4 text-left text-sm font-semibold">Place</th>
-                <th className="py-3 px-4 text-left text-sm font-semibold">Back #</th>
-                <th className="py-3 px-4 text-left text-sm font-semibold">Exhibitor</th>
-                <th className="py-3 px-4 text-left text-sm font-semibold hidden md:table-cell">Horse</th>
-              </tr>
-            </thead>
-            <tbody>
-              {enriched
-                .sort((a: any, b: any) => {
-                  const ra = resultsByEntryId[a.id];
-                  const rb = resultsByEntryId[b.id];
-                  if (!ra) return 1;
-                  if (!rb) return -1;
-                  return ra.place - rb.place;
-                })
-                .map((entry: any, i: number) => {
-                  const result = resultsByEntryId[entry.id];
-                  return (
-                    <tr key={entry.id}
-                      style={{ backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf7f2', borderTop: '1px solid #d4b896' }}>
-                      <td className="py-2 px-4 font-bold" style={{ color: '#8b4513' }}>
-                        {result ? (
-                          <span className="flex items-center gap-2">
-                            <Ribbon place={result.place} />
-                            <span>
-                              {placeOrdinal(result.place)}
-                              {result.is_tie && <span className="ml-1 text-xs font-normal" style={{ color: '#8b7355' }}>(T)</span>}
-                            </span>
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.back_number ?? '—'}</td>
-                      <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
-                      <td className="py-3 px-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+          <PlacingsTable rows={rows} judgeColumns={judgeColumns} />
         )}
       </div>
 
-      {/* Legend — only shown when there are results */}
-      {placesUsed.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs" style={{ color: '#8b7355' }}>
-          {placesUsed.map((place) => {
-            const color = RIBBON_COLORS[place] ?? DEFAULT_RIBBON;
-            return (
-              <span key={place} className="flex items-center gap-1.5">
-                <span
-                  className="inline-block w-3 h-3 rounded-full border"
-                  style={{ backgroundColor: color.main, borderColor: color.dark }}
-                />
-                {color.name} — {placeOrdinal(place)}
-              </span>
-            );
-          })}
-          {hasTies && <span><span className="font-semibold">(T)</span> — Tie</span>}
-        </div>
+      {enriched.length > 0 && (
+        <p className="mt-3 text-xs" style={{ color: '#8b7355' }}>
+          Tap a column heading to sort.
+          {/* Each judge places independently, so the cards can and do disagree.
+              The app does not judge and does not combine them into an overall —
+              saying so is what stops the first row reading as a winner. */}
+          {multiJudge && (
+            <>
+              {' '}Each judge places this class on their own card, and the default order is the
+              average across the {judgeColumns.length} cards — a reading aid, not an official
+              combined result.
+            </>
+          )}
+        </p>
       )}
     </main>
   );

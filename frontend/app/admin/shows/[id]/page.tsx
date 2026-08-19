@@ -6,41 +6,36 @@ import ShowStatusControl from './ShowStatusControl';
 import Breadcrumbs from '@/components/Breadcrumbs';
 
 const tiles = (showId: string) => [
+  // Staff and the class schedule were tiles of their own. Both are things you
+  // set up once, before the show runs, so both are steps of the setup wizard —
+  // staff in Step 1 next to the dates, classes in Step 6.
   {
     href: `/admin/shows/${showId}/setup`,
     title: 'Setup',
-    description: 'Show basics, judges, sanctioning, lodging, and fees — the five-step setup wizard.',
+    description:
+      'Basics and staff, judges, sanctioning, lodging, fees, classes, and paperwork — the setup wizard.',
     icon: '🎪',
   },
+  // Entries, back numbers, and paperwork check-in were three tiles and three
+  // screens; they are one conversation at the counter, so they are one tile and
+  // one screen. The old routes redirect here.
   {
-    href: `/admin/shows/${showId}/classes`,
-    title: 'Add / Modify Classes',
-    description: 'Manage individual classes — edit details, reorder, delete.',
-    icon: '📋',
-  },
-  {
-    href: `/admin/shows/${showId}/entries`,
-    title: 'Add / Modify Entries',
-    description: 'Enter horses and exhibitors in classes.',
+    href: `/admin/shows/${showId}/desk`,
+    title: 'Registration Desk',
+    description: 'Back numbers, class entries, side pot buy-ins, and paperwork check-in — one exhibitor at a time.',
     icon: '🎟️',
   },
   {
-    href: `/admin/shows/${showId}/check-in`,
-    title: 'Paperwork Check-In',
-    description: 'Sign off on horse age, registration papers, and membership cards you have inspected.',
-    icon: '📄',
+    href: `/admin/shows/${showId}/side-pots`,
+    title: 'Side Pots',
+    description: 'Divisional jackpots spanning several classes — buy-ins, standings, and payouts.',
+    icon: '💰',
   },
   {
-    href: `/admin/shows/${showId}/back-numbers`,
-    title: 'Assign Back Numbers',
-    description: 'Assign back numbers to exhibitors for this show.',
-    icon: '🔢',
-  },
-  {
-    href: `/admin/shows/${showId}/staff`,
-    title: 'Show Staff',
-    description: 'Manage Show Secretaries and Scorekeepers assigned to this show.',
-    icon: '👥',
+    href: `/admin/shows/${showId}/financials`,
+    title: 'Financials',
+    description: 'Registrations, revenue, outstanding balances, and reports.',
+    icon: '💵',
   },
   {
     href: `/admin/shows/${showId}/messages`,
@@ -72,11 +67,11 @@ type AqhaValidationData = {
   issues: AqhaValidationIssue[];
 };
 
-async function fetchScorekeeperNames(
+async function fetchScribeNames(
   showId: string,
   headers: Record<string, string>,
 ): Promise<string[]> {
-  const res = await fetch(`${API_URL}/shows/${showId}/scorekeepers`, {
+  const res = await fetch(`${API_URL}/shows/${showId}/scribes`, {
     headers,
     cache: 'no-store',
   });
@@ -116,7 +111,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const isAdmin = user?.role === 'ADMIN';
   const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
-  let scorekeeperNames: string[] = [];
+  let scribeNames: string[] = [];
   let aqhaValidation: AqhaValidationData | null = null;
   let unreadMessages = 0;
   if ((isAdmin || isShowAdmin) && user?.id) {
@@ -127,8 +122,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'X-User-Id': user.id,
       'X-User-Role': user.role ?? '',
     };
-    [scorekeeperNames, unreadMessages] = await Promise.all([
-      fetchScorekeeperNames(id, headers),
+    [scribeNames, unreadMessages] = await Promise.all([
+      fetchScribeNames(id, headers),
       fetchUnreadMessageCount(id, headers),
     ]);
     if (show.show_type_code === 'AQHA') {
@@ -167,13 +162,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
         </div>
         {(isAdmin || isShowAdmin) && (
           <p className="text-sm mt-2" style={{ color: '#8b7355' }}>
-            {scorekeeperNames.length > 0 ? (
-              <>Scorekeepers: {scorekeeperNames.join(' · ')}</>
+            {scribeNames.length > 0 ? (
+              <>Scribes: {scribeNames.join(' · ')}</>
             ) : (
               <>
-                No scorekeepers assigned yet —{' '}
+                No scribes assigned yet —{' '}
                 <Link
-                  href={`/admin/shows/${id}/staff`}
+                  href={`/admin/shows/${id}/edit`}
                   className="underline"
                   style={{ color: '#8b4513' }}
                 >

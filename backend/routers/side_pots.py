@@ -1,9 +1,10 @@
 """Side pots (divisional jackpots).
 
 A side pot is an optional money pool that spans multiple classes within a show.
-Exhibitors opt in at the show_entry (back number) level and pay a flat fee.
-The pot ranks all opt-ins by combined score across the bundled classes and
-pays out per a producer-configurable schedule.
+Exhibitors enter at the show_entry (back number) level and pay a flat buy-in, so
+one side pot entry covers every bundled class. The pot ranks its entries by
+combined score across those classes and pays out per a producer-configurable
+schedule.
 
 Standings are computed on demand from the current `results` rows. They are
 materialized into `side_pot_payouts` only when the pot is settled.
@@ -41,6 +42,7 @@ from schemas import (
     SidePotEntryUpdate,
     SidePotOut,
     SidePotPayoutOut,
+    SidePotRosterEntry,
     SidePotStanding,
     SidePotStandingsOut,
     SidePotUpdate,
@@ -64,14 +66,27 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
 
 
 async def _get_pot_or_404(show_id: UUID, pot_id: UUID, db: AsyncSession) -> SidePot:
-    pot = await db.get(
-        SidePot,
-        pot_id,
-        options=[
+    """Load a pot with everything `_serialize_pot` reads already attached.
+
+    `select().populate_existing()` rather than `db.get(..., options=[...])`:
+    loader options are **silently ignored** when the instance is already in the
+    session's identity map, which is exactly the case one line after
+    `create_pot()` added it. The relationships then come back unloaded, the
+    first attribute access is lazy IO inside an async request, and SQLAlchemy
+    raises `MissingGreenlet` — a 500 on the save button with nothing in the
+    response body to explain it. `populate_existing` forces the options onto the
+    instance that is already there.
+    """
+    rows = await db.execute(
+        select(SidePot)
+        .where(SidePot.id == pot_id)
+        .options(
             selectinload(SidePot.pot_classes).selectinload(SidePotClass.class_),
             selectinload(SidePot.pot_entries).selectinload(SidePotEntry.show_entry),
-        ],
+        )
+        .execution_options(populate_existing=True)
     )
+    pot = rows.scalar_one_or_none()
     if not pot or pot.show_id != show_id:
         raise HTTPException(404, "Side pot not found")
     return pot
@@ -239,17 +254,26 @@ async def delete_pot(show_id: UUID, pot_id: UUID, db: AsyncSession = Depends(get
     await db.commit()
 
 
-# ── Opt-ins (entries) ─────────────────────────────────────────────────────────
+# ── Side pot entries ──────────────────────────────────────────────────────────
 
 
 async def _hydrate_entry(
     pot_entry: SidePotEntry, db: AsyncSession
 ) -> dict:
-    """Build a dict for SidePotEntryOut, looking up back number + name."""
-    show_entry = await db.get(
-        ShowEntry, pot_entry.show_entry_id,
-        options=[selectinload(ShowEntry.exhibitor)],
+    """Build a dict for SidePotEntryOut, looking up back number + name.
+
+    Same `populate_existing` reason as `_get_pot_or_404`: `_get_pot_or_404`
+    already pulled these `ShowEntry` rows into the session (without their
+    exhibitor), so `db.get(..., options=[...])` would hand back the loaded
+    instance and drop the option, and reading `.exhibitor` would lazy-load.
+    """
+    rows = await db.execute(
+        select(ShowEntry)
+        .where(ShowEntry.id == pot_entry.show_entry_id)
+        .options(selectinload(ShowEntry.exhibitor))
+        .execution_options(populate_existing=True)
     )
+    show_entry = rows.scalar_one_or_none()
     return {
         "id": pot_entry.id,
         "side_pot_id": pot_entry.side_pot_id,
@@ -275,6 +299,46 @@ async def list_entries(
         out.append(await _hydrate_entry(pe, db))
     out.sort(key=lambda e: (e["back_number"] is None, e["back_number"] or 0))
     return out
+
+
+@router.get("/{pot_id}/roster", response_model=list[SidePotRosterEntry])
+async def list_show_roster(
+    show_id: UUID, pot_id: UUID, db: AsyncSession = Depends(get_db)
+):
+    """The show's roster, which is what the pot's exhibitor picker offers.
+
+    Read from `show_entries` rather than from who is entered in the pot's
+    bundled classes: the pot is joined at the show level, and the desk adds
+    people to a pot before the class entries settle. Someone with no results in
+    the bundled classes simply ranks as ineligible, which the standings already
+    say plainly.
+
+    Scoped to the pot so it 404s on a pot that belongs to another show; the
+    caller filters out who is already in.
+    """
+    await _get_pot_or_404(show_id, pot_id, db)
+    rows = await db.execute(
+        select(ShowEntry)
+        .where(ShowEntry.show_id == show_id)
+        .options(selectinload(ShowEntry.exhibitor))
+    )
+    roster = [
+        {
+            "show_entry_id": se.id,
+            "back_number": se.back_number,
+            "exhibitor_name": se.exhibitor.full_name if se.exhibitor else None,
+        }
+        for se in rows.scalars().all()
+    ]
+    # Numbered first in number order, then whoever has no number yet, by name.
+    roster.sort(
+        key=lambda r: (
+            r["back_number"] is None,
+            r["back_number"] or 0,
+            (r["exhibitor_name"] or "").lower(),
+        )
+    )
+    return roster
 
 
 @router.post("/{pot_id}/entries", response_model=SidePotEntryOut, status_code=201)
@@ -428,7 +492,20 @@ def _entry_aggregate(
     For any_class:   missing classes get last-place-plus-one (placings) or 0 (scores).
                      The entry is always eligible.
     """
-    by_class = {r.class_id: r for r in entry_results}
+    # One card per judge since migration 095, so a class can contribute several
+    # results for the same entry. Take the best of them, deterministically —
+    # this used to be a dict comprehension whose winner depended on row order.
+    #
+    # Open decision, not a rule: bills that run multi-judge side pots settle
+    # "from combined judge score sheets", which is a sum across judges rather
+    # than a best-of. Adopting that would silently change payouts on existing
+    # pots, so it needs a deliberate call. Best-of matches today's behaviour and
+    # is identical to it on the single-judge shows side pots have run on.
+    by_class: dict[UUID, Result] = {}
+    for r in entry_results:
+        current = by_class.get(r.class_id)
+        if current is None or r.place < current.place:
+            by_class[r.class_id] = r
     missing = bundled_class_ids - set(by_class.keys())
     is_eligible = (eligibility_rule != "all_classes") or not missing
 

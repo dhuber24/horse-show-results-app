@@ -173,6 +173,147 @@ def build_bill(
     }
 
 
+# ── What was collected ─────────────────────────────────────────────────────────
+#
+# `build_bill` says what an exhibitor owes. Everything below turns that plus the
+# recorded payments into a balance, and rolls a show's accounts into one set of
+# figures for the Financials screen. It lives here for the same reason the bill
+# does: the show's revenue total and the exhibitor's own bill must not be two
+# implementations that disagree.
+
+
+def payment_totals_cents(payments: Iterable) -> dict:
+    """Split an account's payment rows into money in, money back, and the net.
+
+    `amount_cents` is signed — a refund is a negative row (see migration 096) —
+    so the net is what settles the balance while the two gross figures are what
+    the office reconciles the drawer against. A day that took $600 and refunded
+    $100 is not the same day as one that took $500, and the summary must be able
+    to say so.
+    """
+    collected = sum(p.amount_cents for p in payments if p.amount_cents > 0)
+    refunded = sum(-p.amount_cents for p in payments if p.amount_cents < 0)
+    return {
+        "collected_cents": collected,
+        "refunded_cents": refunded,
+        "net_paid_cents": collected - refunded,
+    }
+
+
+def build_account(show, entries: Iterable, reservations: Iterable, payments: Iterable) -> dict:
+    """One exhibitor's standing at one show: billed, paid, and the difference.
+
+    The bill comes from `build_bill` untouched, so what Financials shows an
+    exhibitor owes is character-for-character what My Shows shows them.
+    """
+    bill = build_bill(show, entries, reservations)
+    totals = payment_totals_cents(payments)
+    return {
+        "bill": bill,
+        **totals,
+        "balance_cents": bill["total_cents"] - totals["net_paid_cents"],
+    }
+
+
+def summarize_accounts(accounts: Iterable) -> dict:
+    """Roll every account at a show into one set of figures.
+
+    Outstanding and credit are tracked separately rather than as one signed
+    number. Summing balances would net one exhibitor's overpayment against
+    another's arrears and report less owed than actually is — the office needs
+    "$1,840 still to collect", not a figure quietly reduced by someone who paid
+    twice. `net_balance_cents` is kept alongside for the books, where the netted
+    figure is the right one.
+    """
+    totals = {
+        "accounts": 0,
+        "class_fee_total_cents": 0,
+        "nsba_sanction_total_cents": 0,
+        "office_charge_total_cents": 0,
+        "reservation_total_cents": 0,
+        "billed_cents": 0,
+        "collected_cents": 0,
+        "refunded_cents": 0,
+        "net_paid_cents": 0,
+        "outstanding_cents": 0,
+        "credit_cents": 0,
+        "accounts_outstanding": 0,
+        "accounts_paid_in_full": 0,
+        "accounts_unpaid": 0,
+    }
+    # Per-fee rollup: how many stalls the show actually sold, and for how much.
+    # Keyed by fee id so a show's own custom fee is included with no change here.
+    fee_lines: dict = {}
+
+    for account in accounts:
+        bill = account["bill"]
+        totals["accounts"] += 1
+        for key in (
+            "class_fee_total_cents",
+            "nsba_sanction_total_cents",
+            "office_charge_total_cents",
+            "reservation_total_cents",
+        ):
+            totals[key] += bill[key]
+        totals["billed_cents"] += bill["total_cents"]
+        totals["collected_cents"] += account["collected_cents"]
+        totals["refunded_cents"] += account["refunded_cents"]
+        totals["net_paid_cents"] += account["net_paid_cents"]
+
+        balance = account["balance_cents"]
+        if balance > 0:
+            totals["outstanding_cents"] += balance
+            totals["accounts_outstanding"] += 1
+            if account["net_paid_cents"] == 0:
+                totals["accounts_unpaid"] += 1
+        elif balance < 0:
+            totals["credit_cents"] += -balance
+            totals["accounts_paid_in_full"] += 1
+        else:
+            totals["accounts_paid_in_full"] += 1
+
+        for line in bill["reservation_lines"]:
+            fee = fee_lines.setdefault(
+                line["show_fee_id"],
+                {
+                    "show_fee_id": line["show_fee_id"],
+                    "code": line["code"],
+                    "label": line["label"],
+                    "unit": line["unit"],
+                    "quantity": 0,
+                    "line_total_cents": 0,
+                    "early_rate_quantity": 0,
+                },
+            )
+            fee["quantity"] += line["quantity"]
+            fee["line_total_cents"] += line["line_total_cents"]
+            if line["is_early_rate"]:
+                fee["early_rate_quantity"] += line["quantity"]
+
+    totals["net_balance_cents"] = totals["billed_cents"] - totals["net_paid_cents"]
+    totals["fee_lines"] = sorted(fee_lines.values(), key=lambda f: f["label"] or "")
+    return totals
+
+
+def side_pot_money(pot, paid_entry_count: int, payouts: Iterable) -> dict:
+    """A pot's money, kept apart from the exhibitor's bill on purpose.
+
+    Pot buy-ins are not in `build_bill` and are not added to an account balance
+    here: doing so would make Financials disagree with the bill the exhibitor
+    sees on My Shows. The show's cut is whatever `payback_percent` does not pay
+    back out.
+    """
+    taken = pot.entry_fee_cents * paid_entry_count
+    pool = (taken * pot.payback_percent) // 100
+    paid_out = sum(p.payout_cents for p in payouts)
+    return {
+        "buy_ins_cents": taken,
+        "payout_pool_cents": pool,
+        "paid_out_cents": paid_out,
+        "retained_cents": taken - pool,
+    }
+
+
 def reservable_fees(fees: Iterable) -> list:
     """The show's fee rows an exhibitor picks quantities of, in the secretary's
     configured order."""

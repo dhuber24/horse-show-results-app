@@ -6,7 +6,7 @@ A browser-based application for ranch and western pleasure horse shows.
 
 - Manages shows, classes, entries, exhibitors, horses, and show staff.
 - Assigns show-level back numbers.
-- Lets authorized scorekeepers manually enter placings.
+- Lets authorized scribes manually enter placings.
 - Supports score-driven placings for pattern/time classes.
 - Supports optional side-pot payouts across class bundles.
 - Publishes results live.
@@ -39,7 +39,7 @@ Placings entered by authorized show staff are final, with audit history for resu
 - `ADMIN`: full system access.
 - `SHOW_MANAGER`: requests and manages hosted shows.
 - `SHOW_SECRETARY`: manages assigned shows, entries, classes, back numbers, and result administration.
-- `SCOREKEEPER`: enters placings for assigned shows.
+- `SCRIBE`: enters placings for assigned shows.
 - `EXHIBITOR`: views own entries/results and manages profile/horses.
 - `TRAINER`: manages a linked trainer registry profile used on horse records.
 

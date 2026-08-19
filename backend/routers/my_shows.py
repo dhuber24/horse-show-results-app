@@ -21,7 +21,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -36,6 +36,8 @@ from models import (
     Show,
     ShowEntry,
     ShowEntryReservation,
+    ShowWaiver,
+    ShowWaiverSignature,
 )
 
 router = APIRouter(prefix="/my-shows", tags=["My Shows"])
@@ -89,8 +91,13 @@ async def list_my_shows(
         results_result = await db.execute(
             select(Result).where(Result.entry_id.in_(entry_ids))
         )
+        # One row per judge who placed the class (migration 095). This view
+        # shows a single placing per entry, so keep the best of them — on the
+        # single-judge shows it was written for, that is the only one.
         for row in results_result.scalars().all():
-            results_by_entry[row.entry_id] = row
+            best = results_by_entry.get(row.entry_id)
+            if best is None or row.place < best.place:
+                results_by_entry[row.entry_id] = row
 
     shows_by_id: dict[UUID, Show] = {}
     entries_by_show: dict[UUID, list[Entry]] = {}
@@ -147,6 +154,28 @@ async def list_my_shows(
     }
 
 
+async def _unsigned_waiver_count(show_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> int:
+    """Required waivers this exhibitor has not signed, by either route.
+
+    Optional ones are excluded on purpose: the show wants them read, not
+    chased, and a permanent nag about something nobody has to sign teaches
+    people to ignore the banner.
+    """
+    result = await db.execute(
+        select(func.count())
+        .select_from(ShowWaiver)
+        .where(
+            ShowWaiver.show_id == show_id,
+            ShowWaiver.is_required.is_(True),
+            ~exists().where(
+                ShowWaiverSignature.waiver_id == ShowWaiver.id,
+                ShowWaiverSignature.exhibitor_id == exhibitor_id,
+            ),
+        )
+    )
+    return result.scalar_one()
+
+
 @router.get("/{show_id}")
 async def my_standing_at_show(
     show_id: UUID,
@@ -175,6 +204,7 @@ async def my_standing_at_show(
         "entry_count": 0,
         "arrival_date": None,
         "departure_date": None,
+        "waivers_outstanding": 0,
     }
 
     exhibitor_result = await db.execute(
@@ -208,6 +238,10 @@ async def my_standing_at_show(
         "registered_at": show_entry.registered_at if show_entry else None,
         "back_number": show_entry.back_number if show_entry else None,
         "entry_count": count_result.scalar_one(),
+        # Required waivers with no signature by either route. Counted here
+        # rather than fetched separately by the show page: it is one more thing
+        # the banner has to say, and it would be a second round trip to say it.
+        "waivers_outstanding": await _unsigned_waiver_count(show_id, exhibitor.id, db),
         "arrival_date": show_entry.arrival_date if show_entry else None,
         "departure_date": show_entry.departure_date if show_entry else None,
     }

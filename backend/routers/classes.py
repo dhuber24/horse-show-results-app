@@ -225,8 +225,11 @@ async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
 @router.get("/")
 async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
+    # Distinct entries, not result rows: a class judged by a panel holds one
+    # row per entry *per judge* (migration 095), so counting rows would report
+    # "24 placed" in an eight-horse class with three judges.
     placed_subq = (
-        select(func.count(Result.id))
+        select(func.count(func.distinct(Result.entry_id)))
         .where(Result.class_id == Class.id)
         .correlate(Class)
         .scalar_subquery()

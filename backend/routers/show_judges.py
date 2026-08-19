@@ -8,15 +8,20 @@ same way across every show they work.
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from models import Judge, Show, ShowJudge
+from models import Judge, Result, Show, ShowJudge
 from routers.shows import _assert_show_access
-from schemas import ShowJudgeCreate, ShowJudgeOut, ShowJudgeUpdate
+from schemas import (
+    PublicShowJudgeOut,
+    ShowJudgeCreate,
+    ShowJudgeOut,
+    ShowJudgeUpdate,
+)
 
 router = APIRouter(prefix="/shows/{show_id}/judges", tags=["Show Judges"])
 
@@ -72,6 +77,36 @@ async def list_show_judges(
         .order_by(ShowJudge.sort_order, ShowJudge.created_at)
     )
     return [_serialize(sj) for sj in result.scalars().all()]
+
+
+@router.get("/public", response_model=list[PublicShowJudgeOut])
+async def list_show_judges_public(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """The show's judging panel, names only, no auth.
+
+    Results are published per judge, so the public class page has to label its
+    columns with something. Who judged a show is program information — it is
+    printed on the show bill — but contact details are not, so this returns the
+    name and the running order and stops there.
+
+    Declared above `/{assignment_id}` so "public" is not parsed as a UUID.
+    """
+    await _get_show_or_404(show_id, db)
+    result = await db.execute(
+        select(ShowJudge)
+        .where(ShowJudge.show_id == show_id)
+        .options(selectinload(ShowJudge.judge))
+        .order_by(ShowJudge.sort_order, ShowJudge.created_at)
+    )
+    return [
+        {
+            "id": sj.id,
+            "judge_id": sj.judge_id,
+            "first_name": sj.judge.first_name,
+            "last_name": sj.judge.last_name,
+            "sort_order": sj.sort_order,
+        }
+        for sj in result.scalars().all()
+    ]
 
 
 @router.post("/", response_model=ShowJudgeOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
@@ -146,5 +181,22 @@ async def delete_show_judge(
     assignment = await db.get(ShowJudge, assignment_id)
     if not assignment or assignment.show_id != show_id:
         raise HTTPException(404, "Judge not found")
+
+    # Placings point at the assignment (migration 095) under an ON DELETE
+    # RESTRICT. Checking here turns what would surface as a raw FK violation
+    # into an answerable message — and the answer is never "delete the card",
+    # so the office is told to clear it deliberately rather than by side effect.
+    placed = await db.execute(
+        select(func.count()).select_from(Result).where(Result.judge_id == assignment_id)
+    )
+    placed_count = placed.scalar_one()
+    if placed_count:
+        raise HTTPException(
+            409,
+            f"This judge has placings recorded in {placed_count} "
+            f"{'entry' if placed_count == 1 else 'entries'} at this show. "
+            "Clear their cards before unassigning them.",
+        )
+
     await db.delete(assignment)
     await db.commit()

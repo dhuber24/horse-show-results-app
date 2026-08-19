@@ -9,6 +9,9 @@ type PreviewClass = {
   class_number: string;
   class_name: string;
   class_date: string;
+  /** `pattern` classes are judged run by run, so one exhibitor may show two
+   *  horses in them. Everything else is once per exhibitor. */
+  score_type: string;
   entry_fee_cents: number;
   is_nsba_approved: boolean;
   nsba_sanction_cents: number;
@@ -20,6 +23,11 @@ type HealthCheck = {
   status: 'valid' | 'missing' | 'undated' | 'expired';
   message: string;
   expiry_date: string | null;
+  /** True when this is only `valid` because the show office inspected the paper
+   *  at the desk. Nothing is uploaded, so the *next* show will ask again — but
+   *  this one has seen it, and nagging about paperwork the office is holding is
+   *  how people learn to ignore a warning. */
+  attested?: boolean;
 };
 
 type PreviewHorse = {
@@ -166,14 +174,17 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
   const router = useRouter();
   const { show, exhibitor, classes, horses, existing_entries } = preview;
 
-  // class_id -> horse_id ("" = not selected)
+  // class_id -> the horses being entered in it. A list rather than one horse
+  // because a pattern class is scored run by run: showmanship on two horses is
+  // two runs and two scores, and the backend has always accepted it. Non-pattern
+  // classes are capped at one here and rejected server-side either way.
   const initialSelection = useMemo(() => {
-    const seed: Record<string, string> = {};
-    for (const cls of classes) seed[cls.id] = '';
+    const seed: Record<string, string[]> = {};
+    for (const cls of classes) seed[cls.id] = [];
     return seed;
   }, [classes]);
 
-  const [selection, setSelection] = useState<Record<string, string>>(initialSelection);
+  const [selection, setSelection] = useState<Record<string, string[]>>(initialSelection);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
@@ -210,28 +221,37 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     [horses],
   );
 
-  const selectedClassIds = Object.keys(selection).filter((cid) => selection[cid]);
   const classById = useMemo(() => {
     const m = new Map<string, PreviewClass>();
     for (const c of classes) m.set(c.id, c);
     return m;
   }, [classes]);
 
-  const subtotalCents = selectedClassIds.reduce(
-    (sum, cid) => sum + (classById.get(cid)?.entry_fee_cents ?? 0),
+  // Fees are charged per *entry* — one horse in one class — so a second horse
+  // in a pattern class is a second entry fee and a second sanction fee. Summing
+  // over classes would have quietly shown the wrong total the moment this
+  // screen learned to offer two.
+  const pendingEntries = useMemo(
+    () =>
+      Object.entries(selection).flatMap(([classId, horseIds]) =>
+        horseIds.filter(Boolean).map((horseId) => ({ classId, horseId })),
+      ),
+    [selection],
+  );
+
+  const subtotalCents = pendingEntries.reduce(
+    (sum, e) => sum + (classById.get(e.classId)?.entry_fee_cents ?? 0),
     0,
   );
-  const sanctionCents = selectedClassIds.reduce(
-    (sum, cid) => sum + (classById.get(cid)?.nsba_sanction_cents ?? 0),
+  const sanctionCents = pendingEntries.reduce(
+    (sum, e) => sum + (classById.get(e.classId)?.nsba_sanction_cents ?? 0),
     0,
   );
-  const distinctHorsesSelected = new Set(
-    selectedClassIds.map((cid) => selection[cid]).filter(Boolean),
-  ).size;
+  const distinctHorsesSelected = new Set(pendingEntries.map((e) => e.horseId)).size;
   // Mirrors office_charge_total_cents() in backend/billing.py: per_back_number
   // is one charge for the exhibitor however many horses they bring.
   const officeChargeTotalCents =
-    selectedClassIds.length === 0
+    pendingEntries.length === 0
       ? 0
       : show.office_charge_basis === 'per_horse'
         ? distinctHorsesSelected * show.office_charge_cents
@@ -248,8 +268,16 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [classes]);
 
-  const handleSelect = (classId: string, horseId: string) => {
-    setSelection((prev) => ({ ...prev, [classId]: horseId }));
+  /** Set the horse in one slot of a class. An empty value clears that slot,
+   *  which is how the trailing "add another" select doubles as a remove. */
+  const handleSelect = (classId: string, slot: number, horseId: string) => {
+    setSelection((prev) => {
+      const current = prev[classId] ?? [];
+      const next = [...current];
+      if (horseId === '') next.splice(slot, 1);
+      else next[slot] = horseId;
+      return { ...prev, [classId]: next.filter(Boolean) };
+    });
   };
 
   const handleWithdraw = async (entryId: string) => {
@@ -280,9 +308,9 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const entries = selectedClassIds.map((cid) => ({
-      class_id: cid,
-      horse_id: selection[cid],
+    const entries = pendingEntries.map((e) => ({
+      class_id: e.classId,
+      horse_id: e.horseId,
     }));
     if (entries.length === 0) {
       setError('Pick a horse for at least one class to register.');
@@ -524,27 +552,78 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
                         )}
                       </div>
                       <div className="shrink-0">
-                        <select
-                          aria-label={`Horse for ${cls.class_name}`}
-                          value={selection[cls.id] ?? ''}
-                          onChange={(e) => handleSelect(cls.id, e.target.value)}
-                          className="text-sm border rounded px-2 py-1.5"
-                          style={{ borderColor: '#d4b896', backgroundColor: '#fffdf8' }}
-                        >
-                          <option value="">— skip —</option>
-                          {horses.map((h) => {
-                            const already = existingHorseIds.includes(h.id);
-                            // Only "entered" disables an option. A health
-                            // warning is marked, not enforced — the banner
-                            // above says what is outstanding.
-                            const needsRecords = healthWarnings(h).length > 0;
-                            return (
-                              <option key={h.id} value={h.id} disabled={already}>
-                                {h.name}{already ? ' (entered)' : needsRecords ? ' ⚠ records due' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
+                        {(() => {
+                          const picked = selection[cls.id] ?? [];
+                          const isPattern = cls.score_type === 'pattern';
+                          const spareHorses = horses.filter(
+                            (h) => !existingHorseIds.includes(h.id) && !picked.includes(h.id),
+                          );
+                          // One select per horse already chosen, plus a trailing
+                          // empty one while a pattern class still has a horse
+                          // left to put in it. A non-pattern class gets exactly
+                          // one: entering it twice is a 409.
+                          const slots = !isPattern
+                            ? [picked[0] ?? '']
+                            : picked.length === 0 || spareHorses.length > 0
+                              ? [...picked, '']
+                              : [...picked];
+
+                          return (
+                            <div className="flex flex-col items-end gap-1.5">
+                              {slots.map((chosen, slot) => (
+                                <select
+                                  key={`${cls.id}-${slot}`}
+                                  aria-label={
+                                    slot === 0
+                                      ? `Horse for ${cls.class_name}`
+                                      : `Another horse for ${cls.class_name}`
+                                  }
+                                  value={chosen}
+                                  onChange={(e) => handleSelect(cls.id, slot, e.target.value)}
+                                  className="text-sm border rounded px-2 py-1.5"
+                                  style={{ borderColor: '#d4b896', backgroundColor: '#fffdf8' }}
+                                >
+                                  <option value="">
+                                    {slot === 0 ? '— skip —' : '— add another horse —'}
+                                  </option>
+                                  {horses.map((h) => {
+                                    const already = existingHorseIds.includes(h.id);
+                                    // Taken by another slot of this same class:
+                                    // one horse cannot run a class twice.
+                                    const inAnotherSlot =
+                                      picked.includes(h.id) && picked[slot] !== h.id;
+                                    // Only "entered" and "already picked here"
+                                    // disable an option. A health warning is
+                                    // marked, not enforced — the banner above
+                                    // says what is outstanding.
+                                    const needsRecords = healthWarnings(h).length > 0;
+                                    return (
+                                      <option
+                                        key={h.id}
+                                        value={h.id}
+                                        disabled={already || inAnotherSlot}
+                                      >
+                                        {h.name}
+                                        {already
+                                          ? ' (entered)'
+                                          : inAnotherSlot
+                                            ? ' (already picked)'
+                                            : needsRecords
+                                              ? ' ⚠ records due'
+                                              : ''}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              ))}
+                              {isPattern && picked.length > 1 && (
+                                <span className="text-xs" style={{ color: '#8b7355' }}>
+                                  {picked.length} runs · fee each
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   </li>
@@ -562,7 +641,7 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-wider" style={{ color: '#8b7355' }}>
-              {selectedClassIds.length} class{selectedClassIds.length === 1 ? '' : 'es'} selected
+              {pendingEntries.length} entr{pendingEntries.length === 1 ? 'y' : 'ies'} selected
               {distinctHorsesSelected > 0 && (
                 <> · {distinctHorsesSelected} horse{distinctHorsesSelected === 1 ? '' : 's'}</>
               )}
@@ -573,18 +652,18 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
           </div>
           <button
             type="submit"
-            disabled={submitting || selectedClassIds.length === 0}
+            disabled={submitting || pendingEntries.length === 0}
             className="px-4 py-2 rounded font-medium text-white"
             style={{
-              backgroundColor: submitting || selectedClassIds.length === 0 ? '#a89175' : '#8b4513',
-              cursor: submitting || selectedClassIds.length === 0 ? 'not-allowed' : 'pointer',
+              backgroundColor: submitting || pendingEntries.length === 0 ? '#a89175' : '#8b4513',
+              cursor: submitting || pendingEntries.length === 0 ? 'not-allowed' : 'pointer',
             }}
-            title={selectedClassIds.length === 0 ? 'Pick at least one class to register' : undefined}
+            title={pendingEntries.length === 0 ? 'Pick at least one class to register' : undefined}
           >
             {submitting ? 'Submitting…' : 'Submit registration'}
           </button>
         </div>
-        {selectedClassIds.length > 0 && (sanctionCents > 0 || officeChargeTotalCents > 0) && (
+        {pendingEntries.length > 0 && (sanctionCents > 0 || officeChargeTotalCents > 0) && (
           <dl className="text-xs grid grid-cols-2 gap-y-1 pt-2 border-t" style={{ borderColor: '#e8d5b7', color: '#5d4a37' }}>
             <dt>Class fees</dt>
             <dd className="text-right">{formatMoney(subtotalCents)}</dd>

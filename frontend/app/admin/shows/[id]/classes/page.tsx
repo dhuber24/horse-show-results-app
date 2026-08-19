@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisions } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
-import Breadcrumbs from '@/components/Breadcrumbs';
+import StepLayout from '../setup/_lib/StepLayout';
+import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
 import ClassWizardClient, {
   type DisciplineItem,
   type DivisionItem,
@@ -60,6 +61,10 @@ async function fetchStandardLibrary(
   };
 }
 
+/** Setup Step 6. Building the schedule is the longest job in setting a show up,
+ *  so it sits in the wizard with the rest of it rather than behind its own
+ *  dashboard tile. The route is unchanged — deep links into class setup and the
+ *  per-class screens still work. */
 export default async function ShowClassesPage({
   params,
 }: {
@@ -67,32 +72,31 @@ export default async function ShowClassesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
+  const stepsInput = await fetchStepCounts(id, show.office_charge_cents ?? 0);
 
   if (show.show_type_code !== 'OPEN') {
     return (
-      <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
-        <Breadcrumbs
-          crumbs={[
-            { label: 'Admin', href: '/admin' },
-            { label: 'Shows', href: '/admin/shows' },
-            { label: show.name, href: `/admin/shows/${id}` },
-            { label: 'Classes' },
-          ]}
-        />
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
-          Classes
-        </h1>
+      <StepLayout
+        showId={id}
+        showName={show.name}
+        current="classes"
+        title="Step 6: Classes"
+        subtitle="Build the class schedule for this show."
+        stepsInput={stepsInput}
+      >
         <div
-          className="rounded border p-4 text-sm"
+          className="rounded border p-4 text-sm space-y-2"
           style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
         >
-          Class setup for {show.show_type_code ?? 'this show type'} is being rebuilt.
-          The new OPEN wizard ships first; per-association flows come next.
+          <p>
+            Class setup for {show.show_type_code ?? 'this show type'} is being rebuilt.
+            The new OPEN wizard ships first; per-association flows come next.
+          </p>
+          <Link href={`/admin/shows/${id}`} className="hover:underline" style={{ color: '#8b4513' }}>
+            ← Back to show
+          </Link>
         </div>
-        <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-          ← Back to show
-        </Link>
-      </main>
+      </StepLayout>
     );
   }
 
@@ -105,24 +109,14 @@ export default async function ShowClassesPage({
   const standardLibrary = await fetchStandardLibrary(showTypes);
 
   return (
-    <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
-      <div>
-        <Breadcrumbs
-          crumbs={[
-            { label: 'Admin', href: '/admin' },
-            { label: 'Shows', href: '/admin/shows' },
-            { label: show.name, href: `/admin/shows/${id}` },
-            { label: 'Classes' },
-          ]}
-        />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
-          Class Setup
-        </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          {show.name} — three steps: pick disciplines, pick divisions, build classes.
-        </p>
-      </div>
-
+    <StepLayout
+      showId={id}
+      showName={show.name}
+      current="classes"
+      title="Step 6: Classes"
+      subtitle="Three steps: pick disciplines, pick divisions, build classes."
+      stepsInput={stepsInput}
+    >
       <ClassWizardClient
         showId={id}
         showStartDate={show.start_date}
@@ -133,6 +127,6 @@ export default async function ShowClassesPage({
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
       />
-    </main>
+    </StepLayout>
   );
 }

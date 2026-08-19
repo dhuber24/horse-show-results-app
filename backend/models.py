@@ -116,6 +116,17 @@ class Show(Base):
     office_charge_cents = Column(Integer, nullable=False, server_default="0")
     office_charge_basis = Column(Text, nullable=False, server_default="per_back_number")
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
+    # Which health papers this show requires (migration 097). Coggins is
+    # universal; a CVI follows from crossing a state line and vaccinations from
+    # the venue, so those two are off unless the show says otherwise. The
+    # *_valid_days windows are counted from the document's issue_date and only
+    # apply when the document carries no expiry of its own.
+    requires_coggins = Column(Boolean, nullable=False, server_default="true")
+    requires_health_certificate = Column(Boolean, nullable=False, server_default="false")
+    health_certificate_valid_days = Column(Integer, nullable=False, server_default="30")
+    requires_vaccination = Column(Boolean, nullable=False, server_default="false")
+    vaccination_valid_days = Column(Integer, nullable=False, server_default="365")
+    vaccination_notes = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -128,7 +139,7 @@ class Show(Base):
     divisions = relationship("Division", back_populates="show", cascade="all, delete")
     classes = relationship("Class", back_populates="show", cascade="all, delete")
     show_secretaries = relationship("ShowSecretary", back_populates="show", cascade="all, delete")
-    show_scorekeepers = relationship("ShowScorekeeper", back_populates="show", cascade="all, delete")
+    show_scribes = relationship("ShowScribe", back_populates="show", cascade="all, delete")
     show_gate_stewards = relationship("ShowGateSteward", back_populates="show", cascade="all, delete")
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
@@ -136,6 +147,9 @@ class Show(Base):
     fees = relationship("ShowFee", back_populates="show", cascade="all, delete", order_by="ShowFee.sort_order")
     judges = relationship("ShowJudge", back_populates="show", cascade="all, delete", order_by="ShowJudge.sort_order")
     sanctioning = relationship("ShowSanctioning", back_populates="show", cascade="all, delete", lazy="selectin")
+    waivers = relationship(
+        "ShowWaiver", back_populates="show", cascade="all, delete", order_by="ShowWaiver.sort_order"
+    )
 
 
 class ShowAffiliation(Base):
@@ -332,6 +346,9 @@ class Class(Base):
     score_type = Column(Text, nullable=False, server_default="placement")
     entry_fee_cents = Column(Integer, nullable=False, server_default="0")
     gate_status = Column(Text, nullable=False, server_default="pending")
+    # NULL = results are a staff-only draft; timestamp = posted to the public
+    # /live and /results screens. See migration 094.
+    results_published_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -396,7 +413,7 @@ class User(Base):
     audits = relationship("ResultAudit", back_populates="changed_by_user")
     exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
-    scorekeeper_shows = relationship("ShowScorekeeper", back_populates="user", cascade="all, delete")
+    scribe_shows = relationship("ShowScribe", back_populates="user", cascade="all, delete")
     gate_steward_shows = relationship("ShowGateSteward", back_populates="user", cascade="all, delete")
     manager_shows = relationship("ShowManager", back_populates="user", cascade="all, delete")
     admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
@@ -432,8 +449,8 @@ class ShowSecretary(Base):
     user = relationship("User", back_populates="secretary_shows")
 
 
-class ShowScorekeeper(Base):
-    __tablename__ = "show_scorekeepers"
+class ShowScribe(Base):
+    __tablename__ = "show_scribes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
@@ -442,8 +459,8 @@ class ShowScorekeeper(Base):
 
     __table_args__ = (UniqueConstraint("show_id", "user_id"),)
 
-    show = relationship("Show", back_populates="show_scorekeepers")
-    user = relationship("User", back_populates="scorekeeper_shows")
+    show = relationship("Show", back_populates="show_scribes")
+    user = relationship("User", back_populates="scribe_shows")
 
 
 class ShowGateSteward(Base):
@@ -878,7 +895,10 @@ class Entry(Base):
     class_ = relationship("Class", back_populates="entries")
     exhibitor = relationship("Exhibitor", back_populates="entries")
     horse = relationship("Horse", back_populates="entries")
-    result = relationship("Result", back_populates="entry", uselist=False)
+    # One row per judge who placed the class (migration 095), so this is a list.
+    # It was uselist=False when a class could only hold one card; leaving it
+    # scalar would raise as soon as a second judge handed one in.
+    results = relationship("Result", back_populates="entry")
 
 
 class Result(Base):
@@ -887,19 +907,29 @@ class Result(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=False)
+    # Whose card this placing came off (migration 095). Points at the *assignment*
+    # rather than the registry judge: "who placed this class" is a fact about this
+    # show. NULL is unattributed — results entered before judges were assigned, and
+    # pre-095 rows on a multi-judge show, which the read paths show as one column.
+    judge_id = Column(UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="RESTRICT"), nullable=True)
     place = Column(Integer, nullable=False)
     raw_score = Column(Numeric(10, 3), nullable=True)
     is_tie = Column(Boolean, default=False)
     notes = Column(Text)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    # Uniqueness is (class, judge, entry) and lives in two partial indexes in
+    # migration 095 — NULL judge_id needs its own, since NULLs are distinct in a
+    # plain unique index. Not declared here: the old UniqueConstraint on
+    # (class_id, place, entry_id) actively rejected two judges giving the same
+    # horse the same place, so it must not come back via create_all.
     __table_args__ = (
-        UniqueConstraint("class_id", "place", "entry_id"),
         CheckConstraint("place > 0"),
     )
 
     class_ = relationship("Class", back_populates="results")
-    entry = relationship("Entry", back_populates="result")
+    entry = relationship("Entry", back_populates="results")
+    judge = relationship("ShowJudge", lazy="selectin")
     audits = relationship("ResultAudit", back_populates="result", cascade="all, delete")
 
 
@@ -951,13 +981,26 @@ class CogginsOverrideAudit(Base):
 
 
 class ShowVerification(Base):
-    """One document a show's office physically inspected (migration 090).
+    """One document a show's office physically inspected (migrations 090, 098).
 
-    Three kinds, one table, because the actor, the question, and the staleness
+    Four kinds, one table, because the actor, the question, and the staleness
     rule are identical for all of them: `horse_age` (foaling date on the
     registration papers), `horse_registration` (one association's registration
-    number), `exhibitor_membership` (one association's membership number).
-    `kind` fixes which of the three subject columns are populated.
+    number), `exhibitor_membership` (one association's membership number),
+    `horse_health_document` (a Coggins, CVI, or vaccination record seen at the
+    counter). `kind` fixes which subject columns are populated.
+
+    A `trainer_membership` kind existed briefly (migration 098, reversed by
+    100). The trainer is not at the counter, has no entry and no back number,
+    and their card is the association's business rather than this show's — the
+    check was permanently unverified and inflated every outstanding count.
+
+    `horse_health_document` is keyed on `(horse_id, document_type)` rather than
+    on a `horse_documents` row, because the paper is often not in the app at
+    all — an exhibitor hands over a physical Coggins and there is nothing to
+    point at. Requiring an upload would break the sign-off in the exact case it
+    exists for. What the derivation makes of the file is a separate question,
+    answered by the health flags.
 
     Scoped to a show on purpose — this is a show attesting that its own office
     saw the paper, not a permanent property of the horse or the person, so a
@@ -980,6 +1023,15 @@ class ShowVerification(Base):
     association_id = Column(
         UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=True
     )
+    # COGGINS | VACCINATION | HEALTH_CERTIFICATE, for horse_health_document only.
+    document_type = Column(Text, nullable=True)
+    # The expiry printed on the paper the office was handed (migration 101).
+    # Staff-entered, because the app cannot derive a date off a document it has
+    # never been shown — and an office blind to paper is an office that keeps
+    # chasing paperwork it already has. Optional: an illegible or genuinely
+    # lapsed document is still worth recording as inspected, and the horse stays
+    # flagged. Never an input to the derived standing, only an overlay on it.
+    attested_expiry = Column(Date, nullable=True)
     verified_value = Column(Text, nullable=False)
     note = Column(Text, nullable=True)
     verified_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -1122,6 +1174,9 @@ class ShowEntry(Base):
     reservations = relationship(
         "ShowEntryReservation", back_populates="show_entry", cascade="all, delete-orphan"
     )
+    payments = relationship(
+        "ShowPayment", back_populates="show_entry", cascade="all, delete-orphan"
+    )
     side_pot_entries = relationship(
         "SidePotEntry", back_populates="show_entry", cascade="all, delete-orphan"
     )
@@ -1164,6 +1219,57 @@ class ShowEntryReservation(Base):
 
     show_entry = relationship("ShowEntry", back_populates="reservations")
     show_fee = relationship("ShowFee")
+
+
+class ShowPayment(Base):
+    """Money the office recorded collecting on an account (migration 096).
+
+    Recording, not processing: no card is handled and no processor is called.
+    The desk takes a check and writes down that it happened, which is what lets
+    `billed − paid = balance` mean anything. Without this table an outstanding
+    balance would read as the full bill for everyone, forever.
+
+    Scoped to the exhibitor's account at one show rather than to an individual
+    charge — the office takes one check for the whole bill, and per-line
+    allocation would be an accounts-receivable ledger nobody at the desk keeps.
+
+    `amount_cents` is signed. A refund is a negative row rather than an edit to
+    the original payment, so the day's takings still reconcile against what
+    actually moved.
+    """
+    __tablename__ = "show_payments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_entry_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    amount_cents = Column(Integer, nullable=False)
+    method = Column(Text, nullable=False)
+    reference = Column(Text, nullable=True)
+    received_on = Column(Date, nullable=False, server_default=text("CURRENT_DATE"))
+    note = Column(Text, nullable=True)
+    recorded_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Denormalized so the row stays readable after a seasonal staff account is
+    # removed — the same reason ShowVerification keeps verified_by_name.
+    recorded_by_name = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Declared here as well as in the migration, and named to match: startup
+    # create_all races the migration runner, and constraints that live only in
+    # the SQL are lost on databases where the app created the table first
+    # (see migration 089).
+    __table_args__ = (
+        CheckConstraint(
+            "method IN ('cash', 'check', 'card', 'transfer', 'other')",
+            name="ck_show_payments_method",
+        ),
+        CheckConstraint("amount_cents <> 0", name="ck_show_payments_amount_nonzero"),
+    )
+
+    show_entry = relationship("ShowEntry", back_populates="payments")
+    recorded_by_user = relationship("User")
 
 
 class ShowContactMessage(Base):
@@ -1456,7 +1562,7 @@ class ShowSanctioning(Base):
 
 class UserInvite(Base):
     """Email-invite tokens. Currently used by the Show Staff page to bring
-    Scorekeepers on board without a password set by the manager — the
+    Scribes on board without a password set by the manager — the
     invitee sets their own password via the public /invite/{token} page."""
     __tablename__ = "user_invites"
 
@@ -1483,3 +1589,67 @@ class UserInvite(Base):
     show = relationship("Show", foreign_keys=[show_id])
     invited_by = relationship("User", foreign_keys=[invited_by_user_id])
     accepted_user = relationship("User", foreign_keys=[accepted_user_id])
+
+
+class ShowWaiver(Base):
+    """A document this show asks exhibitors to sign (migration 099).
+
+    Entry blanks, liability releases, and venue rules are free text because the
+    words come from the venue's insurer or the fair board, not from this app.
+    `is_required` separates what an exhibitor cannot compete without from what
+    the show wants read but does not chase.
+    """
+
+    __tablename__ = "show_waivers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    title = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    is_required = Column(Boolean, nullable=False, server_default="true")
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    show = relationship("Show", back_populates="waivers")
+    signatures = relationship(
+        "ShowWaiverSignature", back_populates="waiver", cascade="all, delete-orphan"
+    )
+
+
+class ShowWaiverSignature(Base):
+    """One exhibitor's signature on one waiver (migration 099).
+
+    Both routes land here: the exhibitor typing their name during show sign-up,
+    and staff recording a paper blank at the counter with `on_paper` set. One
+    table because the fact recorded is the same either way, and because a show
+    that runs entirely on paper still needs its outstanding count to work.
+
+    `signed_name` is the one value here the app does not derive. A signature is
+    a claim a person makes, not a fact the database already holds.
+    """
+
+    __tablename__ = "show_waiver_signatures"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    waiver_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_waivers.id", ondelete="CASCADE"), nullable=False
+    )
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False
+    )
+    signed_name = Column(Text, nullable=False)
+    # A release signed by a 12-year-old is not a release. Youth classes are a
+    # third of a typical schedule, so this is not an edge case.
+    signed_by_guardian = Column(Boolean, nullable=False, server_default="false")
+    guardian_relationship = Column(Text, nullable=True)
+    signed_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    on_paper = Column(Boolean, nullable=False, server_default="false")
+    recorded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    recorded_by_name = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("waiver_id", "exhibitor_id", name="uq_show_waiver_signatures"),
+    )
+
+    waiver = relationship("ShowWaiver", back_populates="signatures")
+    exhibitor = relationship("Exhibitor")

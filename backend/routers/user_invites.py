@@ -1,9 +1,9 @@
 """User invitation tokens.
 
-Replaces the inline-password "create scorekeeper" flow on the Show Staff page.
+Replaces the inline-password "create scribe" flow on the Show Staff page.
 A manager/secretary submits first/last/email and gets back an invite URL they
-can share with the prospective scorekeeper. The invitee opens the URL,
-chooses a password, and lands as a SCOREKEEPER assigned to the show that
+can share with the prospective scribe. The invitee opens the URL,
+chooses a password, and lands as a SCRIBE assigned to the show that
 issued the invite.
 
 SMTP email delivery is intentionally out of scope for this pass — the
@@ -31,7 +31,7 @@ from dependencies import (
     require_api_key,
     safe_uuid,
 )
-from models import Show, ShowGateSteward, ShowManager, ShowScorekeeper, ShowSecretary, User, UserInvite
+from models import Show, ShowGateSteward, ShowManager, ShowScribe, ShowSecretary, User, UserInvite
 from schemas import (
     UserInviteAcceptBody,
     UserInviteByTokenOut,
@@ -43,7 +43,7 @@ from schemas import (
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
 
 INVITE_TTL_DAYS = 14
-ROLE_ALLOWED = {"SCOREKEEPER", "GATE_STEWARD"}
+ROLE_ALLOWED = {"SCRIBE", "GATE_STEWARD"}
 
 
 def _public_app_url() -> str:
@@ -58,7 +58,7 @@ def _generate_token() -> str:
     # 32 url-safe chars (~ 192 bits of entropy). Stored in plain text — the
     # token IS the secret, so leaking the DB row leaks the invite. Acceptable
     # because: short TTL, single-use, and accept flow has no privilege beyond
-    # creating a SCOREKEEPER account assigned to one show.
+    # creating a SCRIBE account assigned to one show.
     return secrets.token_urlsafe(32)
 
 
@@ -103,7 +103,7 @@ async def create_invite(
 ):
     if body.role not in ROLE_ALLOWED:
         raise HTTPException(400, f"Invite role must be one of: {', '.join(sorted(ROLE_ALLOWED))}")
-    if body.role in ("SCOREKEEPER", "GATE_STEWARD") and body.show_id is None:
+    if body.role in ("SCRIBE", "GATE_STEWARD") and body.show_id is None:
         raise HTTPException(400, "show_id is required for staff invites")
 
     if body.show_id is not None:
@@ -289,8 +289,8 @@ async def accept_invite(
 
     if invite.show_id is not None:
         # Auto-assign to the issuing show.
-        if invite.role == "SCOREKEEPER":
-            db.add(ShowScorekeeper(show_id=invite.show_id, user_id=user.id))
+        if invite.role == "SCRIBE":
+            db.add(ShowScribe(show_id=invite.show_id, user_id=user.id))
         elif invite.role == "GATE_STEWARD":
             db.add(ShowGateSteward(show_id=invite.show_id, user_id=user.id))
 

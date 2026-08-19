@@ -24,7 +24,7 @@ Each file uses `ON CONFLICT DO NOTHING` where a natural key exists, so re-runnin
 
 ## Demo People (trainers, exhibitors, horses)
 
-`scripts/seed_demo_people.py` creates 5 trainers, 10 exhibitors, and 10 horses with full login accounts. It uses the app's own ORM models rather than raw SQL so the `User` + `Exhibitor` / `Trainer` pairing and the name-sync event listeners are honored. Each exhibitor owns exactly one horse (`owner_exhibitor_id` + an `exhibitor_horses` link), and horses get a trainer assigned from a fixed RNG seed so runs are reproducible.
+`scripts/seed_demo_people.py` creates 5 trainers, 10 exhibitors, and 10 horses with full login accounts. It uses the app's own ORM models rather than raw SQL so the `User` + `Exhibitor` / `Trainer` pairing and the name-sync event listeners are honored. Each exhibitor owns one horse (`owner_exhibitor_id` + an `exhibitor_horses` link), and horses get a trainer assigned from a fixed RNG seed so runs are reproducible. One exhibitor — Sofia Delgado — keeps a **second** horse, from the `SECOND_HORSES` list: a `pattern` class is judged run by run, so one exhibitor may show two horses in it, and with every seeded exhibitor owning exactly one there was no way to walk that path.
 
 Run it inside the backend container, which already has the dependencies and `DATABASE_URL`:
 
@@ -37,7 +37,7 @@ All seeded accounts share the password defined in `SEED_PASSWORD` (`12345678`), 
 
 ## Demo Horse Documents (Coggins)
 
-`scripts/seed_demo_horse_documents.py` gives every demo horse a current Coggins (EIA) document. Entry creation and exhibitor self-registration both reject a horse without one, so the seeded horses cannot be entered in anything until this runs.
+`scripts/seed_demo_horse_documents.py` gives every demo horse a current Coggins (EIA) document. This no longer gates anything — health paperwork became a flag rather than a block — but without it every seeded horse turns up on the show office's health flags, which buries any real shortfall you were trying to look at.
 
 ```powershell
 docker cp scripts/seed_demo_horse_documents.py horse-show-results-app-backend-1:/tmp/seed_demo_horse_documents.py
@@ -45,6 +45,22 @@ docker exec -w /app -e PYTHONPATH=/app horse-show-results-app-backend-1 python /
 ```
 
 `horse_documents.file_data` is a NOT NULL BYTEA and the upload endpoint sniffs MIME from magic bytes, so the script writes a genuinely valid one-page PDF rather than a placeholder blob — the document opens in the viewer. Dates are relative to the run date (issued 90 days ago, valid 365 days). Horses are matched through their owner's `@example.com` address, so no non-demo horse is touched, and any horse that already has a COGGINS row is skipped.
+
+## Scribe Accounts (score entry)
+
+`scripts/seed_scribes.py` creates the `SCRIBE` login accounts and assigns them to every existing show. Migration 093 renamed `SCOREKEEPER` to `SCRIBE`, and no account held the old role, so without this there is nobody to walk the score-entry path with. `seed_test_shows.py` reuses staff accounts by email but never creates them — this is what creates them.
+
+```powershell
+docker cp scripts/seed_scribes.py horse-show-results-app-backend-1:/tmp/seed_scribes.py
+docker exec -w /app -e PYTHONPATH=/app horse-show-results-app-backend-1 python /tmp/seed_scribes.py
+```
+
+Two accounts, both on `SEED_PASSWORD` (`12345678`):
+
+- `user@scribe.com` — assigned to every show. This is the one to log in as. Scribes do not see DRAFT shows, so the `/scribe` list shows the ACTIVE and PUBLISHED ones.
+- `scribe2@test.com` — deliberately assigned to nothing, so the "you haven't been assigned to any shows yet" empty state can be checked without unpicking the first account.
+
+Show assignment controls **visibility, not permission**: `require_admin_or_scribe` checks the role alone, so an assigned show is what a scribe can find, not the limit of what they could score. Non-destructive and idempotent — accounts are keyed by email and assignments by (show, user), and an account left on the pre-093 role is repointed rather than skipped.
 
 ## Demo Shows (venues, shows, classes)
 

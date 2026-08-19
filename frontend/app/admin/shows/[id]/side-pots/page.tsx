@@ -1,38 +1,23 @@
-import { auth } from '@/auth';
 import { fetchShow, fetchClasses } from '@/lib/api';
-import { API_URL } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { loadPots } from './loadPot';
 import SidePotsManager from './SidePotsManager';
 
-async function fetchPots(showId: string, headers: Record<string, string>) {
-  const res = await fetch(`${API_URL}/shows/${showId}/side-pots/`, {
-    headers,
-    cache: 'no-store',
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
+/**
+ * The show's side pots. Reached from its own tile on the show dashboard — side
+ * pots are money the office takes at the desk and standings it reads between
+ * classes, not part of the fee schedule the show publishes in advance.
+ */
 export default async function SidePotsPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await auth();
-  const user = session?.user as any;
-  const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-API-Key': INTERNAL_API_KEY,
-    'X-User-Id': user?.id ?? '',
-    'X-User-Role': user?.role ?? '',
-  };
-
   const [show, classes, pots] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
-    fetchPots(id, headers),
+    loadPots(id),
   ]);
 
   return (
@@ -50,7 +35,8 @@ export default async function SidePotsPage({
           Side Pots
         </h1>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          {show.name}
+          {show.name} — optional money pools spanning several classes. Buy-ins are collected
+          per pot and stay out of the exhibitor&rsquo;s show bill.
         </p>
       </div>
 

@@ -99,6 +99,19 @@ Current migration files:
 
 | `084_document_extractions_horse_optional.sql` | Drop NOT NULL from `document_extractions.horse_id`. The add-a-horse wizard stages health documents in the browser and saves them only after the horse is created, so a read taken while the user is still filling in the wizard has no horse to point at — and that is exactly where an exhibitor first files a Coggins. A NULL `horse_id` means the read predated its horse; it is filled in when the queued document is saved. |
 
+| `093_scribe_role.sql` | Rename the `SCOREKEEPER` role to `SCRIBE` — the term the horse show world actually uses for the person who records the scores a judge calls. Moves the `users.role` value (and the role check constraint), the role on any pending `user_invites`, and renames `show_scorekeepers` → `show_scribes`. The table step is guarded both ways because startup `create_all` may have already created an empty `show_scribes` from the renamed ORM model. Note that a *ring steward* is a different job — arena floor, closer to `GATE_STEWARD` — which is why this is `SCRIBE`. Earlier rows in this table describe `SCOREKEEPER`/`show_scorekeepers` as they were at the time; those descriptions are left as historical record. |
+
+| `094_class_results_publish_gate.sql` | Add `classes.results_published_at` (NULL = staff-only draft, timestamp = posted to the public screens), backing autosave on the scribe screens. **Backfilled**: every class that already had results is set to `now()`, because those results are already public — without that step the migration would silently un-publish every result in every show that has ever run. Partial index on the published case, since the public read paths filter on it. Related rule enforced in `backend/routers/results.py`, not in SQL: `result_audit` rows are only written once a class is published. |
+
+| `095_results_per_judge.sql` | Add `results.judge_id` (FK → `show_judges`, `ON DELETE RESTRICT`, nullable), giving placings the per-judge dimension they lacked — before this, a class could hold exactly one set of placings, so on a panel show the second judge's card overwrote the first. **Drops `UNIQUE (class_id, place, entry_id)`**, which is not merely superseded: two judges awarding the same horse the same place produce the identical triple, so leaving it would reject the second card. Replaced by two *partial* unique indexes — `(class_id, judge_id, entry_id)` where judge_id is not null, and `(class_id, entry_id)` where it is — because NULLs compare as distinct in a plain unique index, which would let an unattributed row be inserted twice. The constraint is located by column set rather than by name so it drops on databases built from `schema.sql` as well as migrated ones. **Backfilled** only where a show has exactly one judge assigned: there the single card on file is unambiguously that judge's. Shows with two or more judges are left NULL rather than guessed at. NULL `judge_id` means unattributed and renders as one "Placing" column. |
+
+| `096_show_payments.sql` | Add `show_payments` — what the office recorded **collecting** against an exhibitor's account at one show, which is the half the app never had. `billing.build_bill` could say what was owed and nothing said what came in, so an outstanding balance would have read as the full bill for every exhibitor forever. Scoped to `show_entries` (CASCADE) rather than to an individual charge: a show office takes one check for the whole bill, and per-line allocation would be an accounts-receivable ledger nobody at the desk keeps. `amount_cents` is deliberately **signed** — a refund is a negative row rather than an edit to the original payment, so the day's takings still reconcile against what actually moved — with a CHECK excluding only zero. `recorded_by_name` is denormalized beside the FK so the row stays readable after a seasonal staff account is removed. **Recording, not processing**: no card is handled and no processor is called. |
+| `097_show_health_requirements.sql` | Add per-show health policy to `shows`: `requires_coggins` (default true), `requires_health_certificate` + `health_certificate_valid_days` (30), `requires_vaccination` + `vaccination_valid_days` (365) + `vaccination_notes`. The app had accepted COGGINS, VACCINATION and HEALTH_CERTIFICATE uploads since `horse_documents` existed but only ever looked at Coggins again, so the office's sweep saw a third of what staff physically check. The other two need a policy first because Coggins is universal and they are not — a CVI follows from crossing a state line, vaccination rules come from the venue — and a flat "no CVI on file" flag would light up every in-state horse at every show until staff stopped reading the panel. Validity is expressed in days from `issue_date` because that is how the papers are written ("issued within 30 days", not "expires on"); a printed expiry on the document still wins. Coggins has no window on purpose: how long a test stays good is a state rule the app cannot know. |
+| `098_verify_health_documents_and_trainers.sql` | Widen `show_verifications` with two kinds and the columns they need (`document_type`, `trainer_id`), restating both CHECKs in full so every branch pins the new columns. `horse_health_document` is the office attesting it inspected a Coggins, CVI, or vaccination record; it is keyed on `(horse_id, document_type)` rather than on a `horse_documents` row because the paper is frequently **not** in the app — an exhibitor hands one across the counter and there is nothing to point at, which is the exact case the sign-off exists for. `trainer_membership` covers a trainer's card per association; `trainer_registrations` had held those numbers since the registry landed with nothing checking them. `verified_value` snapshots the derived standing (`valid:2027-05-03`, or `missing:none`), so uploading, replacing, or letting a document lapse moves the snapshot and the check reads back stale. Migration 090 had argued health needed no sign-off on the grounds that a document is either current or not; that collapses "is the date good" (the file answers) with "does this paper describe this horse" (only a person does). |
+| `101_attested_health_expiry.sql` | Add `show_verifications.attested_expiry` — the expiry printed on the paper the office was handed. Migration 098 let the desk sign off that it had inspected a Coggins the app had never been shown, but the sign-off recorded only that somebody looked: the horse kept reading "No Coggins on file" and stayed on the office's own chase list, so a secretary who had just held a valid negative test was still being told to go and find it. Clearing the flag on the click alone was the tempting fix and the wrong one — "I looked at this" and "this is valid" are different claims, and collapsing them would let one click clear a flag on a test that expired years ago. Optional, so an illegible or genuinely lapsed document is still recordable as inspected with the horse left flagged. A staff-entered value, like `show_waiver_signatures.signed_name` and unlike everything else in this table, because the app cannot derive a date off a document it has never seen. CHECK-constrained to `horse_health_document`. |
+| `100_drop_trainer_membership_verification.sql` | Reverse the `trainer_membership` kind added by 098 and drop the `trainer_id` column, index, and CHECK branch it needed. The reasoning for adding it was sound as a rule — a professional's card is what makes an amateur class an amateur class — but wrong about who does the checking: the trainer is not standing at the counter, has no entry and no back number, and their card is the association's business rather than this show's. The check was permanently unverified and quietly inflated every outstanding count. Reversed rather than left dormant, because a kind nothing writes and a column nothing populates is the `entries.back_number` trap. `horse_health_document` and `document_type` stay. |
+| `099_show_waivers.sql` | Add `show_waivers` and `show_waiver_signatures` — the signed entry blank and liability release, which pointed at nothing at all before this. Free text on the way in because the wording comes from the venue's insurer or the fair board. Signatures land in one table from two routes: the exhibitor types their name at sign-up, or staff record a paper blank with `on_paper` set, so a show running entirely on clipboards still gets a working outstanding count. `signed_by_guardian` + `guardian_relationship` because a release signed by a minor is not a release and youth classes are a third of a schedule. Emergency contacts deliberately get no table — `exhibitors` has carried them since migration 041 and a per-show copy would be a second, staler answer to "who do we call". |
+
 There are duplicate `024_*` migration numbers. Preserve the existing filenames and ordering behavior; do not rename already-applied migrations casually.
 
 ## Running Migrations
@@ -119,6 +132,95 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "<SQL 
 If a manual migration file is applied outside the runner, also insert its filename into `_migrations`.
 
 ## Recent Schema Updates
+
+### New table: `show_payments` (migration 096)
+
+The other half of the money. `billing.build_bill` has always itemized what an
+exhibitor *owes*; nothing recorded the check handed over at the desk. Without
+this table an "outstanding balance" is arithmetically the full bill for every
+exhibitor, forever, which is why the Financials screen could not exist before it.
+
+Columns: `id`, `show_entry_id` (CASCADE), `amount_cents`, `method`
+(`cash` / `check` / `card` / `transfer` / `other`), `reference`, `received_on`,
+`note`, `recorded_by` (SET NULL), `recorded_by_name` snapshot, `created_at`.
+Indexed on `show_entry_id` (every read is "all payments for this show") and on
+`received_on` (reconciling a day).
+
+**This records a payment; it does not process one.** No card is handled, no
+processor is called, nothing is charged. The office takes cash or a check and
+writes down that it happened — the same shape as `show_verifications`, which
+records a document a human physically inspected.
+
+**Scoped to the account, not the charge.** `show_entry_id` is the exhibitor's
+account at that show. A show office takes one check for the whole bill;
+allocating tenders against specific line items would be a full
+accounts-receivable ledger and nobody at the desk works that way. Balance is
+therefore `bill total − payments`, per exhibitor per show.
+
+**`amount_cents` is signed.** A refund is a negative row, never an edit to or
+deletion of the original payment — the original is a fact about money that
+moved, and erasing it balances the account while losing the audit trail. The
+CHECK excludes only zero. `DELETE` is for a row typed in error.
+
+`recorded_by_name` is denormalized beside the FK for the same reason
+`show_verifications.verified_by_name` is: "who took this $600" is exactly the
+question asked when the drawer does not balance, and seasonal staff accounts get
+removed.
+
+### Placings are per judge (migration 095)
+
+A ranch or breed show routinely runs a **panel**: four APHA judges and two WSCA
+judges on the same day, each placing the same class independently off their own
+card. `results` had no way to say whose card a placing came from, so a class
+could hold exactly one set of placings and the second judge's entry overwrote
+the first.
+
+`results` gains `judge_id`, a nullable FK to **`show_judges`** — the assignment,
+not the registry `judges` row. Who placed a class is a fact about this show; the
+same judge working two shows files two independent sets of cards.
+
+`NULL` means **unattributed**, and is a real state rather than missing data:
+
+- results entered before any judge was assigned to the show, and
+- pre-migration results on a show that has more than one judge, which the
+  backfill deliberately refuses to attribute.
+
+The backfill only fills in shows with **exactly one** judge assigned, where the
+single card on file can only have been that judge's. Guessing on a panel show
+would put a name against placings that judge may never have given.
+
+Uniqueness moved and the old constraint had to go outright:
+
+| Before | After |
+| --- | --- |
+| `UNIQUE (class_id, place, entry_id)` | `UNIQUE (class_id, judge_id, entry_id) WHERE judge_id IS NOT NULL` |
+| — | `UNIQUE (class_id, entry_id) WHERE judge_id IS NULL` |
+
+The old triple is not just superseded — every judge on a panel awards a 1st, so
+two judges placing the same horse first produce the identical
+`(class_id, place, entry_id)` and the constraint would reject the second card.
+Two *partial* indexes rather than one plain one because NULLs compare as
+distinct in a unique index, which would let an unattributed row be stored twice.
+
+`ON DELETE RESTRICT` on the FK: unassigning a judge who has already handed in
+placings must not delete them. `DELETE /shows/{id}/judges/{assignment_id}`
+checks first and returns 409 naming the count, so the office clears the card
+deliberately instead of by side effect.
+
+Consequences elsewhere in the schema and code:
+
+- `Entry.results` is a **list** (it was `uselist=False`); an entry now holds one
+  row per judge who placed its class.
+- Place derivation for `pattern`/`time` classes ranks **within each judge's
+  card**. Pooling them would make a 71.5 from one judge tie a 71.5 from another,
+  and would make each judge's placings depend on how many other judges had
+  filed.
+- The results bulk save replaces **one judge's card**, not the whole class —
+  see [frontend.md](frontend.md#per-judge-placings) for why that matters with
+  autosave.
+- Anything counting result rows must count distinct entries instead
+  (`classes.list_classes` did not, and reported 24 placed in an eight-horse
+  class with three judges).
 
 ### Early-bird rate on a show fee (migration 092)
 
@@ -432,7 +534,7 @@ erDiagram
     users ||--o| exhibitors : "may link to"
     users ||--o{ show_managers : manages
     users ||--o{ show_secretaries : secretaries
-    users ||--o{ show_scorekeepers : scores
+    users ||--o{ show_scribes : scores
 
     venues ||--o{ shows : hosts
     show_types ||--o{ shows : primary_type
@@ -499,7 +601,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `document_extractions` | One row per AI read of an uploaded horse document: what the model suggested (`extracted`), what the human saved (`accepted`), which suggestions they changed (`overridden_fields`), and what the read cost. `document_id` is NULL for abandoned uploads |
 | `side_pots` | Optional money pool spanning multiple classes; carries `entry_fee_cents`, `payback_percent`, `scoring_method` (`sum_placings` / `sum_scores`), `eligibility_rule`, `payout_schedule` (JSONB keyed by entry-count band), and `status` (`open` / `closed` / `settled`) |
 | `side_pot_classes` | Many-to-many: which classes feed each pot |
-| `side_pot_entries` | Back-number opt-ins (`paid` flag); pool size = `entry_fee_cents × paid count` |
+| `side_pot_entries` | Side pot entries, one per exhibitor (`show_entry_id`); pool size = `entry_fee_cents × paid count`, and `paid` defaults to true since buy-ins settle with the show bill rather than being collected per entry |
 | `side_pot_payouts` | Frozen ranking + cents-per-place written on settle; tied entries split their combined share |
 | `users` | Login accounts and roles |
 | `exhibitors` | Exhibitor profile/person records |
@@ -509,7 +611,9 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 | `horses` | Horse profile, owner link, optional trainer registry link with free-text fallback, breed/color/registration/document links |
 | `trainers` | Trainer registry used by horse profiles (`trainer_id`) |
 | `horse_registrations` | Horse registration numbers per association |
-| `horse_documents` | Uploaded documents stored as BYTEA for now |
+| `horse_documents` | Uploaded documents stored as BYTEA for now. Served inline (`?inline=true`) for the desk's side-by-side viewer as well as as a download. |
+| `show_waivers` | What a show asks exhibitors to sign: entry blank terms, liability release, venue rules |
+| `show_waiver_signatures` | One exhibitor's signature on one waiver — typed at sign-up, or recorded from paper at the desk |
 | `cert_org_users` | Association certification lookup data |
 
 ## Integrity Rules
@@ -522,5 +626,7 @@ This diagram is intentionally a domain map, not a full schema dump. Use it to ch
 - A side pot with `scoring_method = 'sum_scores'` requires every bundled class to have `score_type IN ('pattern','time')`; the backend rejects the create/update otherwise.
 - Settling a side pot is one-way: status moves to `settled`, payouts are written, and further edits are blocked.
 - Horse age is derived from foaling year and current year; it is not stored.
+- Health standing is derived on read from `horse_documents` against the show's **last day**, never stored, and only for the documents that show requires. A `show_verifications.attested_expiry` for that show overlays it, so paperwork the office has physically inspected stops being chased — the overlay never feeds back into `verified_value`, which stays a snapshot of the file alone. The office's physical inspection of the same paper is a separate, stored fact in `show_verifications`; neither implies the other.
+- Deleting a waiver cascades to its signatures: they were agreement to that text and mean nothing without it. Editing the text leaves them alone.
 - Horse registration numbers are unique per association across all horses.
 - AQHA entry validation requires an official AQHA class code, an AQHA horse registration, an AQHA exhibitor membership number, and enough DOB/foaling-date data to verify supported youth/select/horse-age rules.
