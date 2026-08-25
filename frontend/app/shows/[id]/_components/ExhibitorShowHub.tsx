@@ -14,6 +14,10 @@ import ShowHubHeader from './ShowHubHeader';
  *
  * Scoring staff keep the old list on this route, because for them the class
  * numbers *are* the menu — each one is a link into a scribe screen.
+ *
+ * The tiles are ordered about-me first: what I entered, what I owe, then the
+ * show-wide screens. A menu that opens with the schedule makes an exhibitor
+ * read past the show to find themselves.
  */
 
 type Tile = {
@@ -46,6 +50,10 @@ export default function ExhibitorShowHub({
 }) {
   const registrationOpen = show.status === 'PUBLISHED';
   const signedUp = standing?.signed_up ?? false;
+  // Signed up, or entered by the office without signing up — either way there
+  // is an account at this show to read. Somebody with neither has no bill, and
+  // a tile promising one would open on "nothing here".
+  const hasStanding = signedUp || (standing?.entry_count ?? 0) > 0;
   const resultsWorthShowing = show.status === 'ACTIVE' || show.status === 'COMPLETED';
 
   const tiles: Tile[] = [];
@@ -73,6 +81,22 @@ export default function ExhibitorShowHub({
     );
   }
 
+  // Straight off the show menu rather than buried on Show Details. "What do I
+  // owe" is one of the four questions this page exists to answer, and it was a
+  // click deeper than "when does my class run". Kept next to My Registration:
+  // these two are the tiles about *them*, and everything below is about the
+  // show. Not gated on registration being open — the bill outlives it, and
+  // "you charged me for four stalls" is a question that arrives after the
+  // weekend.
+  if (canSelfRegister && hasStanding) {
+    tiles.push({
+      href: `/shows/${showId}/my-bill`,
+      icon: '🧾',
+      title: 'What I Owe',
+      description: 'Class fees, stalls, shavings and the office charge, itemised.',
+    });
+  }
+
   tiles.push({
     href: `/shows/${showId}/schedule`,
     icon: '📋',
@@ -83,18 +107,16 @@ export default function ExhibitorShowHub({
         : 'Classes by day and ring, once they are posted.',
   });
 
-  tiles.push({
-    href: `/shows/${showId}/showbill`,
-    icon: '📄',
-    title: 'Show Bill',
-    description: 'Classes, judges, fees and rules — print it or save a PDF.',
-  });
-
+  // Show Bill was a tile of its own, next to this one, opening on a page whose
+  // first section restated the dates, venue, show type and clubs that Show
+  // Details already carries. Two tiles, two clicks, one answer. The bill now
+  // renders below the facts on Show Details, and the printable copy is a link
+  // at the foot of it — print is a real errand, but it is not a menu item.
   tiles.push({
     href: `/shows/${showId}/details`,
     icon: 'ℹ️',
     title: 'Show Details',
-    description: 'Dates, location, show type, clubs — and what you owe.',
+    description: 'Dates, location, clubs, judges, the class schedule and the fee schedule.',
   });
 
   if (resultsWorthShowing) {

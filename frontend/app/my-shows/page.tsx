@@ -5,7 +5,6 @@ import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
 import {
   formatDateRange,
-  formatMoney,
   isPastShow,
   ordinal,
   SHOW_STATUS_BADGE,
@@ -28,7 +27,6 @@ export default async function MyShowsPage() {
   const data = await loadMyShows();
   const upcoming = data.shows.filter((s) => !isPastShow(s));
   const past = data.shows.filter(isPastShow);
-  const outstanding = upcoming.reduce((sum, s) => sum + s.bill.total_cents, 0);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -67,20 +65,11 @@ export default async function MyShowsPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          {outstanding > 0 && (
-            <div
-              className="rounded-lg border px-4 py-3 flex items-center justify-between gap-3"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf4ec' }}
-            >
-              <div className="text-sm" style={{ color: '#5d4a37' }}>
-                Due at {upcoming.length === 1 ? 'this show' : 'these shows'}
-              </div>
-              <div className="text-xl font-bold" style={{ color: '#2c1810' }}>
-                {formatMoney(outstanding)}
-              </div>
-            </div>
-          )}
-
+          {/* No roll-up across shows here any more. A total spanning four
+              weekends is not a figure anyone is ever asked for — the office
+              collects per show, against a back number — so "Due at this show"
+              moved onto the show itself, where the dates and the venue it is
+              owed for already are. Each card below still totals its own. */}
           {upcoming.length > 0 && (
             <section>
               <h2
@@ -162,8 +151,11 @@ function ShowBillCard({ show }: { show: MyShow }) {
         <ShowBillBreakdown bill={bill} />
 
         <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: '#f0e4d0' }}>
+          {/* The details page itself, not the show menu — the show name at the
+              top of this card is already the link to the menu, and it is the
+              details page that carries what you owe here. */}
           <Link
-            href={`/shows/${show.show_id}`}
+            href={`/shows/${show.show_id}/details`}
             className="text-xs font-medium px-2.5 py-1 rounded border"
             style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
           >

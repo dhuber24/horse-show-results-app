@@ -1,16 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-
-export type ShowbillClassRow = {
-  class_number: string;
-  class_name: string;
-  class_date: string;
-  discipline_name: string | null;
-  division_name: string | null;
-  ring_name: string | null;
-  entry_fee_cents: number;
-};
+import type { ShowbillClassRow } from '../_components/ShowbillDocument';
 
 /**
  * The two ways to take the show bill away with you.

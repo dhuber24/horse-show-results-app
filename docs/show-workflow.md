@@ -250,7 +250,7 @@ Someone browsing shows before they have signed up sees a different `/shows/[id]`
 Exhibitors register themselves for a show that is `PUBLISHED`, in **two steps, in order**:
 
 1. **Show sign-up** at `/shows/[id]/signup` — creates the `show_entries` row and captures what the show office needs to run the grounds: stalls, bags of shavings, camping nights. This is the CTA on the show detail page; anyone already signed up is forwarded on to step 2 rather than re-entering their numbers.
-2. **Class registration** at `/shows/[id]/register` — pick a horse per class.
+2. **Class registration** at `/shows/[id]/register` — enter one class at a time, on the show office's own entry form.
 
 Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_REQUIRED` when `show_entries.registered_at` is NULL, and the registration screen renders a "sign up first" card instead of a class picker rather than letting someone fill one in and be turned away on submit. The ordering is the point — the office wants stall counts before it has a ring full of horses.
 
@@ -264,9 +264,27 @@ Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_RE
 
 ### Class Registration
 
+**One screen for the whole registration.** `/shows/[id]/register` carries both halves of what an exhibitor signs up for, in two collapsible sections (`RegistrationSection`) over the running bill:
+
+| Section | Holds | Backed by |
+| --- | --- | --- |
+| Classes & back number | Back-number request, entered-class table with inline-confirm removal, the one-class-at-a-time entry form, and the horses whose health records are outstanding | `GET/POST /shows/{id}/register`, `PUT .../register/back-number` |
+| Stalls, shavings & camping | `ReservationFields` — the fee groups, arrival/departure dates, notes to the office | `GET/PUT /shows/{id}/register/signup` |
+
+The two were separate screens with a redirect between them, because they are separate backend calls. That is not a distinction an exhibitor should have to care about — somebody entering a show is doing one job, and bouncing them between screens to finish it is how people end up signed up with no classes. They fold because all of it open at once is a very long page on a phone; collapsed, each header's summary line is the only thing saying what you have, so it carries the class count, the back number, the outstanding-records count, and the reserved quantities with their total.
+
+**The sign-up rule is still enforced, just visible.** Class entries and back numbers both 409 without a completed sign-up, so the classes section will not open until then and its header says which section to fill in first. `/shows/[id]/signup` remains as its own route — the show hub's Sign Up tile, the status banner and the My Shows card all point at it — and renders the same `ReservationFields`, so the two cannot disagree about a price or a quantity.
+
+**The class half is the desk's entry form with the exhibitor pinned to themselves.** `AddClassEntry` in `frontend/app/shows/[id]/register/` mirrors `admin/shows/[id]/desk/AddEntryForm`: what you are entered in as a table, and below it one class picker, one horse picker, and **Enter class**. It replaced a list of every class in the show with a horse select on each row and a single Submit at the bottom — a shape that hid the four classes someone had chosen under the thirty-six they had not, and reported the first clash only after the whole batch was sent.
+
+- The class dropdown carries the desk's filtering, for the desk's reasons: a class already entered drops off unless it is a `pattern` class with a horse still spare, and a horse already in the picked class drops out of the horse list. The backend enforces both regardless — see **Two Horses, One Pattern Class** in `IMPROVEMENTS.md`.
+- Two deliberate differences from the desk form, both because the reader is different: classes are grouped by show day (staff are handed a class number; an exhibitor is picking a Saturday), and removing an entry confirms inline rather than going straight through.
+- Money comes from `billing.build_bill` in the preview payload and is rendered by the shared `ShowBillBreakdown`, so the register screen, the My Shows card, the per-show bill page and the office's account screen cannot quote different totals. Nothing is summed in the browser.
+- Browsing lives at `/shows/[id]/schedule`, linked from the screen. A picker that was also the program was serving two readers badly.
+
 - Backend endpoints (`backend/routers/show_registration.py`):
-  - `GET /shows/{id}/register/preview` returns `signup` (null until sign-up is done), the show, the caller's exhibitor profile, OPEN classes with `entry_fee_cents`, the horses on the exhibitor's profile (owned + created + linked), and any existing entries (used to pre-disable already-entered horses).
-  - `POST /shows/{id}/register/` accepts `{ entries: [{ class_id, horse_id, apha_division?, relationship_to_owner? }] }`. The exhibitor is resolved from the authenticated user — body never carries `exhibitor_id`.
+  - `GET /shows/{id}/register/preview` returns `signup` (null until sign-up is done), the show, the caller's exhibitor profile, open classes with `entry_fee_cents`, the horses on the exhibitor's profile (owned + created + linked, each with `is_solid_paint_bred` and derived `health`), any existing entries (what the pickers filter against), and `bill` from `build_bill`. Entries feeding the bill are **not** filtered to open classes — a class that closed after the entry went in is still owed for.
+  - `POST /shows/{id}/register/` accepts `{ entries: [{ class_id, horse_id, apha_division?, relationship_to_owner? }] }`. The exhibitor is resolved from the authenticated user — body never carries `exhibitor_id`. The list shape stays because the endpoint has always taken one; the screen posts a single entry per press, so a failure is one class in front of someone who just clicked rather than a whole batch rejected as a unit.
   - `PUT /shows/{id}/register/back-number` accepts `{ preferred_back_number }` (1–9999, or `null` to drop the request) and grants it when free — see **Entries And Back Numbers** above. Requires a completed sign-up, same `409 SHOW_SIGNUP_REQUIRED` as entering classes.
 - Status gate: only `PUBLISHED` shows accept self-registration. Once a show flips to `ACTIVE`, `COMPLETED`, or back to `DRAFT`, the endpoint returns 403 and the show secretary must add late entries through the admin entries flow.
 - The `show_entries` row comes from sign-up, not from class registration. Class registration no longer creates one silently — see the 409 above.
@@ -329,8 +347,8 @@ Staff can read the paperwork itself at any point — at the desk through the sid
   - **Stalls, shavings and camping** from show sign-up — `show_entry_reservations.quantity ×` the fee's rate, which is `early_amount_cents` when the line was booked on or before `early_deadline` and `amount_cents` otherwise (`fee_rate_cents()`). The bill line reports both, plus `is_early_rate`, so My Shows can show what reserving early saved.
   - All four are computed by `build_bill()` in [backend/billing.py](../backend/billing.py), shared by the registration screen, the sign-up screen, and the My Shows bill, so the three cannot quote different totals.
 - Exhibitors with no horses on their profile see an empty-state nudging them to add a horse first.
-- **Two horses in one pattern class.** A pattern class is judged run by run, so showmanship on two horses is two runs, two scores, and two entry fees — and the backend has always allowed it (`score_type == 'pattern'` is the one case that escapes the once-per-exhibitor 409). The registration screen now offers it: pick a horse for a pattern class and a second select appears, labelled *add another horse*, offering only horses not already in that class. Non-pattern classes keep exactly one select. Totals are computed per **entry** rather than per class, so the second run is charged its own entry fee and NSBA sanction fee; the footer counts entries for the same reason. `entries_class_horse_uniq` still stops the same horse going in twice, which the picker reflects by disabling an already-picked horse in the other slots.
-- **Removing a class**: while the show is still `PUBLISHED`, exhibitors can take themselves back out of any class they entered (`DELETE /shows/{id}/register/entries/{entry_id}`). The registration screen lists every entered class in a panel at the top of the page, each with a labelled **Remove** button and inline confirm, and repeats the control next to the class itself — removing a class the exhibitor picked by mistake is as ordinary an action as adding one, so it is not hidden inside a badge. Removal is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
+- **Two horses in one pattern class.** A pattern class is judged run by run, so showmanship on two horses is two runs, two scores, and two entry fees — and the backend has always allowed it (`score_type == 'pattern'` is the one case that escapes the once-per-exhibitor 409). On the one-class-at-a-time form this is simply a class that stays on offer after it has been entered, marked `· another horse`, and drops off the moment the last spare horse goes in. Everything else leaves the list on first entry. Totals are per **entry** rather than per class, so the second run carries its own entry fee and NSBA sanction fee. `entries_class_horse_uniq` still stops the same horse going in twice, which is why a horse already in the picked class is not in the horse list; if that empties the list the box is disabled and says so rather than sitting open with nothing in it.
+- **Removing a class**: while the show is still `PUBLISHED`, exhibitors can take themselves back out of any class they entered (`DELETE /shows/{id}/register/entries/{entry_id}`). Every entered class is a row in the **Your classes** table above the entry form, each with a labelled **Remove** button and inline confirm — removing a class picked by mistake is as ordinary an action as adding one, so it is not hidden inside a badge. Classes already entered are also the ones missing from the picker, which the form says out loud rather than leaving someone to wonder where their class went. Removal is blocked if a result has already been recorded for the entry (defensive 409 — this only fires if a class was scored then the show was reverted to `PUBLISHED`). Once the show flips to `ACTIVE`, the secretary owns edits through the admin entries flow.
 
 ## My Shows and the Bill
 
@@ -338,9 +356,11 @@ Staff can read the paperwork itself at any point — at the desk through the sid
 
 | Surface | Route | Reads |
 | --- | --- | --- |
-| My Shows | `/my-shows` | The bill per show, plus outstanding total across active shows |
+| My Shows | `/my-shows` | The bill per show. No roll-up across shows — see below |
 | My Show Entries | `/dashboard` | Classes and placings (via `/dashboard/exhibitor/{id}`), with buttons back to the show page and the full class schedule |
 | Show History | `/profile?tab=history` | Past shows, each linking back to the show, its results, and its schedule |
+
+**"Due at this show" is per show, and lives on the show.** My Shows used to carry a roll-up across every upcoming show at the top of the page. Nobody is ever asked for that number: the office collects per show, against a back number, and "you owe $940 across four weekends" cannot be handed to anyone at a desk. The figure moved to `/shows/[id]/details`, next to the dates and venue it is owed for, with the itemised version one click below at `/shows/[id]/my-bill`. Both render the shared `DueAtShow` over `loadMyShowBill()`, so the headline a reader arrives with is the headline they land on. Each My Shows card still totals its own show through `ShowBillBreakdown`.
 
 The app never collects payment — the bill is what the show office will collect, reported back. What the office actually collected is recorded on the other side of the same money, in Financials below.
 

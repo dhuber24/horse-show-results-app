@@ -1,18 +1,33 @@
 import Link from 'next/link';
-import { auth } from '@/auth';
-import { fetchShow } from '@/lib/api';
+import {
+  fetchShow,
+  fetchClasses,
+  fetchShowJudgesPublic,
+  fetchShowFeesPublic,
+} from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
+import ShowbillDocument, { type ShowbillClassRow } from '../_components/ShowbillDocument';
 
 /**
  * The show, described.
  *
- * Two audiences share this page. A spectator arrives from the at-the-rail hub
- * wanting to know where they are and who is running it; an exhibitor arrives
- * from their own show menu wanting the same facts *plus* the two things that
- * are about them — what they entered and what it costs. The second set is
- * added rather than the page being forked, because everything above the
- * buttons is identical and a second copy would drift.
+ * One page, one audience, nothing personal on it. A spectator arriving from the
+ * at-the-rail hub and an exhibitor arriving from their show menu are asking the
+ * same question here — what is this show, who is judging it, what runs when,
+ * what does it cost to enter — and none of that depends on who is reading.
+ *
+ * It briefly carried the reader's own balance and a button to their entries.
+ * Both belong with the reader, not with the show: *What I Owe* is a tile on the
+ * show menu, and everything about a registration is on the registration screen,
+ * which is now one screen rather than two.
+ *
+ * The **show bill** — judges, the class schedule, the fee schedule and the
+ * rules — renders below the facts. It had its own tile on the show menu and a
+ * page that opened by restating these same facts, which made "what is this
+ * show" and "what is in it" two errands instead of one. `/shows/[id]/showbill`
+ * survives as the printable copy, reached from the link at the foot of this
+ * page and from the at-the-rail hub; it draws the same `ShowbillDocument`.
  */
 
 function formatDate(dateStr: string): string {
@@ -38,11 +53,22 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, back, session] = await Promise.all([fetchShow(id), showHubBack(id), auth()]);
-  const isExhibitor = (session?.user as { role?: string } | undefined)?.role === 'EXHIBITOR';
+  const [show, back, allClasses, judges, fees] = await Promise.all([
+    fetchShow(id),
+    showHubBack(id),
+    fetchClasses(id),
+    fetchShowJudgesPublic(id),
+    fetchShowFeesPublic(id),
+  ]);
 
   const clubs: { association_id: string; code: string; name: string; per_class_fee_cents: number }[] =
     show.sanctioning ?? [];
+
+  // DRAFT classes are the secretary's working copy — not on offer yet, and
+  // publishing one here would advertise a class that may never run.
+  const classes: ShowbillClassRow[] = (allClasses as ShowbillClassRow[]).filter(
+    (c) => (c as unknown as { status: string }).status !== 'DRAFT',
+  );
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -110,34 +136,15 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>
 
-      {isExhibitor && (
-        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Link
-            href={`/shows/${id}/register`}
-            className="rounded-lg border p-4 transition hover:bg-amber-50"
-            style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
-          >
-            <div className="font-semibold" style={{ color: '#2c1810' }}>My registration</div>
-            <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-              The classes and horses you entered.
-            </div>
-          </Link>
-          <Link
-            href={`/shows/${id}/my-bill`}
-            className="rounded-lg border p-4 transition hover:bg-amber-50"
-            style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
-          >
-            <div className="font-semibold" style={{ color: '#2c1810' }}>What I owe</div>
-            <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-              Class fees, stalls, shavings and the office charge, itemised.
-            </div>
-          </Link>
-        </div>
-      )}
+      <h2 className="text-lg font-semibold mt-6 mb-3" style={{ color: '#2c1810' }}>Show Bill</h2>
+      <ShowbillDocument show={show} classes={classes} judges={judges} fees={fees} embedded />
 
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
+        {/* The same document with a masthead and a print stylesheet on it.
+            Worth its own route even though the content is above: a program
+            people carry round the grounds on paper is the point of it. */}
         <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: '#8b4513' }}>
-          Show bill →
+          Print or save the show bill →
         </Link>
         <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: '#8b4513' }}>
           Message the show office →

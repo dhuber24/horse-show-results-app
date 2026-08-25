@@ -2,6 +2,60 @@
 
 ## August 2026
 
+### Signing Up For A Show Is One Job
+
+An exhibitor entering a show reserves what they need on the grounds and enters the classes they came for. The app made that two screens with a redirect between them, because it is two backend calls — which is a fact about the app, not about the person filling it in. The cost was real: sign up, get bounced to the class picker, remember halfway through that you need a fourth stall, go back, save, get bounced forward again. People ended up signed up with no classes, or with six stalls and no idea what the weekend added up to.
+
+`/shows/[id]/register` now carries both, in two collapsible sections over the running bill. **Classes & back number** holds the back-number request, the entered-class table, the entry form and the horses whose health paperwork the office will chase. **Stalls, shavings & camping** holds the reservation editor, lifted out of the sign-up page into a shared `ReservationFields` that both screens render — one implementation, so they cannot drift into quoting different rates.
+
+They fold because everything open at once is a very long page on the phone most people fill this in on. That makes each header's summary line do real work: collapsed, it is the only thing on screen saying what you have, so it carries the class count, the back number, the outstanding-records count, and the reserved quantities with their total.
+
+**The sign-up rule is still real, just visible now.** Class entries and back numbers both 409 without a completed sign-up, so until then the classes section will not open and its header names the section to fill in first — "you can't do this yet" without a destination is the kind of message people read as a fault. Saving the reservations opens it. `/shows/[id]/signup` survives as its own route because it is the door people are pointed at from the show hub, the status banner and the My Shows card; it just isn't the only way in any more.
+
+Show Details lost its last two reader-specific pieces in the same pass — the balance and the link to your own entries. Both belong with the reader rather than with the show: what you owe is a tile on the show menu, and everything about a registration is on the registration screen, which is now one screen.
+
+### The Show Menu Stopped Asking Twice
+
+Three of the exhibitor hub's tiles were answering one question between them, and two of them opened on the same facts.
+
+**Show Bill** and **Show Details** were separate tiles. The bill's first section is *The show* — dates, venue, show type, approving associations, sanctioning clubs, show numbers — which is the Show Details page, restated. So somebody wanting to know what a weekend involved read the dates on one screen, went back, and read them again on the other before reaching the judges and the class schedule they were actually after. The bill now renders directly below the facts on Show Details, through a shared `ShowbillDocument` with an `embedded` flag that drops the masthead and that duplicated section. `/shows/[id]/showbill` survives as the **printable** copy — masthead, print stylesheet, Save-as-PDF and the class-list CSV — linked from the foot of Show Details and from the at-the-rail hub. Printing a program to carry round the grounds is a real errand; it is just not a menu item.
+
+**What I Owe** moved the other way, up out of Show Details and onto the menu. What a weekend costs is one of the handful of things an exhibitor opens a show to find out, and it was sitting a click below "when does my class run". It shows only for somebody with a standing at the show — signed up, or entered by the office — since a tile promising a bill that opens on "nothing here" is worse than no tile, and it is deliberately **not** gated on registration still being open, because "you charged me for four stalls" is a question that arrives after the weekend.
+
+What is left reads about-me first: My Registration, What I Owe, then the show-wide screens. A menu that opens with the class schedule makes an exhibitor read past the show to find themselves.
+
+### The Bill Is A Fact About One Show
+
+My Shows opened with a roll-up: **Due at these shows $940.00**, summed across every upcoming weekend. It is a real number and nobody has ever needed it. A show office collects per show, against a back number, from a bill it drew up itself — there is no counter anywhere at which "$940 across four weekends" is the answer to anything, and it sat above four cards that each already carried their own total.
+
+So it moved onto the show. `/shows/[id]/details` now leads with **Due at this show**, next to the dates and the venue it is owed for, under the back number and class count the office uses to find the account. The itemised version is one click below it at `/shows/[id]/my-bill`, which already existed and already opened with the same figure — that headline is now one `DueAtShow` component reading one `loadMyShowBill()`, so the number a reader arrives with is the number they land on rather than two renderings of the same payload waiting to drift.
+
+Two smaller things fell out. The **Show details** button on a My Shows card pointed at the show *menu* — the same place the show name at the top of the card already linked, and one hop short of the page that now carries the figure; it points at Show Details. And the fetch is skipped entirely for anyone who is not an exhibitor, since a spectator reading the venue and the dates has no bill and asking for one is a backend round trip spent being told so.
+
+Each My Shows card still totals its own show. What was removed is the sum of them.
+
+### The Picker Stopped Going Quiet
+
+Two rough edges on the new registration form, both the same mistake: leaving the exhibitor to infer something the screen could have said.
+
+A class every one of your horses is already in is filtered out of the dropdown — correct, and silent. Somebody hunting for the Trail class they entered an hour ago has no way to tell "you are already in it" from "the show pulled it". The form now says how many classes are off the list and why, and points at the table above where they are.
+
+The horse dropdown had the same gap at the other end. On a `pattern` class — the one kind you may enter twice, on two horses — the class stays on offer while a horse is spare, and the moment the last one goes in the horse list is empty. It rendered as an open select containing nothing. It is now disabled and reads **All your available horses are entered in the class already**, with the same text on the `title`, per the rule that a disabled control says why it is disabled.
+
+### Exhibitors Got The Desk's Entry Form
+
+Show staff and exhibitors were entering classes through two different shapes of screen, and only one of them was any good.
+
+The desk enters one class at a time: a dropdown of what this person can still enter, a dropdown of their horses, **Enter class**, and it is done — the row appears in the table above and the form is ready for the next one. The exhibitor's own screen was a page-long list of *every* class in the show with a horse select on each row and a single **Submit registration** at the bottom. That shape asks somebody to hold an entire registration in their head, buries the four classes they have chosen under the thirty-six they have not, and reports the first clash — a class that closed, a horse already in — only after the whole thing is filled in and sent, at which point the batch fails as a unit.
+
+So `/shows/[id]/register` is now the desk's form with the exhibitor pinned to themselves. `AddClassEntry` mirrors `desk/AddEntryForm` deliberately, filtering included: a class you are already in drops off the list unless it is a `pattern` class and you still have a horse spare, and a horse already in the picked class drops out of the horse list. Same rules, same wording, different door — it posts to `POST /shows/{id}/register`, which derives the exhibitor from the session, so it cannot be pointed at anybody else.
+
+Two things it does that the desk form does not, both because the reader is different. The class dropdown is grouped by show day, since staff are handed a class number while an exhibitor is picking a Saturday. And removing an entry confirms inline first: a secretary removing a class is standing in front of the person who asked for it, whereas an exhibitor is usually on a phone, and a mis-tap that quietly drops them from a class is not something they would discover until the gate.
+
+**The money stopped being estimated.** The batch form had to add fees up in the browser — its selections did not exist yet, so there was nothing on the server to ask. Entries are real the moment they are made now, so the preview endpoint returns `billing.build_bill` and the screen renders `ShowBillBreakdown`, the same component the My Shows card and the per-show bill page use. Stalls, shavings and camping appear on it for the first time; the old footer totalled class fees, NSBA sanctions and the office charge and stopped there, so the number an exhibitor saw while registering was never the number they would be handed. Claude.md has claimed for a while that the class-registration screen reads `build_bill`. It does now.
+
+What browsing was lost went somewhere better. The full schedule is at `/shows/[id]/schedule`, which was built for reading a program, and the register screen links to it — a picker that was also the schedule was serving two readers badly.
+
 ### "Can I Have 42 Again?"
 
 The commonest question a show office fields in the weeks before a show, and the app had no answer for it. Back numbers were assigned by staff, full stop: the exhibitor emailed and asked, a secretary wrote it on a list, and later keyed it into the back-number screen by hand. That is exactly the workflow this app exists to remove, and at a ranch or western show it is not a fringe request — people ride the same number year after year, and families like to keep a block together.

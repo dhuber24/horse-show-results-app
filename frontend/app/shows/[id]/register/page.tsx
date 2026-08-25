@@ -2,7 +2,9 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
-import RegisterShowForm, { type PreviewData } from './RegisterShowForm';
+import RegisterShowForm from './RegisterShowForm';
+import type { PreviewData } from './types';
+import type { SignupData } from '../_components/ReservationFields';
 
 async function loadPreview(showId: string): Promise<{ status: number; data: PreviewData | null; error?: string }> {
   const headers = await getAuthHeaders();
@@ -13,12 +15,33 @@ async function loadPreview(showId: string): Promise<{ status: number; data: Prev
   return { status: 200, data: json };
 }
 
+/**
+ * The fee catalogue with this exhibitor's own rates on it — what the stalls,
+ * shavings and camping half of the screen edits.
+ *
+ * A second call rather than a wider preview payload, because it is the exact
+ * payload `/shows/[id]/signup` already reads, and both screens now render the
+ * same editor over it. Failure is null, not a throw: the classes half of the
+ * page is unaffected by the fee list being unavailable and should still work.
+ */
+async function loadSignup(showId: string): Promise<SignupData | null> {
+  const headers = await getAuthHeaders();
+  if (!headers) return null;
+  const res = await fetch(`${API_URL}/shows/${showId}/register/signup`, {
+    headers,
+    cache: 'no-store',
+  });
+  const json = await readJsonBody(res);
+  if (!res.ok || json === null) return null;
+  return json;
+}
+
 export default async function RegisterShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   if (!session) redirect(`/login?next=/shows/${id}/register`);
 
-  const { data, error } = await loadPreview(id);
+  const [{ data, error }, signupData] = await Promise.all([loadPreview(id), loadSignup(id)]);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -34,7 +57,7 @@ export default async function RegisterShowPage({ params }: { params: Promise<{ i
           {error ?? 'Registration is not available for this show right now.'}
         </div>
       ) : (
-        <RegisterShowForm showId={id} preview={data} />
+        <RegisterShowForm showId={id} preview={data} signupData={signupData} />
       )}
     </main>
   );

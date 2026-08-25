@@ -2,36 +2,26 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fetchShow } from '@/lib/api';
-import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
-import { formatMoney, type MyShowsData, type MyShow } from '@/lib/my-shows';
 import ShowHubHeader from '../_components/ShowHubHeader';
+import DueAtShow from '../_components/DueAtShow';
+import { loadMyShowBill } from '../_components/myShowBill';
 
 /**
- * What this one show costs the signed-in exhibitor.
+ * What this one show costs the signed-in exhibitor, itemised.
  *
- * Reads `GET /my-shows/` and picks this show out of it rather than asking for
- * a per-show total. That is one extra row or two over the wire and buys the
- * thing that matters: the number here is byte-for-byte the number on My Shows,
- * because it is the same payload. A second endpoint summing the same fees
- * would be faster and would eventually disagree — the same argument
- * `billing.build_bill` exists to settle (see Claude.md).
+ * Reached from the **What I Owe** tile on the show menu. `loadMyShowBill()`
+ * reads `GET /my-shows/` and picks this show out of it, so the figure here is
+ * byte-for-byte the one on My Shows — a second endpoint summing the same fees
+ * would be faster and would eventually disagree.
  */
-async function loadShowBill(showId: string): Promise<MyShow | null> {
-  const headers = await getAuthHeaders();
-  if (!headers) return null;
-  const res = await fetch(`${API_URL}/my-shows/`, { headers, cache: 'no-store' });
-  if (!res.ok) return null;
-  const data: MyShowsData = await res.json();
-  return data.shows.find((s) => s.show_id === showId) ?? null;
-}
 
 export default async function MyShowBillPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   if (!session) redirect(`/login?next=${encodeURIComponent(`/shows/${id}/my-bill`)}`);
 
-  const [show, mine] = await Promise.all([fetchShow(id), loadShowBill(id)]);
+  const [show, mine] = await Promise.all([fetchShow(id), loadMyShowBill(id)]);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -63,21 +53,8 @@ export default async function MyShowBillPage({ params }: { params: Promise<{ id:
         </div>
       ) : (
         <>
-          <div
-            className="rounded-lg border px-4 py-3 mb-4 flex items-center justify-between gap-3"
-            style={{ borderColor: '#d4b896', backgroundColor: '#faf4ec' }}
-          >
-            <div className="text-sm" style={{ color: '#5d4a37' }}>
-              Due at this show
-              <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-                {mine.back_number != null ? `Back #${mine.back_number}` : 'No back # yet'}
-                {' · '}
-                {mine.entry_count} class{mine.entry_count === 1 ? '' : 'es'}
-              </div>
-            </div>
-            <div className="text-2xl font-bold" style={{ color: '#2c1810' }}>
-              {formatMoney(mine.bill.total_cents)}
-            </div>
+          <div className="mb-4">
+            <DueAtShow show={mine} />
           </div>
 
           <div

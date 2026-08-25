@@ -4,123 +4,67 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
+import AddClassEntry from './AddClassEntry';
+import RegistrationSection from './RegistrationSection';
+import ShowBillBreakdown from '@/components/ShowBillBreakdown';
+import ReservationFields, {
+  reservationSummary,
+  type SignupData,
+} from '../_components/ReservationFields';
+import { formatMoney, healthWarnings, type PreviewData } from './types';
+import type { BillClassLine } from '@/lib/my-shows';
 
-type PreviewClass = {
-  id: string;
-  class_number: string;
-  class_name: string;
-  class_date: string;
-  /** `pattern` classes are judged run by run, so one exhibitor may show two
-   *  horses in them. Everything else is once per exhibitor. */
-  score_type: string;
-  entry_fee_cents: number;
-  is_nsba_approved: boolean;
-  nsba_sanction_cents: number;
-};
+/**
+ * Everything an exhibitor signs up for at one show, on one screen.
+ *
+ * Two foldable halves. **Classes & back number** is the counter flow — what you
+ * are entered in, the number you want to ride under, one form to enter the next
+ * class, and the horses whose paperwork the office will chase. **Stalls,
+ * shavings & camping** is what used to be a separate `/signup` page you were
+ * redirected through before you were allowed to pick a class.
+ *
+ * They were split because they are two backend calls. That is not a distinction
+ * an exhibitor should have to care about: somebody entering a show is doing one
+ * thing, and being bounced between two screens to finish it is how people end
+ * up signed up with no classes, or with six stalls and no idea what they cost.
+ * Both halves are here, both fold — the whole thing open at once is a very long
+ * page on the phone most people fill this in on — and the bill underneath
+ * counts all of it.
+ *
+ * The sign-up rule is still real: class entries and back numbers both 409
+ * without a completed sign-up, so until then the classes half stays shut and
+ * says which section to fill in first. `/shows/[id]/signup` survives as the
+ * door people are sent to, and renders the same `ReservationFields`.
+ *
+ * Every figure comes from `billing.build_bill` on the backend. Nothing here is
+ * summed in the browser — see the money Sharp Edge in Claude.md.
+ */
 
-type HealthCheck = {
-  code: string;
-  label: string;
-  status: 'valid' | 'missing' | 'undated' | 'expired';
-  message: string;
-  expiry_date: string | null;
-  /** True when this is only `valid` because the show office inspected the paper
-   *  at the desk. Nothing is uploaded, so the *next* show will ask again — but
-   *  this one has seen it, and nagging about paperwork the office is holding is
-   *  how people learn to ignore a warning. */
-  attested?: boolean;
-};
-
-type PreviewHorse = {
-  id: string;
-  name: string;
-  /** Advisory, never a gate — see `healthWarnings` below. */
-  health?: HealthCheck[];
-};
-
-type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
-
-type Signup = {
-  show_entry_id: string;
-  registered_at: string;
-  back_number: number | null;
-  /** What they asked for. Diverges from `back_number` once the office
-   *  renumbers, which is the case the screen calls out. */
-  preferred_back_number: number | null;
-  arrival_date: string | null;
-  departure_date: string | null;
-  notes: string | null;
-  reservations: { show_fee_id: string; quantity: number }[];
-};
-
-export type PreviewData = {
-  /** Null until the exhibitor completes show sign-up. The POST rejects class
-   *  entries without it, so the form refuses to render the picker rather than
-   *  letting someone fill it in and be turned away on submit. */
-  signup: Signup | null;
-  show: {
-    id: string;
-    name: string;
-    status: string;
-    start_date: string;
-    end_date: string;
-    show_type_code: string | null;
-    office_charge_cents: number;
-    office_charge_basis: string;
-  };
-  exhibitor: { id: string; full_name: string };
-  classes: PreviewClass[];
-  horses: PreviewHorse[];
-  existing_entries: ExistingEntry[];
-};
-
-function formatMoney(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-
-function formatDate(dateStr: string): string {
+function formatDay(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-    weekday: 'short',
     month: 'short',
     day: 'numeric',
   });
 }
 
 /**
- * What this horse still needs before the show — not before registering.
+ * One class already entered, with the control to get back out of it.
  *
- * A lapsed Coggins used to stop the entry going in at all, which helped nobody:
- * the paperwork was no more current for the horse having been turned away, and
- * the show office only found out when the trailer arrived. The entry goes
- * through, the exhibitor sees this, and the office sees the same list on its
- * own screen with time to chase it.
- */
-function healthWarnings(horse: PreviewHorse): string[] {
-  return (horse.health ?? [])
-    .filter((check) => check.status !== 'valid')
-    .map((check) => check.message);
-}
-
-/**
- * One class the exhibitor is already entered in, with the control to get back
- * out of it. Removal is a labelled button rather than a link tucked inside the
- * "entered" badge: taking a class off is as ordinary an action as adding one,
- * and an entry with no placing yet is the exhibitor's to undo.
+ * The desk removes an entry outright — a secretary is standing in front of the
+ * person asking for it. This one confirms inline first: it is the exhibitor's
+ * own money, usually on a phone, and an accidental tap that quietly drops them
+ * from a class is not something they would notice until the gate.
  */
 function EnteredRow({
-  entry,
-  className,
-  horseName,
+  line,
   isConfirming,
   isRemoving,
   onAsk,
   onCancel,
   onConfirm,
 }: {
-  entry: ExistingEntry;
-  className: string;
-  horseName: string;
+  line: BillClassLine;
   isConfirming: boolean;
   isRemoving: boolean;
   onAsk: () => void;
@@ -128,161 +72,91 @@ function EnteredRow({
   onConfirm: () => void;
 }) {
   return (
-    <div
-      className="flex items-center justify-between gap-2 rounded px-2 py-1.5"
-      style={{ backgroundColor: '#dcfce7' }}
-    >
-      <span className="text-xs min-w-0 truncate" style={{ color: '#065f46' }}>
-        ✓ Entered · 🐴 {horseName}
-      </span>
-      {isConfirming ? (
-        <span className="flex items-center gap-2 shrink-0">
-          <span className="text-xs" style={{ color: '#065f46' }}>Remove?</span>
+    <tr className="border-t" style={{ borderColor: '#f0e4d0' }}>
+      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
+        <span className="font-mono" style={{ color: '#8b4513' }}>{line.class_number}</span>{' '}
+        {line.class_name}
+      </td>
+      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
+        {line.horse_name ?? '(horse removed)'}
+      </td>
+      <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: '#8b7355' }}>
+        {line.class_date ? formatDay(line.class_date) : '—'}
+      </td>
+      <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: '#8b7355' }}>
+        {formatMoney(line.fee_cents + line.nsba_sanction_cents)}
+      </td>
+      <td className="py-1.5 text-right whitespace-nowrap">
+        {isConfirming ? (
+          <span className="inline-flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={isRemoving}
+              className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
+              style={{ backgroundColor: '#b91c1c' }}
+            >
+              {isRemoving ? 'Removing…' : 'Yes, remove'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isRemoving}
+              className="text-xs hover:underline disabled:opacity-50"
+              style={{ color: '#8b7355' }}
+            >
+              Keep
+            </button>
+          </span>
+        ) : (
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={isRemoving}
-            className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
-            style={{ backgroundColor: '#b91c1c' }}
-          >
-            {isRemoving ? 'Removing…' : 'Yes, remove'}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isRemoving}
+            onClick={onAsk}
             className="text-xs hover:underline"
-            style={{ color: '#15803d' }}
+            style={{ color: '#b91c1c' }}
+            title={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
+            aria-label={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
           >
-            Keep
+            Remove
           </button>
-        </span>
-      ) : (
-        <button
-          type="button"
-          onClick={onAsk}
-          className="text-xs font-medium px-2 py-1 rounded border shrink-0"
-          style={{ borderColor: '#86efac', color: '#065f46', backgroundColor: '#ffffff' }}
-          title={`Remove ${horseName} from ${className}`}
-          aria-label={`Remove ${horseName} from ${className}`}
-          data-entry-id={entry.id}
-        >
-          Remove
-        </button>
-      )}
-    </div>
+        )}
+      </td>
+    </tr>
   );
 }
 
-export default function RegisterShowForm({ showId, preview }: { showId: string; preview: PreviewData }) {
+export default function RegisterShowForm({
+  showId,
+  preview,
+  signupData,
+}: {
+  showId: string;
+  preview: PreviewData;
+  /** From `GET /shows/{id}/register/signup` — the fee catalogue with this
+   *  exhibitor's own rates on it. Null only when that call failed, in which
+   *  case the stalls half says so rather than pretending the show published no
+   *  fees. */
+  signupData: SignupData | null;
+}) {
   const router = useRouter();
-  const { show, exhibitor, classes, horses, existing_entries } = preview;
+  const { show, exhibitor, classes, horses, existing_entries, bill } = preview;
+  const signedUp = preview.signup !== null;
 
-  // class_id -> the horses being entered in it. A list rather than one horse
-  // because a pattern class is scored run by run: showmanship on two horses is
-  // two runs and two scores, and the backend has always accepted it. Non-pattern
-  // classes are capped at one here and rejected server-side either way.
-  const initialSelection = useMemo(() => {
-    const seed: Record<string, string[]> = {};
-    for (const cls of classes) seed[cls.id] = [];
-    return seed;
-  }, [classes]);
+  // Whichever half still needs doing is the one that opens. A first-time
+  // registrant lands on stalls, because that is the half that unlocks the
+  // other; everyone after that lands on their classes, which is what they came
+  // back for.
+  const [openClasses, setOpenClasses] = useState(signedUp);
+  const [openStalls, setOpenStalls] = useState(!signedUp);
 
-  const [selection, setSelection] = useState<Record<string, string[]>>(initialSelection);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
   const [withdrawingEntryId, setWithdrawingEntryId] = useState<string | null>(null);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
 
-  const existingByClass = useMemo(() => {
-    const map = new Map<string, ExistingEntry[]>();
-    for (const e of existing_entries) {
-      const list = map.get(e.class_id) ?? [];
-      list.push(e);
-      map.set(e.class_id, list);
-    }
-    return map;
-  }, [existing_entries]);
-
-  const existingHorseIdsByClass = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const e of existing_entries) {
-      const list = map.get(e.class_id) ?? [];
-      if (e.horse_id) list.push(e.horse_id);
-      map.set(e.class_id, list);
-    }
-    return map;
-  }, [existing_entries]);
-
-  const horseNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const h of horses) m.set(h.id, h.name);
-    return m;
-  }, [horses]);
   const horsesNeedingRecords = useMemo(
     () => horses.filter((h) => healthWarnings(h).length > 0),
     [horses],
   );
-
-  const classById = useMemo(() => {
-    const m = new Map<string, PreviewClass>();
-    for (const c of classes) m.set(c.id, c);
-    return m;
-  }, [classes]);
-
-  // Fees are charged per *entry* — one horse in one class — so a second horse
-  // in a pattern class is a second entry fee and a second sanction fee. Summing
-  // over classes would have quietly shown the wrong total the moment this
-  // screen learned to offer two.
-  const pendingEntries = useMemo(
-    () =>
-      Object.entries(selection).flatMap(([classId, horseIds]) =>
-        horseIds.filter(Boolean).map((horseId) => ({ classId, horseId })),
-      ),
-    [selection],
-  );
-
-  const subtotalCents = pendingEntries.reduce(
-    (sum, e) => sum + (classById.get(e.classId)?.entry_fee_cents ?? 0),
-    0,
-  );
-  const sanctionCents = pendingEntries.reduce(
-    (sum, e) => sum + (classById.get(e.classId)?.nsba_sanction_cents ?? 0),
-    0,
-  );
-  const distinctHorsesSelected = new Set(pendingEntries.map((e) => e.horseId)).size;
-  // Mirrors office_charge_total_cents() in backend/billing.py: per_back_number
-  // is one charge for the exhibitor however many horses they bring.
-  const officeChargeTotalCents =
-    pendingEntries.length === 0
-      ? 0
-      : show.office_charge_basis === 'per_horse'
-        ? distinctHorsesSelected * show.office_charge_cents
-        : show.office_charge_cents;
-  const totalFee = subtotalCents + sanctionCents + officeChargeTotalCents;
-
-  const classesByDate = useMemo(() => {
-    const grouped = new Map<string, PreviewClass[]>();
-    for (const cls of classes) {
-      const list = grouped.get(cls.class_date) ?? [];
-      list.push(cls);
-      grouped.set(cls.class_date, list);
-    }
-    return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [classes]);
-
-  /** Set the horse in one slot of a class. An empty value clears that slot,
-   *  which is how the trailing "add another" select doubles as a remove. */
-  const handleSelect = (classId: string, slot: number, horseId: string) => {
-    setSelection((prev) => {
-      const current = prev[classId] ?? [];
-      const next = [...current];
-      if (horseId === '') next.splice(slot, 1);
-      else next[slot] = horseId;
-      return { ...prev, [classId]: next.filter(Boolean) };
-    });
-  };
 
   const handleWithdraw = async (entryId: string) => {
     setWithdrawError(null);
@@ -309,405 +183,265 @@ export default function RegisterShowForm({ showId, preview }: { showId: string; 
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    const entries = pendingEntries.map((e) => ({
-      class_id: e.classId,
-      horse_id: e.horseId,
-    }));
-    if (entries.length === 0) {
-      setError('Pick a horse for at least one class to register.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/shows/${showId}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        const detail = typeof json?.detail === 'string'
-          ? json.detail
-          : json?.detail?.message || json?.error || 'Registration failed';
-        setError(detail);
-        setSubmitting(false);
-        return;
-      }
-      router.push('/dashboard');
-      router.refresh();
-    } catch {
-      setError('Network error — please try again.');
-      setSubmitting(false);
-    }
-  };
+  const entered = bill.class_lines;
 
-  if (!preview.signup) {
-    return (
-      <div className="mt-6">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          Register for classes — {exhibitor.full_name}
-        </p>
-        <div
-          className="mt-6 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
-        >
-          <p className="font-medium">Sign up for the show first.</p>
-          <p className="mt-1">
-            The show office needs your stall, shavings, and camping numbers before you pick classes.
-            It only takes a minute, and you can change those numbers later.
-          </p>
-          <div className="mt-3">
-            <Link
-              href={`/shows/${show.id}/signup`}
-              className="inline-block px-4 py-2 rounded font-medium text-white"
-              style={{ backgroundColor: '#8b4513' }}
-            >
-              Sign up for this show →
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Folded, these lines are the only thing on screen saying what you have.
+  const classesSummary = (() => {
+    const parts: string[] = [
+      entered.length === 0
+        ? 'No classes entered'
+        : `${entered.length} class${entered.length === 1 ? '' : 'es'}`,
+      preview.signup?.back_number != null
+        ? `Back #${preview.signup.back_number}`
+        : 'No back # yet',
+    ];
+    if (horsesNeedingRecords.length > 0) {
+      parts.push(
+        `${horsesNeedingRecords.length} horse${
+          horsesNeedingRecords.length === 1 ? '' : 's'
+        } need records`,
+      );
+    }
+    return parts.join(' · ');
+  })();
 
-  if (horses.length === 0) {
-    return (
-      <div className="mt-6">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          Register for classes — {exhibitor.full_name}
-        </p>
-        <div
-          className="mt-6 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
-        >
-          You don&apos;t have any horses on your profile yet. Add a horse before registering.
-          <div className="mt-3">
-            <Link href="/profile" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
-              Manage my horses →
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const stallsSummary = (() => {
+    if (!signupData) return 'Stalls, shavings and camping';
+    const { total_cents, parts } = reservationSummary(signupData);
+    if (parts.length === 0) return signedUp ? 'Nothing reserved' : 'Not signed up yet';
+    return `${parts.join(' · ')} — ${formatMoney(total_cents)}`;
+  })();
 
   return (
-    <form onSubmit={handleSubmit} className="mt-6">
+    <div className="mt-6">
       <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
       <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-        Register for classes — {exhibitor.full_name}
+        My registration — {exhibitor.full_name}
       </p>
 
       <div
         className="mt-4 rounded-lg border p-3 text-sm"
         style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
       >
-        Choose your horse from the drop-down menu in each class you want to register for. Fees
-        shown are informational — payment is collected at the end of the show.
-        <div className="mt-2">
-          <Link
-            href={`/shows/${showId}/signup`}
-            className="text-sm font-medium hover:underline"
-            style={{ color: '#8b4513' }}
-          >
-            Change stalls, shavings or camping →
-          </Link>
-        </div>
+        {signedUp
+          ? 'Everything you sign up for at this show is on this screen. Open a section to change it — you can keep changing until the show starts. Fees are informational; the show office collects payment at the show.'
+          : 'Start with stalls, shavings and camping: that tells the office you’re coming and opens up class entries. Fees are informational — the show office collects payment at the show.'}
       </div>
 
-      {/* Above the class picker on purpose: people who ride the same number
-          every year come here to claim it, and burying it under forty classes
-          would mean they only remember at the desk. */}
-      <BackNumberRequest
-        showId={showId}
-        backNumber={preview.signup.back_number}
-        preferredBackNumber={preview.signup.preferred_back_number}
-      />
+      <RegistrationSection
+        title="Classes & back number"
+        icon="📝"
+        summary={classesSummary}
+        isOpen={openClasses}
+        onToggle={() => setOpenClasses((v) => !v)}
+        locked={!signedUp}
+        lockedReason="Sign up below first — the office needs your stall numbers before you can enter classes"
+      >
+        {/* First inside on purpose: people who ride the same number every year
+            come here to claim it, and burying it under the class table would
+            mean they only remember at the desk. */}
+        <BackNumberRequest
+          showId={showId}
+          backNumber={preview.signup?.back_number ?? null}
+          preferredBackNumber={preview.signup?.preferred_back_number ?? null}
+        />
 
-      {existing_entries.length > 0 && (
-        <section
-          className="mt-4 rounded-lg border p-3"
-          style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}
-        >
-          <h2 className="text-sm font-semibold" style={{ color: '#065f46' }}>
-            You&apos;re entered in {existing_entries.length} class
-            {existing_entries.length === 1 ? '' : 'es'}
-          </h2>
-          <p className="text-xs mt-0.5 mb-2" style={{ color: '#15803d' }}>
-            Entered by mistake? Remove it here — nothing is final until the show starts.
-          </p>
-          <ul className="space-y-1.5">
-            {existing_entries.map((e) => {
-              const cls = classById.get(e.class_id);
-              return (
-                <li key={e.id} className="flex flex-col gap-1">
-                  <span className="text-xs font-medium" style={{ color: '#065f46' }}>
-                    {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class'}
-                  </span>
-                  <EnteredRow
-                    entry={e}
-                    className={cls?.class_name ?? 'this class'}
-                    horseName={e.horse_id ? (horseNameById.get(e.horse_id) ?? 'horse') : 'horse'}
-                    isConfirming={confirmWithdrawEntryId === e.id}
-                    isRemoving={withdrawingEntryId === e.id}
-                    onAsk={() => { setConfirmWithdrawEntryId(e.id); setWithdrawError(null); }}
-                    onCancel={() => { setConfirmWithdrawEntryId(null); setWithdrawError(null); }}
-                    onConfirm={() => handleWithdraw(e.id)}
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
-      {horsesNeedingRecords.length > 0 && (
-        <div
-          className="mt-3 rounded-lg border p-3 space-y-2"
-          style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb' }}
-        >
-          <p className="text-sm font-medium" style={{ color: '#92400e' }}>
-            {horsesNeedingRecords.length === 1 ? '1 horse needs' : `${horsesNeedingRecords.length} horses need`} health records updated before the show
-          </p>
-          <p className="text-xs" style={{ color: '#92400e' }}>
-            You can still enter these classes now. The show office is sent the same list and will
-            expect current paperwork by the time you ship in.
-          </p>
-          <ul className="space-y-1.5">
-            {horsesNeedingRecords.map((h) => {
-              const warnings = healthWarnings(h);
-              return (
-                <li key={h.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span style={{ color: '#7c2d12' }}>
-                    <span className="font-medium">{h.name}</span>
-                    {' — '}
-                    {warnings[0] ?? 'documents needed'}
-                  </span>
-                  <Link
-                    href={`/profile/horses/${h.id}`}
-                    className="shrink-0 text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
-                  >
-                    Upload documents →
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      <div className="mt-6 space-y-6">
-        {classesByDate.map(([dateStr, dayClasses]) => (
-          <section key={dateStr}>
-            <div className="flex items-center gap-2 mb-2">
-              <div className="flex-1 h-px" style={{ backgroundColor: '#e8d5b7' }} />
-              <span
-                className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                style={{ color: '#8b4513', backgroundColor: '#f0e8d8' }}
-              >
-                {formatDate(dateStr)}
+        <div className="mt-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+              {entered.length === 0
+                ? 'Your classes'
+                : `You're entered in ${entered.length} class${entered.length === 1 ? '' : 'es'}`}
+            </h3>
+            {entered.length > 0 && (
+              <span className="text-xs" style={{ color: '#8b7355' }}>
+                {formatMoney(bill.class_fee_total_cents + bill.nsba_sanction_total_cents)} in class
+                fees
               </span>
-              <div className="flex-1 h-px" style={{ backgroundColor: '#e8d5b7' }} />
+            )}
+          </div>
+
+          {horses.length === 0 ? (
+            <div
+              className="rounded-lg border p-3 text-sm"
+              style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
+            >
+              You don&apos;t have any horses on your profile yet. Add one before entering classes —
+              your stall and camping numbers can be set either way.
+              <div className="mt-2">
+                <Link href="/profile" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+                  Manage my horses →
+                </Link>
+              </div>
             </div>
+          ) : (
+            <>
+              {entered.length === 0 ? (
+                <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
+                  Not entered in anything yet. Pick your first class below.
+                </p>
+              ) : (
+                <div className="overflow-x-auto mb-3">
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="text-xs uppercase tracking-wide" style={{ color: '#8b4513' }}>
+                        <th className="text-left font-semibold pb-1 pr-3">Class</th>
+                        <th className="text-left font-semibold pb-1 pr-3">Horse</th>
+                        <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Day</th>
+                        <th className="text-right font-semibold pb-1 pr-3 whitespace-nowrap">Fee</th>
+                        <th className="pb-1"><span className="sr-only">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entered.map((line) => (
+                        <EnteredRow
+                          key={line.entry_id}
+                          line={line}
+                          isConfirming={confirmWithdrawEntryId === line.entry_id}
+                          isRemoving={withdrawingEntryId === line.entry_id}
+                          onAsk={() => {
+                            setConfirmWithdrawEntryId(line.entry_id);
+                            setWithdrawError(null);
+                          }}
+                          onCancel={() => {
+                            setConfirmWithdrawEntryId(null);
+                            setWithdrawError(null);
+                          }}
+                          onConfirm={() => handleWithdraw(line.entry_id)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
-            <ul className="space-y-2">
-              {dayClasses.map((cls) => {
-                const existing = existingByClass.get(cls.id) ?? [];
-                const existingHorseIds = existingHorseIdsByClass.get(cls.id) ?? [];
+              <AddClassEntry
+                showId={showId}
+                showTypeCode={show.show_type_code}
+                classes={classes}
+                horses={horses}
+                existingEntries={existing_entries}
+                onAdded={() => router.refresh()}
+              />
+            </>
+          )}
+
+          {withdrawError && (
+            <div
+              className="mt-3 rounded-lg border p-3 text-sm"
+              style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+            >
+              {withdrawError}
+            </div>
+          )}
+        </div>
+
+        {/* Advisory, never a gate — the entry goes in either way and the office
+            gets the same list with time to chase it. In here rather than at the
+            top of the page because it is about the horses in the table above
+            it. */}
+        {horsesNeedingRecords.length > 0 && (
+          <div
+            className="mt-4 rounded-lg border p-3 space-y-2"
+            style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb' }}
+          >
+            <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+              {horsesNeedingRecords.length === 1
+                ? '1 horse needs'
+                : `${horsesNeedingRecords.length} horses need`}{' '}
+              health records updated before the show
+            </p>
+            <p className="text-xs" style={{ color: '#92400e' }}>
+              You can still enter these classes now. The show office is sent the same list and will
+              expect current paperwork by the time you ship in.
+            </p>
+            <ul className="space-y-1.5">
+              {horsesNeedingRecords.map((h) => {
+                const warnings = healthWarnings(h);
                 return (
-                  <li
-                    key={cls.id}
-                    className="rounded-lg border p-3"
-                    style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium" style={{ color: '#2c1810' }}>
-                          {cls.class_number} — {cls.class_name}
-                        </div>
-                        <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-                          {cls.entry_fee_cents > 0 ? `Fee ${formatMoney(cls.entry_fee_cents)}` : 'No fee'}
-                          {cls.is_nsba_approved && (
-                            <span
-                              className="ml-2 font-mono font-semibold px-1 rounded"
-                              style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
-                              title={`NSBA-approved. Adds ${formatMoney(cls.nsba_sanction_cents)} sanction fee.`}
-                            >
-                              NSBA
-                            </span>
-                          )}
-                        </div>
-                        {existing.length > 0 && (
-                          <ul className="mt-2 space-y-1.5">
-                            {existing.map((e) => (
-                              <li key={e.id}>
-                                <EnteredRow
-                                  entry={e}
-                                  className={cls.class_name}
-                                  horseName={
-                                    e.horse_id ? (horseNameById.get(e.horse_id) ?? 'horse') : 'horse'
-                                  }
-                                  isConfirming={confirmWithdrawEntryId === e.id}
-                                  isRemoving={withdrawingEntryId === e.id}
-                                  onAsk={() => { setConfirmWithdrawEntryId(e.id); setWithdrawError(null); }}
-                                  onCancel={() => { setConfirmWithdrawEntryId(null); setWithdrawError(null); }}
-                                  onConfirm={() => handleWithdraw(e.id)}
-                                />
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div className="shrink-0">
-                        {(() => {
-                          const picked = selection[cls.id] ?? [];
-                          const isPattern = cls.score_type === 'pattern';
-                          const spareHorses = horses.filter(
-                            (h) => !existingHorseIds.includes(h.id) && !picked.includes(h.id),
-                          );
-                          // One select per horse already chosen, plus a trailing
-                          // empty one while a pattern class still has a horse
-                          // left to put in it. A non-pattern class gets exactly
-                          // one: entering it twice is a 409.
-                          const slots = !isPattern
-                            ? [picked[0] ?? '']
-                            : picked.length === 0 || spareHorses.length > 0
-                              ? [...picked, '']
-                              : [...picked];
-
-                          return (
-                            <div className="flex flex-col items-end gap-1.5">
-                              {slots.map((chosen, slot) => (
-                                <select
-                                  key={`${cls.id}-${slot}`}
-                                  aria-label={
-                                    slot === 0
-                                      ? `Horse for ${cls.class_name}`
-                                      : `Another horse for ${cls.class_name}`
-                                  }
-                                  value={chosen}
-                                  onChange={(e) => handleSelect(cls.id, slot, e.target.value)}
-                                  className="text-sm border rounded px-2 py-1.5"
-                                  style={{ borderColor: '#d4b896', backgroundColor: '#fffdf8' }}
-                                >
-                                  <option value="">
-                                    {slot === 0 ? '— skip —' : '— add another horse —'}
-                                  </option>
-                                  {horses.map((h) => {
-                                    const already = existingHorseIds.includes(h.id);
-                                    // Taken by another slot of this same class:
-                                    // one horse cannot run a class twice.
-                                    const inAnotherSlot =
-                                      picked.includes(h.id) && picked[slot] !== h.id;
-                                    // Only "entered" and "already picked here"
-                                    // disable an option. A health warning is
-                                    // marked, not enforced — the banner above
-                                    // says what is outstanding.
-                                    const needsRecords = healthWarnings(h).length > 0;
-                                    return (
-                                      <option
-                                        key={h.id}
-                                        value={h.id}
-                                        disabled={already || inAnotherSlot}
-                                      >
-                                        {h.name}
-                                        {already
-                                          ? ' (entered)'
-                                          : inAnotherSlot
-                                            ? ' (already picked)'
-                                            : needsRecords
-                                              ? ' ⚠ records due'
-                                              : ''}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                              ))}
-                              {isPattern && picked.length > 1 && (
-                                <span className="text-xs" style={{ color: '#8b7355' }}>
-                                  {picked.length} runs · fee each
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
+                  <li key={h.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span style={{ color: '#7c2d12' }}>
+                      <span className="font-medium">{h.name}</span>
+                      {' — '}
+                      {warnings[0] ?? 'documents needed'}
+                    </span>
+                    <Link
+                      href={`/profile/horses/${h.id}`}
+                      className="shrink-0 text-xs font-medium hover:underline"
+                      style={{ color: '#8b4513' }}
+                    >
+                      Upload documents →
+                    </Link>
                   </li>
                 );
               })}
             </ul>
-          </section>
-        ))}
-      </div>
+          </div>
+        )}
+      </RegistrationSection>
 
-      <div
-        className="mt-8 rounded-lg border p-4 sticky bottom-4 space-y-3"
+      <RegistrationSection
+        title="Stalls, shavings & camping"
+        icon="🏠"
+        summary={stallsSummary}
+        isOpen={openStalls}
+        onToggle={() => setOpenStalls((v) => !v)}
+      >
+        {signupData ? (
+          <ReservationFields
+            showId={showId}
+            data={signupData}
+            submitLabel={signedUp ? 'Save changes' : 'Sign up for this show'}
+            totalHint="Class fees are counted separately, in the total below."
+            // Already on the right screen, so refresh in place — and open the
+            // classes half, which this save is what unlocks.
+            onSaved={() => {
+              setOpenClasses(true);
+              router.refresh();
+            }}
+          />
+        ) : (
+          <p className="text-sm" style={{ color: '#8b7355' }}>
+            Stall, shavings and camping options could not be loaded for this show.{' '}
+            <Link
+              href={`/shows/${showId}/signup`}
+              className="font-medium hover:underline"
+              style={{ color: '#8b4513' }}
+            >
+              Try the sign-up page →
+            </Link>
+          </p>
+        )}
+      </RegistrationSection>
+
+      <section
+        className="mt-4 rounded-lg border p-4"
         style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-wider" style={{ color: '#8b7355' }}>
-              {pendingEntries.length} entr{pendingEntries.length === 1 ? 'y' : 'ies'} selected
-              {distinctHorsesSelected > 0 && (
-                <> · {distinctHorsesSelected} horse{distinctHorsesSelected === 1 ? '' : 's'}</>
-              )}
-            </div>
-            <div className="text-xl font-bold" style={{ color: '#2c1810' }}>
-              Total {formatMoney(totalFee)}
-            </div>
-          </div>
-          <button
-            type="submit"
-            disabled={submitting || pendingEntries.length === 0}
-            className="px-4 py-2 rounded font-medium text-white"
-            style={{
-              backgroundColor: submitting || pendingEntries.length === 0 ? '#a89175' : '#8b4513',
-              cursor: submitting || pendingEntries.length === 0 ? 'not-allowed' : 'pointer',
-            }}
-            title={pendingEntries.length === 0 ? 'Pick at least one class to register' : undefined}
+        <h2 className="text-sm font-semibold mb-2" style={{ color: '#2c1810' }}>
+          What this show will cost
+        </h2>
+        {/* Both halves land in here — the same bill the office reads and the
+            same one on My Shows, so the three cannot disagree. */}
+        <ShowBillBreakdown bill={bill} />
+        {/* Everywhere else this screen sends you, in one place under the bill. */}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t text-sm font-medium"
+          style={{ borderColor: '#e8d5b7' }}>
+          <Link
+            href={`/shows/${showId}/schedule`}
+            className="hover:underline"
+            style={{ color: '#8b4513' }}
           >
-            {submitting ? 'Submitting…' : 'Submit registration'}
-          </button>
+            Browse the full class schedule →
+          </Link>
+          <Link href={`/shows/${showId}`} className="hover:underline" style={{ color: '#8b4513' }}>
+            Back to the show →
+          </Link>
+          <Link href="/my-shows" className="hover:underline" style={{ color: '#8b4513' }}>
+            My shows &amp; bill →
+          </Link>
         </div>
-        {pendingEntries.length > 0 && (sanctionCents > 0 || officeChargeTotalCents > 0) && (
-          <dl className="text-xs grid grid-cols-2 gap-y-1 pt-2 border-t" style={{ borderColor: '#e8d5b7', color: '#5d4a37' }}>
-            <dt>Class fees</dt>
-            <dd className="text-right">{formatMoney(subtotalCents)}</dd>
-            {sanctionCents > 0 && (
-              <>
-                <dt title="NSBA sanction fee: 6% of class fee, $3 minimum, on each NSBA-approved class.">
-                  NSBA sanction fees
-                </dt>
-                <dd className="text-right">{formatMoney(sanctionCents)}</dd>
-              </>
-            )}
-            {officeChargeTotalCents > 0 && (
-              <>
-                <dt title="One-time office/drug-testing charge per horse.">
-                  Office charge ({distinctHorsesSelected} × {formatMoney(show.office_charge_cents)})
-                </dt>
-                <dd className="text-right">{formatMoney(officeChargeTotalCents)}</dd>
-              </>
-            )}
-          </dl>
-        )}
-      </div>
-
-      {(error || withdrawError) && (
-        <div
-          className="mt-4 rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
-        >
-          {error ?? withdrawError}
-        </div>
-      )}
-    </form>
+      </section>
+    </div>
   );
 }

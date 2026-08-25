@@ -548,9 +548,15 @@ async def preview_registration(
         horses = horses_result.scalars().all()
         health_by_horse_id = await health_by_horse(list(horse_ids), show, db)
 
+    # `class_` and `horse` come along because `build_bill` reads both. The
+    # screen's entered-class table *is* the bill's class lines, so the fee shown
+    # beside a class is the fee the office will collect. Not filtered to open
+    # classes: a class that closed after the entry went in is still owed for,
+    # and dropping it here would quietly shrink the total.
     existing_result = await db.execute(
         select(Entry)
         .join(Class, Entry.class_id == Class.id)
+        .options(selectinload(Entry.class_), selectinload(Entry.horse))
         .where(Class.show_id == show_id, Entry.exhibitor_id == exhibitor.id)
     )
     existing = existing_result.scalars().all()
@@ -603,6 +609,11 @@ async def preview_registration(
             {
                 "id": str(h.id),
                 "name": h.name,
+                # Only meaningful at an APHA show, where a Solid Paint-Bred
+                # horse may not go in an Open division class — the same guard
+                # the desk's entry form applies, so the two forms refuse the
+                # same combination rather than one of them finding out later.
+                "is_solid_paint_bred": h.is_solid_paint_bred,
                 # `file_snapshot` is the desk's staleness bookkeeping and
                 # means nothing to an exhibitor. The staff endpoints drop it via
                 # their response_model; this one has none, so it is dropped here.
@@ -613,6 +624,8 @@ async def preview_registration(
             }
             for h in horses
         ],
+        # Which (class, horse) pairs are already taken. Display comes from
+        # `bill.class_lines`; this list is what the pickers filter against.
         "existing_entries": [
             {
                 "id": str(e.id),
@@ -621,6 +634,12 @@ async def preview_registration(
             }
             for e in existing
         ],
+        # What this show costs so far, straight from `billing.build_bill` — the
+        # same call behind the My Shows bill and the office's account screen.
+        # Entries commit one at a time now, so there is always a real bill to
+        # quote; the batch form this replaced had to add the fees up in the
+        # browser, which is the disagreement billing.py exists to prevent.
+        "bill": build_bill(show, existing, show_entry.reservations if show_entry else []),
     }
 
 
