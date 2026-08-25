@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import { API_URL, getAuthHeaders, safeFetchBackend } from '@/lib/backend-fetch';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
@@ -17,13 +17,12 @@ export async function GET(
 ) {
   const { token } = await params;
   const authHeaders = await getAuthHeaders();
-  const res = await fetch(
+  const { json, status } = await safeFetchBackend(
     `${API_URL}/horse-access-requests/by-token/${encodeURIComponent(token)}`,
     {
       headers: authHeaders ?? { 'Content-Type': 'application/json', 'X-API-Key': INTERNAL_API_KEY },
       cache: 'no-store',
     },
   );
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

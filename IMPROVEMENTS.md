@@ -2,6 +2,38 @@
 
 ## August 2026
 
+### The App Got A Safety Net
+
+There were no automated tests. Not thin ones — none. `pytest`, `pytest-asyncio` and `pytest-cov` were pinned in `backend/requirements.txt`, Jest and Testing Library were in `frontend/package.json` with `test`, `test:watch` and `test:coverage` scripts, and there was not one test file in the repository; `npm test` would have failed with "no tests found". The only CI workflow checked that documentation had been touched. Commits go straight to `main`. So the app that decides what an exhibitor owes and what gets published as an official placing had nothing standing between a bad edit and a horse show.
+
+`RUN_TESTS.sh` was worse than absent, because `Claude.md` pointed at it. Its `test_result` helper read `$?` *after* incrementing a counter — and an assignment always exits 0 — so every check it reached reported PASS. `set -e` meant the first genuinely failing command aborted the script before the helper ran at all. It could not report a failure by either route, and most of its checks were `grep`s for the presence of a line of code, which pass whether or not the code works. It has been rewritten to capture each exit status immediately and actually fail.
+
+**104 backend tests and 26 frontend ones now cover the pure logic**, which turned out to be exactly where the risk was concentrated. `billing.py` is 327 lines with no `await`, no database and no imports beyond `date` and `typing` — every function that turns entries and reservations into cents, testable with plain stub objects and no fixtures. The same is true of the health-paperwork block in `routers/horse_documents.py`, the discipline classifier and the back-number resolver. Because each of those functions already carried a docstring stating the invariant it protects, the cases mostly wrote themselves: an early rate priced off the day it was booked rather than today, outstanding and credit never netted against each other, a refund as a negative row, a Coggins judged against the show's last day rather than today, an attestation that clears a flag only when it records a date.
+
+One test checks a shape rather than a value. `rules/disciplines.py` routes class names through an ordered keyword table where a general keyword placed above a specific one silently kills it — "TRAIL" above "RANCH TRAIL" and every Ranch Trail class lands in Trail. Rather than enumerate lookups, the test asserts no earlier keyword is a substring of a later one, which catches every future mis-ordered insertion. The table passes today.
+
+Backend tests run **in Docker**, because they have to. The host interpreter is Python 3.9 and the backend needs 3.10+, so importing it on the host raises. `py -m compileall backend` — the documented backend check — passes anyway, because it byte-compiles without executing. That check has never actually imported the backend.
+
+`.github/workflows/ci.yml` now runs both suites plus type check, lint, compile and a frontend build, on the Node 20 and Python 3.12 the Dockerfiles ship.
+
+### A Backend 500 Says What It Was
+
+**121 of 168 route handlers called `res.json()` on a backend response with no guard**, against a convention `docs/frontend.md` had documented for months — while also telling the next person to fix them as they went rather than in one sweep. They have all been swept.
+
+The failure this prevents is nasty out of proportion to its cause: a backend 500 arrives as plain text, `res.json()` throws on it, and the real status is replaced by `Unexpected token 'I', "Internal S"... is not valid JSON` on whatever screen happened to make the call. `safeFetchBackend()` already existed and already handled the 204, parse-failure and network-failure cases; it was used in 42 handlers.
+
+Five handlers still call `fetch()` directly and always will — they stream a CSV export, a document download, or a headshot, so a JSON helper cannot serve them, and each guards its own error path. They are allowlisted in the CI step that now fails the build if a sixth appears. The documentation line telling people not to do this in one sweep has been replaced with one saying it is done and enforced.
+
+### Registration Endpoints Got A Rate Limit, And The Logs Started Working
+
+All four `/auth/register*` endpoints were missing `@limiter.limit` while every other auth endpoint had one — open to scripted account creation and to grinding the 409 for email enumeration. They now carry `5/minute`, matching `/reset-password`. Verified at runtime rather than by inspection: the sixth attempt in a minute returns 429.
+
+Worth knowing what that does and does not buy. Every request reaches the API from the Next.js container, so `get_remote_address` resolves to one address for everybody and the limit caps total throughput per endpoint rather than isolating one abusive caller. That was already true of the four existing limits. It bounds how fast anyone can grind; it does not keep them from crowding out real users. Documented in `docs/auth.md` rather than left to be rediscovered.
+
+The backend had **nine `logger.` calls in total and no logging configuration at all**, which meant uvicorn left the root logger at WARNING with no handlers and every one of those `logger.info()` calls was discarded — including `mailer.py`'s "Email not sent (no SMTP configured)", the single line someone debugging email most needs. One `logging.basicConfig` call fixes all nine. A request-logging middleware adds method, path, status and duration, escalating at 5xx and skipping the health endpoints, since Compose polls `/` every ten seconds and 8,640 lines a day of nothing is how a log stops being read.
+
+Health checking is now two endpoints, and deliberately so. `GET /` stays exactly as it was — liveness, no database — because Compose polls it and the frontend declares `depends_on.backend.condition: service_healthy`, so a `/` that failed on a Neon blip would stop the frontend from starting: a worse outage than the one being caught. The database check went to a new `GET /health/ready`, which returns 503 when it cannot reach Postgres. Testing it found a second bug: an unreachable host does not refuse a connection, it goes unanswered, and `pool_pre_ping` retries — so the probe hung for as long as the caller would wait. It is bounded at five seconds now, and answers 503 rather than nothing.
+
 ### Signing Up For A Show Is One Job
 
 An exhibitor entering a show reserves what they need on the grounds and enters the classes they came for. The app made that two screens with a redirect between them, because it is two backend calls — which is a fact about the app, not about the person filling it in. The cost was real: sign up, get bounced to the class picker, remember halfway through that you need a fourth stall, go back, save, get bounced forward again. People ended up signed up with no classes, or with six stalls and no idea what the weekend added up to.

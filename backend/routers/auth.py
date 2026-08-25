@@ -14,6 +14,15 @@ from database import get_db
 from models import User, Exhibitor, ShowSecretaryCertification, Association, Trainer
 
 logger = logging.getLogger(__name__)
+
+# Every request reaches this API from the Next.js server container, never from a
+# browser, so `get_remote_address` resolves to that one address for everybody.
+# These limits are therefore a cap on total throughput per endpoint, not a
+# per-caller quota — worth having (it bounds how fast anyone can grind
+# credentials or enumerate emails) but it does not isolate one abusive client
+# from everyone else. Making it per-caller means forwarding the browser's
+# address from the route handlers and keying on that, which needs its own
+# thought about spoofing.
 limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -291,7 +300,8 @@ async def reset_password_with_security_answer(
 
 
 @router.post("/register")
-async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register_user(request: Request, body: UserRegister, db: AsyncSession = Depends(get_db)):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     validate_name_parts(body.first_name, body.last_name)
@@ -329,7 +339,10 @@ async def register_user(body: UserRegister, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/register/show-secretary")
-async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register_show_secretary(
+    request: Request, body: ShowSecretaryRegister, db: AsyncSession = Depends(get_db)
+):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     validate_name_parts(body.first_name, body.last_name)
@@ -375,7 +388,10 @@ async def register_show_secretary(body: ShowSecretaryRegister, db: AsyncSession 
 
 
 @router.post("/register/show-manager")
-async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register_show_manager(
+    request: Request, body: ShowManagerRegister, db: AsyncSession = Depends(get_db)
+):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     validate_name_parts(body.first_name, body.last_name)
@@ -407,7 +423,10 @@ async def register_show_manager(body: ShowManagerRegister, db: AsyncSession = De
 
 
 @router.post("/register/trainer")
-async def register_trainer(body: TrainerRegister, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def register_trainer(
+    request: Request, body: TrainerRegister, db: AsyncSession = Depends(get_db)
+):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     if not body.private_phone.strip():

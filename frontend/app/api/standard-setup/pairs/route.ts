@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(request: NextRequest) {
   const headers = await getAuthHeaders();
@@ -9,7 +9,6 @@ export async function GET(request: NextRequest) {
   const url = showTypeId
     ? `${API_URL}/standard-setup/pairs?show_type_id=${encodeURIComponent(showTypeId)}`
     : `${API_URL}/standard-setup/pairs`;
-  const res = await fetch(url, { headers });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(url, { headers });
+  return NextResponse.json(json, { status });
 }

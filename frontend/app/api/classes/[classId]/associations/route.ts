@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ classId: string }> }) {
   const headers = await getAuthHeaders();
@@ -10,9 +10,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const showId = searchParams.get('showId');
   if (!showId) return NextResponse.json({ error: 'showId is required' }, { status: 400 });
 
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/associations`, { headers });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/classes/${classId}/associations`, { headers });
+  return NextResponse.json(json, { status });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ classId: string }> }) {
@@ -23,11 +22,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const body = await request.json();
   const { showId, ...data } = body;
 
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/associations`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/classes/${classId}/associations`, {
     method: 'POST',
     headers,
     body: JSON.stringify(data),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

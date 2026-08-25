@@ -33,6 +33,7 @@ deliberately excluded: neither role has any business reading revenue.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -67,6 +68,8 @@ from schemas import (
     ShowPaymentCreate,
     ShowPaymentOut,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/shows/{show_id}",
@@ -323,6 +326,11 @@ async def record_payment(
             # roster row existed. `UNIQUE (show_id, exhibitor_id)` catches the
             # second one; re-read and use the row the first insert created,
             # rather than failing a payment that genuinely happened.
+            logger.warning(
+                "Concurrent roster insert for exhibitor %s at show %s; recovering existing row",
+                body.exhibitor_id,
+                show_id,
+            )
             await db.rollback()
             existing = await db.execute(
                 select(ShowEntry).where(
@@ -332,6 +340,14 @@ async def record_payment(
             )
             show_entry = existing.scalar_one_or_none()
             if show_entry is None:
+                # The unique constraint fired and yet nothing is there to find.
+                # That should not be reachable; if it is, the money is not being
+                # recorded and somebody needs to know why.
+                logger.error(
+                    "Roster row for exhibitor %s at show %s vanished after IntegrityError",
+                    body.exhibitor_id,
+                    show_id,
+                )
                 raise HTTPException(409, "Could not open an account for that exhibitor. Try again.")
 
     actor = await db.get(User, safe_uuid(x_user_id))
@@ -352,6 +368,17 @@ async def record_payment(
     db.add(payment)
     await db.commit()
     await db.refresh(payment)
+    # `show_payments` is the app's only record that money moved, and
+    # `recorded_by_name` is denormalized precisely because staff accounts do
+    # not outlive the show. A line per payment is a few dozen a day.
+    logger.info(
+        "Payment recorded: show=%s show_entry=%s amount_cents=%d method=%s by=%s",
+        show_id,
+        show_entry.id,
+        payment.amount_cents,
+        payment.method,
+        payment.recorded_by_name or "unknown",
+    )
     return payment
 
 
@@ -396,6 +423,15 @@ async def delete_payment(
     show_entry = await db.get(ShowEntry, payment.show_entry_id)
     if show_entry is None or show_entry.show_id != show_id:
         raise HTTPException(404, "Payment not found")
+    # Logged before the delete, because afterwards there is nothing left to say
+    # what was removed.
+    logger.info(
+        "Payment deleted: show=%s payment=%s amount_cents=%d originally_recorded_by=%s",
+        show_id,
+        payment.id,
+        payment.amount_cents,
+        payment.recorded_by_name or "unknown",
+    )
     await db.delete(payment)
     await db.commit()
 

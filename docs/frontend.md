@@ -34,8 +34,11 @@ nothing to do with the actual fault, which is a genuinely hard error to trace ba
   `frontend/lib/backend-fetch.ts`. It returns `null` for a non-JSON (or `204`) body, so treat
   `!res.ok || json === null` as the error case and fall back to the page's own message.
 
-Much of the existing code still calls `res.json()` unguarded; fix those as you touch them rather
-than in one sweep.
+**This is now enforced, not aspirational.** Every route handler in `frontend/app/api/` goes through
+`safeFetchBackend()`, and a CI step fails the build if a new one calls `fetch()` directly. The five
+exceptions are allowlisted in `.github/workflows/ci.yml`: they stream a non-JSON body (a CSV export,
+a document download, a headshot) and so cannot use a JSON helper, and each guards its own error path.
+If you are adding a handler that returns JSON, there is no reason to reach for `fetch()`.
 
 Public spectator screens skip route handlers entirely: they are server components that call the unauthenticated helpers in `frontend/lib/api.ts` directly, so signed-out visitors are never a special case. Where such a page needs client-side interactivity over a lot of rows — searching, filtering, starring — fetch the whole set once on the server with an index endpoint (`fetchResultsIndex`, `fetchProgramIndex`) and hand it to a client component, rather than making the browser fetch per row.
 
@@ -352,3 +355,22 @@ Three pages, one payload. `loadFinancials()` in [financials/loadFinancials.ts](.
 - **Reports are rendered generically.** `formatReportCell` formats any column flagged `is_money` from integer cents, so a report added to the backend registry gets consistent currency formatting with no frontend change. `REPORT_ICONS` is presentation-only and falls back to a default icon for a slug it does not know — an unknown report still renders.
 - **CSV is built from the report already on the page**, so the file and the table cannot be two different snapshots. Money is written as plain decimal dollars with no symbol or separator, because `$1,240.00` arrives in a spreadsheet as text and will not sum.
 - Wide report tables scroll inside their own `overflow-x-auto` container rather than pushing the page sideways.
+
+## Tests
+
+Jest with `next/jest`, configured in `frontend/jest.config.js`. Run with `npm test` from `frontend/`.
+
+The suite covers **pure helpers in `frontend/lib/`** and deliberately stops there. Component rendering
+tests break on every copy change and catch little that `tsc --noEmit` does not already, and the money
+and redirect helpers are where a silent bug actually costs something:
+
+- `lib/safe-next.test.ts` — `safeNextPath()`, the open-redirect defence.
+- `lib/my-shows.test.ts` — `formatMoney` (including a negative, because a credit balance renders),
+  `ordinal` (the 11th/12th/13th boundary), `formatDateRange`, `isPastShow`.
+- `lib/financials.test.ts` — `formatReportCell`, including that a **zero in a money column renders as
+  `$0.00`, not an em dash**. The source checks `value === ''` rather than falsiness; "simplifying"
+  that to `if (!value)` would turn every zero on a financial report into missing data.
+
+Test files import `describe`/`it`/`expect` from `@jest/globals` rather than relying on ambient
+globals. `tsconfig.json` includes `**/*.ts`, so these files are type-checked by `npm run type-check`
+— the explicit import is what keeps that passing without adding `@types/jest`.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ entryId: string }> }) {
   const headers = await getAuthHeaders();
@@ -9,13 +9,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const body = await request.json();
   const { showId, classId, ...data } = body;
 
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/entries/${entryId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/classes/${classId}/entries/${entryId}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(data),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ entryId: string }> }) {
@@ -31,12 +30,11 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     return NextResponse.json({ error: 'showId and classId are required' }, { status: 400 });
   }
 
-  const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/entries/${entryId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/classes/${classId}/entries/${entryId}`, {
     method: 'DELETE',
     headers,
   });
 
-  if (res.status === 204) return new NextResponse(null, { status: 204 });
-  const json = await res.json().catch(() => ({}));
-  return NextResponse.json(json, { status: res.status });
+  if (status === 204) return new NextResponse(null, { status: 204 });
+  return NextResponse.json(json, { status });
 }

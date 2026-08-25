@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function PATCH(
   request: NextRequest,
@@ -9,7 +9,7 @@ export async function PATCH(
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId, classId, entryId } = await params;
   const body = await request.json();
-  const res = await fetch(
+  const { json, status } = await safeFetchBackend(
     `${API_URL}/shows/${showId}/gate/classes/${classId}/entries/${entryId}/check-in`,
     {
       method: 'PATCH',
@@ -17,6 +17,5 @@ export async function PATCH(
       body: JSON.stringify(body),
     },
   );
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

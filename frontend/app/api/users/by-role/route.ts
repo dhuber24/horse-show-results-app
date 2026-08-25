@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(request: NextRequest) {
   const headers = await getAuthHeaders();
@@ -8,10 +8,9 @@ export async function GET(request: NextRequest) {
   if (!role) {
     return NextResponse.json({ error: 'role query param required' }, { status: 400 });
   }
-  const res = await fetch(
+  const { json, status } = await safeFetchBackend(
     `${API_URL}/users/by-role?role=${encodeURIComponent(role)}`,
     { headers, cache: 'no-store' },
   );
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

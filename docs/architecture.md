@@ -107,7 +107,26 @@ Show status transitions are handled through guarded write paths in `backend/rout
 - Setting `ACTIVE` requires today's date to fall within the show date range.
 - Status transitions are explicit updates, not a background scheduler.
 
-The backend also calls `Base.metadata.create_all()` on startup. Migrations remain the source of truth for intentional schema evolution.
+The backend also calls `Base.metadata.create_all()` on startup. Migrations remain the source of truth for intentional schema evolution. Note that this makes the database a hard startup dependency: with it unreachable, `create_all` fails and the process does not come up at all.
+
+## Logging And Health
+
+`backend/main.py` calls `logging.basicConfig` at import. Without it uvicorn configures only its own named loggers and leaves the root logger at WARNING with no handlers, so **every `logger.info()` in the codebase was silently discarded** — including `mailer.py`'s "Email not sent (no SMTP configured)", which is the one line someone debugging email needs. `LOG_LEVEL` (default `INFO`) sets the level. Never pass `force=True`: plain `basicConfig` is a no-op when handlers already exist, which is what keeps it from displacing uvicorn's.
+
+An `@app.middleware("http")` logs method, path, status and duration for every request, escalating to WARNING at 5xx. It deliberately does **not** wrap `call_next` in try/except — Starlette already logs unhandled exceptions with a traceback, and wrapping would double-log every 500. Health endpoints are excluded, because docker-compose polls `/` every 10 seconds and 8,640 lines a day of nothing is how a log stops being read.
+
+**Two health endpoints, on purpose:**
+
+| Endpoint | Answers | Touches the DB |
+| --- | --- | --- |
+| `GET /` | Is the process alive? | No |
+| `GET /health/ready` | Can it reach the database? | Yes — `SELECT 1` |
+
+They are kept separate because `docker-compose.yml` polls `/` and the frontend declares `depends_on.backend.condition: service_healthy`. If `/` failed on a database blip, Compose would stop the frontend from starting — a worse outage than the one being detected. Do not merge them.
+
+The readiness check is bounded by `READINESS_TIMEOUT_SECONDS` (5s) via `asyncio.wait_for`. An unreachable host does not refuse a connection, it goes unanswered, and `pool_pre_ping` retries — so without the timeout the probe hangs until the caller gives up, which is no more useful than one that always says yes. On timeout it returns `503 {"status": "degraded", "database": "timeout"}`.
+
+Money movements are logged in `backend/routers/show_financials.py`: one INFO line per payment recorded and per payment deleted, plus a WARNING when two staff open the same roster row concurrently. `show_payments` is the app's only record that money moved and `recorded_by_name` is denormalized because staff accounts do not outlive the show, so a few dozen lines a day is worth it. `billing.py` itself logs nothing — it is pure, it is covered by tests, and a line per exhibitor per screen render would drown the lines above.
 
 ## Association Rules
 

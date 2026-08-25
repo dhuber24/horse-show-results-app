@@ -205,90 +205,79 @@ export const ShowList: React.FC = () => {
 
 ## Testing
 
-### Python Tests (Backend)
+Both suites cover **pure logic only** — no database, no HTTP, no component rendering. That is a
+deliberate first pass at the code where a silent bug costs something real: money math and health
+paperwork. Widen it when there is something else worth the maintenance.
 
-**Requirements:**
-- Write tests for new functions
-- Aim for 80%+ coverage
-- Use pytest + pytest-asyncio for async tests
+### Backend (pytest)
 
-**Running tests:**
+**Run them in Docker.** The host interpreter is Python 3.9; the backend needs 3.10+ and fails to
+import on the host. `py -m compileall backend` passes regardless, because it byte-compiles without
+executing — which is exactly why the compile check never caught this.
+
 ```bash
-cd backend
-pytest                          # Run all tests
-pytest -v                       # Verbose output
-pytest --cov                    # With coverage report
-pytest -k test_auth             # Run specific test
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)/backend:/app" -w /app   horse-show-results-app-backend:latest python -m pytest
 ```
 
-**Example test:**
-```python
-import pytest
-from fastapi.testclient import TestClient
-from main import app
-from database import Session
+`./backend` is bind-mounted, so tests written on the host run without rebuilding the image. Config
+lives in `backend/pytest.ini` (not the repo root) so that rootdir is the backend package whether you
+invoke it in the container, from `backend/`, or from the repo root.
 
-client = TestClient(app)
+Tests live in `backend/tests/`:
 
-@pytest.fixture
-def test_db():
-    # Setup test database
-    db = Session()
-    yield db
-    db.close()
+| File | Covers |
+| --- | --- |
+| `test_billing.py` | `billing.py` — early-bird rates, NSBA sanction, office charge, bills, balances, the show rollup, side pot money |
+| `test_health.py` | the pure health block in `routers/horse_documents.py` — requirements, expiry, status, attestation |
+| `test_rules.py` | `rules/disciplines.py` — class-name routing, plus a property test on the keyword table's ordering |
+| `test_backnumbers.py` | `backnumbers.py` — show-level vs legacy back number precedence |
 
-def test_create_show(test_db):
-    """Test creating a new show."""
-    response = client.post(
-        "/shows",
-        json={
-            "name": "Spring Show 2024",
-            "date": "2024-05-15",
-            "location": "Austin, TX",
-            "association": "AQHA"
-        },
-        headers={"Authorization": "Bearer valid-token"}
-    )
-    
-    assert response.status_code == 201
-    data = response.json()
-    assert data["name"] == "Spring Show 2024"
-```
+Subjects are duck-typed, so `tests/factories.py` builds `SimpleNamespace` stubs rather than ORM
+instances. Each factory defaults everything its subject reads, so a test names only the fields it is
+actually about.
 
-### TypeScript Tests (Frontend)
+Two things worth knowing before adding to it:
 
-**Requirements:**
-- Write tests for components and utilities
-- Use Jest + React Testing Library
-- Aim for 80%+ coverage
+- `billing.py` is completely pure — no `await`, no database, importing only `date` and `typing`.
+  Keep it that way; it is what makes this suite fast and worth running.
+- The health tests import `routers.horse_documents`, which pulls in FastAPI, models and `database`.
+  That is import-safe without a database because `create_async_engine` does not connect at import.
+  If that ever changes, extract the pure block into its own module rather than adding a fixture.
 
-**Running tests:**
+### Frontend (Jest)
+
 ```bash
 cd frontend
-npm test                        # Run all tests
-npm test -- --coverage          # With coverage report
-npm test -- --watch             # Watch mode
+npm test                  # run
+npm run test:coverage     # coverage, scoped to lib/
 ```
 
-**Example test:**
-```typescript
-import { render, screen } from '@testing-library/react';
-import { ShowList } from './ShowList';
+Configured in `frontend/jest.config.js` via `next/jest`. Tests sit next to their subject in
+`frontend/lib/`. See the Tests section of `docs/frontend.md` for what is covered and why component
+rendering is not.
 
-describe('ShowList', () => {
-  it('displays loading state initially', () => {
-    render(<ShowList />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
-  });
+Test files import `describe`/`it`/`expect` from `@jest/globals` rather than relying on ambient
+globals — `tsconfig.json` type-checks `**/*.ts`, so this is what keeps `npm run type-check` passing
+without adding `@types/jest`.
 
-  it('displays shows after loading', async () => {
-    render(<ShowList />);
-    // Mock API response
-    // Wait for content to load
-    // Assert shows are displayed
-  });
-});
+### Everything at once
+
+```bash
+bash RUN_TESTS.sh
 ```
+
+Runs the backend suite in Docker, then the frontend type check, lint and tests. It deliberately does
+not run `npm run build`: the host and the dev container share `frontend/.next` through a bind mount,
+so a host-side build breaks a running dev server. CI builds instead.
+
+### CI
+
+`.github/workflows/ci.yml` runs all of the above on push and PR to `main`, on Node 20 and Python
+3.12 to match the Dockerfiles. It also builds the frontend, and fails if any route handler under
+`frontend/app/api/` calls `fetch()` directly instead of `safeFetchBackend()`.
+
+`.github/workflows/docs-guard.yml` is separate and only checks that documentation moved with the
+code.
 
 ## Commit Messages
 

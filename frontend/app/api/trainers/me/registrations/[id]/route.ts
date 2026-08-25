@@ -7,13 +7,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/trainers/me/registrations/${id}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/trainers/me/registrations/${id}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

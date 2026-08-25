@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   forwardForm.append('file', file);
   forwardForm.append('document_type', 'HEADSHOT');
 
-  const res = await fetch(`${API_URL}/trainers/${me.id}/documents`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/trainers/${me.id}/documents`, {
     method: 'POST',
     // Don't set Content-Type — the FormData boundary is auto-applied.
     headers: {
@@ -57,8 +57,7 @@ export async function POST(request: NextRequest) {
     },
     body: forwardForm,
   });
-  const json = await res.json().catch(() => ({}));
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function DELETE() {

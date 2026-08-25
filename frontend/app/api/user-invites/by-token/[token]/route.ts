@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_URL } from '@/lib/backend-fetch';
+import { API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
@@ -10,13 +10,12 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> },
 ) {
   const { token } = await params;
-  const res = await fetch(`${API_URL}/user-invites/by-token/${encodeURIComponent(token)}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/user-invites/by-token/${encodeURIComponent(token)}`, {
     headers: {
       'Content-Type': 'application/json',
       'X-API-Key': INTERNAL_API_KEY,
     },
     cache: 'no-store',
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

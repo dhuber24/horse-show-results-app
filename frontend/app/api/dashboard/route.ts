@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -10,7 +10,6 @@ export async function GET(request: NextRequest) {
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const userId = (session.user as any).id;
-  const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers });
-  const json = await res.json();
+  const { json, status } = await safeFetchBackend(`${API_URL}/dashboard/exhibitor/${userId}`, { headers });
   return NextResponse.json(json);
 }

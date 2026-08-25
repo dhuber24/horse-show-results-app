@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(req: NextRequest) {
   const headers = await getAuthHeaders();
@@ -12,8 +12,7 @@ export async function GET(req: NextRequest) {
   }
 
   const qs = new URLSearchParams({ association_id: associationId, registration_number: registrationNumber });
-  const res = await fetch(`${API_URL}/horses/registrations/lookup?${qs.toString()}`, { headers });
-  if (res.status === 404) return NextResponse.json(null, { status: 404 });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(`${API_URL}/horses/registrations/lookup?${qs.toString()}`, { headers });
+  if (status === 404) return NextResponse.json(null, { status: 404 });
+  return NextResponse.json(json, { status });
 }

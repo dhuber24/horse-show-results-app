@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import { API_URL, getAuthHeaders, safeFetchBackend } from '@/lib/backend-fetch';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
@@ -20,11 +20,10 @@ export async function POST(
   const body = await request.json();
   const authHeaders = await getAuthHeaders();
 
-  const res = await fetch(`${API_URL}/shows/${showId}/contact/`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/contact/`, {
     method: 'POST',
     headers: authHeaders ?? { 'Content-Type': 'application/json', 'X-API-Key': INTERNAL_API_KEY },
     body: JSON.stringify(body),
   });
-  const json = await res.json().catch(() => ({}));
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

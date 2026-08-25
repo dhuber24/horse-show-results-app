@@ -9,13 +9,12 @@ export async function PATCH(
   if (!headers) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
   const { id, regId } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/trainers/${id}/registrations/${regId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/trainers/${id}/registrations/${regId}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function DELETE(

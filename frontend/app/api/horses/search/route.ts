@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(req: NextRequest) {
   const headers = await getAuthHeaders();
@@ -14,7 +14,6 @@ export async function GET(req: NextRequest) {
   const limit = req.nextUrl.searchParams.get('limit');
   if (limit) qs.set('limit', limit);
 
-  const res = await fetch(`${API_URL}/horses/search?${qs.toString()}`, { headers });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(`${API_URL}/horses/search?${qs.toString()}`, { headers });
+  return NextResponse.json(json, { status });
 }

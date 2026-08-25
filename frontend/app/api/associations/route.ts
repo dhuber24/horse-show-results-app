@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 /**
  * The registry of bodies a horse or person can be affiliated with.
@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
   }
 
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
-  const res = await fetch(`${API_URL}/associations/${suffix}`, { headers, cache: 'no-store' });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(`${API_URL}/associations/${suffix}`, { headers, cache: 'no-store' });
+  return NextResponse.json(json, { status });
 }

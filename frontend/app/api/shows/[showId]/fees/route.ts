@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId } = await params;
-  const res = await fetch(`${API_URL}/shows/${showId}/fees/`, { headers, cache: 'no-store' });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/fees/`, { headers, cache: 'no-store' });
+  return NextResponse.json(json, { status });
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
@@ -15,11 +14,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/shows/${showId}/fees/`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/fees/`, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

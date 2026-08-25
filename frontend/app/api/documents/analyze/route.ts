@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 /**
  * Read a document that has no horse yet — the add-a-horse wizard stages
@@ -14,11 +14,10 @@ export async function POST(req: NextRequest) {
   // Remove Content-Type so fetch sets it automatically with the multipart boundary
   const { 'Content-Type': _ct, ...forwardHeaders } = headers as Record<string, string>;
 
-  const res = await fetch(`${API_URL}/documents/analyze`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/documents/analyze`, {
     method: 'POST',
     headers: forwardHeaders,
     body: formData,
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

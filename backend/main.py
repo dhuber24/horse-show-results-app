@@ -1,12 +1,15 @@
+import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from database import engine, Base
 from dependencies import INTERNAL_API_KEY
@@ -56,6 +59,17 @@ from routers.show_financials import router as show_financials_router
 from routers.show_desk import router as show_desk_router
 from routers.show_waivers import router as show_waivers_router
 
+# uvicorn configures its own named loggers but leaves the root logger with no
+# handlers at WARNING, so every logger.info() in this codebase was being
+# discarded — including mailer.py's "Email not sent (no SMTP configured)", which
+# is exactly the line someone debugging email needs to see. Plain basicConfig
+# (never force=True) is a no-op if the root already has handlers, so this adds
+# the missing configuration without displacing uvicorn's.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,6 +99,39 @@ async def rate_limit_handler(request, exc):
         status_code=429,
         content={"detail": "Too many requests. Please try again later."}
     )
+
+# Health endpoints are excluded because docker-compose polls `/` every 10
+# seconds — 8,640 lines a day of nothing, which is how a log becomes something
+# nobody reads.
+_UNLOGGED_PATHS = {"/", "/health/ready"}
+
+# How long the readiness probe waits on the database before calling it down.
+READINESS_TIMEOUT_SECONDS = 5
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Method, path, status and duration for every request.
+
+    uvicorn's own access log carries no timing and cannot escalate on failure.
+    Deliberately no try/except around `call_next`: Starlette already logs
+    unhandled exceptions with a traceback, and wrapping would double-log every
+    500.
+    """
+    started = time.perf_counter()
+    response = await call_next(request)
+    if request.url.path not in _UNLOGGED_PATHS:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.log(
+            logging.WARNING if response.status_code >= 500 else logging.INFO,
+            "%s %s -> %d (%.0fms)",
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed_ms,
+        )
+    return response
+
 
 ALLOWED_ORIGINS = [
     o.strip()
@@ -150,4 +197,42 @@ app.include_router(show_waivers_router)
 
 @app.get("/", tags=["Health"])
 async def root():
+    """Liveness only — deliberately does not touch the database.
+
+    docker-compose polls this, and `frontend.depends_on.backend.condition:
+    service_healthy` means a failure here stops the frontend from starting. A
+    transient Neon blip must not do that, so the database check lives on
+    /health/ready instead. Do not "tidy" the two into one.
+    """
     return {"status": "ok", "app": "Horse Show Results API"}
+
+
+@app.get("/health/ready", tags=["Health"])
+async def readiness():
+    """Readiness — can this process actually reach the database?
+
+    Separate from `/` on purpose (see above). Returns 503 rather than raising so
+    a monitor reads a status rather than a stack trace.
+    """
+    async def _ping():
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+
+    try:
+        # Bounded on purpose. An unreachable host does not refuse the
+        # connection, it goes unanswered — and pool_pre_ping retries — so
+        # without this the probe hangs until the caller gives up and reports
+        # nothing. A readiness check that never answers is no more use than one
+        # that always says yes.
+        await asyncio.wait_for(_ping(), timeout=READINESS_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.error("Readiness check timed out after %ss", READINESS_TIMEOUT_SECONDS)
+        return JSONResponse(
+            status_code=503, content={"status": "degraded", "database": "timeout"}
+        )
+    except Exception:
+        logger.exception("Readiness check failed: database unreachable")
+        return JSONResponse(
+            status_code=503, content={"status": "degraded", "database": "error"}
+        )
+    return {"status": "ok", "database": "ok"}

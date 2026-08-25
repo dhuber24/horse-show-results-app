@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function DELETE(
   _req: NextRequest,
@@ -9,13 +9,12 @@ export async function DELETE(
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const res = await fetch(`${API_URL}/exhibitors/${id}/documents/${docId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/exhibitors/${id}/documents/${docId}`, {
     method: 'DELETE',
     headers,
   });
-  if (res.status === 204) return new NextResponse(null, { status: 204 });
-  const json = await res.json().catch(() => ({}));
-  return NextResponse.json(json, { status: res.status });
+  if (status === 204) return new NextResponse(null, { status: 204 });
+  return NextResponse.json(json, { status });
 }
 
 export async function PATCH(
@@ -27,11 +26,10 @@ export async function PATCH(
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  const res = await fetch(`${API_URL}/exhibitors/${id}/documents/${docId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/exhibitors/${id}/documents/${docId}`, {
     method: 'PATCH',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const json = await res.json().catch(() => ({}));
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

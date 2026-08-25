@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const headers = await getAuthHeaders();
@@ -7,12 +7,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const { id } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/users/${id}/password`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/users/${id}/password`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(body),
   });
-  if (res.status === 204) return new NextResponse(null, { status: 204 });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  if (status === 204) return new NextResponse(null, { status: 204 });
+  return NextResponse.json(json, { status });
 }

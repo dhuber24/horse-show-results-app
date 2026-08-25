@@ -6,3 +6,7 @@ __pycache__/
 node_modules/
 .claude/scheduled_tasks.lock
 docs/sources/
+
+# Test artifacts
+.pytest_cache/
+coverage/

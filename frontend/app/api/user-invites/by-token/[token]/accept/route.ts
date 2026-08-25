@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { API_URL } from '@/lib/backend-fetch';
+import { API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
@@ -10,7 +10,7 @@ export async function POST(
 ) {
   const { token } = await params;
   const body = await request.json();
-  const res = await fetch(
+  const { json, status } = await safeFetchBackend(
     `${API_URL}/user-invites/by-token/${encodeURIComponent(token)}/accept`,
     {
       method: 'POST',
@@ -21,6 +21,5 @@ export async function POST(
       body: JSON.stringify(body),
     },
   );
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

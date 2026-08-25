@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function PATCH(request: NextRequest) {
   const headers = await getAuthHeaders();
@@ -7,13 +7,12 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json();
   const { showId, assignments } = body;
-  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/back-numbers/`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({ assignments }),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function POST(request: NextRequest) {
@@ -22,11 +21,10 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const { showId } = body;
-  const res = await fetch(`${API_URL}/shows/${showId}/back-numbers/auto-assign`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/back-numbers/auto-assign`, {
     method: 'POST',
     headers,
     body: JSON.stringify({}),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }

@@ -152,16 +152,20 @@ Run frontend checks from `frontend/`:
 ```bash
 npm run type-check
 npm run lint
+npm test
 npm run build
 ```
 
-Run backend compile check from repo root:
+Run backend tests. **These must run in Docker** — the host interpreter is Python 3.9 and the backend
+needs 3.10+, so `import`ing it on the host fails. `py -m compileall backend` passes anyway because it
+byte-compiles without executing, which is why the compile check alone never caught this:
 
 ```bash
-py -m compileall backend
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd)/backend:/app" -w /app \
+  horse-show-results-app-backend:latest python -m pytest
 ```
 
-Run the project test helper from repo root:
+Run everything (backend tests in Docker, then the frontend checks) from repo root:
 
 ```bash
 bash RUN_TESTS.sh

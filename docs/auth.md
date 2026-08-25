@@ -106,6 +106,36 @@ While locked, the **question is withheld too**, not just the answer check: the p
 
 The lock covers the reset route only. Signing in with the password still works and **clears the counter** — someone who remembers their password must never be locked out by a stranger guessing at their question. An admin password reset clears it for the same reason.
 
+### Rate limits
+
+Every unauthenticated endpoint in `backend/routers/auth.py` carries a `@limiter.limit`:
+
+| Endpoint | Limit |
+| --- | --- |
+| `POST /auth/verify` (login) | 10/minute |
+| `POST /auth/password-reset/question` | 10/minute |
+| `POST /auth/reset-password` | 5/minute |
+| `POST /auth/password-reset/answer` | 5/minute |
+| `POST /auth/register` | 5/minute |
+| `POST /auth/register/show-secretary` | 5/minute |
+| `POST /auth/register/show-manager` | 5/minute |
+| `POST /auth/register/trainer` | 5/minute |
+
+**The limits are global, not per-caller.** `Limiter(key_func=get_remote_address)` keys on the remote
+address, and every request reaches this API from the Next.js server container rather than from a
+browser — so the key is the same one address for everybody. That makes each limit a cap on total
+throughput for an endpoint, which bounds how fast anyone can grind credentials or enumerate emails,
+but does not isolate an abusive client from legitimate users. Making it per-caller means forwarding
+the browser's address from the route handlers and keying on that, which needs its own thought about
+spoofing; it has not been done.
+
+The registration endpoints **do** report `409 Email already registered`, which tells an anonymous
+caller whether an address has an account. That is deliberate: the alternative is a generic failure
+that leaves someone who forgot they already registered with no way forward, and doing it properly
+(accept, then email "you already have an account") is impossible here because `mailer.py` no-ops
+without SMTP and would swallow the registration. The rate limit is what caps enumeration *speed*,
+which is the part that can be fixed without breaking the form.
+
 ### Admin view
 
 `GET /users/{id}/security-question` reports `has_question`, `set_at`, `failed_attempts`, and `locked_until` — deliberately **not** the question text. Admins can already reset the password outright, so showing a self-written question (which usually hints at its own answer) would add exposure and no capability. `DELETE` clears it for a user who forgot their answer; the user then sets their own. An admin cannot *set* a replacement, because that would mean knowing the answer to someone else's account.

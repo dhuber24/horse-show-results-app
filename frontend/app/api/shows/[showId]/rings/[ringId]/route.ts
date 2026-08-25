@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function PATCH(
   request: NextRequest,
@@ -9,13 +9,12 @@ export async function PATCH(
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId, ringId } = await params;
   const body = await request.json();
-  const res = await fetch(`${API_URL}/shows/${showId}/rings/${ringId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/rings/${ringId}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
 
 export async function DELETE(
@@ -25,11 +24,10 @@ export async function DELETE(
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { showId, ringId } = await params;
-  const res = await fetch(`${API_URL}/shows/${showId}/rings/${ringId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/rings/${ringId}`, {
     method: 'DELETE',
     headers,
   });
-  if (res.status === 204) return new NextResponse(null, { status: 204 });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  if (status === 204) return new NextResponse(null, { status: 204 });
+  return NextResponse.json(json, { status });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
 export async function GET(
   _request: NextRequest,
@@ -8,10 +8,9 @@ export async function GET(
   const { showId } = await params;
   const headers = await getAuthHeaders();
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const res = await fetch(`${API_URL}/user-invites/by-show/${showId}`, {
+  const { json, status } = await safeFetchBackend(`${API_URL}/user-invites/by-show/${showId}`, {
     headers,
     cache: 'no-store',
   });
-  const json = await res.json();
-  return NextResponse.json(json, { status: res.status });
+  return NextResponse.json(json, { status });
 }
