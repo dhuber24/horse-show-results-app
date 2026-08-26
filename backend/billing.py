@@ -30,6 +30,10 @@ NSBA_SANCTION_RATE = 0.06
 # the weekend" is per_show — two of them cost $120, and a three-day show still
 # costs $60 each. Pricing that as per_night silently doubles it on a two-day
 # show, which is why the unit exists (migration 106).
+#
+# per_night and per_show are the two ways a venue prices the *same* camping
+# spot, which is why the setup step offers them as a choice on one line rather
+# than as two fee rows (migration 108).
 RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night", "per_show")
 
 

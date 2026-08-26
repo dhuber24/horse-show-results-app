@@ -654,6 +654,11 @@ class ShowFeeOut(BaseModel):
     early_amount_cents: Optional[int] = None
     early_deadline: Optional[date] = None
     created_at: datetime
+    # How many exhibitors have booked a quantity against this row. Filled in by
+    # the staff list endpoint only; it stays 0 on the public price list, which
+    # has no business reporting how many people have entered. Defaulted rather
+    # than required so `from_attributes` still works on a bare ORM row.
+    reserved_count: int = 0
 
     class Config:
         from_attributes = True

@@ -80,20 +80,20 @@ const UNIT_GROUPS: { key: string; heading: string; blurb: string; units: string[
     units: ['per_bag'],
   },
   {
+    // per_night and per_show under one heading because they are the two ways a
+    // venue prices the same camping spot, and the show picks one (migration
+    // 108). Splitting them put "Camping" and "For the whole show" side by side
+    // and left a whole-show camping spot filed under neither name the
+    // exhibitor was looking for.
+    //
+    // What that split was guarding against — booking two *nights* of a
+    // $60-for-the-weekend hook-up and being charged $120 — is now handled where
+    // it actually bites: the noun sits against the number being typed, not
+    // just in a heading above it.
     key: 'camping',
-    heading: 'Camping',
-    blurb: 'Nights on the grounds. Count nights, not campers.',
-    units: ['per_night'],
-  },
-  {
-    // Separate from Camping above even though a hook-up is usually the thing
-    // being sold, because the two ask for different numbers — nights there,
-    // spots here — and putting them under one heading is how someone books
-    // two nights of a $60-for-the-weekend hook-up and is charged $120.
-    key: 'whole_show',
-    heading: 'For the whole show',
-    blurb: 'Charged once each for the whole show, however long you stay.',
-    units: ['per_show'],
+    heading: 'Camping & hook-ups',
+    blurb: 'Space on the grounds.',
+    units: ['per_night', 'per_show'],
   },
 ];
 
@@ -103,6 +103,20 @@ const UNIT_NOUN: Record<string, string> = {
   per_night: 'night',
   per_show: 'spot',
 };
+
+/** What the number in the box counts, said next to the box. A per_night and a
+ *  per_show line look identical until you read the rate, and they are the one
+ *  pair in this form where getting it wrong doubles the charge. */
+function unitBlurb(units: string[]): string {
+  const hasNight = units.includes('per_night');
+  const hasShow = units.includes('per_show');
+  if (hasNight && hasShow) {
+    return 'Count nights for anything priced by the night, and spots for anything priced for the whole show.';
+  }
+  if (hasShow) return 'Charged once each for the whole show, however long you stay.';
+  if (hasNight) return 'Count nights, not campers.';
+  return '';
+}
 
 function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -304,6 +318,12 @@ export default function ReservationFields({
               <h3 className="font-semibold" style={{ color: '#2c1810' }}>{group.heading}</h3>
               <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
                 {group.blurb}
+                {/* Derived from the units actually present, so a show selling
+                    camping by the night and a show selling it by the weekend
+                    each get the sentence that applies to them. */}
+                {group.key === 'camping' && (
+                  <> {unitBlurb(group.fees.map((f) => f.unit))}</>
+                )}
                 {/* Repeated next to the number they're about to type. The
                     callout at the top of the form is read once; this is the
                     line they're looking at when they decide on a quantity. */}
@@ -364,7 +384,7 @@ export default function ReservationFields({
                           onChange={(e) => setQuantity(fee.id, Number(e.target.value) || 0)}
                           className="w-16 border rounded px-2 py-1.5 text-sm text-center"
                           style={{ borderColor: '#d4b896' }}
-                          aria-label={`Number of ${fee.label}`}
+                          aria-label={`Number of ${noun}s — ${fee.label}`}
                         />
                         <button
                           type="button"
@@ -375,6 +395,18 @@ export default function ReservationFields({
                         >
                           +
                         </button>
+                        {/* Against the box, not only in the heading. Nights and
+                            whole-show spots now sit in the same section, and
+                            this is the word that tells them apart at the moment
+                            the number is typed. */}
+                        <span
+                          className="text-xs w-11 text-left"
+                          style={{ color: '#8b7355' }}
+                          aria-hidden
+                        >
+                          {noun}
+                          {qty === 1 ? '' : 's'}
+                        </span>
                       </div>
                     </li>
                   );

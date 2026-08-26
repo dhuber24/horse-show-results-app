@@ -1,6 +1,8 @@
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import type { WizardStepsInput } from '../../../_wizard/steps';
 
+// Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
+// code for the camping line and still counts as lodging that is configured.
 const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
 const FEE_CODES = new Set(['standard_class', 'jackpot', 'futurity']);
 

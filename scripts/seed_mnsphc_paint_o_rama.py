@@ -352,7 +352,11 @@ SHOW_FEES = [
         # however long the show runs (migration 106). It was carried as
         # `per_night` before that unit existed, which billed $120 on a two-day
         # show.
-        "code": "hookup",
+        #
+        # `camping`, not `hookup`: camping and the hook-up are one line item
+        # priced either by the night or by the show (migration 108). This show
+        # sells it by the show, and the label is what says so.
+        "code": "camping",
         "label": "Electrical hook-up (per spot, whole show)",
         "amount_cents": 6000,
         "unit": "per_show",

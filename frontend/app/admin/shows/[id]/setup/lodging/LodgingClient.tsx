@@ -12,6 +12,8 @@ export type FeeRow = {
   notes: string | null;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** How many exhibitors have already booked this line. Staff endpoint only. */
+  reserved_count?: number;
 };
 
 const COLORS = {
@@ -25,6 +27,14 @@ const COLORS = {
 
 type SlotState = {
   feeId: string | null;
+  /** The code the loaded row actually carries, so an older `hookup` row is
+   *  normalised to `camping` on save rather than left behind. */
+  feeCode: string | null;
+  /** The unit the loaded row carries, so a save only sends `unit` when the
+   *  manager actually changed it. */
+  feeUnit: string | null;
+  reservedCount: number;
+  unit: string;
   dollars: string;
   notes: string;
   /** Early-bird rate. Both fields or neither — the backend rejects a half-set
@@ -33,31 +43,79 @@ type SlotState = {
   earlyDeadline: string;
 };
 
-// `noun` is what the exhibitor books one of, and is not always the tail of the
-// unit: a per_show fee reads "cost per show" if you derive it, when what is
-// being priced is one spot for however long the show runs.
-const SLOTS = [
-  { code: 'stall', label: 'Stall (per stall)', unit: 'per_stall', noun: 'stall', placeholder: 'e.g. 75.00' },
-  { code: 'shavings', label: 'Shavings (per bag)', unit: 'per_bag', noun: 'bag', placeholder: 'e.g. 10.00' },
+type UnitChoice = {
+  value: string;
+  /** How the manager picks it: the charging shape, not the unit name. */
+  choice: string;
+  /** What the exhibitor books one of. Not always the tail of the unit — a
+   *  per_show fee reads "cost per show" if you derive it, when what is being
+   *  priced is one spot for however long the show runs. */
+  noun: string;
+  placeholder: string;
+};
+
+type Slot = {
+  code: string;
+  /** Codes an earlier version of this screen may have written for the same
+   *  line. Migration 108 folded `hookup` into `camping`; this is what stops a
+   *  row that somehow escaped it from being billed alongside a new one. */
+  aliases: readonly string[];
+  /** Heading, and the name used in save errors. */
+  title: string;
+  /** Label written on the fee row when this screen creates it. The exhibitor
+   *  and the printed show bill read this, so it never names a unit that the
+   *  manager is free to change. */
+  createLabel: string;
+  units: readonly UnitChoice[];
+  notesPlaceholder: string;
+};
+
+const SLOTS: readonly Slot[] = [
   {
+    code: 'stall',
+    aliases: [],
+    title: 'Stalls',
+    createLabel: 'Stall (per stall)',
+    units: [
+      { value: 'per_stall', choice: 'Per stall', noun: 'stall', placeholder: 'e.g. 75.00' },
+    ],
+    notesPlaceholder: '',
+  },
+  {
+    code: 'shavings',
+    aliases: [],
+    title: 'Shavings',
+    createLabel: 'Shavings (per bag)',
+    units: [{ value: 'per_bag', choice: 'Per bag', noun: 'bag', placeholder: 'e.g. 10.00' }],
+    notesPlaceholder: '',
+  },
+  {
+    // Camping and the electrical hook-up were two slots — one per_night, one
+    // per_show — and that asked the manager which product the venue sells when
+    // the only real question is how they charge for the one spot. A manager
+    // who filled in both put two camping charges on the same bill with nothing
+    // to say so. One line, two ways to price it (migration 108).
     code: 'camping',
-    label: 'Camping (per night)',
-    unit: 'per_night',
-    noun: 'night',
-    placeholder: 'e.g. 30.00 — note if electric is included',
+    aliases: ['hookup'],
+    title: 'Camping / electrical hook-up',
+    createLabel: 'Camping / electrical hook-up',
+    units: [
+      {
+        value: 'per_night',
+        choice: 'Per night',
+        noun: 'night',
+        placeholder: 'e.g. 30.00',
+      },
+      {
+        value: 'per_show',
+        choice: 'One price for the whole show',
+        noun: 'spot',
+        placeholder: 'e.g. 60.00',
+      },
+    ],
+    notesPlaceholder: 'e.g. Electric included; spots are requested, not guaranteed',
   },
-  {
-    // The other way venues sell a camping spot: one price for the weekend
-    // rather than a nightly rate. Its own slot rather than a unit toggle on
-    // Camping above, because plenty of shows offer both and a show that
-    // switched would silently reprice every reservation already booked.
-    code: 'hookup',
-    label: 'Electrical hook-up (per spot, whole show)',
-    unit: 'per_show',
-    noun: 'spot',
-    placeholder: 'e.g. 60.00 — one charge per spot, not per night',
-  },
-] as const;
+];
 
 function centsToDollars(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -67,6 +125,18 @@ function dollarsToCents(input: string): number {
   const n = Number.parseFloat(input);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100);
+}
+
+function unitChoice(slot: Slot, unit: string): UnitChoice {
+  return slot.units.find((u) => u.value === unit) ?? slot.units[0];
+}
+
+/** Whether this screen is able to speak for the row's current unit. False when
+ *  the secretary priced it on the full boarding schedule as something these
+ *  slots don't offer — `flat` camping, say. Rewriting that to the slot default
+ *  on the next save would be this screen changing a price it was never shown. */
+function unitIsManaged(slot: Slot, unit: string): boolean {
+  return slot.units.some((u) => u.value === unit);
 }
 
 type EarlyFields = { early_amount_cents: number | null; early_deadline: string | null };
@@ -104,16 +174,30 @@ export default function LodgingClient({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  function findFee(code: string): FeeRow | undefined {
-    return initialFees.find((f) => f.code === code);
+  /** The row this slot manages: its own code first, then any code an earlier
+   *  version wrote for the same line. */
+  function findFee(slot: Slot): FeeRow | undefined {
+    for (const code of [slot.code, ...slot.aliases]) {
+      const fee = initialFees.find((f) => f.code === code);
+      if (fee) return fee;
+    }
+    return undefined;
   }
 
   const [slots, setSlots] = useState<Record<string, SlotState>>(() => {
     const base: Record<string, SlotState> = {};
     for (const s of SLOTS) {
-      const fee = findFee(s.code);
+      const fee = findFee(s);
       base[s.code] = {
         feeId: fee?.id ?? null,
+        feeCode: fee?.code ?? null,
+        feeUnit: fee?.unit ?? null,
+        reservedCount: fee?.reserved_count ?? 0,
+        // An existing row's unit wins over the slot's default, always and
+        // verbatim: it is what the exhibitors booking against it have been
+        // quoted. A unit these slots don't offer is carried through unchanged
+        // and shown read-only rather than snapped to the default.
+        unit: fee ? fee.unit : s.units[0].value,
         dollars: fee ? centsToDollars(fee.amount_cents) : '',
         notes: fee?.notes ?? '',
         earlyDollars:
@@ -159,7 +243,7 @@ export default function LodgingClient({
         // is wrong, rather than a bare 422 on "save".
         const early = earlyFields(slot, cents);
         if ('error' in early) {
-          setError(`${s.label}: ${early.error}`);
+          setError(`${s.title}: ${early.error}`);
           return;
         }
 
@@ -170,7 +254,7 @@ export default function LodgingClient({
           });
           if (!res.ok && res.status !== 204) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to remove ${s.label}.`);
+            setError(j?.detail || `Failed to remove ${s.title}.`);
             return;
           }
         } else if (slot.feeId && !isEmpty) {
@@ -180,12 +264,21 @@ export default function LodgingClient({
             body: JSON.stringify({
               amount_cents: cents,
               notes: slot.notes.trim() || null,
+              // Only sent when the manager actually picked a different one of
+              // this slot's choices. Sending it every save would make the
+              // backend's unit guard look flaky in the logs, and sending it
+              // for a unit this screen doesn't offer would rewrite a price
+              // set elsewhere.
+              ...(unitIsManaged(s, slot.unit) && slot.unit !== slot.feeUnit
+                ? { unit: slot.unit }
+                : {}),
+              ...(slot.feeCode !== s.code ? { code: s.code } : {}),
               ...early,
             }),
           });
           if (!res.ok) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to update ${s.label}.`);
+            setError(j?.detail || `Failed to update ${s.title}.`);
             return;
           }
         } else if (!slot.feeId && !isEmpty) {
@@ -194,8 +287,8 @@ export default function LodgingClient({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               code: s.code,
-              label: s.label,
-              unit: s.unit,
+              label: s.createLabel,
+              unit: slot.unit,
               amount_cents: cents,
               notes: slot.notes.trim() || null,
               ...early,
@@ -203,7 +296,7 @@ export default function LodgingClient({
           });
           if (!res.ok) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to create ${s.label}.`);
+            setError(j?.detail || `Failed to create ${s.title}.`);
             return;
           }
         }
@@ -242,20 +335,70 @@ export default function LodgingClient({
       >
         {SLOTS.map((s) => {
           const slot = slots[s.code];
+          const chosen = unitChoice(s, slot.unit);
+          const managed = unitIsManaged(s, slot.unit);
+          // The unit says what a booked quantity counts. Once exhibitors hold
+          // reservations, changing it would reprice all of them — the backend
+          // returns 409, so the choice is locked here rather than offered and
+          // then refused.
+          const unitLocked = slot.reservedCount > 0;
+          const lockReason = unitLocked
+            ? `${slot.reservedCount} exhibitor${slot.reservedCount === 1 ? ' has' : 's have'} ` +
+              `already reserved this at the current rate. Remove the fee and add it again ` +
+              `to change how it's charged.`
+            : undefined;
           return (
             <div key={s.code} className="space-y-2">
               <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
                 <div>
                   <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    {s.label}
+                    {s.title}
                   </span>
-                  <span className="text-sm" style={{ color: COLORS.text }}>
-                    Cost per {s.noun}
-                  </span>
+                  {!managed ? (
+                    <span className="text-sm" style={{ color: COLORS.text }}>
+                      Charged {slot.unit.replace(/_/g, ' ')}{' '}
+                      <a
+                        href={`/admin/shows/${showId}/fees/boarding`}
+                        className="text-xs underline"
+                        style={{ color: COLORS.muted }}
+                      >
+                        (set on the boarding fee schedule)
+                      </a>
+                    </span>
+                  ) : s.units.length > 1 ? (
+                    <fieldset
+                      className="flex flex-wrap gap-x-4 gap-y-1"
+                      title={lockReason}
+                      disabled={unitLocked}
+                      style={{ opacity: unitLocked ? 0.55 : 1 }}
+                    >
+                      <legend className="sr-only">How {s.title} is charged</legend>
+                      {s.units.map((u) => (
+                        <label
+                          key={u.value}
+                          className="flex items-center gap-1.5 text-sm"
+                          style={{ color: COLORS.text }}
+                        >
+                          <input
+                            type="radio"
+                            name={`${s.code}-unit`}
+                            value={u.value}
+                            checked={slot.unit === u.value}
+                            onChange={() => setSlot(s.code, { unit: u.value })}
+                          />
+                          <span>{u.choice}</span>
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : (
+                    <span className="text-sm" style={{ color: COLORS.text }}>
+                      Cost per {chosen.noun}
+                    </span>
+                  )}
                 </div>
                 <label className="block">
                   <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Amount ($)
+                    {managed ? `$ per ${chosen.noun}` : 'Amount ($)'}
                   </span>
                   <input
                     type="text"
@@ -264,7 +407,10 @@ export default function LodgingClient({
                     onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
-                    placeholder={s.placeholder}
+                    placeholder={managed ? chosen.placeholder : ''}
+                    aria-label={
+                      managed ? `${s.title} — amount per ${chosen.noun}` : `${s.title} — amount`
+                    }
                   />
                 </label>
                 <label className="block">
@@ -277,12 +423,18 @@ export default function LodgingClient({
                     onChange={(e) => setSlot(s.code, { notes: e.target.value })}
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
-                    placeholder={
-                      s.code === 'camping' ? 'e.g. Includes electric hookup' : ''
-                    }
+                    placeholder={s.notesPlaceholder}
                   />
                 </label>
               </div>
+              {s.units.length > 1 && managed && (
+                <p className="text-xs" style={{ color: COLORS.muted }}>
+                  {slot.unit === 'per_show'
+                    ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
+                    : `Charged for each ${chosen.noun} an exhibitor books.`}
+                  {unitLocked && <> {lockReason}</>}
+                </p>
+              )}
               <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
                 <span className="text-xs" style={{ color: COLORS.muted }}>
                   Early rate{' '}
@@ -302,6 +454,7 @@ export default function LodgingClient({
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
                     placeholder="e.g. 60.00"
+                    aria-label={`${s.title} — early rate amount`}
                   />
                 </label>
                 <label className="block">
@@ -314,6 +467,7 @@ export default function LodgingClient({
                     onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
+                    aria-label={`${s.title} — early rate deadline`}
                   />
                 </label>
               </div>
@@ -354,7 +508,16 @@ export default function LodgingClient({
         </div>
         <p className="text-xs" style={{ color: COLORS.muted }}>
           Leave an amount blank to skip or remove that fee. Saving is non-destructive
-          to other show fees.
+          to other show fees. Extra campsite tiers — dry camping, early arrival, late
+          departure — live on the full{' '}
+          <a
+            href={`/admin/shows/${showId}/fees/boarding`}
+            className="underline"
+            style={{ color: COLORS.warn }}
+          >
+            boarding fee schedule
+          </a>
+          .
         </p>
       </section>
     </div>

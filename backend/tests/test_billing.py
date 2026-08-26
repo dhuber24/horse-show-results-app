@@ -430,9 +430,28 @@ def test_an_empty_side_pot_pays_out_nothing():
 # ── Fee helpers ───────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("unit", ["per_stall", "per_bag", "per_night"])
+@pytest.mark.parametrize("unit", ["per_stall", "per_bag", "per_night", "per_show"])
 def test_reservable_units_are_offered(unit):
     assert billing.reservable_fees([make_fee(unit=unit)])
+
+
+@pytest.mark.parametrize("unit", ["per_night", "per_show"])
+def test_a_reservation_is_priced_the_same_whatever_the_unit_calls_it(unit):
+    """The unit names what the quantity counts; it never enters the arithmetic.
+
+    Camping is one line item priced either by the night or by the show
+    (migration 108), and both go through this same rate x quantity. That is
+    exactly why `PATCH /shows/{id}/fees/{fee_id}` refuses to change the unit on
+    a fee somebody has already reserved: nothing downstream would notice that
+    "3 nights" had become "3 spots", and the bill would just quietly say
+    something else.
+    """
+    fee = make_fee(code="camping", unit=unit, amount_cents=6000)
+    bill = billing.build_bill(
+        make_show(), [], [make_reservation(fee=fee, quantity=3)]
+    )
+    assert bill["reservation_total_cents"] == 18000
+    assert bill["reservation_lines"][0]["unit"] == unit
 
 
 @pytest.mark.parametrize("unit", ["per_entry", "flat", "per_horse"])

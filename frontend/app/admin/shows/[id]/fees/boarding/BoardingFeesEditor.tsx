@@ -26,6 +26,8 @@ interface ShowFee {
   sort_order: number;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** How many exhibitors have booked a quantity against this row. */
+  reserved_count?: number;
 }
 
 interface Props {
@@ -270,6 +272,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
         <ul className="divide-y" style={{ borderColor: '#e8d5b7' }}>
           {fees.map((fee) => {
             const draft = drafts[fee.id] ?? draftFromFee(fee);
+            const reservedCount = fee.reserved_count ?? 0;
             const cents = centsFromDollars(draft.amount);
             const invalid = cents === null;
             const early = earlyFields(draft, cents ?? 0);
@@ -303,16 +306,32 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                     style={{ borderColor: invalid ? '#fca5a5' : '#d4b896' }}
                   />
                 </div>
+                {/* Locked once anybody has booked against this row. A booked
+                    quantity means nothing apart from its unit — 3 nights and 3
+                    spots are the same number and a different bill — so the
+                    backend returns 409 rather than repricing them. Disabled
+                    here so the secretary is told before typing, not after. */}
                 <select
                   value={draft.unit}
                   onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, unit: e.target.value as Unit } }))}
-                  className="border rounded px-2 py-1 text-sm"
+                  disabled={reservedCount > 0}
+                  title={
+                    reservedCount > 0
+                      ? `${reservedCount} exhibitor${reservedCount === 1 ? ' has' : 's have'} reserved this as "${UNIT_LABELS[fee.unit]}". Remove the fee and add it again to change how it's charged.`
+                      : undefined
+                  }
+                  className="border rounded px-2 py-1 text-sm disabled:opacity-50"
                   style={{ borderColor: '#d4b896' }}
                 >
                   {BOARDING_UNIT_OPTIONS.map((u) => (
                     <option key={u} value={u}>{UNIT_LABELS[u]}</option>
                   ))}
                 </select>
+                {reservedCount > 0 && (
+                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                    {reservedCount} reserved
+                  </span>
+                )}
                 <button
                   onClick={() => saveRow(fee)}
                   disabled={busyId === fee.id || invalid || !dirty}
@@ -323,7 +342,16 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                 </button>
                 {confirmDeleteId === fee.id ? (
                   <span className="flex items-center gap-1 text-xs">
-                    <span style={{ color: '#5c3d1e' }}>Remove?</span>
+                    {/* Removing a fee cascades its reservations away (migration
+                        088). That is the right behaviour — a quantity against a
+                        price that no longer exists cannot be billed — but it is
+                        also the route the unit-change error sends staff down,
+                        so say the number out loud before they take it. */}
+                    <span style={{ color: '#5c3d1e' }}>
+                      {reservedCount > 0
+                        ? `Remove? ${reservedCount} exhibitor reservation${reservedCount === 1 ? '' : 's'} will be dropped.`
+                        : 'Remove?'}
+                    </span>
                     <button onClick={() => removeRow(fee)} className="text-red-600 hover:underline" disabled={busyId === fee.id}>Yes</button>
                     <button onClick={() => setConfirmDeleteId(null)} className="hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
                   </span>

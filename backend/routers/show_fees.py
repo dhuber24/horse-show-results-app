@@ -2,13 +2,13 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from uuid import UUID
 
 from billing import RESERVABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from models import Show, ShowFee
+from models import Show, ShowEntryReservation, ShowFee
 from routers.shows import _assert_show_access
 from schemas import ShowFeeCreate, ShowFeeOut, ShowFeeUpdate
 
@@ -82,8 +82,24 @@ def _assert_early_rate_valid(
         raise HTTPException(
             422,
             "An early rate only applies to fees exhibitors reserve a quantity "
-            "of at sign-up (per stall, per bag, per night).",
+            "of at sign-up (per stall, per bag, per night, per show).",
         )
+
+
+async def _reserved_counts(fee_ids: list[UUID], db: AsyncSession) -> dict[UUID, int]:
+    """How many exhibitors have booked a quantity against each of these fees.
+
+    One grouped query for the whole catalog rather than a count per row — the
+    fee list is small, but this is read on every load of two editing screens.
+    """
+    if not fee_ids:
+        return {}
+    result = await db.execute(
+        select(ShowEntryReservation.show_fee_id, func.count())
+        .where(ShowEntryReservation.show_fee_id.in_(fee_ids))
+        .group_by(ShowEntryReservation.show_fee_id)
+    )
+    return {fee_id: count for fee_id, count in result.all()}
 
 
 @router.get("/", response_model=list[ShowFeeOut])
@@ -101,7 +117,16 @@ async def list_show_fees(
         .where(ShowFee.show_id == show_id)
         .order_by(ShowFee.sort_order, ShowFee.created_at)
     )
-    return result.scalars().all()
+    fees = result.scalars().all()
+    # `reserved_count` is what the fee editors need to know before offering to
+    # change a row's unit — see `update_show_fee`.
+    counts = await _reserved_counts([fee.id for fee in fees], db)
+    return [
+        ShowFeeOut.model_validate(fee).model_copy(
+            update={"reserved_count": counts.get(fee.id, 0)}
+        )
+        for fee in fees
+    ]
 
 
 @router.get("/public", response_model=list[ShowFeeOut])
@@ -213,6 +238,23 @@ async def update_show_fee(
         early_amount_cents=updates.get("early_amount_cents", fee.early_amount_cents),
         early_deadline=updates.get("early_deadline", fee.early_deadline),
     )
+    # A booked quantity has no meaning apart from the unit it was booked under.
+    # `build_bill` multiplies rate x quantity and never reads the unit, so
+    # flipping camping from per_night to per_show turns "3 nights" into "3
+    # spots" and reprices every exhibitor holding one — with nothing on the
+    # screen or in the data to say it happened. The price may change freely;
+    # what the number counts may not.
+    new_unit = updates.get("unit", fee.unit)
+    if new_unit != fee.unit:
+        reserved = (await _reserved_counts([fee.id], db)).get(fee.id, 0)
+        if reserved:
+            raise HTTPException(
+                409,
+                f"{reserved} exhibitor(s) have already reserved this fee as "
+                f"\"{fee.unit.replace('_', ' ')}\". Changing the unit would "
+                "silently reprice their bookings. Remove this fee and add it "
+                "again to start over, or leave the unit as it is.",
+            )
     for k, v in updates.items():
         setattr(fee, k, v)
     await db.commit()

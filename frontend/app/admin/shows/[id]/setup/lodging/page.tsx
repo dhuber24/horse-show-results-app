@@ -12,6 +12,10 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
+// `hookup` is the pre-108 code for what is now the one camping line. Kept so a
+// row that somehow escaped the migration is still handed to the slot that
+// manages it, instead of sitting outside this screen while a new `camping` row
+// is created next to it and both are billed.
 const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
 
 export default async function SetupLodgingPage({
