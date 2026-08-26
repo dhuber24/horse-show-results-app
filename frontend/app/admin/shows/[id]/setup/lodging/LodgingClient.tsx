@@ -33,14 +33,29 @@ type SlotState = {
   earlyDeadline: string;
 };
 
+// `noun` is what the exhibitor books one of, and is not always the tail of the
+// unit: a per_show fee reads "cost per show" if you derive it, when what is
+// being priced is one spot for however long the show runs.
 const SLOTS = [
-  { code: 'stall', label: 'Stall (per stall)', unit: 'per_stall', placeholder: 'e.g. 75.00' },
-  { code: 'shavings', label: 'Shavings (per bag)', unit: 'per_bag', placeholder: 'e.g. 10.00' },
+  { code: 'stall', label: 'Stall (per stall)', unit: 'per_stall', noun: 'stall', placeholder: 'e.g. 75.00' },
+  { code: 'shavings', label: 'Shavings (per bag)', unit: 'per_bag', noun: 'bag', placeholder: 'e.g. 10.00' },
   {
     code: 'camping',
     label: 'Camping (per night)',
     unit: 'per_night',
+    noun: 'night',
     placeholder: 'e.g. 30.00 — note if electric is included',
+  },
+  {
+    // The other way venues sell a camping spot: one price for the weekend
+    // rather than a nightly rate. Its own slot rather than a unit toggle on
+    // Camping above, because plenty of shows offer both and a show that
+    // switched would silently reprice every reservation already booked.
+    code: 'hookup',
+    label: 'Electrical hook-up (per spot, whole show)',
+    unit: 'per_show',
+    noun: 'spot',
+    placeholder: 'e.g. 60.00 — one charge per spot, not per night',
   },
 ] as const;
 
@@ -140,8 +155,8 @@ export default function LodgingClient({
         const cents = dollarsToCents(slot.dollars);
         const isEmpty = slot.dollars.trim() === '';
 
-        // Caught here as well as server-side so the secretary sees which of
-        // the three rows is wrong, rather than a bare 422 on "save".
+        // Caught here as well as server-side so the secretary sees which row
+        // is wrong, rather than a bare 422 on "save".
         const early = earlyFields(slot, cents);
         if ('error' in early) {
           setError(`${s.label}: ${early.error}`);
@@ -235,7 +250,7 @@ export default function LodgingClient({
                     {s.label}
                   </span>
                   <span className="text-sm" style={{ color: COLORS.text }}>
-                    Cost per {s.unit.replace('per_', '')}
+                    Cost per {s.noun}
                   </span>
                 </div>
                 <label className="block">

@@ -1,7 +1,7 @@
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import type { WizardStepsInput } from '../../../_wizard/steps';
 
-const LODGING_CODES = new Set(['stall', 'shavings', 'camping']);
+const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
 const FEE_CODES = new Set(['standard_class', 'jackpot', 'futurity']);
 
 type FeeRow = {

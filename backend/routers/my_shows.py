@@ -39,6 +39,7 @@ from models import (
     ShowWaiver,
     ShowWaiverSignature,
 )
+from routers.futurities import load_billable_futurities
 
 router = APIRouter(prefix="/my-shows", tags=["My Shows"])
 
@@ -120,7 +121,10 @@ async def list_my_shows(
         show_entries = entries_by_show.get(show_id, [])
         signup = signup_by_show.get(show_id)
         reservations = list(signup.reservations) if signup else []
-        bill = build_bill(show, show_entries, reservations)
+        futurities = await load_billable_futurities(
+            show_id, [signup.id] if signup else [], db
+        )
+        bill = build_bill(show, show_entries, reservations, futurities)
 
         placed = [
             results_by_entry[e.id]

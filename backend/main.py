@@ -38,6 +38,8 @@ from routers.certifications import router as certifications_router
 from routers.apha_standard_classes import router as apha_standard_classes_router
 from routers.aqha_standard_classes import router as aqha_standard_classes_router
 from routers.standard_setup import router as standard_setup_router
+from routers.futurities import public_router as futurities_public_router
+from routers.futurities import router as futurities_router
 from routers.side_pots import router as side_pots_router
 from routers.show_registration import router as show_registration_router
 from routers.show_fees import router as show_fees_router
@@ -177,6 +179,8 @@ app.include_router(apha_standard_classes_router)
 app.include_router(aqha_standard_classes_router)
 app.include_router(standard_setup_router)
 app.include_router(side_pots_router)
+app.include_router(futurities_router)
+app.include_router(futurities_public_router)
 app.include_router(show_registration_router)
 app.include_router(show_fees_router)
 app.include_router(show_judges_router)

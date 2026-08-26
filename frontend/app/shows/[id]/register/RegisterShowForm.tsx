@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
 import AddClassEntry from './AddClassEntry';
+import FuturityEntry, { type ExhibitorFuturity } from './FuturityEntry';
 import RegistrationSection from './RegistrationSection';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
 import ReservationFields, {
@@ -128,10 +129,14 @@ function EnteredRow({
 export default function RegisterShowForm({
   showId,
   preview,
+  futurities,
   signupData,
 }: {
   showId: string;
   preview: PreviewData;
+  /** The show's futurities with this exhibitor's enrollments; empty when the
+   *  show runs none, in which case the section renders nothing. */
+  futurities: ExhibitorFuturity[];
   /** From `GET /shows/{id}/register/signup` — the fee catalogue with this
    *  exhibitor's own rates on it. Null only when that call failed, in which
    *  case the stalls half says so rather than pretending the show published no
@@ -413,6 +418,17 @@ export default function RegisterShowForm({
           </p>
         )}
       </RegistrationSection>
+
+      {/* Outside the collapsible sections on purpose: a futurity is a separate
+          program with its own deadline, and folding it away would hide the one
+          thing on this screen that expires. Renders nothing when the show runs
+          no futurity. */}
+      <FuturityEntry
+        showId={showId}
+        futurities={futurities}
+        horses={horses.map((h) => ({ id: h.id, name: h.name }))}
+        signedUp={signedUp}
+      />
 
       <section
         className="mt-4 rounded-lg border p-4"

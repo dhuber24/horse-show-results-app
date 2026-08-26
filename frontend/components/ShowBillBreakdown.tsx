@@ -1,4 +1,9 @@
-import { formatMoney, type Bill, type BillReservationLine } from '@/lib/my-shows';
+import {
+  formatMoney,
+  type Bill,
+  type BillFuturityLine,
+  type BillReservationLine,
+} from '@/lib/my-shows';
 
 /**
  * What one show costs the signed-in exhibitor, itemised.
@@ -87,6 +92,9 @@ export default function ShowBillBreakdown({
         {bill.reservation_lines.map((line) => (
           <ReservationLine key={line.show_fee_id} line={line} />
         ))}
+        {(bill.futurity_lines ?? []).map((line) => (
+          <FuturityLine key={line.futurity_entry_id} line={line} />
+        ))}
         {bill.office_charge_total_cents > 0 && (
           <>
             <dt
@@ -137,6 +145,40 @@ function ReservationLine({ line }: { line: BillReservationLine }) {
             early rate
           </span>
         )}
+      </dt>
+      <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
+    </>
+  );
+}
+
+/**
+ * One horse's futurity charge.
+ *
+ * Spelled out rather than folded into "Class fees", because the futurity's
+ * classes are $0 on the class row and their money arrives here instead — an
+ * exhibitor reading a $150-per-class futurity bill against a class list showing
+ * nothing would reasonably think they had been charged twice.
+ */
+function FuturityLine({ line }: { line: BillFuturityLine }) {
+  const perClass = `${line.class_count} × ${formatMoney(line.tier_amount_cents)}`;
+  return (
+    <>
+      <dt>
+        {line.futurity_name}
+        {line.horse_name && (
+          <span className="text-xs" style={{ color: '#8b7355' }}>
+            {' '}— {line.horse_name}
+          </span>
+        )}
+        <span className="block text-xs" style={{ color: '#8b7355' }}>
+          {line.fee_tier_name ? `${line.fee_tier_name}: ` : ''}
+          {perClass}
+          {line.office_fee_cents > 0 &&
+            ` + ${formatMoney(line.office_fee_cents)} office fee${
+              line.is_member ? ' (member)' : ''
+            }`}
+          {line.is_late && ` + ${formatMoney(line.late_fee_cents)} late`}
+        </span>
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
     </>

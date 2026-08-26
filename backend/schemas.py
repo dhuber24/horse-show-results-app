@@ -613,6 +613,7 @@ FeeUnit = Literal[
     'per_night',
     'per_stall',
     'per_bag',
+    'per_show',
     'percent_of_entry',
 ]
 
@@ -2381,6 +2382,226 @@ class SidePotPayoutOut(BaseModel):
         from_attributes = True
 
 
+# ── Futurities ─────────────────────────────────────────────────────────────────
+# A futurity is a named program within a show, spanning its own classes, with
+# tiered per-class entry fees and Hi-Point award divisions. See migration 107
+# for why it is not a `show_fees` row, and `billing.futurity_lines` for what an
+# enrollment actually costs.
+
+FuturityDivisionScoring = Literal["sum_placings", "sum_scores"]
+FuturityClassScoring = Literal["counts", "best_of_group"]
+
+
+class FuturityFeeTierIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+    amount_cents: int = Field(default=0, ge=0)
+    sort_order: int = 0
+
+
+class FuturityFeeTierOut(FuturityFeeTierIn):
+    id: UUID
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityDivisionClassIn(BaseModel):
+    class_id: UUID
+    scoring: FuturityClassScoring = "counts"
+    group_name: Optional[str] = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def _check_group(self):
+        """A group name is meaningless on a class that always counts, and
+        required on one competing for a slot — mirrors the DB CHECK so the
+        caller gets a 422 explaining it rather than an opaque IntegrityError."""
+        if self.scoring == "best_of_group" and not (self.group_name or "").strip():
+            raise ValueError(
+                "best_of_group needs a group_name — it names the set of classes "
+                "competing for one slot."
+            )
+        if self.scoring == "counts" and self.group_name:
+            raise ValueError("group_name only applies to best_of_group classes.")
+        return self
+
+
+class FuturityDivisionClassOut(BaseModel):
+    class_id: UUID
+    class_number: Optional[str] = None
+    class_name: Optional[str] = None
+    scoring: FuturityClassScoring
+    group_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityDivisionIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    scoring_method: FuturityDivisionScoring = "sum_placings"
+    sort_order: int = 0
+    classes: list[FuturityDivisionClassIn] = Field(default_factory=list)
+
+
+class FuturityDivisionOut(BaseModel):
+    id: UUID
+    futurity_id: UUID
+    name: str
+    scoring_method: FuturityDivisionScoring
+    sort_order: int
+    classes: list[FuturityDivisionClassOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    entry_deadline: Optional[date] = None
+    late_fee_cents: int = Field(default=0, ge=0)
+    office_fee_member_cents: int = Field(default=0, ge=0)
+    office_fee_nonmember_cents: int = Field(default=0, ge=0)
+    class_ids: list[UUID] = Field(default_factory=list)
+    fee_tiers: list[FuturityFeeTierIn] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_late_fee(self):
+        """A late fee with no deadline can never fire — the same half-finished
+        edit `show_fees` rejects for an early rate without a deadline."""
+        if self.late_fee_cents and self.entry_deadline is None:
+            raise ValueError(
+                "A late fee needs an entry deadline — without one there is "
+                "nothing for it to be late against."
+            )
+        return self
+
+
+class FuturityUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    entry_deadline: Optional[date] = None
+    late_fee_cents: Optional[int] = Field(default=None, ge=0)
+    office_fee_member_cents: Optional[int] = Field(default=None, ge=0)
+    office_fee_nonmember_cents: Optional[int] = Field(default=None, ge=0)
+    class_ids: Optional[list[UUID]] = None
+    fee_tiers: Optional[list[FuturityFeeTierIn]] = None
+
+
+class FuturityClassSummary(BaseModel):
+    class_id: UUID
+    class_number: str
+    class_name: str
+    class_date: date
+    entry_fee_cents: int
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityOut(BaseModel):
+    id: UUID
+    show_id: UUID
+    name: str
+    description: Optional[str]
+    entry_deadline: Optional[date]
+    late_fee_cents: int
+    office_fee_member_cents: int
+    office_fee_nonmember_cents: int
+    created_at: datetime
+    classes: list[FuturityClassSummary] = []
+    fee_tiers: list[FuturityFeeTierOut] = []
+    divisions: list[FuturityDivisionOut] = []
+    entry_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityRosterHorse(BaseModel):
+    horse_id: UUID
+    horse_name: str
+    already_entered: bool = False
+
+
+class FuturityRosterEntry(BaseModel):
+    """A show roster row offered by the enroll-a-horse picker.
+
+    Carries the horses that exhibitor has entered anywhere at this show, which
+    is the practical list at the desk — a futurity horse is a horse that is
+    showing. Enrolling one that has no class entries yet is legal (the office
+    fee is owed either way), it just cannot be picked from here until the
+    entries are in.
+    """
+
+    show_entry_id: UUID
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    horses: list[FuturityRosterHorse] = []
+
+
+class FuturityEntryCreate(BaseModel):
+    show_entry_id: UUID
+    horse_id: UUID
+    fee_tier_id: Optional[UUID] = None
+    is_member: bool = False
+    # Defaults to today at the router rather than here, so the stored date is
+    # the server's day and not whatever the client believes it is.
+    entered_at: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class FuturityEntryUpdate(BaseModel):
+    fee_tier_id: Optional[UUID] = None
+    is_member: Optional[bool] = None
+    entered_at: Optional[date] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class FuturityEntryOut(BaseModel):
+    id: UUID
+    futurity_id: UUID
+    show_entry_id: UUID
+    horse_id: Optional[UUID]
+    horse_name: Optional[str] = None
+    back_number: Optional[int] = None
+    exhibitor_name: Optional[str] = None
+    fee_tier_id: Optional[UUID]
+    fee_tier_name: Optional[str] = None
+    is_member: bool
+    entered_at: date
+    is_late: bool = False
+    entered_class_count: int = 0
+    charge_cents: int = 0
+    notes: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FuturityStanding(BaseModel):
+    futurity_entry_id: UUID
+    horse_id: Optional[UUID]
+    horse_name: Optional[str]
+    back_number: Optional[int]
+    exhibitor_name: Optional[str]
+    place: Optional[int]
+    aggregate_value: Optional[float]
+    counted: list[FuturityDivisionClassOut] = []
+    missing_class_numbers: list[str] = []
+    is_eligible: bool
+
+
+class FuturityStandingsOut(BaseModel):
+    futurity_id: UUID
+    division_id: UUID
+    division_name: str
+    scoring_method: FuturityDivisionScoring
+    standings: list[FuturityStanding]
+
+
 # ── Financials ─────────────────────────────────────────────────────────────────
 # What the show has billed, what the office recorded collecting, and what is
 # still owed. The money itself is computed in `billing.py` — these types only
@@ -2453,17 +2674,43 @@ class BillReservationLineOut(BaseModel):
     line_total_cents: int
 
 
+class BillFuturityLineOut(BaseModel):
+    """One futurity enrollment's share of the bill.
+
+    The per-class money is `tier_amount_cents x class_count` — a futurity class
+    carries no `entry_fee_cents` of its own, because the rate depends on the
+    entrant's category. See `billing.futurity_charge_cents`.
+    """
+
+    futurity_id: UUID
+    futurity_name: str
+    futurity_entry_id: UUID
+    horse_id: Optional[UUID] = None
+    horse_name: Optional[str] = None
+    fee_tier_name: Optional[str] = None
+    tier_amount_cents: int
+    class_count: int
+    is_member: bool
+    office_fee_cents: int
+    is_late: bool
+    late_fee_cents: int
+    entered_at: date
+    line_total_cents: int
+
+
 class BillOut(BaseModel):
     """One exhibitor's charges, straight from `billing.build_bill`."""
 
     class_lines: list[BillClassLineOut] = Field(default_factory=list)
     reservation_lines: list[BillReservationLineOut] = Field(default_factory=list)
+    futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
     nsba_sanction_total_cents: int
     office_charge_cents: int
     office_charge_basis: str
     office_charge_total_cents: int
     reservation_total_cents: int
+    futurity_total_cents: int = 0
     total_cents: int
 
 
@@ -2508,6 +2755,7 @@ class FinancialTotalsOut(BaseModel):
     nsba_sanction_total_cents: int = 0
     office_charge_total_cents: int = 0
     reservation_total_cents: int = 0
+    futurity_total_cents: int = 0
     billed_cents: int = 0
     collected_cents: int = 0
     refunded_cents: int = 0

@@ -85,12 +85,23 @@ const UNIT_GROUPS: { key: string; heading: string; blurb: string; units: string[
     blurb: 'Nights on the grounds. Count nights, not campers.',
     units: ['per_night'],
   },
+  {
+    // Separate from Camping above even though a hook-up is usually the thing
+    // being sold, because the two ask for different numbers — nights there,
+    // spots here — and putting them under one heading is how someone books
+    // two nights of a $60-for-the-weekend hook-up and is charged $120.
+    key: 'whole_show',
+    heading: 'For the whole show',
+    blurb: 'Charged once each for the whole show, however long you stay.',
+    units: ['per_show'],
+  },
 ];
 
 const UNIT_NOUN: Record<string, string> = {
   per_stall: 'stall',
   per_bag: 'bag',
   per_night: 'night',
+  per_show: 'spot',
 };
 
 function formatMoney(cents: number): string {

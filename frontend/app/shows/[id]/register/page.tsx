@@ -5,6 +5,7 @@ import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import RegisterShowForm from './RegisterShowForm';
 import type { PreviewData } from './types';
 import type { SignupData } from '../_components/ReservationFields';
+import type { ExhibitorFuturity } from './FuturityEntry';
 
 async function loadPreview(showId: string): Promise<{ status: number; data: PreviewData | null; error?: string }> {
   const headers = await getAuthHeaders();
@@ -36,12 +37,34 @@ async function loadSignup(showId: string): Promise<SignupData | null> {
   return json;
 }
 
+/**
+ * The show's futurities, with this exhibitor's own enrollments marked.
+ *
+ * Empty on failure rather than null: a show with no futurity and a futurity
+ * call that failed both render nothing, and the rest of the registration screen
+ * has no business breaking over either.
+ */
+async function loadFuturities(showId: string): Promise<ExhibitorFuturity[]> {
+  const headers = await getAuthHeaders();
+  if (!headers) return [];
+  const res = await fetch(`${API_URL}/shows/${showId}/register/futurities`, {
+    headers,
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  return (await readJsonBody(res)) ?? [];
+}
+
 export default async function RegisterShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   if (!session) redirect(`/login?next=/shows/${id}/register`);
 
-  const [{ data, error }, signupData] = await Promise.all([loadPreview(id), loadSignup(id)]);
+  const [{ data, error }, signupData, futurities] = await Promise.all([
+    loadPreview(id),
+    loadSignup(id),
+    loadFuturities(id),
+  ]);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -57,7 +80,12 @@ export default async function RegisterShowPage({ params }: { params: Promise<{ i
           {error ?? 'Registration is not available for this show right now.'}
         </div>
       ) : (
-        <RegisterShowForm showId={id} preview={data} signupData={signupData} />
+        <RegisterShowForm
+          showId={id}
+          preview={data}
+          futurities={futurities}
+          signupData={signupData}
+        />
       )}
     </main>
   );

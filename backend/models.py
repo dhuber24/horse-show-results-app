@@ -144,6 +144,7 @@ class Show(Base):
     show_managers = relationship("ShowManager", back_populates="show", cascade="all, delete")
     show_entries = relationship("ShowEntry", back_populates="show", cascade="all, delete")
     side_pots = relationship("SidePot", back_populates="show", cascade="all, delete")
+    futurities = relationship("Futurity", back_populates="show", cascade="all, delete")
     fees = relationship("ShowFee", back_populates="show", cascade="all, delete", order_by="ShowFee.sort_order")
     judges = relationship("ShowJudge", back_populates="show", cascade="all, delete", order_by="ShowJudge.sort_order")
     sanctioning = relationship("ShowSanctioning", back_populates="show", cascade="all, delete", lazy="selectin")
@@ -377,6 +378,12 @@ class Class(Base):
     )
     side_pot_classes = relationship(
         "SidePotClass", back_populates="class_", cascade="all, delete-orphan"
+    )
+    futurity_classes = relationship(
+        "FuturityClass", back_populates="class_", cascade="all, delete-orphan"
+    )
+    futurity_division_classes = relationship(
+        "FuturityDivisionClass", back_populates="class_", cascade="all, delete-orphan"
     )
 
 
@@ -1195,6 +1202,9 @@ class ShowEntry(Base):
     side_pot_payouts = relationship(
         "SidePotPayout", back_populates="show_entry", cascade="all, delete-orphan"
     )
+    futurity_entries = relationship(
+        "FuturityEntry", back_populates="show_entry", cascade="all, delete-orphan"
+    )
 
 
 class ShowEntryReservation(Base):
@@ -1534,6 +1544,205 @@ class SidePotPayout(Base):
 
     side_pot = relationship("SidePot", back_populates="payouts")
     show_entry = relationship("ShowEntry", back_populates="side_pot_payouts")
+
+
+class Futurity(Base):
+    """A futurity program within a show (migration 107).
+
+    Shaped after SidePot — a named program spanning several classes that
+    exhibitors opt into — but a futurity entry is an *enrollment of a horse*
+    rather than a bet on classes already entered. What it costs is derived:
+    the tier rate times the horse's entries in `classes`, plus the office fee
+    once, plus the late fee per class when the enrollment postdates the
+    deadline. See `billing.futurity_lines`.
+
+    Because the tier supplies the per-class price, a futurity class carries
+    `entry_fee_cents = 0`. A non-zero fee on one double-charges.
+    """
+    __tablename__ = "futurities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    entry_deadline = Column(Date, nullable=True)
+    late_fee_cents = Column(Integer, nullable=False, server_default="0")
+    office_fee_member_cents = Column(Integer, nullable=False, server_default="0")
+    office_fee_nonmember_cents = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "name", name="uq_futurities_show_name"),)
+
+    show = relationship("Show", back_populates="futurities")
+    fee_tiers = relationship(
+        "FuturityFeeTier",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="FuturityFeeTier.sort_order",
+    )
+    futurity_classes = relationship(
+        "FuturityClass",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    divisions = relationship(
+        "FuturityDivision",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="FuturityDivision.sort_order",
+    )
+    entries = relationship(
+        "FuturityEntry",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class FuturityFeeTier(Base):
+    """What an entrant pays per class, by category (Category #1/#2/#3)."""
+    __tablename__ = "futurity_fee_tiers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    amount_cents = Column(Integer, nullable=False, server_default="0")
+    sort_order = Column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("futurity_id", "name", name="uq_futurity_fee_tiers_name"),
+    )
+
+    futurity = relationship("Futurity", back_populates="fee_tiers")
+
+
+class FuturityClass(Base):
+    __tablename__ = "futurity_classes"
+
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), primary_key=True
+    )
+    class_id = Column(
+        UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True
+    )
+
+    futurity = relationship("Futurity", back_populates="futurity_classes")
+    class_ = relationship("Class", back_populates="futurity_classes")
+
+
+class FuturityDivision(Base):
+    """A Hi-Point award bracket within a futurity (Yearling, 2 Year Old).
+
+    `scoring_method` reuses the side pot vocabulary deliberately: the app has
+    no points table, so "hi-point" means lowest total placing or highest total
+    score. Do not add a third scale without first deciding what a point is.
+    """
+    __tablename__ = "futurity_divisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(Text, nullable=False)
+    scoring_method = Column(Text, nullable=False, server_default="sum_placings")
+    sort_order = Column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("futurity_id", "name", name="uq_futurity_divisions_name"),
+        CheckConstraint(
+            "scoring_method IN ('sum_placings','sum_scores')",
+            name="futurity_divisions_scoring_method_check",
+        ),
+    )
+
+    futurity = relationship("Futurity", back_populates="divisions")
+    division_classes = relationship(
+        "FuturityDivisionClass",
+        back_populates="division",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class FuturityDivisionClass(Base):
+    """Which classes count toward a Hi-Point division, and how.
+
+    `counts` contributes the class's result outright. `best_of_group` makes the
+    class compete with the others sharing its `group_name` for a single slot —
+    the North Star rule that all three pleasure classes may be entered but only
+    the best one counts.
+    """
+    __tablename__ = "futurity_division_classes"
+
+    futurity_division_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("futurity_divisions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    class_id = Column(
+        UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True
+    )
+    scoring = Column(Text, nullable=False, server_default="counts")
+    group_name = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "scoring IN ('counts','best_of_group')",
+            name="futurity_division_classes_scoring_check",
+        ),
+        CheckConstraint(
+            "(scoring = 'counts' AND group_name IS NULL)"
+            " OR (scoring = 'best_of_group' AND group_name IS NOT NULL)",
+            name="ck_futurity_division_classes_group",
+        ),
+    )
+
+    division = relationship("FuturityDivision", back_populates="division_classes")
+    class_ = relationship("Class", back_populates="futurity_division_classes")
+
+
+class FuturityEntry(Base):
+    """One horse enrolled in one futurity, at one fee tier.
+
+    `entered_at` is the day the enrollment was taken and is what decides the
+    late fee — never today's date. Same rule as
+    `show_entry_reservations.reserved_at`: pricing off "now" would apply a late
+    fee retroactively to everyone the moment the deadline passed.
+    """
+    __tablename__ = "futurity_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), nullable=False
+    )
+    show_entry_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
+    fee_tier_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("futurity_fee_tiers.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    is_member = Column(Boolean, nullable=False, server_default="false")
+    entered_at = Column(Date, nullable=False, server_default=func.current_date())
+    notes = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("futurity_id", "horse_id", name="uq_futurity_entries_horse"),
+    )
+
+    futurity = relationship("Futurity", back_populates="entries")
+    show_entry = relationship("ShowEntry", back_populates="futurity_entries")
+    horse = relationship("Horse", lazy="selectin")
+    fee_tier = relationship("FuturityFeeTier", lazy="selectin")
 
 
 class SanctionedAssociationRequest(Base):

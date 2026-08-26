@@ -12,7 +12,7 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-const LODGING_CODES = new Set(['stall', 'shavings', 'camping']);
+const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
 
 export default async function SetupLodgingPage({
   params,

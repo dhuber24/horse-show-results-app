@@ -14,6 +14,7 @@ type Unit =
   | 'per_night'
   | 'per_stall'
   | 'per_bag'
+  | 'per_show'
   | 'percent_of_entry';
 
 interface ShowFee {

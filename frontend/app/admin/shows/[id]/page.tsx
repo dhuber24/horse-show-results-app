@@ -32,6 +32,13 @@ const tiles = (showId: string) => [
     icon: '💰',
   },
   {
+    href: `/admin/shows/${showId}/futurities`,
+    title: 'Futurities',
+    description:
+      'Futurity classes, entry fee categories, entries, and Hi-Point award divisions.',
+    icon: '🌟',
+  },
+  {
     href: `/admin/shows/${showId}/financials`,
     title: 'Financials',
     description: 'Registrations, revenue, outstanding balances, and reports.',

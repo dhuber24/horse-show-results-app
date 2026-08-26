@@ -55,15 +55,41 @@ export type BillReservationLine = {
   line_total_cents: number;
 };
 
+/**
+ * One futurity enrollment's share of the bill.
+ *
+ * A futurity class carries no `entry_fee_cents` of its own — the rate depends
+ * on the entrant's category — so the per-class money here is
+ * `tier_amount_cents × class_count` and appears nowhere in `class_lines`.
+ */
+export type BillFuturityLine = {
+  futurity_id: string;
+  futurity_name: string;
+  futurity_entry_id: string;
+  horse_id: string | null;
+  horse_name: string | null;
+  fee_tier_name: string | null;
+  tier_amount_cents: number;
+  class_count: number;
+  is_member: boolean;
+  office_fee_cents: number;
+  is_late: boolean;
+  late_fee_cents: number;
+  entered_at: string;
+  line_total_cents: number;
+};
+
 export type Bill = {
   class_lines: BillClassLine[];
   reservation_lines: BillReservationLine[];
+  futurity_lines: BillFuturityLine[];
   class_fee_total_cents: number;
   nsba_sanction_total_cents: number;
   office_charge_cents: number;
   office_charge_basis: string;
   office_charge_total_cents: number;
   reservation_total_cents: number;
+  futurity_total_cents: number;
   total_cents: number;
 };
 

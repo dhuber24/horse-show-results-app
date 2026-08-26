@@ -479,3 +479,50 @@ Settling is one-way; reopening a pot is not currently supported.
 5. The frozen payouts table then appears below the ranking for handoff to whoever cuts checks.
 
 The total pool is `entry_fee_cents * paid count`; payout pool applies `payback_percent` to the total. Since `paid` now defaults to true, that is every entry in the pot. The column, the "Unpaid" flag in standings, and `PATCH .../entries/{id}` all remain for pots created while the desk ticked buy-ins off one at a time — an unpaid row is ranked but funds nothing.
+
+## Futurities
+
+A **futurity** is a named programme inside a show with its own classes, its own
+tiered entry fee, an entry deadline, and Hi-Point awards. Managed from the
+**Futurities** tile on the show dashboard (`/admin/shows/[id]/futurities`),
+which is a hub over four working screens — Settings, Entries, Hi-Point
+divisions, and Standings — the same split the side pot hub uses.
+
+It is deliberately *not* a setup wizard step. Setup is answered once and closed;
+a futurity takes entries, has a deadline that passes, and is worked at the same
+time as the desk.
+
+| Screen | What it does |
+| --- | --- |
+| Settings | Name, deadline, late fee, member / non-member office fee, the entry fee categories, and which of the show's classes belong to the futurity. |
+| Entries | Enroll a horse, pick its category, mark club membership. Shows what each entrant is charged and how many futurity classes their horse is actually in. |
+| Hi-Point | Award brackets and which classes count toward each — either *always counts*, or *best of a named group*. |
+| Standings | Computed on read from the placings on file. Nothing is materialized; a futurity has no settle step, because the awards are saddles and buckles rather than a money pool. |
+
+Exhibitors enter through `/shows/[id]/register`, which shows the show's
+futurities below the classes and stalls sections. Enrolling requires a completed
+show sign-up (`409 SHOW_SIGNUP_REQUIRED`) and is open while the show is
+`PUBLISHED`, exactly as class self-registration is.
+
+### What an enrollment costs
+
+    tier rate x futurity classes entered  +  office fee  +  late fee x classes
+
+computed once, in `billing.futurity_charge_cents`. Two consequences are worth
+knowing before touching any of it:
+
+- **A futurity class carries `entry_fee_cents = 0`.** The tier supplies the
+  per-class price. A priced futurity class is charged twice — once in the bill's
+  class lines and once in its futurity lines. The futurity screens warn about
+  it; nothing corrects it, because the fix belongs on the class.
+- **Lateness is decided by `entered_at`,** the day the enrollment was taken, and
+  never by today. This is the same rule reservations follow through
+  `fee_rate_cents`.
+
+Hi-Point scoring reuses the side pot vocabulary — `sum_placings` (lowest total
+wins) or `sum_scores` (highest total wins) — because the app has no points
+table. `best_of_group` is what expresses "all three pleasure classes may be
+entered, but only the one scoring highest counts": classes sharing a
+`group_name` inside a division contribute exactly one result between them. An
+entrant missing a counting class is listed unplaced rather than dropped, since
+"who still needs a class" is what the office asks of that screen.

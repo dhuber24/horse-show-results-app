@@ -253,6 +253,18 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
       }`,
       cents: line.line_total_cents,
     })),
+    // Futurity money is its own line per horse, because the per-class rate is
+    // the entrant's category rate and appears nowhere in `class_lines` — those
+    // classes are $0. Reading the two together is how you check a futurity
+    // bill, so the horse and the category are both named.
+    ...(bill.futurity_lines ?? []).map((line) => ({
+      label:
+        `${line.futurity_name} — ${line.horse_name ?? 'horse'}` +
+        (line.fee_tier_name ? ` (${line.fee_tier_name})` : '') +
+        `, ${line.class_count} ${line.class_count === 1 ? 'class' : 'classes'}` +
+        (line.is_late ? ' + late fee' : ''),
+      cents: line.line_total_cents,
+    })),
   ].filter((r) => r.cents !== 0);
 
   return (

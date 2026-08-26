@@ -90,6 +90,9 @@ def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> Simple
     defaults = dict(
         id=uuid4(),
         class_=cls,
+        # Carried alongside `class_` because futurity billing matches entries to
+        # a futurity's classes by id without loading the class itself.
+        class_id=cls.id if cls is not None else None,
         horse=SimpleNamespace(name=horse_name) if horse_name is not None else None,
         horse_id=horse_id,
         exhibitor_id=uuid4(),
@@ -121,3 +124,52 @@ def make_side_pot(entry_fee_cents=2000, payback_percent=80) -> SimpleNamespace:
 
 def make_payout(payout_cents: int) -> SimpleNamespace:
     return SimpleNamespace(payout_cents=payout_cents)
+
+
+def make_fee_tier(name="Category #3", amount_cents=15000) -> SimpleNamespace:
+    return SimpleNamespace(id=uuid4(), name=name, amount_cents=amount_cents)
+
+
+def make_futurity_entry(
+    tier=..., horse_id=..., is_member=False, entered_at=None, **overrides
+) -> SimpleNamespace:
+    """One horse enrolled in a futurity.
+
+    `tier` sentinel-defaults so a test can pass None to build the
+    no-tier-chosen case, which `futurity_charge_cents` treats as a zero rate.
+    """
+    if tier is ...:
+        tier = make_fee_tier()
+    if horse_id is ...:
+        horse_id = uuid4()
+    defaults = dict(
+        id=uuid4(),
+        show_entry_id=uuid4(),
+        horse_id=horse_id,
+        horse=SimpleNamespace(name="Dusty"),
+        fee_tier=tier,
+        is_member=is_member,
+        entered_at=entered_at or date(2026, 5, 1),
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def make_futurity(classes=(), entries=(), **overrides) -> SimpleNamespace:
+    """A futurity, defaulted to no deadline and no office fee.
+
+    `classes` is a list of class stubs; they are wrapped into the
+    `futurity_classes` association shape `billing.futurity_lines` reads.
+    """
+    defaults = dict(
+        id=uuid4(),
+        name="North Star Futurity",
+        entry_deadline=None,
+        late_fee_cents=0,
+        office_fee_member_cents=0,
+        office_fee_nonmember_cents=0,
+        futurity_classes=[SimpleNamespace(class_id=c.id) for c in classes],
+        entries=list(entries),
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)

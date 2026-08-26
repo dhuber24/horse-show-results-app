@@ -27,6 +27,7 @@ const UNIT_LABEL: Record<string, string> = {
   per_night: 'per night',
   per_stall: 'per stall',
   per_bag: 'per bag',
+  per_show: 'per show',
   percent_of_entry: '% of entry',
 };
 
@@ -96,11 +97,40 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
+/** A futurity as published programme — see `fetchShowFuturitiesPublic`. */
+export type ShowbillFuturity = {
+  id: string;
+  name: string;
+  description: string | null;
+  entry_deadline: string | null;
+  late_fee_cents: number;
+  office_fee_member_cents: number;
+  office_fee_nonmember_cents: number;
+  classes: { class_id: string; class_number: string; class_name: string }[];
+  fee_tiers: {
+    id: string;
+    name: string;
+    description: string | null;
+    amount_cents: number;
+  }[];
+  divisions: {
+    id: string;
+    name: string;
+    classes: {
+      class_number: string | null;
+      class_name: string | null;
+      scoring: string;
+      group_name: string | null;
+    }[];
+  }[];
+};
+
 export default function ShowbillDocument({
   show,
   classes,
   judges,
   fees,
+  futurities = [],
   embedded = false,
 }: {
   // Straight off `fetchShow`, which is untyped — the same shape every other
@@ -109,6 +139,9 @@ export default function ShowbillDocument({
   classes: ShowbillClassRow[];
   judges: Judge[];
   fees: Fee[];
+  /** Defaults to empty so the details page, which does not load them, is
+   *  unchanged — and a show with no futurity prints no futurity section. */
+  futurities?: ShowbillFuturity[];
   embedded?: boolean;
 }) {
   const byDay = new Map<string, ShowbillClassRow[]>();
@@ -305,6 +338,83 @@ export default function ShowbillDocument({
           The show office collects payment at the show — this app does not take payment.
         </p>
       </Section>
+
+      {futurities.length > 0 && (
+        <Section title="Futurities">
+          {futurities.map((futurity) => (
+            <div key={futurity.id} className="showbill-section mb-4 last:mb-0">
+              <h3 className="font-semibold text-sm" style={{ color: '#2c1810' }}>
+                {futurity.name}
+              </h3>
+              {futurity.description && (
+                <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                  {futurity.description}
+                </p>
+              )}
+
+              {futurity.classes.length > 0 && (
+                <p className="text-sm mt-1" style={{ color: '#2c1810' }}>
+                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                    Classes:{' '}
+                  </span>
+                  {futurity.classes.map((c) => c.class_number).join(', ')}
+                </p>
+              )}
+
+              {/* The entry fee is per class and per category, which is exactly
+                  what a paper bill prints — a single "futurity fee" number
+                  would be wrong for two entrants out of three. */}
+              {futurity.fee_tiers.length > 0 && (
+                <ul className="mt-1 text-sm" style={{ color: '#2c1810' }}>
+                  {futurity.fee_tiers.map((tier) => (
+                    <li key={tier.id} className="flex items-baseline justify-between gap-3 py-0.5">
+                      <span>
+                        {tier.name}
+                        {tier.description && (
+                          <span className="text-xs" style={{ color: '#8b7355' }}>
+                            {' '}— {tier.description}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-medium whitespace-nowrap">
+                        {formatMoney(tier.amount_cents)}
+                        <span className="text-xs font-normal" style={{ color: '#8b7355' }}>
+                          {' '}/ class
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <ul className="mt-1 text-xs" style={{ color: '#8b7355' }}>
+                {futurity.entry_deadline && (
+                  <li>
+                    Entries close {formatShortDate(futurity.entry_deadline)}
+                    {futurity.late_fee_cents > 0 &&
+                      ` — ${formatMoney(futurity.late_fee_cents)} per class after that`}
+                  </li>
+                )}
+                {(futurity.office_fee_member_cents > 0 ||
+                  futurity.office_fee_nonmember_cents > 0) && (
+                  <li>
+                    Office fee per horse: {formatMoney(futurity.office_fee_member_cents)}{' '}
+                    member / {formatMoney(futurity.office_fee_nonmember_cents)} non-member
+                  </li>
+                )}
+                {futurity.divisions.map((division) => (
+                  <li key={division.id}>
+                    Hi-Point {division.name}:{' '}
+                    {division.classes.map((c) => `#${c.class_number}`).join(', ')}
+                    {division.classes.some((c) => c.scoring === 'best_of_group') &&
+                      ' (best one of the grouped classes counts)'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </Section>
+      )}
 
       <Section title="Rules & paperwork">
         <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>

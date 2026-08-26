@@ -59,6 +59,7 @@ from models import (
     SidePotPayout,
     User,
 )
+from routers.futurities import load_futurity_bill_index
 from routers.show_office import _assert_exhibitor_on_roster
 from routers.shows import _assert_show_access
 from schemas import (
@@ -150,6 +151,10 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
         exhibitors.setdefault(show_entry.exhibitor_id, show_entry.exhibitor)
         show_entry_by_exhibitor[show_entry.exhibitor_id] = show_entry
 
+    # 3. Futurity enrollments, keyed by show entry — two queries for the whole
+    # show rather than one per exhibitor, same as everything else here.
+    futurity_index = await load_futurity_bill_index(show_id, db)
+
     accounts: list[dict] = []
     for exhibitor_id, exhibitor in exhibitors.items():
         show_entry = show_entry_by_exhibitor.get(exhibitor_id)
@@ -163,7 +168,13 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             key=lambda p: (p.received_on, p.created_at is None, p.created_at or _EPOCH),
         )
 
-        money = build_account(show, exhibitor_entries, reservations, payments)
+        money = build_account(
+            show,
+            exhibitor_entries,
+            reservations,
+            payments,
+            futurity_index.get(show_entry.id, []) if show_entry else [],
+        )
         accounts.append({
             "exhibitor_id": exhibitor_id,
             "exhibitor_name": exhibitor.full_name,

@@ -57,6 +57,9 @@ from models import (
     Entry,
     Exhibitor,
     ExhibitorHorse,
+    Futurity,
+    FuturityClass,
+    FuturityEntry,
     Horse,
     Result,
     Show,
@@ -64,6 +67,7 @@ from models import (
     ShowEntryReservation,
     ShowFee,
 )
+from routers.futurities import load_billable_futurities
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
@@ -639,7 +643,14 @@ async def preview_registration(
         # Entries commit one at a time now, so there is always a real bill to
         # quote; the batch form this replaced had to add the fees up in the
         # browser, which is the disagreement billing.py exists to prevent.
-        "bill": build_bill(show, existing, show_entry.reservations if show_entry else []),
+        "bill": build_bill(
+            show,
+            existing,
+            show_entry.reservations if show_entry else [],
+            await load_billable_futurities(
+                show_id, [show_entry.id] if show_entry else [], db
+            ),
+        ),
     }
 
 
@@ -888,4 +899,222 @@ async def withdraw_entry(
         )
 
     await db.delete(entry)
+    await db.commit()
+
+
+# ── Futurities, exhibitor side ────────────────────────────────────────────────
+#
+# The office manages a futurity at /admin/shows/{id}/futurities. These three
+# endpoints are the exhibitor's own door into the same tables: which futurities
+# the show runs, which of their horses are in one, and enrolling or withdrawing
+# a horse they own.
+#
+# Deliberately narrower than the staff endpoints. An exhibitor may only enroll a
+# horse on their own profile, only against their own `show_entries` row, and
+# only while the show is PUBLISHED — after that the numbers are printed and the
+# office takes over, exactly as with class entries.
+
+
+async def _load_futurity_for_show(show_id: UUID, futurity_id: UUID, db: AsyncSession):
+    result = await db.execute(
+        select(Futurity)
+        .where(Futurity.id == futurity_id, Futurity.show_id == show_id)
+        .options(
+            selectinload(Futurity.fee_tiers),
+            selectinload(Futurity.futurity_classes),
+        )
+    )
+    futurity = result.scalar_one_or_none()
+    if not futurity:
+        raise HTTPException(404, "Futurity not found")
+    return futurity
+
+
+@router.get("/futurities")
+async def list_futurities_for_exhibitor(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The show's futurities, with the caller's own enrollments marked.
+
+    Not status-gated on read: somebody who entered while the show was PUBLISHED
+    still needs to see what they entered once it goes ACTIVE. Writing is gated
+    below.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+
+    futurities = (
+        await db.execute(
+            select(Futurity)
+            .where(Futurity.show_id == show_id)
+            .options(
+                selectinload(Futurity.fee_tiers),
+                selectinload(Futurity.futurity_classes).selectinload(FuturityClass.class_),
+            )
+            .order_by(Futurity.created_at)
+        )
+    ).scalars().all()
+    if not futurities:
+        return []
+
+    mine = []
+    if show_entry is not None:
+        mine = (
+            await db.execute(
+                select(FuturityEntry)
+                .where(
+                    FuturityEntry.show_entry_id == show_entry.id,
+                    FuturityEntry.futurity_id.in_([f.id for f in futurities]),
+                )
+                .options(
+                    selectinload(FuturityEntry.horse),
+                    selectinload(FuturityEntry.fee_tier),
+                )
+            )
+        ).scalars().all()
+
+    by_futurity: dict[UUID, list] = {}
+    for enrollment in mine:
+        by_futurity.setdefault(enrollment.futurity_id, []).append(enrollment)
+
+    today = date.today()
+    return [
+        {
+            "id": str(f.id),
+            "name": f.name,
+            "description": f.description,
+            "entry_deadline": f.entry_deadline,
+            "late_fee_cents": f.late_fee_cents,
+            "office_fee_member_cents": f.office_fee_member_cents,
+            "office_fee_nonmember_cents": f.office_fee_nonmember_cents,
+            # Quoted, so the screen can warn before someone enters rather than
+            # after the bill arrives. What an existing enrollment is actually
+            # charged is settled by its own `entered_at`.
+            "is_past_deadline": f.entry_deadline is not None and today > f.entry_deadline,
+            "classes": [
+                {
+                    "class_id": str(fc.class_id),
+                    "class_number": fc.class_.class_number if fc.class_ else None,
+                    "class_name": fc.class_.class_name if fc.class_ else None,
+                }
+                for fc in f.futurity_classes
+                if fc.class_ is not None
+            ],
+            "fee_tiers": [
+                {
+                    "id": str(t.id),
+                    "name": t.name,
+                    "description": t.description,
+                    "amount_cents": t.amount_cents,
+                }
+                for t in sorted(f.fee_tiers, key=lambda t: (t.sort_order, t.name))
+            ],
+            "my_entries": [
+                {
+                    "id": str(e.id),
+                    "horse_id": str(e.horse_id) if e.horse_id else None,
+                    "horse_name": e.horse.name if e.horse else None,
+                    "fee_tier_id": str(e.fee_tier_id) if e.fee_tier_id else None,
+                    "fee_tier_name": e.fee_tier.name if e.fee_tier else None,
+                    "is_member": e.is_member,
+                    "entered_at": e.entered_at,
+                }
+                for e in by_futurity.get(f.id, [])
+            ],
+        }
+        for f in futurities
+    ]
+
+
+class FuturityEnrollRequest(BaseModel):
+    futurity_id: UUID
+    horse_id: UUID
+    fee_tier_id: Optional[UUID] = None
+    is_member: bool = False
+
+
+@router.post("/futurities", status_code=201)
+async def enroll_in_futurity(
+    show_id: UUID,
+    body: FuturityEnrollRequest,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Enroll one of the caller's own horses in a futurity."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    # Same rule as class self-registration: sign-up is what creates the roster
+    # row a back number, a pot entry and now a futurity entry all hang off.
+    if show_entry is None or show_entry.registered_at is None:
+        raise HTTPException(409, "SHOW_SIGNUP_REQUIRED")
+
+    futurity = await _load_futurity_for_show(show_id, body.futurity_id, db)
+
+    if body.horse_id not in await _exhibitor_horse_ids(exhibitor.id, db):
+        raise HTTPException(403, "You can only enter a horse on your own profile")
+
+    if futurity.fee_tiers:
+        if body.fee_tier_id is None:
+            raise HTTPException(422, "Pick an entry category.")
+        if not any(t.id == body.fee_tier_id for t in futurity.fee_tiers):
+            raise HTTPException(422, "That category does not belong to this futurity.")
+
+    clash = (
+        await db.execute(
+            select(FuturityEntry.id).where(
+                FuturityEntry.futurity_id == futurity.id,
+                FuturityEntry.horse_id == body.horse_id,
+            )
+        )
+    ).scalars().first()
+    if clash:
+        raise HTTPException(409, "That horse is already entered in this futurity.")
+
+    enrollment = FuturityEntry(
+        futurity_id=futurity.id,
+        show_entry_id=show_entry.id,
+        horse_id=body.horse_id,
+        fee_tier_id=body.fee_tier_id,
+        is_member=body.is_member,
+        entered_at=date.today(),
+    )
+    db.add(enrollment)
+    await db.commit()
+    return {"id": str(enrollment.id)}
+
+
+@router.delete("/futurities/{entry_id}", status_code=204)
+async def withdraw_from_futurity(
+    show_id: UUID,
+    entry_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Withdraw one of the caller's own futurity enrollments."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+    show_entry = await _load_show_entry(show_id, exhibitor.id, db)
+    if show_entry is None:
+        raise HTTPException(404, "Futurity entry not found")
+
+    enrollment = await db.get(FuturityEntry, entry_id)
+    if enrollment is None or enrollment.show_entry_id != show_entry.id:
+        raise HTTPException(404, "Futurity entry not found")
+
+    await db.delete(enrollment)
     await db.commit()

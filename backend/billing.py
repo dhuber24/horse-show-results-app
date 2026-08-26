@@ -23,7 +23,14 @@ NSBA_SANCTION_RATE = 0.06
 # Which `show_fees` rows an exhibitor may reserve a quantity of at sign-up.
 # Keyed on unit rather than a list of codes so a show that adds its own
 # per-stall or per-night fee is offered without a code change here.
-RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night")
+#
+# `per_show` is the odd one and is not the same as `flat`: a flat fee is charged
+# once however many you have, while per_show is charged once *per thing
+# reserved*, however long the show runs. An electrical hook-up sold as "$60 for
+# the weekend" is per_show — two of them cost $120, and a three-day show still
+# costs $60 each. Pricing that as per_night silently doubles it on a two-day
+# show, which is why the unit exists (migration 106).
+RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night", "per_show")
 
 
 def has_early_rate(fee) -> bool:
@@ -90,15 +97,114 @@ def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool
     return show.office_charge_cents
 
 
+def futurity_charge_cents(
+    futurity,
+    entry,
+    entered_class_count: int,
+) -> tuple[int, bool]:
+    """What one futurity enrollment costs, and whether it was taken late.
+
+    A futurity does not price its classes on the class row — the rate depends
+    on which category the entrant qualifies for, which `classes.entry_fee_cents`
+    cannot know, so a futurity class carries zero there and the tier supplies
+    the price (migration 107). The charge is therefore:
+
+        tier rate x classes entered  +  office fee  +  late fee x classes entered
+
+    Lateness is decided by `entry.entered_at`, the day the enrollment was
+    taken, and never by today — the same rule as `fee_rate_cents`. Pricing off
+    "now" would drop a late fee on every existing enrollment the moment the
+    deadline passed.
+    """
+    tier_rate = entry.fee_tier.amount_cents if entry.fee_tier is not None else 0
+    office = (
+        futurity.office_fee_member_cents
+        if entry.is_member
+        else futurity.office_fee_nonmember_cents
+    )
+    is_late = (
+        futurity.entry_deadline is not None
+        and entry.entered_at is not None
+        and entry.entered_at > futurity.entry_deadline
+    )
+    late = futurity.late_fee_cents * entered_class_count if is_late else 0
+    return tier_rate * entered_class_count + office + late, is_late
+
+
+def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict], int]:
+    """Itemize the caller's futurity enrollments against their class entries.
+
+    `futurities` are Futurity rows for this show with `futurity_classes`,
+    `fee_tiers` and `entries` loaded; `entries` are the exhibitor's Entry rows.
+    Only enrollments belonging to the exhibitor's own `show_entries` row are
+    charged, which is what `show_entry_ids` filters on at the caller.
+
+    Returns (lines, total_cents). An enrollment whose horse has not been put in
+    any of the futurity's classes still owes the office fee — the club took the
+    paperwork — but no per-class money.
+    """
+    entry_list = list(entries)
+    lines: list[dict] = []
+    total = 0
+    for futurity in futurities:
+        futurity_class_ids = {fc.class_id for fc in futurity.futurity_classes}
+        for enrollment in futurity.entries:
+            entered = [
+                e
+                for e in entry_list
+                if e.horse_id is not None
+                and e.horse_id == enrollment.horse_id
+                and e.class_id in futurity_class_ids
+            ]
+            charge, is_late = futurity_charge_cents(futurity, enrollment, len(entered))
+            tier = enrollment.fee_tier
+            lines.append(
+                {
+                    "futurity_id": futurity.id,
+                    "futurity_name": futurity.name,
+                    "futurity_entry_id": enrollment.id,
+                    "horse_id": enrollment.horse_id,
+                    "horse_name": (
+                        enrollment.horse.name
+                        if getattr(enrollment, "horse", None)
+                        else None
+                    ),
+                    "fee_tier_name": tier.name if tier is not None else None,
+                    "tier_amount_cents": tier.amount_cents if tier is not None else 0,
+                    "class_count": len(entered),
+                    "is_member": enrollment.is_member,
+                    "office_fee_cents": (
+                        futurity.office_fee_member_cents
+                        if enrollment.is_member
+                        else futurity.office_fee_nonmember_cents
+                    ),
+                    "is_late": is_late,
+                    "late_fee_cents": (
+                        futurity.late_fee_cents * len(entered) if is_late else 0
+                    ),
+                    "entered_at": enrollment.entered_at,
+                    "line_total_cents": charge,
+                }
+            )
+            total += charge
+    return lines, total
+
+
 def build_bill(
     show,
     entries: Iterable,
     reservations: Iterable,
+    futurities: Iterable = (),
 ) -> dict:
     """Itemize one exhibitor's charges at one show.
 
     `entries` are Entry rows with `class_` and (optionally) `horse` loaded;
-    `reservations` are ShowEntryReservation rows with `show_fee` loaded.
+    `reservations` are ShowEntryReservation rows with `show_fee` loaded;
+    `futurities` are Futurity rows carrying only *this* exhibitor's enrollments
+    (the caller filters them — see `show_office._load_financials`).
+
+    `futurities` defaults to empty so every existing caller keeps working and a
+    show with no futurity is unchanged down to the key set.
     """
     nsba = show_is_nsba_sanctioned(show)
 
@@ -159,17 +265,26 @@ def build_bill(
         reservation_total += line_total
 
     office_total = office_charge_total_cents(show, len(horse_ids), bool(entry_list))
+    futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 
     return {
         "class_lines": class_lines,
         "reservation_lines": reservation_lines,
+        "futurity_lines": futurity_line_list,
         "class_fee_total_cents": class_fee_total,
         "nsba_sanction_total_cents": sanction_total,
         "office_charge_cents": show.office_charge_cents,
         "office_charge_basis": show.office_charge_basis,
         "office_charge_total_cents": office_total,
         "reservation_total_cents": reservation_total,
-        "total_cents": class_fee_total + sanction_total + office_total + reservation_total,
+        "futurity_total_cents": futurity_total,
+        "total_cents": (
+            class_fee_total
+            + sanction_total
+            + office_total
+            + reservation_total
+            + futurity_total
+        ),
     }
 
 
@@ -200,13 +315,19 @@ def payment_totals_cents(payments: Iterable) -> dict:
     }
 
 
-def build_account(show, entries: Iterable, reservations: Iterable, payments: Iterable) -> dict:
+def build_account(
+    show,
+    entries: Iterable,
+    reservations: Iterable,
+    payments: Iterable,
+    futurities: Iterable = (),
+) -> dict:
     """One exhibitor's standing at one show: billed, paid, and the difference.
 
     The bill comes from `build_bill` untouched, so what Financials shows an
     exhibitor owes is character-for-character what My Shows shows them.
     """
-    bill = build_bill(show, entries, reservations)
+    bill = build_bill(show, entries, reservations, futurities)
     totals = payment_totals_cents(payments)
     return {
         "bill": bill,
@@ -231,6 +352,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
         "nsba_sanction_total_cents": 0,
         "office_charge_total_cents": 0,
         "reservation_total_cents": 0,
+        "futurity_total_cents": 0,
         "billed_cents": 0,
         "collected_cents": 0,
         "refunded_cents": 0,
@@ -253,8 +375,12 @@ def summarize_accounts(accounts: Iterable) -> dict:
             "nsba_sanction_total_cents",
             "office_charge_total_cents",
             "reservation_total_cents",
+            "futurity_total_cents",
         ):
-            totals[key] += bill[key]
+            # .get, because an account built before futurities existed — or by
+            # a caller that passes no futurities — has no such key, and a show
+            # with none must roll up to zero rather than raise.
+            totals[key] += bill.get(key, 0)
         totals["billed_cents"] += bill["total_cents"]
         totals["collected_cents"] += account["collected_cents"]
         totals["refunded_cents"] += account["refunded_cents"]

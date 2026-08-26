@@ -61,6 +61,17 @@ export async function fetchShowFeesPublic(showId: string) {
   return res.json();
 }
 
+/** The show's futurities as published programme — classes, entry categories,
+ *  deadline and Hi-Point divisions. No entries: this is the programme, not the
+ *  roster. 404s on a DRAFT show, which reads here as "no futurities". */
+export async function fetchShowFuturitiesPublic(showId: string) {
+  const res = await fetch(`${API_URL}/shows/${showId}/futurities/public`, {
+    cache: 'no-store',
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchResultsIndex(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}/results-index`);
   if (!res.ok) return {} as Record<string, unknown[]>;

@@ -12,6 +12,7 @@ type Unit =
   | 'per_night'
   | 'per_stall'
   | 'per_bag'
+  | 'per_show'
   | 'percent_of_entry';
 
 interface ShowFee {
@@ -41,6 +42,7 @@ const UNIT_LABELS: Record<Unit, string> = {
   per_night: 'per night',
   per_stall: 'per stall',
   per_bag: 'per bag',
+  per_show: 'per show',
   percent_of_entry: '% of entry',
 };
 
@@ -50,6 +52,7 @@ const BOARDING_UNIT_OPTIONS: Unit[] = [
   'per_night',
   'per_stall',
   'per_bag',
+  'per_show',
   'percent_of_entry',
   'per_class_per_horse',
 ];
@@ -58,7 +61,7 @@ const BOARDING_UNIT_OPTIONS: Unit[] = [
  *  early rate — nothing else produces a reservation for a discount to apply
  *  to, and the backend rejects one on any other unit. Mirrors
  *  RESERVABLE_FEE_UNITS in backend/billing.py. */
-const RESERVABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag', 'per_night']);
+const RESERVABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag', 'per_night', 'per_show']);
 
 function dollarsFromCents(cents: number): string {
   return (cents / 100).toFixed(2);

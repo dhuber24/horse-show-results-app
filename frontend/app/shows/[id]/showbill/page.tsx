@@ -4,6 +4,7 @@ import {
   fetchClasses,
   fetchShowJudgesPublic,
   fetchShowFeesPublic,
+  fetchShowFuturitiesPublic,
 } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
@@ -37,11 +38,12 @@ const PRINT_CSS = `
 export default async function ShowbillPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [show, allClasses, judges, fees, back] = await Promise.all([
+  const [show, allClasses, judges, fees, futurities, back] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchShowJudgesPublic(id),
     fetchShowFeesPublic(id),
+    fetchShowFuturitiesPublic(id),
     showHubBack(id),
   ]);
 
@@ -61,7 +63,13 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
 
       <ShowbillActions showName={show.name} classes={classes} />
 
-      <ShowbillDocument show={show} classes={classes} judges={judges} fees={fees} />
+      <ShowbillDocument
+        show={show}
+        classes={classes}
+        judges={judges}
+        fees={fees}
+        futurities={futurities}
+      />
 
       <div className="no-print mt-5 flex flex-wrap gap-3 text-sm font-medium">
         <Link href={`/shows/${id}/details`} className="hover:underline" style={{ color: '#8b4513' }}>
