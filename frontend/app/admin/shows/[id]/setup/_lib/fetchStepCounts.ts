@@ -4,7 +4,10 @@ import type { WizardStepsInput } from '../../../_wizard/steps';
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
 // code for the camping line and still counts as lodging that is configured.
 const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
-const FEE_CODES = new Set(['standard_class', 'jackpot', 'futurity']);
+// `futurity` is deliberately absent: a futurity is its own programme with its
+// own tiered pricing (Step 7), not a single amount on the fee schedule. The code
+// still exists on shows set up before migration 107 and is left alone there.
+const FEE_CODES = new Set(['standard_class', 'jackpot']);
 
 type FeeRow = {
   id: string;
@@ -25,7 +28,7 @@ export async function fetchStepCounts(
   showId: string,
   officeChargeCents: number,
 ): Promise<WizardStepsInput> {
-  const [judges, sanctioning, fees, classes] = await Promise.all([
+  const [judges, sanctioning, fees, classes, futurities] = await Promise.all([
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
       `${API_URL}/shows/${showId}/sanctioning/`,
@@ -33,6 +36,7 @@ export async function fetchStepCounts(
     ),
     getJson<FeeRow[]>(`${API_URL}/shows/${showId}/fees/`, []),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/classes/`, []),
+    getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/futurities/`, []),
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
@@ -46,5 +50,6 @@ export async function fetchStepCounts(
     lodgingFeeCount,
     feesCount: feesDone ? 1 : 0,
     classCount: classes.length,
+    futurityCount: futurities.length,
   };
 }

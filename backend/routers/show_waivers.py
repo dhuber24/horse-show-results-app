@@ -27,6 +27,12 @@ person makes, not a fact already stored, and there is nothing to read it from.
 Minors sign through a parent or guardian, which is not a footnote at a horse
 show: youth classes are a third of a typical schedule, and a release signed by a
 twelve-year-old is not a release.
+
+Since migration 109 a waiver may be scoped to one futurity. The release printed
+on a futurity entry form is a waiver in every sense this file already models
+one, but it is not asked of the whole show — so `futurity_id` narrows *who is
+asked* rather than adding a second signature mechanism. NULL is the original
+meaning and what every pre-109 row carries: everyone at the show.
 """
 from __future__ import annotations
 
@@ -44,6 +50,8 @@ from models import (
     Class,
     Entry,
     Exhibitor,
+    Futurity,
+    FuturityEntry,
     Show,
     ShowEntry,
     ShowWaiver,
@@ -79,6 +87,69 @@ async def _get_waiver_or_404(show_id: UUID, waiver_id: UUID, db: AsyncSession) -
     if not waiver or waiver.show_id != show_id:
         raise HTTPException(404, "Waiver not found")
     return waiver
+
+
+async def _assert_futurity_on_show(
+    show_id: UUID, futurity_id: Optional[UUID], db: AsyncSession
+) -> None:
+    """A waiver may only be scoped to a futurity of its own show.
+
+    Without this, a caller could point a release at another show's programme and
+    produce a waiver nobody at either show is ever asked to sign.
+    """
+    if futurity_id is None:
+        return
+    futurity = await db.get(Futurity, futurity_id)
+    if futurity is None or futurity.show_id != show_id:
+        raise HTTPException(422, "That futurity does not belong to this show.")
+
+
+async def _waiver_out(waiver: ShowWaiver, db: AsyncSession) -> ShowWaiverOut:
+    """Serialize one waiver with its futurity's name filled in.
+
+    Read with a query rather than through `ShowWaiver.futurity`, which is a lazy
+    relationship: touching it inside an async request is lazy IO and raises
+    MissingGreenlet. Without this the create and patch responses would come back
+    with `futurity_name: null` on a waiver that plainly has one, and a caller
+    that renders the response instead of re-reading the list would show a
+    futurity release with no futurity against it.
+    """
+    out = ShowWaiverOut.model_validate(waiver)
+    if waiver.futurity_id is not None:
+        name = (
+            await db.execute(
+                select(Futurity.name).where(Futurity.id == waiver.futurity_id)
+            )
+        ).scalars().first()
+        out.futurity_name = name
+    return out
+
+
+async def _futurity_names(show_id: UUID, db: AsyncSession) -> dict[UUID, str]:
+    """Names for the show's futurities, in one query.
+
+    Read here rather than through `ShowWaiver.futurity`, which is a lazy
+    relationship: touching it inside an async request is lazy IO and raises
+    MissingGreenlet.
+    """
+    rows = await db.execute(
+        select(Futurity.id, Futurity.name).where(Futurity.show_id == show_id)
+    )
+    return {row[0]: row[1] for row in rows}
+
+
+async def _enrolled_futurity_ids(
+    show_id: UUID, exhibitor_id: UUID, db: AsyncSession
+) -> set[UUID]:
+    """Which of the show's futurities this exhibitor has a horse in."""
+    rows = await db.execute(
+        select(FuturityEntry.futurity_id)
+        .join(Futurity, Futurity.id == FuturityEntry.futurity_id)
+        .join(ShowEntry, ShowEntry.id == FuturityEntry.show_entry_id)
+        .where(Futurity.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+        .distinct()
+    )
+    return {row[0] for row in rows}
 
 
 async def _exhibitor_for_user(user_id: str, db: AsyncSession) -> Exhibitor:
@@ -196,6 +267,7 @@ async def list_waivers(
     )
     exhibitor = exhibitor_result.scalar_one_or_none()
     signatures: dict[UUID, ShowWaiverSignature] = {}
+    enrolled: set[UUID] = set()
     if exhibitor is not None:
         signature_result = await db.execute(
             select(ShowWaiverSignature).where(
@@ -204,14 +276,31 @@ async def list_waivers(
             )
         )
         signatures = {sig.waiver_id: sig for sig in signature_result.scalars().all()}
+        if any(w.futurity_id is not None for w in waivers):
+            enrolled = await _enrolled_futurity_ids(show_id, exhibitor.id, db)
+
+    names = (
+        await _futurity_names(show_id, db)
+        if any(w.futurity_id is not None for w in waivers)
+        else {}
+    )
 
     return [
         ShowWaiverForExhibitorOut(
-            **ShowWaiverOut.model_validate(waiver).model_dump(),
+            **ShowWaiverOut.model_validate(waiver).model_dump(
+                exclude={"futurity_name"}
+            ),
+            futurity_name=names.get(waiver.futurity_id),
             signature=(
                 WaiverSignatureOut.model_validate(signatures[waiver.id])
                 if waiver.id in signatures
                 else None
+            ),
+            # A futurity release is only asked of that futurity's entrants.
+            # Still returned to everybody: somebody deciding whether to enter is
+            # entitled to read what they would be agreeing to.
+            applies_to_me=(
+                waiver.futurity_id is None or waiver.futurity_id in enrolled
             ),
         )
         for waiver in waivers
@@ -234,17 +323,19 @@ async def create_waiver(
 ):
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
+    await _assert_futurity_on_show(show_id, body.futurity_id, db)
     waiver = ShowWaiver(
         show_id=show_id,
         title=body.title.strip(),
         body=body.body,
         is_required=body.is_required,
+        futurity_id=body.futurity_id,
         sort_order=body.sort_order,
     )
     db.add(waiver)
     await db.commit()
     await db.refresh(waiver)
-    return waiver
+    return await _waiver_out(waiver, db)
 
 
 @router.patch(
@@ -278,12 +369,18 @@ async def update_waiver(
         waiver.body = body.body
     if body.is_required is not None:
         waiver.is_required = body.is_required
+    if "futurity_id" in body.model_fields_set:
+        # In `model_fields_set` rather than a None check, so a release can be
+        # widened back to the whole show by sending null — an unsent field and
+        # an explicit null mean different things here.
+        await _assert_futurity_on_show(show_id, body.futurity_id, db)
+        waiver.futurity_id = body.futurity_id
     if body.sort_order is not None:
         waiver.sort_order = body.sort_order
 
     await db.commit()
     await db.refresh(waiver)
-    return waiver
+    return await _waiver_out(waiver, db)
 
 
 @router.delete(
@@ -334,6 +431,11 @@ async def sign_waiver(
     exhibitor = await _exhibitor_for_user(user_id, db)
     await _assert_exhibitor_on_roster(show_id, exhibitor.id, db)
     return await _sign(waiver, exhibitor.id, body, on_paper=False, actor=None, db=db)
+
+
+# A futurity-scoped waiver is not gated on being enrolled. Somebody who signs
+# the release and then enters is in the ordinary order the paper form runs in,
+# and a signature that arrives early is not a problem the app needs to solve.
 
 
 @router.post(

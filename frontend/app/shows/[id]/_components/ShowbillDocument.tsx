@@ -103,11 +103,23 @@ export type ShowbillFuturity = {
   name: string;
   description: string | null;
   entry_deadline: string | null;
+  entry_deadline_time: string | null;
+  entry_deadline_timezone: string | null;
   late_fee_cents: number;
   office_fee_member_cents: number;
   office_fee_nonmember_cents: number;
+  entry_instructions: string | null;
+  award_notice: string | null;
+  rules_notice: string | null;
+  refund_policy: string | null;
   classes: { class_id: string; class_number: string; class_name: string }[];
   fee_tiers: {
+    id: string;
+    name: string;
+    description: string | null;
+    amount_cents: number;
+  }[];
+  membership_options: {
     id: string;
     name: string;
     description: string | null;
@@ -116,6 +128,8 @@ export type ShowbillFuturity = {
   divisions: {
     id: string;
     name: string;
+    award_name: string | null;
+    reserve_award_name: string | null;
     classes: {
       class_number: string | null;
       class_name: string | null;
@@ -124,6 +138,16 @@ export type ShowbillFuturity = {
     }[];
   }[];
 };
+
+/** "19:00:00" → "7:00 PM". A bare TIME is not something `new Date()` parses. */
+function formatClockTime(value: string | null): string {
+  if (!value) return '';
+  const [h, m] = value.split(':').map(Number);
+  if (Number.isNaN(h)) return value;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m ?? 0).padStart(2, '0')} ${suffix}`;
+}
 
 export default function ShowbillDocument({
   show,
@@ -352,6 +376,21 @@ export default function ShowbillDocument({
                 </p>
               )}
 
+              {/* The notices the club wrote, printed as written. A show bill
+                  that stated the prices but dropped "horses may cross over" or
+                  the refund rule would be the wrong document to hand somebody
+                  at the entry booth. */}
+              {futurity.award_notice && (
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#2c1810' }}>
+                  {futurity.award_notice}
+                </p>
+              )}
+              {futurity.rules_notice && (
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#2c1810' }}>
+                  {futurity.rules_notice}
+                </p>
+              )}
+
               {futurity.classes.length > 0 && (
                 <p className="text-sm mt-1" style={{ color: '#2c1810' }}>
                   <span className="text-xs" style={{ color: '#8b7355' }}>
@@ -364,6 +403,12 @@ export default function ShowbillDocument({
               {/* The entry fee is per class and per category, which is exactly
                   what a paper bill prints — a single "futurity fee" number
                   would be wrong for two entrants out of three. */}
+              {futurity.entry_instructions && (
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#8b7355' }}>
+                  {futurity.entry_instructions}
+                </p>
+              )}
+
               {futurity.fee_tiers.length > 0 && (
                 <ul className="mt-1 text-sm" style={{ color: '#2c1810' }}>
                   {futurity.fee_tiers.map((tier) => (
@@ -387,10 +432,36 @@ export default function ShowbillDocument({
                 </ul>
               )}
 
+              {futurity.membership_options.length > 0 && (
+                <ul className="mt-1 text-sm" style={{ color: '#2c1810' }}>
+                  {futurity.membership_options.map((option) => (
+                    <li
+                      key={option.id}
+                      className="flex items-baseline justify-between gap-3 py-0.5"
+                    >
+                      <span>
+                        {option.name}
+                        <span className="text-xs" style={{ color: '#8b7355' }}>
+                          {' '}
+                          — optional club membership
+                        </span>
+                      </span>
+                      <span className="font-medium whitespace-nowrap">
+                        {formatMoney(option.amount_cents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               <ul className="mt-1 text-xs" style={{ color: '#8b7355' }}>
                 {futurity.entry_deadline && (
                   <li>
                     Entries close {formatShortDate(futurity.entry_deadline)}
+                    {futurity.entry_deadline_time &&
+                      ` by ${formatClockTime(futurity.entry_deadline_time)}`}
+                    {futurity.entry_deadline_timezone &&
+                      ` ${futurity.entry_deadline_timezone}`}
                     {futurity.late_fee_cents > 0 &&
                       ` — ${formatMoney(futurity.late_fee_cents)} per class after that`}
                   </li>
@@ -404,12 +475,17 @@ export default function ShowbillDocument({
                 )}
                 {futurity.divisions.map((division) => (
                   <li key={division.id}>
-                    Hi-Point {division.name}:{' '}
-                    {division.classes.map((c) => `#${c.class_number}`).join(', ')}
+                    Hi-Point {division.name}
+                    {(division.award_name || division.reserve_award_name) &&
+                      ` (${[division.award_name, division.reserve_award_name]
+                        .filter(Boolean)
+                        .join(' / ')})`}
+                    : {division.classes.map((c) => `#${c.class_number}`).join(', ')}
                     {division.classes.some((c) => c.scoring === 'best_of_group') &&
                       ' (best one of the grouped classes counts)'}
                   </li>
                 ))}
+                {futurity.refund_policy && <li>{futurity.refund_policy}</li>}
               </ul>
             </div>
           ))}

@@ -51,10 +51,12 @@ from models import (
     FuturityDivisionClass,
     FuturityEntry,
     FuturityFeeTier,
+    FuturityMembershipOption,
     Horse,
     Result,
     Show,
     ShowEntry,
+    ShowWaiver,
 )
 from schemas import (
     FuturityCreate,
@@ -63,6 +65,7 @@ from schemas import (
     FuturityEntryCreate,
     FuturityEntryOut,
     FuturityEntryUpdate,
+    FuturityMembershipOptionIn,
     FuturityOut,
     FuturityRosterEntry,
     FuturityStanding,
@@ -81,6 +84,8 @@ router = APIRouter(
 
 _FUTURITY_LOADS = (
     selectinload(Futurity.fee_tiers),
+    selectinload(Futurity.membership_options),
+    selectinload(Futurity.waivers).selectinload(ShowWaiver.signatures),
     selectinload(Futurity.futurity_classes).selectinload(FuturityClass.class_),
     selectinload(Futurity.divisions)
     .selectinload(FuturityDivision.division_classes)
@@ -150,9 +155,16 @@ def _serialize(futurity: Futurity) -> dict:
         "name": futurity.name,
         "description": futurity.description,
         "entry_deadline": futurity.entry_deadline,
+        "entry_deadline_time": futurity.entry_deadline_time,
+        "entry_deadline_timezone": futurity.entry_deadline_timezone,
         "late_fee_cents": futurity.late_fee_cents,
         "office_fee_member_cents": futurity.office_fee_member_cents,
         "office_fee_nonmember_cents": futurity.office_fee_nonmember_cents,
+        "entry_instructions": futurity.entry_instructions,
+        "award_notice": futurity.award_notice,
+        "rules_notice": futurity.rules_notice,
+        "refund_policy": futurity.refund_policy,
+        "requires_horse_pedigree": futurity.requires_horse_pedigree,
         "created_at": futurity.created_at,
         "classes": [
             {
@@ -174,7 +186,27 @@ def _serialize(futurity: Futurity) -> dict:
             }
             for t in sorted(futurity.fee_tiers, key=lambda t: (t.sort_order, t.name))
         ],
+        "membership_options": [
+            {
+                "id": m.id,
+                "name": m.name,
+                "description": m.description,
+                "amount_cents": m.amount_cents,
+                "sort_order": m.sort_order,
+            }
+            for m in sorted(futurity.membership_options, key=lambda m: (m.sort_order, m.name))
+        ],
         "divisions": [_serialize_division(d) for d in futurity.divisions],
+        "waivers": [
+            {
+                "id": w.id,
+                "title": w.title,
+                "body": w.body,
+                "is_required": w.is_required,
+                "signature_count": len(w.signatures),
+            }
+            for w in sorted(futurity.waivers, key=lambda w: (w.sort_order, w.title))
+        ],
         "entry_count": len(futurity.entries),
     }
 
@@ -185,6 +217,8 @@ def _serialize_division(division: FuturityDivision) -> dict:
         "futurity_id": division.futurity_id,
         "name": division.name,
         "scoring_method": division.scoring_method,
+        "award_name": division.award_name,
+        "reserve_award_name": division.reserve_award_name,
         "sort_order": division.sort_order,
         "classes": [
             {
@@ -261,6 +295,61 @@ async def _replace_fee_tiers(futurity: Futurity, tiers, db: AsyncSession) -> Non
         )
 
 
+async def _replace_membership_options(
+    futurity: Futurity, options: list[FuturityMembershipOptionIn], db: AsyncSession
+) -> None:
+    """Swap the membership set wholesale, keeping any option somebody bought.
+
+    Matched on name for the same reason the fee tiers are: `futurity_entries`
+    references an option with ON DELETE RESTRICT because an option somebody
+    bought is a price they were quoted. Re-creating it would either fail on the
+    constraint or orphan the enrollment onto a new row.
+    """
+    existing = {m.name: m for m in futurity.membership_options}
+    wanted = {m.name: m for m in options}
+
+    for name, option in wanted.items():
+        row = existing.get(name)
+        if row is None:
+            db.add(
+                FuturityMembershipOption(
+                    futurity_id=futurity.id,
+                    name=name,
+                    description=option.description,
+                    amount_cents=option.amount_cents,
+                    sort_order=option.sort_order,
+                )
+            )
+        else:
+            row.description = option.description
+            row.amount_cents = option.amount_cents
+            row.sort_order = option.sort_order
+
+    doomed = [m for name, m in existing.items() if name not in wanted]
+    if doomed:
+        in_use = set(
+            (
+                await db.execute(
+                    select(FuturityEntry.membership_option_id).where(
+                        FuturityEntry.membership_option_id.in_([m.id for m in doomed])
+                    )
+                )
+            ).scalars().all()
+        )
+        blocked = [m.name for m in doomed if m.id in in_use]
+        if blocked:
+            raise HTTPException(
+                409,
+                "These memberships have been bought by entrants and cannot be "
+                f"removed: {', '.join(sorted(blocked))}.",
+            )
+        await db.execute(
+            delete(FuturityMembershipOption).where(
+                FuturityMembershipOption.id.in_([m.id for m in doomed])
+            )
+        )
+
+
 async def _replace_classes(futurity: Futurity, class_ids: list[UUID], db: AsyncSession) -> None:
     await db.execute(
         delete(FuturityClass).where(FuturityClass.futurity_id == futurity.id)
@@ -331,6 +420,7 @@ async def _futurities_and_enrollments(
             query.options(
                 selectinload(FuturityEntry.horse),
                 selectinload(FuturityEntry.fee_tier),
+                selectinload(FuturityEntry.membership_option),
             )
         )
     ).scalars().all()
@@ -408,9 +498,16 @@ async def create_futurity(
         name=body.name,
         description=body.description,
         entry_deadline=body.entry_deadline,
+        entry_deadline_time=body.entry_deadline_time,
+        entry_deadline_timezone=body.entry_deadline_timezone,
         late_fee_cents=body.late_fee_cents,
         office_fee_member_cents=body.office_fee_member_cents,
         office_fee_nonmember_cents=body.office_fee_nonmember_cents,
+        entry_instructions=body.entry_instructions,
+        award_notice=body.award_notice,
+        rules_notice=body.rules_notice,
+        refund_policy=body.refund_policy,
+        requires_horse_pedigree=body.requires_horse_pedigree,
     )
     db.add(futurity)
     await db.flush()
@@ -425,6 +522,16 @@ async def create_futurity(
                 description=tier.description,
                 amount_cents=tier.amount_cents,
                 sort_order=tier.sort_order,
+            )
+        )
+    for option in body.membership_options:
+        db.add(
+            FuturityMembershipOption(
+                futurity_id=futurity.id,
+                name=option.name,
+                description=option.description,
+                amount_cents=option.amount_cents,
+                sort_order=option.sort_order,
             )
         )
     await db.commit()
@@ -462,6 +569,7 @@ async def update_futurity(
 
     class_ids = updates.pop("class_ids", None)
     fee_tiers = updates.pop("fee_tiers", None)
+    membership_options = updates.pop("membership_options", None)
 
     # Checked against the values the row will end up with, not the ones it has,
     # so clearing a deadline out from under an existing late fee fails the same
@@ -473,6 +581,15 @@ async def update_futurity(
             422,
             "A late fee needs an entry deadline — without one there is nothing "
             "for it to be late against.",
+        )
+
+    # Same shape of check, mirroring `ck_futurities_deadline_time`: clearing the
+    # date out from under a cutoff hour has to fail the way setting an hour with
+    # no date does.
+    deadline_time = updates.get("entry_deadline_time", futurity.entry_deadline_time)
+    if deadline_time is not None and deadline is None:
+        raise HTTPException(
+            422, "A deadline time needs a deadline date to qualify."
         )
 
     if "name" in updates and updates["name"] != futurity.name:
@@ -498,6 +615,8 @@ async def update_futurity(
         await _replace_classes(futurity, class_ids, db)
     if fee_tiers is not None:
         await _replace_fee_tiers(futurity, body.fee_tiers, db)
+    if membership_options is not None:
+        await _replace_membership_options(futurity, body.membership_options, db)
 
     await db.commit()
     return _serialize(await _load_futurity(show_id, futurity_id, db))
@@ -542,6 +661,8 @@ async def create_division(
         futurity_id=futurity.id,
         name=body.name,
         scoring_method=body.scoring_method,
+        award_name=(body.award_name or "").strip() or None,
+        reserve_award_name=(body.reserve_award_name or "").strip() or None,
         sort_order=body.sort_order,
     )
     db.add(division)
@@ -599,6 +720,8 @@ async def update_division(
 
     division.name = body.name
     division.scoring_method = body.scoring_method
+    division.award_name = (body.award_name or "").strip() or None
+    division.reserve_award_name = (body.reserve_award_name or "").strip() or None
     division.sort_order = body.sort_order
     await db.execute(
         delete(FuturityDivisionClass).where(
@@ -653,6 +776,28 @@ async def _entered_class_counts(
     return Counter(rows)
 
 
+def missing_horse_details(futurity: Futurity, horse) -> list[str]:
+    """Entry-form fields the horse record does not have yet.
+
+    A futurity is judged in age divisions off a registration paper, so its form
+    asks for foaling date, sire and dam. Reported, never enforced on the staff
+    path: the office is taking a paper form across a counter, and refusing the
+    entry would not produce the sire's name — it would just stop the horse being
+    enrolled. The exhibitor's own door is stricter, because there the missing
+    value is on a record they can edit in a minute.
+    """
+    if not futurity.requires_horse_pedigree or horse is None:
+        return []
+    missing = []
+    if horse.foaling_date is None:
+        missing.append("date of birth")
+    if not (horse.sire_name or "").strip():
+        missing.append("sire")
+    if not (horse.dam_name or "").strip():
+        missing.append("dam")
+    return missing
+
+
 async def _hydrate_entries(
     futurity: Futurity, db: AsyncSession
 ) -> list[dict]:
@@ -685,11 +830,26 @@ async def _hydrate_entries(
                 "fee_tier_name": (
                     enrollment.fee_tier.name if enrollment.fee_tier else None
                 ),
+                "membership_option_id": enrollment.membership_option_id,
+                "membership_option_name": (
+                    enrollment.membership_option.name
+                    if enrollment.membership_option
+                    else None
+                ),
+                "membership_fee_cents": (
+                    enrollment.membership_option.amount_cents
+                    if enrollment.membership_option
+                    else 0
+                ),
                 "is_member": enrollment.is_member,
+                "shown_by_name": enrollment.shown_by_name,
                 "entered_at": enrollment.entered_at,
                 "is_late": is_late,
                 "entered_class_count": count,
                 "charge_cents": charge,
+                "missing_horse_details": missing_horse_details(
+                    futurity, enrollment.horse
+                ),
                 "notes": enrollment.notes,
                 "created_at": enrollment.created_at,
             }
@@ -789,6 +949,13 @@ async def add_entry(
             "This futurity prices entries by category — pick a fee tier.",
         )
 
+    if body.membership_option_id is not None and not any(
+        m.id == body.membership_option_id for m in futurity.membership_options
+    ):
+        raise HTTPException(
+            422, "That membership does not belong to this futurity."
+        )
+
     already = next((e for e in futurity.entries if e.horse_id == body.horse_id), None)
     if already:
         raise HTTPException(409, "That horse is already entered in this futurity.")
@@ -798,7 +965,9 @@ async def add_entry(
         show_entry_id=body.show_entry_id,
         horse_id=body.horse_id,
         fee_tier_id=body.fee_tier_id,
+        membership_option_id=body.membership_option_id,
         is_member=body.is_member,
+        shown_by_name=(body.shown_by_name or "").strip() or None,
         # Stored, never derived at read time — the late fee is decided by the
         # day the office took the entry.
         entered_at=body.entered_at or date.today(),
@@ -831,6 +1000,14 @@ async def update_entry(
     if "fee_tier_id" in updates and updates["fee_tier_id"] is not None:
         if not any(t.id == updates["fee_tier_id"] for t in futurity.fee_tiers):
             raise HTTPException(422, "That fee tier does not belong to this futurity.")
+    if (
+        "membership_option_id" in updates
+        and updates["membership_option_id"] is not None
+        and not any(
+            m.id == updates["membership_option_id"] for m in futurity.membership_options
+        )
+    ):
+        raise HTTPException(422, "That membership does not belong to this futurity.")
     for field, value in updates.items():
         setattr(enrollment, field, value)
     await db.commit()
@@ -1072,6 +1249,7 @@ async def list_futurities_public(show_id: UUID, db: AsyncSession = Depends(get_d
             .where(Futurity.show_id == show_id)
             .options(
                 selectinload(Futurity.fee_tiers),
+                selectinload(Futurity.membership_options),
                 selectinload(Futurity.futurity_classes).selectinload(FuturityClass.class_),
                 selectinload(Futurity.divisions).selectinload(
                     FuturityDivision.division_classes
@@ -1087,9 +1265,17 @@ async def list_futurities_public(show_id: UUID, db: AsyncSession = Depends(get_d
             "name": f.name,
             "description": f.description,
             "entry_deadline": f.entry_deadline,
+            "entry_deadline_time": (
+                f.entry_deadline_time.isoformat() if f.entry_deadline_time else None
+            ),
+            "entry_deadline_timezone": f.entry_deadline_timezone,
             "late_fee_cents": f.late_fee_cents,
             "office_fee_member_cents": f.office_fee_member_cents,
             "office_fee_nonmember_cents": f.office_fee_nonmember_cents,
+            "entry_instructions": f.entry_instructions,
+            "award_notice": f.award_notice,
+            "rules_notice": f.rules_notice,
+            "refund_policy": f.refund_policy,
             "classes": [
                 {
                     "class_id": str(fc.class_id),
@@ -1112,10 +1298,23 @@ async def list_futurities_public(show_id: UUID, db: AsyncSession = Depends(get_d
                 }
                 for t in sorted(f.fee_tiers, key=lambda t: (t.sort_order, t.name))
             ],
+            "membership_options": [
+                {
+                    "id": str(m.id),
+                    "name": m.name,
+                    "description": m.description,
+                    "amount_cents": m.amount_cents,
+                }
+                for m in sorted(
+                    f.membership_options, key=lambda m: (m.sort_order, m.name)
+                )
+            ],
             "divisions": [
                 {
                     "id": str(d.id),
                     "name": d.name,
+                    "award_name": d.award_name,
+                    "reserve_award_name": d.reserve_award_name,
                     "classes": [
                         {
                             "class_number": dc.class_.class_number if dc.class_ else None,

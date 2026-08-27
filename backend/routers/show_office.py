@@ -68,6 +68,8 @@ from models import (
     Exhibitor,
     ExhibitorHorse,
     ExhibitorRegistration,
+    Futurity,
+    FuturityEntry,
     Horse,
     HorseRegistration,
     Show,
@@ -230,6 +232,27 @@ def _build_inspection(snapshot: str, verification: Optional[ShowVerification]) -
     }
 
 
+async def _futurity_enrollment_by_exhibitor(
+    show_id: UUID, db: AsyncSession
+) -> dict[UUID, set[UUID]]:
+    """Which futurities each exhibitor at this show is enrolled in.
+
+    One query for the whole show: the checklist walks every exhibitor, and
+    asking per person would be the N+1 this module is otherwise careful about.
+    """
+    rows = await db.execute(
+        select(ShowEntry.exhibitor_id, FuturityEntry.futurity_id)
+        .join(FuturityEntry, FuturityEntry.show_entry_id == ShowEntry.id)
+        .join(Futurity, Futurity.id == FuturityEntry.futurity_id)
+        .where(Futurity.show_id == show_id)
+        .distinct()
+    )
+    out: dict[UUID, set[UUID]] = {}
+    for exhibitor_id, futurity_id in rows:
+        out.setdefault(exhibitor_id, set()).add(futurity_id)
+    return out
+
+
 def _build_waiver_check(waiver: ShowWaiver, signature: Optional[ShowWaiverSignature]) -> dict:
     """A signature is either there or it is not — there is no value to hold it
     against, so nothing here can go stale the way a number can."""
@@ -320,6 +343,15 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         select(ShowWaiver).where(ShowWaiver.show_id == show_id).order_by(ShowWaiver.sort_order)
     )
     waivers = list(waiver_result.scalars().all())
+    # A futurity release is asked of that futurity's entrants and nobody else
+    # (migration 109). Without this the desk would show every exhibitor an
+    # unsigned release for a programme they never entered, and the show's
+    # outstanding count would never reach zero.
+    enrolled_futurities = (
+        await _futurity_enrollment_by_exhibitor(show_id, db)
+        if any(w.futurity_id is not None for w in waivers)
+        else {}
+    )
     signature_result = await db.execute(
         select(ShowWaiverSignature).join(
             ShowWaiver, ShowWaiverSignature.waiver_id == ShowWaiver.id
@@ -400,7 +432,10 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
             })
 
         waiver_checks = [
-            _build_waiver_check(w, signatures.get((w.id, exhibitor_id))) for w in waivers
+            _build_waiver_check(w, signatures.get((w.id, exhibitor_id)))
+            for w in waivers
+            if w.futurity_id is None
+            or w.futurity_id in enrolled_futurities.get(exhibitor_id, set())
         ]
         emergency_contact = _build_emergency_contact(exhibitor)
 

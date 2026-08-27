@@ -34,7 +34,7 @@ Run against the configured DATABASE_URL using the backend image:
 
 import asyncio
 import sys
-from datetime import date
+from datetime import date, time
 
 import bcrypt
 from sqlalchemy import delete, insert, select
@@ -52,6 +52,7 @@ from models import (
     FuturityDivision,
     FuturityDivisionClass,
     FuturityFeeTier,
+    FuturityMembershipOption,
     Judge,
     Ring,
     Show,
@@ -61,6 +62,7 @@ from models import (
     ShowSanctioning,
     ShowSecretary,
     ShowType,
+    ShowWaiver,
     SidePot,
     SidePotClass,
     User,
@@ -86,6 +88,11 @@ SUNDAY = date(2027, 8, 22)
 # printed form says Wednesday August 19 2026. After it, a $150-per-class late
 # fee applies. Both go on the `futurities` row.
 FUTURITY_DEADLINE = date(2027, 8, 18)
+# The hour and the zone label the form prints. Display only — what an enrollment
+# is charged is decided by `entered_at` against the deadline *date*, so this
+# never reaches the biller (migration 109).
+FUTURITY_DEADLINE_TIME = time(19, 0)
+FUTURITY_DEADLINE_TZ = "central time"
 EARLY_ARRIVAL = date(2027, 8, 19)   # Thursday, after 6pm
 STALLS_OPEN = date(2027, 8, 20)     # Friday, 9am
 LATE_DEPARTURE = date(2027, 8, 23)  # Monday morning
@@ -449,10 +456,61 @@ FUTURITY_NAME = "North Star Futurity"
 
 FUTURITY_DESCRIPTION = (
     "Entry fee is per class and depends on the category the entrant qualifies "
-    "for. Breed association rules for crossing over do not apply to the "
-    "futurity classes — horses may cross over. An entry paid for a horse that "
-    "is not shown is not refunded without veterinary documentation supplied "
-    "before the show."
+    "for."
+)
+
+# The rest of the form, in its own words (migration 109). Split into the four
+# blocks the printed form has rather than one description, because each appears
+# in a different place: the awards above the classes, the rules beside them, the
+# instructions immediately above the category picker, and the refund note under
+# the office fee.
+FUTURITY_AWARD_NOTICE = (
+    "Hi-Point Saddle & Reserve Hi-Point Buckle. Both Yearlings and 2 Year Olds "
+    "are eligible. Points will be tabulated from three classes in each division."
+)
+
+FUTURITY_RULES_NOTICE = (
+    "Breed association rules for crossing over DO NOT APPLY to the futurity "
+    "classes. Horses may cross over."
+)
+
+FUTURITY_ENTRY_INSTRUCTIONS = (
+    "All class entries are in three categories. You must choose which category "
+    "you are eligible for. All categories show together in the respective "
+    "classes."
+)
+
+FUTURITY_REFUND_POLICY = (
+    "An entry paid for a horse that is not shown will not be refunded, unless "
+    "documentation is provided from a veterinarian prior to the futurity show."
+)
+
+# The optional club membership the form sells alongside the entry. Charged once
+# per enrollment, and a different question from the member office fee above:
+# that follows a card the entrant already holds, this is one they are buying.
+FUTURITY_MEMBERSHIPS = [
+    ("Single Membership", "MNSPHC single membership.", 3000),
+    ("Household Membership", "MNSPHC household membership.", 4000),
+]
+
+# The release at the foot of the form. A `show_waivers` row scoped to the
+# futurity, not a column on it, so the signature machinery already in the app
+# covers it — paper signatures at the desk, guardians, the outstanding count.
+FUTURITY_WAIVER_TITLE = "North Star Futurity release and waiver"
+
+FUTURITY_WAIVER_BODY = (
+    "I hereby agree to abide by the Rules & Regulations of the North Star "
+    "Futurity. Any person participating in this Futurity including but not "
+    "limited to owners, exhibitors, handlers and consignors shall indemnify and "
+    "hold harmless the North Star Futurity, Minnesota North Star Paint Horse "
+    "Club, Double F Arena and all management from and against all claims, "
+    "demands, causes or actions and expenses of any kind.\n\n"
+    "Signing of this form waives any and all future claims. It is understood "
+    "that I will not be able to participate in any of the Futurity Classes "
+    "unless this form is signed and dated.\n\n"
+    "It is also understood that I must supply the Minnesota North Star Paint "
+    "Horse Club with a Tax ID number in the case of payments exceeding the "
+    "current IRS threshold."
 )
 
 # (name, description, amount_cents). The form makes the entrant pick exactly one.
@@ -478,9 +536,12 @@ FUTURITY_TIERS = [
 #
 # `sum_placings` because the app has no points table: lowest total placing wins,
 # the same convention side pot standings use.
+# (name, champion award, reserve award, members)
 FUTURITY_DIVISIONS = [
     (
         "Yearling",
+        "Hi-Point Saddle",
+        "Reserve Hi-Point Buckle",
         [
             ("C", "counts", None),  # All Breed Yearling Halter
             ("F", "counts", None),  # All Breed Yearling In Hand Trail
@@ -489,6 +550,8 @@ FUTURITY_DIVISIONS = [
     ),
     (
         "2 Year Old",
+        "Hi-Point Saddle",
+        "Reserve Hi-Point Buckle",
         [
             ("D", "counts", None),           # All Breed 2 Year Old Halter
             ("G", "counts", None),           # All Breed 2 YO Walk Trot Trail
@@ -767,9 +830,16 @@ async def main() -> None:
             name=FUTURITY_NAME,
             description=FUTURITY_DESCRIPTION,
             entry_deadline=FUTURITY_DEADLINE,
+            entry_deadline_time=FUTURITY_DEADLINE_TIME,
+            entry_deadline_timezone=FUTURITY_DEADLINE_TZ,
             late_fee_cents=15000,
             office_fee_member_cents=1000,
             office_fee_nonmember_cents=2000,
+            entry_instructions=FUTURITY_ENTRY_INSTRUCTIONS,
+            award_notice=FUTURITY_AWARD_NOTICE,
+            rules_notice=FUTURITY_RULES_NOTICE,
+            refund_policy=FUTURITY_REFUND_POLICY,
+            requires_horse_pedigree=True,
         )
         db.add(futurity)
         await db.flush()
@@ -784,6 +854,33 @@ async def main() -> None:
                     sort_order=order,
                 )
             )
+
+        for order, (option_name, option_description, amount) in enumerate(
+            FUTURITY_MEMBERSHIPS
+        ):
+            db.add(
+                FuturityMembershipOption(
+                    futurity_id=futurity.id,
+                    name=option_name,
+                    description=option_description,
+                    amount_cents=amount,
+                    sort_order=order,
+                )
+            )
+
+        # Scoped to the futurity, so only its entrants are asked for it — the
+        # rest of the show never sees an unsigned futurity release sitting on
+        # their paperwork.
+        db.add(
+            ShowWaiver(
+                show_id=show.id,
+                title=FUTURITY_WAIVER_TITLE,
+                body=FUTURITY_WAIVER_BODY,
+                is_required=True,
+                futurity_id=futurity.id,
+                sort_order=0,
+            )
+        )
 
         # The lettered classes A-J are the futurity. Matched on "a single
         # letter", not on "not a digit" — the Grand & Reserve pairs are numbered
@@ -807,11 +904,18 @@ async def main() -> None:
                 )
             )
 
-        for order, (division_name, members) in enumerate(FUTURITY_DIVISIONS):
+        for order, (
+            division_name,
+            award_name,
+            reserve_award_name,
+            members,
+        ) in enumerate(FUTURITY_DIVISIONS):
             division = FuturityDivision(
                 futurity_id=futurity.id,
                 name=division_name,
                 scoring_method="sum_placings",
+                award_name=award_name,
+                reserve_award_name=reserve_award_name,
                 sort_order=order,
             )
             db.add(division)

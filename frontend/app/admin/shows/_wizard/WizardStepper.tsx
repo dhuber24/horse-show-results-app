@@ -6,7 +6,8 @@ export type WizardStepKey =
   | 'sanctioning'
   | 'lodging'
   | 'fees'
-  | 'classes';
+  | 'classes'
+  | 'futurities';
 
 export type StepDef = {
   key: WizardStepKey;

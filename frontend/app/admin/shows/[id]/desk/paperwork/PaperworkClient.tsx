@@ -33,6 +33,11 @@ export type Waiver = {
   title: string;
   body: string;
   is_required: boolean;
+  /** Set when this release belongs to a futurity (migration 109) — only that
+   *  futurity's entrants are asked to sign it. Written on the futurity's own
+   *  settings screen, alongside the rest of its entry form. */
+  futurity_id: string | null;
+  futurity_name: string | null;
   sort_order: number;
 };
 
@@ -142,6 +147,10 @@ export default function PaperworkClient({
     }
   };
 
+  // Editing a futurity's release belongs on that futurity's settings screen,
+  // where the rest of its entry form is. Shown here read-only so the office can
+  // see everything this show asks for in one list — and so a release that only
+  // some exhibitors are asked for does not look like a bug.
   const removeWaiver = async (id: string) => {
     setBusy(true);
     setError(null);
@@ -297,7 +306,7 @@ export default function PaperworkClient({
 
       <Card
         title="Entry blank & releases"
-        hint="Exhibitors sign these during show sign-up. Anyone who signs a paper blank at the counter gets recorded by staff at the desk, so the outstanding count works either way."
+        hint="Exhibitors sign these during show sign-up. Anyone who signs a paper blank at the counter gets recorded by staff at the desk, so the outstanding count works either way. A release marked for one futurity is only asked of that futurity's entrants, and is edited on the futurity's own settings screen."
       >
         {waivers.length === 0 ? (
           <p className="text-sm mb-3" style={{ color: COLORS.muted }}>
@@ -315,6 +324,11 @@ export default function PaperworkClient({
                   <div className="min-w-0">
                     <p className="text-sm font-medium" style={{ color: COLORS.text }}>
                       {w.title}
+                      {w.futurity_name && (
+                        <span className="ml-2 text-xs font-normal" style={{ color: COLORS.accent }}>
+                          {w.futurity_name} entrants only
+                        </span>
+                      )}
                       {!w.is_required && (
                         <span className="ml-2 text-xs font-normal" style={{ color: COLORS.muted }}>
                           optional

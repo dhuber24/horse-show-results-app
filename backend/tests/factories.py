@@ -130,13 +130,21 @@ def make_fee_tier(name="Category #3", amount_cents=15000) -> SimpleNamespace:
     return SimpleNamespace(id=uuid4(), name=name, amount_cents=amount_cents)
 
 
+def make_membership_option(name="Single Membership", amount_cents=3000) -> SimpleNamespace:
+    """A club membership the futurity sells at entry (migration 109)."""
+    return SimpleNamespace(id=uuid4(), name=name, amount_cents=amount_cents)
+
+
 def make_futurity_entry(
-    tier=..., horse_id=..., is_member=False, entered_at=None, **overrides
+    tier=..., horse_id=..., is_member=False, entered_at=None, membership=None, **overrides
 ) -> SimpleNamespace:
     """One horse enrolled in a futurity.
 
     `tier` sentinel-defaults so a test can pass None to build the
     no-tier-chosen case, which `futurity_charge_cents` treats as a zero rate.
+    `membership` defaults to None — most entrants already hold a card or do not
+    want one, and a stub without the attribute at all is the pre-109 shape
+    `billing.membership_fee_cents` is deliberately tolerant of.
     """
     if tier is ...:
         tier = make_fee_tier()
@@ -148,6 +156,7 @@ def make_futurity_entry(
         horse_id=horse_id,
         horse=SimpleNamespace(name="Dusty"),
         fee_tier=tier,
+        membership_option=membership,
         is_member=is_member,
         entered_at=entered_at or date(2026, 5, 1),
     )

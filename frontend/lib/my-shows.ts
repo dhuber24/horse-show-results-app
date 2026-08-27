@@ -72,6 +72,11 @@ export type BillFuturityLine = {
   tier_amount_cents: number;
   class_count: number;
   is_member: boolean;
+  /** A club membership bought with the entry, charged once. Separate from
+   *  `is_member`, which decides the office fee: one is the card they already
+   *  hold, the other is a card they are buying. */
+  membership_name: string | null;
+  membership_fee_cents: number;
   office_fee_cents: number;
   is_late: boolean;
   late_fee_cents: number;

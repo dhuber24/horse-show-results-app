@@ -39,6 +39,13 @@ type Waiver = {
   body: string;
   is_required: boolean;
   sort_order: number;
+  /** Set when this release belongs to a futurity rather than the whole show. */
+  futurity_id: string | null;
+  futurity_name: string | null;
+  /** False for a futurity release the caller has not entered. Still returned,
+   *  because somebody deciding whether to enter is entitled to read what they
+   *  would be agreeing to — but not counted against them and not chased. */
+  applies_to_me: boolean;
   signature: Signature | null;
 };
 
@@ -110,7 +117,14 @@ export default function WaiverSignatures({
 
   if (waivers === null || waivers.length === 0) return null;
 
-  const outstanding = waivers.filter((w) => w.is_required && !w.signature).length;
+  // A futurity release nobody has entered is not something this exhibitor owes.
+  // Listing it anyway would put a permanent unsigned item in front of somebody
+  // who never entered that programme, which is how a paperwork banner teaches
+  // people to ignore it.
+  const mine = waivers.filter((w) => w.applies_to_me !== false);
+  if (mine.length === 0) return null;
+
+  const outstanding = mine.filter((w) => w.is_required && !w.signature).length;
 
   return (
     <section className="mt-8">
@@ -133,7 +147,7 @@ export default function WaiverSignatures({
       )}
 
       <ul className="mt-3 space-y-3">
-        {waivers.map((waiver) => {
+        {mine.map((waiver) => {
           const signing = openId === waiver.id;
           return (
             <li
@@ -145,6 +159,11 @@ export default function WaiverSignatures({
                 <div className="min-w-0">
                   <p className="font-medium" style={{ color: COLORS.text }}>
                     {waiver.title}
+                    {waiver.futurity_name && (
+                      <span className="ml-2 text-xs font-normal" style={{ color: COLORS.muted }}>
+                        {waiver.futurity_name}
+                      </span>
+                    )}
                     {!waiver.is_required && (
                       <span className="ml-2 text-xs font-normal" style={{ color: COLORS.muted }}>
                         optional

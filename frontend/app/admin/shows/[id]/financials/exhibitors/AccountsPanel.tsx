@@ -262,7 +262,10 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
         `${line.futurity_name} — ${line.horse_name ?? 'horse'}` +
         (line.fee_tier_name ? ` (${line.fee_tier_name})` : '') +
         `, ${line.class_count} ${line.class_count === 1 ? 'class' : 'classes'}` +
-        (line.is_late ? ' + late fee' : ''),
+        (line.is_late ? ' + late fee' : '') +
+        (line.membership_fee_cents > 0
+          ? ` + ${line.membership_name ?? 'membership'}`
+          : ''),
       cents: line.line_total_cents,
     })),
   ].filter((r) => r.cents !== 0);

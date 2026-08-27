@@ -10,6 +10,11 @@ export type WizardStepsInput = {
    *  show, so it is a step in the wizard rather than an errand you are expected
    *  to remember from the dashboard. */
   classCount: number;
+  /** Futurity programmes on this show. Optional — most shows run none — but it
+   *  is a step rather than a dashboard errand because a futurity is set up
+   *  *while* the show is, and because the alternative was a single "futurity
+   *  fee" box in Step 5 that could not describe one. */
+  futurityCount: number;
 };
 
 export function buildSteps({
@@ -19,6 +24,7 @@ export function buildSteps({
   lodgingFeeCount,
   feesCount,
   classCount,
+  futurityCount,
 }: WizardStepsInput): StepDef[] {
   return [
     {
@@ -59,6 +65,16 @@ export function buildSteps({
       label: '6. Classes',
       href: `/admin/shows/${showId}/classes`,
       done: classCount > 0,
+    },
+    // Last, and after Classes rather than beside the fees, because a futurity
+    // is defined by which classes belong to it — there is nothing to pick from
+    // until the schedule exists. Keeps its own URL for the same reason Step 1
+    // and Step 6 do: it is reached from the show dashboard as well.
+    {
+      key: 'futurities',
+      label: '7. Futurities',
+      href: `/admin/shows/${showId}/futurities`,
+      done: futurityCount > 0,
     },
     // Paperwork is deliberately not a step. What a show requires of an exhibitor
     // — health documents, the entry blank, the release — is answered during

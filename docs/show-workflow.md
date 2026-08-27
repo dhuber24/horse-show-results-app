@@ -34,13 +34,13 @@ Codex note: when changing show visibility, scribe access, or result entry behavi
 
 ## Show Setup Wizard
 
-Show creation runs through a six-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`, class count). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
+Show creation runs through a seven-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`, class count, futurity count). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
 
 The hub and every step page read those counts from one helper, `setup/_lib/fetchStepCounts.ts`, so the stepper on a step page and the checklist on the hub cannot disagree about what is done.
 
 Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; Step 1's staff roster is where any further assignment happens.
 
-**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit` and Step 6 is `/admin/shows/[id]/classes`, because both are deep-linked from elsewhere and were screens before the wizard existed. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below). A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all six.
+**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit`, Step 6 is `/admin/shows/[id]/classes` and Step 7 is `/admin/shows/[id]/futurities`, because all three are deep-linked from elsewhere and were screens before the wizard reached them. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below). A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all seven.
 
 | Step | Route | What it does |
 | --- | --- | --- |
@@ -48,8 +48,9 @@ Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Ma
 | 2. Judges | `/admin/shows/[id]/setup/judges` | Reuses `JudgesEditor` — **picks** judges from the `judges` registry (`GET /judges/`) and assigns them with `POST /shows/{id}/judges`. Name, contact details, and association cards are displayed read-only from the registry; show setup cannot edit them. A judge who isn't in the registry yet is added to it (`POST /judges/`) and assigned in one step. |
 | 3. Sanctioning | `/admin/shows/[id]/setup/sanctioning` | Pick zero or more `sanctioned_associations` (NSBA, WSCA, ...) and set a `per_class_fee_cents` for each. Wraps `PUT /shows/{id}/sanctioning` which replaces the full set. The "+ Request new sanctioned club" link expands the request form on demand (`POST /sanctioned-association-requests`) — admin reviews via `POST /sanctioned-association-requests/{id}/review`. |
 | 4. Lodging & Boarding | `/admin/shows/[id]/setup/lodging` | Three structured slots written into `show_fees` with codes `stall` / `shavings` / `camping`, plus a `shows.shavings_ban_outside` policy bool. Each slot also takes an optional **early rate** — a cheaper amount plus a "reserve by" date (`show_fees.early_amount_cents` / `early_deadline`, migration 092). The camping slot is camping *and* the electrical hook-up, with a choice of how it is charged: per night, or one price for the whole show (`per_night` / `per_show`, migration 108). A free-text notes field carries "electric included" or similar. Extra campsite tiers — dry camping, early arrival, late departure — are not slots here; they go on the full boarding fee schedule at `/admin/shows/[id]/fees/boarding`, which the step links to. |
-| 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus three structured slots in `show_fees` with codes `standard_class` / `jackpot` / `futurity`. Sanctioning per-class fees are read-only here and link back to Step 3. |
+| 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus two structured slots in `show_fees` with codes `standard_class` / `jackpot`. Sanctioning per-class fees are read-only here and link back to Step 3. A **futurity slot used to sit here and does not any more** (migration 107): one amount cannot say that the same class costs $75, $100 or $150 depending on the entrant's category. The step links on to Step 7 instead, and offers to delete a leftover `futurity` fee row — a show carrying both bills its futurity entrants twice. |
 | 6. Classes | `/admin/shows/[id]/classes` | Build the class schedule — the OPEN three-step class wizard documented below, or the per-association importers. Longest job in setting a show up, which is exactly why it is a step in the flow rather than an errand to remember from the dashboard. Route unchanged, so per-class deep links still work. |
+| 7. Futurities | `/admin/shows/[id]/futurities` | Optional; most shows run none. **+ Add futurity** captures the whole published entry form — deadline (to the minute), late fee, office fee by membership, the entry categories and what qualifies for each, an optional club membership for sale, which classes belong to the programme, the award / rules / refund notices, and the release entrants sign. After Classes on purpose: a futurity is defined by which classes belong to it, and there is nothing to pick from until the schedule exists. Route unchanged, so the dashboard tile still reaches it. |
 
 Sanctioning associations are distinct from breed `show_types` — see `docs/database.md`. The breed `show_type` is set once on the show row at creation and drives breed-specific rules; sanctioning is a per-show overlay that adds points eligibility (and an optional per-class fee) without changing the show's primary type.
 
@@ -484,21 +485,78 @@ The total pool is `entry_fee_cents * paid count`; payout pool applies `payback_p
 ## Futurities
 
 A **futurity** is a named programme inside a show with its own classes, its own
-tiered entry fee, an entry deadline, and Hi-Point awards. Managed from the
-**Futurities** tile on the show dashboard (`/admin/shows/[id]/futurities`),
-which is a hub over four working screens — Settings, Entries, Hi-Point
-divisions, and Standings — the same split the side pot hub uses.
+tiered entry fee, an entry deadline, and Hi-Point awards. It is reached both as
+**setup Step 7** and from the **Futurities** tile on the show dashboard —
+`/admin/shows/[id]/futurities` either way — and is a hub over four working
+screens: Settings, Entries, Hi-Point divisions, and Standings, the same split
+the side pot hub uses.
 
-It is deliberately *not* a setup wizard step. Setup is answered once and closed;
-a futurity takes entries, has a deadline that passes, and is worked at the same
-time as the desk.
+An earlier version of this document argued it was deliberately *not* a wizard
+step, on the grounds that setup is answered once and closed while a futurity
+takes entries and is worked alongside the desk. Half of that holds. Defining the
+programme — its deadline, its categories, its classes, the words on its entry
+form — is setup, and is done while the show is being built; taking entries and
+reading standings is desk work that happens later. Classes are exactly the same
+shape and are Step 6. So the programme is a step and the entries are not, which
+is why the route did not move: the step is a signpost in the flow, not a
+relocation.
 
 | Screen | What it does |
 | --- | --- |
-| Settings | Name, deadline, late fee, member / non-member office fee, the entry fee categories, and which of the show's classes belong to the futurity. |
-| Entries | Enroll a horse, pick its category, mark club membership. Shows what each entrant is charged and how many futurity classes their horse is actually in. |
-| Hi-Point | Award brackets and which classes count toward each — either *always counts*, or *best of a named group*. |
+| Settings | The whole entry form. Name, deadline (date, time and printed zone label), late fee, member / non-member office fee, the entry categories and what qualifies for each, an optional club membership for sale, which of the show's classes belong to the futurity, whether the horse's foaling date / sire / dam are required, the award / rules / refund notices, and the release. |
+| Entries | Enroll a horse, pick its category, record a membership bought and who is showing if not the owner. Shows what each entrant is charged, how many futurity classes their horse is actually in, and which horses are missing the details the form asks for. |
+| Hi-Point | Award brackets, what the champion and reserve receive, and which classes count toward each — either *always counts*, or *best of a named group*. |
 | Standings | Computed on read from the placings on file. Nothing is materialized; a futurity has no settle step, because the awards are saddles and buckles rather than a money pool. |
+
+### The words on the entry form
+
+Migration 107 modelled what a futurity charges. Migration 109 added what it
+*says*: `entry_deadline_time` + `entry_deadline_timezone` (display precision —
+the biller still reads the date), `award_notice`, `rules_notice`,
+`entry_instructions`, `refund_policy`, and `requires_horse_pedigree`. All free
+text, because the words belong to the club running the futurity. Everything set
+here is printed on the generated show bill and on the exhibitor's entry screen,
+which is the point: a paper form that stated the rules and an app that quietly
+took the money would not be the same transaction.
+
+Two things on the form are neither money nor prose:
+
+- **The optional club membership** (`futurity_membership_options`) is sold by the
+  futurity at the moment of enrollment and charged once. It is **not** the same
+  question as `futurity_entries.is_member`, which decides which office fee
+  applies: that follows a card the entrant already holds. Somebody joining on the
+  day pays the non-member office fee *and* the membership, which is what the
+  paper form charges them.
+- **Who is showing the horse** (`futurity_entries.shown_by_name`) — "exhibitor if
+  different than owner". Free text, because the person showing a two-year-old is
+  often a trainer or a youth with no account here. Named `shown_by_name` rather
+  than `exhibitor_name` because every payload carrying it also carries the
+  account holder's name.
+
+`requires_horse_pedigree` (default true) is asked for and enforced **only on the
+exhibitor's own door**: they own the horse and can add its foaling date, sire and
+dam in a minute. Staff enrolling at the counter are never blocked — the shortfall
+is reported on the entries screen as `missing_horse_details` instead, because
+refusing an entry at the desk does not produce the sire's name.
+
+### The release
+
+The release on a futurity entry form is a `show_waivers` row with `futurity_id`
+set (migration 109), not a column on the futurity. Scoping an existing waiver
+reuses everything that already works: typed signatures at sign-up, paper blanks
+recorded at the desk, guardians signing for youth entrants, and the outstanding
+counts on My Shows and the desk checklist.
+
+What `futurity_id` narrows is *who is asked*. Only exhibitors with an enrollment
+in that futurity are counted or chased — `GET /shows/{id}/waivers` returns it to
+everybody with `applies_to_me` false, since somebody deciding whether to enter is
+entitled to read what they would be agreeing to. Signing is deliberately not
+gated on being enrolled: signing then entering is the order the paper form runs
+in.
+
+It is written on the futurity's Settings screen, alongside the rest of its entry
+form, and appears read-only in the desk's paperwork list marked with the futurity
+it belongs to.
 
 Exhibitors enter through `/shows/[id]/register`, which shows the show's
 futurities below the classes and stalls sections. Enrolling requires a completed
@@ -507,7 +565,10 @@ show sign-up (`409 SHOW_SIGNUP_REQUIRED`) and is open while the show is
 
 ### What an enrollment costs
 
-    tier rate x futurity classes entered  +  office fee  +  late fee x classes
+    tier rate x futurity classes entered
+        + office fee
+        + late fee x classes
+        + the club membership bought with the entry, if any
 
 computed once, in `billing.futurity_charge_cents`. Two consequences are worth
 knowing before touching any of it:

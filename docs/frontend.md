@@ -147,6 +147,12 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/admin/shows/[id]/side-pots/[potId]/settings` | Buy-in, payback, scoring, eligibility, and the bundled class picker |
 | `/admin/shows/[id]/side-pots/[potId]/entries` | Side Pot Entries: add an exhibitor from the show roster, and see who is in |
 | `/admin/shows/[id]/side-pots/[potId]/standings` | Live ranking, projected payouts, Settle, and the frozen payout sheet |
+| `/admin/shows/[id]/futurities` | **Setup Step 7** — futurity list and **+ Add futurity**. Renders inside `StepLayout`; the route is unchanged, so the dashboard's Futurities tile still reaches it |
+| `/admin/shows/[id]/futurities/[futurityId]` | Futurity hub: pricing tiles, the entry form as it will be published, and buttons to the four working screens |
+| `/admin/shows/[id]/futurities/[futurityId]/settings` | The whole entry form — deadline, fees, categories, membership, classes, notices, release. Renders `FuturityForm`, the same component the create form uses |
+| `/admin/shows/[id]/futurities/[futurityId]/entries` | Enroll a horse, pick its category, record a membership bought and who is showing; flags horses missing the details the form asks for |
+| `/admin/shows/[id]/futurities/[futurityId]/hi-point` | Award brackets, what the champion and reserve win, and which classes count toward each |
+| `/admin/shows/[id]/futurities/[futurityId]/standings` | Hi-Point standings per division, computed on read from the placings on file |
 | `/admin/trainers` | Admin trainer registry management |
 | `/admin/users` | User management |
 | `/admin/users/[id]` | User profile, role, password, delete controls, and AQHA workshop date tracking |
@@ -337,6 +343,12 @@ Rows are tap-selectable and every input carries `inputMode="none"`, so the OS ke
 - **Settle lives on Standings**, not on the hub. It is irreversible and it freezes exactly the table rendered above the button, so reviewing the ranking and committing it are one motion. Once settled, the standings table drops its projected-money column — the frozen payout sheet below it is the authority, and a live-recomputed column beside it could quietly disagree after a results correction.
 - **Each sub-screen repeats the way back at its foot** (`BackToPot`). The breadcrumb's "← Back to {pot}" is at the top of the page, and standings, payouts, and a full roster of entries all run past a screenful — so it has scrolled away exactly when someone has finished and wants out. Same link, same wording, no history dependence: it points at the pot hub whether the screen was reached from the hub or from a bookmark.
 - Types, the status pill, the breadcrumb trail, and `potMoney()` live in [side-pots/pot-shared.tsx](../frontend/app/admin/shows/[id]/side-pots/pot-shared.tsx); the server reads live beside it in [side-pots/loadPot.ts](../frontend/app/admin/shows/[id]/side-pots/loadPot.ts), one loader per slice so the Settings screen does not pull standings it will not draw.
+
+### Futurities
+
+- **Adding a futurity and editing one render the same form.** [FuturityForm.tsx](../frontend/app/admin/shows/[id]/futurities/FuturityForm.tsx) holds every question a futurity entry form asks, in the order a printed one runs in; Create posts it and Settings patches it. A paper entry form has no short version, so a create-a-stub-then-configure split would have produced a futurity that cannot take an entry (the API refuses one with no fee categories) and said nothing about it — and two long forms that drift apart the first time a field is added to one of them.
+- **The release is a second request, on purpose.** It is a `show_waivers` row scoped to the futurity, not a futurity column, so `saveFuturityWaiver()` reconciles what was typed against what is on file: create, patch, or delete when the wording is cleared. That buys the whole existing signature mechanism — paper signatures recorded at the desk, guardians, the outstanding counts — rather than growing a second one. A futurity that fails to save takes its release with it; a release that fails after the futurity saved is reported without pretending the futurity did not.
+- **Placeholders show the shape, never the wording.** Every notice field is free text because the words belong to the club running the futurity. Pre-filling one show's release or its category descriptions would end up published by somebody who never read it.
 - `potMoney()` mirrors `billing.side_pot_money()`, floor included. It exists for the Entries screen, where the pool has to move as boxes are ticked without a round trip; `GET /standings` returns the same figures server-side and the Standings screen quotes those.
 
 ## Financials UI

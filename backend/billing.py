@@ -113,12 +113,22 @@ def futurity_charge_cents(
     cannot know, so a futurity class carries zero there and the tier supplies
     the price (migration 107). The charge is therefore:
 
-        tier rate x classes entered  +  office fee  +  late fee x classes entered
+        tier rate x classes entered
+            + office fee
+            + late fee x classes entered
+            + the club membership they bought with the entry, if any
 
     Lateness is decided by `entry.entered_at`, the day the enrollment was
     taken, and never by today — the same rule as `fee_rate_cents`. Pricing off
     "now" would drop a late fee on every existing enrollment the moment the
     deadline passed.
+
+    The membership (migration 109) is charged once per enrollment and is
+    independent of `is_member`: the office fee follows the card the entrant
+    already holds, while this is a card they are buying at the desk. Somebody
+    joining on the day legitimately pays the non-member office fee *and* the
+    membership — which is what the paper form does — and the two questions are
+    asked separately for exactly that reason.
     """
     tier_rate = entry.fee_tier.amount_cents if entry.fee_tier is not None else 0
     office = (
@@ -132,7 +142,20 @@ def futurity_charge_cents(
         and entry.entered_at > futurity.entry_deadline
     )
     late = futurity.late_fee_cents * entered_class_count if is_late else 0
-    return tier_rate * entered_class_count + office + late, is_late
+    membership = membership_fee_cents(entry)
+    return tier_rate * entered_class_count + office + late + membership, is_late
+
+
+def membership_fee_cents(entry) -> int:
+    """What the club membership bought with this enrollment costs, or zero.
+
+    `getattr` rather than a plain attribute read because every caller that
+    predates migration 109 — and every test stub — hands over an enrollment
+    without the relationship, and a futurity that sells no membership must
+    total exactly what it did before.
+    """
+    option = getattr(entry, "membership_option", None)
+    return option.amount_cents if option is not None else 0
 
 
 def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict], int]:
@@ -162,6 +185,7 @@ def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict],
             ]
             charge, is_late = futurity_charge_cents(futurity, enrollment, len(entered))
             tier = enrollment.fee_tier
+            membership = getattr(enrollment, "membership_option", None)
             lines.append(
                 {
                     "futurity_id": futurity.id,
@@ -177,6 +201,10 @@ def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict],
                     "tier_amount_cents": tier.amount_cents if tier is not None else 0,
                     "class_count": len(entered),
                     "is_member": enrollment.is_member,
+                    "membership_name": (
+                        membership.name if membership is not None else None
+                    ),
+                    "membership_fee_cents": membership_fee_cents(enrollment),
                     "office_fee_cents": (
                         futurity.office_fee_member_cents
                         if enrollment.is_member

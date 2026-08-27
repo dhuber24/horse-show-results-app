@@ -32,6 +32,8 @@ from models import (
     Class,
     Entry,
     Exhibitor,
+    Futurity,
+    FuturityEntry,
     Result,
     Show,
     ShowEntry,
@@ -158,19 +160,54 @@ async def list_my_shows(
     }
 
 
+async def _enrolled_futurity_ids(
+    show_id: UUID, exhibitor_id: UUID, db: AsyncSession
+) -> set[UUID]:
+    """Which of the show's futurities this exhibitor has a horse in.
+
+    Its own query rather than a correlated EXISTS inside the waiver count: the
+    predicate would have to correlate `futurity_entries` and `show_entries`
+    against a column of the outer table, which reads far worse than two obvious
+    statements.
+    """
+    rows = await db.execute(
+        select(FuturityEntry.futurity_id)
+        .join(Futurity, Futurity.id == FuturityEntry.futurity_id)
+        .join(ShowEntry, ShowEntry.id == FuturityEntry.show_entry_id)
+        .where(Futurity.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+        .distinct()
+    )
+    return {row[0] for row in rows}
+
+
 async def _unsigned_waiver_count(show_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> int:
     """Required waivers this exhibitor has not signed, by either route.
 
     Optional ones are excluded on purpose: the show wants them read, not
     chased, and a permanent nag about something nobody has to sign teaches
     people to ignore the banner.
+
+    A futurity-scoped release (migration 109) is only counted against somebody
+    enrolled in that futurity, for the same reason: an exhibitor who never
+    entered it would otherwise carry an outstanding item they cannot clear and
+    should never have been asked for.
     """
+    enrolled = await _enrolled_futurity_ids(show_id, exhibitor_id, db)
+    applies = (
+        ShowWaiver.futurity_id.is_(None)
+        if not enrolled
+        else or_(
+            ShowWaiver.futurity_id.is_(None),
+            ShowWaiver.futurity_id.in_(enrolled),
+        )
+    )
     result = await db.execute(
         select(func.count())
         .select_from(ShowWaiver)
         .where(
             ShowWaiver.show_id == show_id,
             ShowWaiver.is_required.is_(True),
+            applies,
             ~exists().where(
                 ShowWaiverSignature.waiver_id == ShowWaiver.id,
                 ShowWaiverSignature.exhibitor_id == exhibitor_id,

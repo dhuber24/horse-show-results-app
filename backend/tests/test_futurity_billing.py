@@ -15,6 +15,7 @@ from tests.factories import (
     make_fee_tier,
     make_futurity,
     make_futurity_entry,
+    make_membership_option,
     make_show,
 )
 
@@ -145,6 +146,87 @@ def test_office_fee_is_charged_once_per_horse_not_per_class():
     entries = [make_entry(cls=k, horse_id=horse) for k in (a, b, c)]
     _, total = billing.futurity_lines([futurity], entries)
     assert total == 2000
+
+
+# ── The club membership bought with the entry ────────────────────────────────
+
+
+def test_a_membership_bought_at_entry_is_charged_once():
+    """The form sells a membership alongside the entry. It is not per class and
+    not per horse-class combination — one card, one charge."""
+    a, b = make_class(entry_fee_cents=0), make_class(entry_fee_cents=0)
+    horse = make_entry(cls=a).horse_id
+    futurity = make_futurity(
+        classes=[a, b],
+        entries=[
+            make_futurity_entry(
+                tier=make_fee_tier(amount_cents=15000),
+                horse_id=horse,
+                membership=make_membership_option(amount_cents=3000),
+            )
+        ],
+    )
+    entries = [make_entry(cls=k, horse_id=horse) for k in (a, b)]
+    lines, total = billing.futurity_lines([futurity], entries)
+    assert lines[0]["membership_fee_cents"] == 3000
+    assert lines[0]["membership_name"] == "Single Membership"
+    assert total == 30000 + 3000
+
+
+def test_buying_a_membership_does_not_change_the_office_fee():
+    """Two separate questions on the form, and they stay separate here. The
+    office fee follows the card the entrant already holds; the membership is one
+    they are buying. Somebody joining on the day pays the non-member office fee
+    and the membership, which is what the paper form charges them."""
+    cls = make_class(entry_fee_cents=0)
+    horse = make_entry(cls=cls).horse_id
+    futurity = make_futurity(
+        classes=[cls],
+        entries=[
+            make_futurity_entry(
+                tier=make_fee_tier(amount_cents=0),
+                horse_id=horse,
+                is_member=False,
+                membership=make_membership_option(
+                    name="Household Membership", amount_cents=4000
+                ),
+            )
+        ],
+        office_fee_member_cents=1000,
+        office_fee_nonmember_cents=2000,
+    )
+    _, total = billing.futurity_lines([futurity], [make_entry(cls=cls, horse_id=horse)])
+    assert total == 2000 + 4000
+
+
+def test_no_membership_bought_adds_nothing():
+    cls = make_class(entry_fee_cents=0)
+    horse = make_entry(cls=cls).horse_id
+    futurity = make_futurity(
+        classes=[cls],
+        entries=[
+            make_futurity_entry(tier=make_fee_tier(amount_cents=15000), horse_id=horse)
+        ],
+    )
+    lines, total = billing.futurity_lines([futurity], [make_entry(cls=cls, horse_id=horse)])
+    assert lines[0]["membership_fee_cents"] == 0
+    assert lines[0]["membership_name"] is None
+    assert total == 15000
+
+
+def test_an_enrollment_stub_with_no_membership_attribute_still_bills():
+    """Every caller and stub predating migration 109 hands over an enrollment
+    with no `membership_option` at all. A futurity selling no membership must
+    total exactly what it did before."""
+    cls = make_class(entry_fee_cents=0)
+    horse = make_entry(cls=cls).horse_id
+    enrollment = make_futurity_entry(
+        tier=make_fee_tier(amount_cents=15000), horse_id=horse
+    )
+    del enrollment.membership_option
+    futurity = make_futurity(classes=[cls], entries=[enrollment])
+    _, total = billing.futurity_lines([futurity], [make_entry(cls=cls, horse_id=horse)])
+    assert total == 15000
 
 
 # ── Lateness is decided by the enrollment date, never by today ────────────────

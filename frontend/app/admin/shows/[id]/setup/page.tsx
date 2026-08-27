@@ -108,10 +108,14 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
     case 'fees':
       return counts.feesCount > 0
         ? 'Office charge and class fees configured.'
-        : 'Office charge, standard class fee, jackpot, and futurity fees.';
+        : 'Office charge, standard class fee, and jackpot.';
     case 'classes':
       return counts.classCount === 0
         ? 'No classes yet — build the schedule from disciplines and divisions.'
         : `${counts.classCount} class${counts.classCount === 1 ? '' : 'es'} on the schedule.`;
+    case 'futurities':
+      return counts.futurityCount === 0
+        ? 'No futurity on this show. Skip unless you run one.'
+        : `${counts.futurityCount} futurit${counts.futurityCount === 1 ? 'y' : 'ies'} set up.`;
   }
 }

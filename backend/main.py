@@ -179,8 +179,17 @@ app.include_router(apha_standard_classes_router)
 app.include_router(aqha_standard_classes_router)
 app.include_router(standard_setup_router)
 app.include_router(side_pots_router)
-app.include_router(futurities_router)
+# Public first, and it has to stay that way. FastAPI matches routes in
+# registration order, and the admin router carries `GET /{futurity_id}` under
+# the same prefix — registered ahead of the public router it swallows
+# `/futurities/public`, which then fails as a router-level auth check plus a
+# UUID parse error on the literal string "public". That is how the show bill's
+# futurity section quietly rendered nothing. `show_fees` avoids the problem a
+# different way — one router with per-route auth, so `/public` can simply be
+# declared above `/{fee_id}` — which is not available here because the futurity
+# router gates every route at the router level.
 app.include_router(futurities_public_router)
+app.include_router(futurities_router)
 app.include_router(show_registration_router)
 app.include_router(show_fees_router)
 app.include_router(show_judges_router)

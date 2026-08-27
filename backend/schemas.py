@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import inspect as sa_inspect
 from typing import Optional, Any, Literal
-from datetime import date, datetime
+from datetime import date, datetime, time
 from uuid import UUID
 
 
@@ -1754,6 +1754,9 @@ class ShowWaiverCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=20000)
     is_required: bool = True
+    # NULL means show-wide, which is what every waiver written before migration
+    # 109 is. Set, only that futurity's entrants are asked to sign.
+    futurity_id: Optional[UUID] = None
     sort_order: int = Field(default=0, ge=0)
 
 
@@ -1761,6 +1764,7 @@ class ShowWaiverUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     body: Optional[str] = Field(default=None, min_length=1, max_length=20000)
     is_required: Optional[bool] = None
+    futurity_id: Optional[UUID] = None
     sort_order: Optional[int] = Field(default=None, ge=0)
 
 
@@ -1770,6 +1774,8 @@ class ShowWaiverOut(BaseModel):
     title: str
     body: str
     is_required: bool
+    futurity_id: Optional[UUID] = None
+    futurity_name: Optional[str] = None
     sort_order: int
     created_at: datetime
 
@@ -1810,6 +1816,12 @@ class ShowWaiverForExhibitorOut(ShowWaiverOut):
     """A waiver as the person being asked to sign it sees it."""
 
     signature: Optional[WaiverSignatureOut] = None
+    # False for a futurity release when the caller has no enrollment in that
+    # futurity. The waiver is still returned — somebody deciding whether to
+    # enter is entitled to read what they would be agreeing to — but nothing
+    # counts it against them, and the sign-up screen leaves it out of the list
+    # of things they still owe.
+    applies_to_me: bool = True
 
 
 class StaffHorseCreate(HorseWithRegistrationsBase):
@@ -2411,6 +2423,22 @@ class FuturityFeeTierOut(FuturityFeeTierIn):
         from_attributes = True
 
 
+class FuturityMembershipOptionIn(BaseModel):
+    """An optional club membership the futurity sells at entry (migration 109)."""
+
+    name: str = Field(min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+    amount_cents: int = Field(default=0, ge=0)
+    sort_order: int = 0
+
+
+class FuturityMembershipOptionOut(FuturityMembershipOptionIn):
+    id: UUID
+
+    class Config:
+        from_attributes = True
+
+
 class FuturityDivisionClassIn(BaseModel):
     class_id: UUID
     scoring: FuturityClassScoring = "counts"
@@ -2445,6 +2473,10 @@ class FuturityDivisionClassOut(BaseModel):
 class FuturityDivisionIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     scoring_method: FuturityDivisionScoring = "sum_placings"
+    # What the champion and reserve receive. The ranking is the computation;
+    # the saddle is what the entry form advertises.
+    award_name: Optional[str] = Field(default=None, max_length=200)
+    reserve_award_name: Optional[str] = Field(default=None, max_length=200)
     sort_order: int = 0
     classes: list[FuturityDivisionClassIn] = Field(default_factory=list)
 
@@ -2454,6 +2486,8 @@ class FuturityDivisionOut(BaseModel):
     futurity_id: UUID
     name: str
     scoring_method: FuturityDivisionScoring
+    award_name: Optional[str] = None
+    reserve_award_name: Optional[str] = None
     sort_order: int
     classes: list[FuturityDivisionClassOut] = []
 
@@ -2465,11 +2499,21 @@ class FuturityCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     entry_deadline: Optional[date] = None
+    # Display precision only. What an enrollment is charged is decided by
+    # `entered_at` against the deadline *date* — see migration 109.
+    entry_deadline_time: Optional[time] = None
+    entry_deadline_timezone: Optional[str] = Field(default=None, max_length=60)
     late_fee_cents: int = Field(default=0, ge=0)
     office_fee_member_cents: int = Field(default=0, ge=0)
     office_fee_nonmember_cents: int = Field(default=0, ge=0)
+    entry_instructions: Optional[str] = Field(default=None, max_length=8000)
+    award_notice: Optional[str] = Field(default=None, max_length=8000)
+    rules_notice: Optional[str] = Field(default=None, max_length=8000)
+    refund_policy: Optional[str] = Field(default=None, max_length=8000)
+    requires_horse_pedigree: bool = True
     class_ids: list[UUID] = Field(default_factory=list)
     fee_tiers: list[FuturityFeeTierIn] = Field(default_factory=list)
+    membership_options: list[FuturityMembershipOptionIn] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _check_late_fee(self):
@@ -2482,16 +2526,35 @@ class FuturityCreate(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _check_deadline_time(self):
+        """Mirrors `ck_futurities_deadline_time`. A cutoff hour with no day is
+        not a deadline, and the caller deserves the reason rather than an
+        IntegrityError."""
+        if self.entry_deadline_time is not None and self.entry_deadline is None:
+            raise ValueError(
+                "A deadline time needs a deadline date to qualify."
+            )
+        return self
+
 
 class FuturityUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     entry_deadline: Optional[date] = None
+    entry_deadline_time: Optional[time] = None
+    entry_deadline_timezone: Optional[str] = Field(default=None, max_length=60)
     late_fee_cents: Optional[int] = Field(default=None, ge=0)
     office_fee_member_cents: Optional[int] = Field(default=None, ge=0)
     office_fee_nonmember_cents: Optional[int] = Field(default=None, ge=0)
+    entry_instructions: Optional[str] = Field(default=None, max_length=8000)
+    award_notice: Optional[str] = Field(default=None, max_length=8000)
+    rules_notice: Optional[str] = Field(default=None, max_length=8000)
+    refund_policy: Optional[str] = Field(default=None, max_length=8000)
+    requires_horse_pedigree: Optional[bool] = None
     class_ids: Optional[list[UUID]] = None
     fee_tiers: Optional[list[FuturityFeeTierIn]] = None
+    membership_options: Optional[list[FuturityMembershipOptionIn]] = None
 
 
 class FuturityClassSummary(BaseModel):
@@ -2505,19 +2568,47 @@ class FuturityClassSummary(BaseModel):
         from_attributes = True
 
 
+class FuturityWaiverSummary(BaseModel):
+    """A release scoped to this futurity (migration 109).
+
+    Read-only here: waivers are written and signed through the waiver endpoints,
+    which already know about paper signatures, guardians, and the outstanding
+    count. The futurity payload carries them so its own screens can show what an
+    entrant is agreeing to without a second round trip.
+    """
+
+    id: UUID
+    title: str
+    body: str
+    is_required: bool
+    signature_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
 class FuturityOut(BaseModel):
     id: UUID
     show_id: UUID
     name: str
     description: Optional[str]
     entry_deadline: Optional[date]
+    entry_deadline_time: Optional[time] = None
+    entry_deadline_timezone: Optional[str] = None
     late_fee_cents: int
     office_fee_member_cents: int
     office_fee_nonmember_cents: int
+    entry_instructions: Optional[str] = None
+    award_notice: Optional[str] = None
+    rules_notice: Optional[str] = None
+    refund_policy: Optional[str] = None
+    requires_horse_pedigree: bool = True
     created_at: datetime
     classes: list[FuturityClassSummary] = []
     fee_tiers: list[FuturityFeeTierOut] = []
+    membership_options: list[FuturityMembershipOptionOut] = []
     divisions: list[FuturityDivisionOut] = []
+    waivers: list[FuturityWaiverSummary] = []
     entry_count: int = 0
 
     class Config:
@@ -2550,7 +2641,11 @@ class FuturityEntryCreate(BaseModel):
     show_entry_id: UUID
     horse_id: UUID
     fee_tier_id: Optional[UUID] = None
+    membership_option_id: Optional[UUID] = None
     is_member: bool = False
+    # Who is showing the horse, when that is not the owner. Never the account
+    # holder — that comes off `show_entries`.
+    shown_by_name: Optional[str] = Field(default=None, max_length=200)
     # Defaults to today at the router rather than here, so the stored date is
     # the server's day and not whatever the client believes it is.
     entered_at: Optional[date] = None
@@ -2559,7 +2654,9 @@ class FuturityEntryCreate(BaseModel):
 
 class FuturityEntryUpdate(BaseModel):
     fee_tier_id: Optional[UUID] = None
+    membership_option_id: Optional[UUID] = None
     is_member: Optional[bool] = None
+    shown_by_name: Optional[str] = Field(default=None, max_length=200)
     entered_at: Optional[date] = None
     notes: Optional[str] = Field(default=None, max_length=500)
 
@@ -2574,11 +2671,20 @@ class FuturityEntryOut(BaseModel):
     exhibitor_name: Optional[str] = None
     fee_tier_id: Optional[UUID]
     fee_tier_name: Optional[str] = None
+    membership_option_id: Optional[UUID] = None
+    membership_option_name: Optional[str] = None
+    membership_fee_cents: int = 0
     is_member: bool
+    shown_by_name: Optional[str] = None
     entered_at: date
     is_late: bool = False
     entered_class_count: int = 0
     charge_cents: int = 0
+    # What the entry form demands and the horse record does not have yet:
+    # foaling date, sire, dam. Reported rather than enforced on the staff path —
+    # the office is taking a paper form across a counter and cannot be stopped
+    # by a blank the exhibitor has to fill in at home.
+    missing_horse_details: list[str] = []
     notes: Optional[str] = None
     created_at: datetime
 
@@ -2696,6 +2802,11 @@ class BillFuturityLineOut(BaseModel):
     tier_amount_cents: int
     class_count: int
     is_member: bool
+    # The club membership bought with the entry, charged once (migration 109).
+    # Separate from `is_member`, which decides the office fee: one is the card
+    # they already hold, the other is a card they are buying.
+    membership_name: Optional[str] = None
+    membership_fee_cents: int = 0
     office_fee_cents: int
     is_late: bool
     late_fee_cents: int

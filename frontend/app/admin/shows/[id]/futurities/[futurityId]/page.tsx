@@ -8,6 +8,7 @@ import {
   PricedClassWarning,
   formatCents,
   formatDate,
+  formatDeadline,
   futurityCrumbs,
 } from '../futurity-shared';
 import DeleteFuturityButton from './DeleteFuturityButton';
@@ -35,6 +36,22 @@ function Tile({ label, value, detail }: { label: string; value: string; detail?:
           {detail}
         </p>
       )}
+    </div>
+  );
+}
+
+function Notice({ label, body }: { label: string; body: string }) {
+  return (
+    <div>
+      <p
+        className="text-xs font-medium uppercase tracking-wide"
+        style={{ color: COLORS.muted }}
+      >
+        {label}
+      </p>
+      <p className="whitespace-pre-wrap mt-1" style={{ color: COLORS.text }}>
+        {body}
+      </p>
     </div>
   );
 }
@@ -122,8 +139,20 @@ export default async function FuturityPage({
           label="Entries close"
           value={futurity.entry_deadline ? formatDate(futurity.entry_deadline) : 'Open'}
           detail={
-            futurity.late_fee_cents > 0
-              ? `then ${formatCents(futurity.late_fee_cents)}/class`
+            futurity.entry_deadline
+              ? [
+                  futurity.entry_deadline_time
+                    ? formatDeadline(futurity).replace(
+                        `${formatDate(futurity.entry_deadline)} `,
+                        '',
+                      )
+                    : null,
+                  futurity.late_fee_cents > 0
+                    ? `then ${formatCents(futurity.late_fee_cents)}/class`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
               : undefined
           }
         />
@@ -134,7 +163,7 @@ export default async function FuturityPage({
           href={`/admin/shows/${id}/futurities/${futurityId}/settings`}
           icon="⚙️"
           title="Settings"
-          description="Name, deadline, late fee, office fees, entry fee categories, and which classes belong to the futurity."
+          description="The whole entry form: deadline, late fee, office fees, entry categories, club membership, classes, notices, and the release."
         />
         <NavCard
           href={`/admin/shows/${id}/futurities/${futurityId}/entries`}
@@ -148,7 +177,7 @@ export default async function FuturityPage({
           title="Hi-Point divisions"
           description={
             futurity.divisions.length === 0
-              ? 'Set up the award brackets and which classes count toward each.'
+              ? 'Set up the award brackets, what the champion and reserve win, and which classes count toward each.'
               : `${futurity.divisions.length} set up: ${futurity.divisions.map((d) => d.name).join(', ')}.`
           }
         />
@@ -159,6 +188,78 @@ export default async function FuturityPage({
           description="Hi-Point standings per division, computed from the placings on file."
         />
       </div>
+
+      {/* The entry form as it will be published. Kept on the hub rather than
+          buried in Settings: the office reads it back far more often than it
+          edits it, and a notice nobody can see without opening an editor is a
+          notice that quietly goes stale. */}
+      {(futurity.award_notice ||
+        futurity.rules_notice ||
+        futurity.entry_instructions ||
+        futurity.refund_policy ||
+        futurity.membership_options.length > 0 ||
+        futurity.waivers.length > 0) && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold" style={{ color: COLORS.text }}>
+            On the entry form
+          </h2>
+          <div
+            className="rounded-lg border p-4 space-y-3 text-sm"
+            style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+          >
+            {futurity.award_notice && (
+              <Notice label="Awards" body={futurity.award_notice} />
+            )}
+            {futurity.rules_notice && (
+              <Notice label="Rules" body={futurity.rules_notice} />
+            )}
+            {futurity.entry_instructions && (
+              <Notice label="Entry instructions" body={futurity.entry_instructions} />
+            )}
+            {futurity.membership_options.length > 0 && (
+              <div>
+                <p
+                  className="text-xs font-medium uppercase tracking-wide"
+                  style={{ color: COLORS.muted }}
+                >
+                  Club membership offered
+                </p>
+                <ul className="mt-1">
+                  {futurity.membership_options.map((m) => (
+                    <li key={m.id} style={{ color: COLORS.text }}>
+                      {m.name} — {formatCents(m.amount_cents)}
+                      {m.description && (
+                        <span className="text-xs" style={{ color: COLORS.muted }}>
+                          {' '}
+                          · {m.description}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {futurity.refund_policy && (
+              <Notice label="Refunds" body={futurity.refund_policy} />
+            )}
+            {futurity.waivers.map((w) => (
+              <div key={w.id}>
+                <p
+                  className="text-xs font-medium uppercase tracking-wide"
+                  style={{ color: COLORS.muted }}
+                >
+                  {w.title}
+                  {w.is_required ? ' · required' : ' · optional'} ·{' '}
+                  {w.signature_count} signed
+                </p>
+                <p className="whitespace-pre-wrap mt-1" style={{ color: COLORS.text }}>
+                  {w.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-lg font-semibold" style={{ color: COLORS.text }}>

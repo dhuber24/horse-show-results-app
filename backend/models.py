@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from sqlalchemy import (
-    Column, Text, Date, Boolean, Integer, LargeBinary, ForeignKey,
+    Column, Text, Date, Time, Boolean, Integer, LargeBinary, ForeignKey,
     ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
     Index, Numeric, func, event, text
 )
@@ -1566,9 +1566,23 @@ class Futurity(Base):
     name = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
     entry_deadline = Column(Date, nullable=True)
+    # Display precision on the deadline (migration 109). Lateness is still
+    # decided by `entered_at` against `entry_deadline` - a 7:00 PM cutoff is
+    # what the entry form prints, not a second clock for the biller to read.
+    entry_deadline_time = Column(Time, nullable=True)
+    entry_deadline_timezone = Column(Text, nullable=True)
     late_fee_cents = Column(Integer, nullable=False, server_default="0")
     office_fee_member_cents = Column(Integer, nullable=False, server_default="0")
     office_fee_nonmember_cents = Column(Integer, nullable=False, server_default="0")
+    # The words on the published entry form (migration 109). Free text, because
+    # they come from the club that runs the futurity: what it hands out, the
+    # rules its classes run under, how the categories work, and what happens to
+    # the money when a horse does not show.
+    entry_instructions = Column(Text, nullable=True)
+    award_notice = Column(Text, nullable=True)
+    rules_notice = Column(Text, nullable=True)
+    refund_policy = Column(Text, nullable=True)
+    requires_horse_pedigree = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("show_id", "name", name="uq_futurities_show_name"),)
@@ -1580,6 +1594,20 @@ class Futurity(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
         order_by="FuturityFeeTier.sort_order",
+    )
+    membership_options = relationship(
+        "FuturityMembershipOption",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="FuturityMembershipOption.sort_order",
+    )
+    waivers = relationship(
+        "ShowWaiver",
+        back_populates="futurity",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ShowWaiver.sort_order",
     )
     futurity_classes = relationship(
         "FuturityClass",
@@ -1622,6 +1650,45 @@ class FuturityFeeTier(Base):
     futurity = relationship("Futurity", back_populates="fee_tiers")
 
 
+class FuturityMembershipOption(Base):
+    """An optional club membership the futurity sells at entry (migration 109).
+
+    Its own table rather than a `show_fees` row: the membership on a futurity
+    entry form is priced by the futurity, bought at the moment of enrollment,
+    and billed on the futurity line. A show fee would be reservable by anyone at
+    the show and would leave "did this entrant join?" answerable in two places.
+
+    Buying one is not the same fact as `FuturityEntry.is_member`, which decides
+    which office fee applies - an entrant may already hold a card.
+    """
+    __tablename__ = "futurity_membership_options"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    amount_cents = Column(Integer, nullable=False, server_default="0")
+    sort_order = Column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "futurity_id", "name", name="uq_futurity_membership_options_name"
+        ),
+        # Declared here as well as in the migration because `create_all` races
+        # the migration on a new table and only ever creates whole tables — on a
+        # database where the backend restarted first, the migration's
+        # `CREATE TABLE IF NOT EXISTS` correctly did nothing and this model is
+        # what the table actually looks like. See migration 110.
+        CheckConstraint(
+            "amount_cents >= 0", name="ck_futurity_membership_options_amount"
+        ),
+    )
+
+    futurity = relationship("Futurity", back_populates="membership_options")
+
+
 class FuturityClass(Base):
     __tablename__ = "futurity_classes"
 
@@ -1651,6 +1718,10 @@ class FuturityDivision(Base):
     )
     name = Column(Text, nullable=False)
     scoring_method = Column(Text, nullable=False, server_default="sum_placings")
+    # What the champion and reserve actually receive (migration 109) - the
+    # ranking is the computation, the saddle is the reason anybody entered.
+    award_name = Column(Text, nullable=True)
+    reserve_award_name = Column(Text, nullable=True)
     sort_order = Column(Integer, nullable=False, server_default="0")
 
     __table_args__ = (
@@ -1731,6 +1802,20 @@ class FuturityEntry(Base):
         nullable=True,
     )
     is_member = Column(Boolean, nullable=False, server_default="false")
+    # The membership bought with this entry, if any (migration 109). RESTRICT
+    # for the same reason as `fee_tier_id`: an option somebody bought is a price
+    # they were quoted, and deleting it would silently reprice their bill.
+    membership_option_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("futurity_membership_options.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    # "Exhibitor if different than owner" - free text, because the person
+    # showing a two-year-old is often a trainer or a youth with no account here.
+    # Not `exhibitor_name`: every payload carrying this also carries the account
+    # holder's name off `show_entry`, and one name for two people is how they
+    # end up overwriting each other.
+    shown_by_name = Column(Text, nullable=True)
     entered_at = Column(Date, nullable=False, server_default=func.current_date())
     notes = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -1743,6 +1828,7 @@ class FuturityEntry(Base):
     show_entry = relationship("ShowEntry", back_populates="futurity_entries")
     horse = relationship("Horse", lazy="selectin")
     fee_tier = relationship("FuturityFeeTier", lazy="selectin")
+    membership_option = relationship("FuturityMembershipOption", lazy="selectin")
 
 
 class SanctionedAssociationRequest(Base):
@@ -1844,10 +1930,18 @@ class ShowWaiver(Base):
     title = Column(Text, nullable=False)
     body = Column(Text, nullable=False)
     is_required = Column(Boolean, nullable=False, server_default="true")
+    # Scoped to one futurity, or NULL for show-wide (migration 109). The release
+    # on a futurity entry form is asked of futurity entrants and nobody else;
+    # asking everybody would leave a permanent outstanding item on the paperwork
+    # of people who never entered it.
+    futurity_id = Column(
+        UUID(as_uuid=True), ForeignKey("futurities.id", ondelete="CASCADE"), nullable=True
+    )
     sort_order = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
     show = relationship("Show", back_populates="waivers")
+    futurity = relationship("Futurity", back_populates="waivers")
     signatures = relationship(
         "ShowWaiverSignature", back_populates="waiver", cascade="all, delete-orphan"
     )

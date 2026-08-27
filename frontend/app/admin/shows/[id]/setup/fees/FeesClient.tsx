@@ -46,13 +46,11 @@ const SLOTS = [
     placeholder: 'e.g. 15.00',
     notesPlaceholder: 'e.g. 80% paid back to top 3',
   },
-  {
-    code: 'futurity',
-    label: 'Futurity class fee (per entry)',
-    unit: 'per_entry',
-    placeholder: 'e.g. 100.00',
-    notesPlaceholder: 'e.g. 75% payback',
-  },
+  // A futurity slot used to sit here. It has moved to Step 7 and is not coming
+  // back: one amount cannot say that the same class costs $75, $100 or $150
+  // depending on which category the entrant qualifies for, that entries close
+  // on a stated day after which each class carries a late fee, or that the
+  // office fee per horse depends on club membership.
 ] as const;
 
 type SlotState = { feeId: string | null; dollars: string; notes: string };
@@ -73,17 +71,48 @@ export default function FeesClient({
   initialOfficeChargeBasis,
   initialFees,
   sanctioning,
+  legacyFuturityFee = null,
+  futurityCount = 0,
 }: {
   showId: string;
   initialOfficeChargeCents: number;
   initialOfficeChargeBasis: string;
   initialFees: FeeRow[];
   sanctioning: SanctioningRow[];
+  /** A `futurity` fee row from before this screen stopped offering one. Shown
+   *  so it can be removed deliberately — a show that also sets up a real
+   *  futurity would otherwise bill both, and silently deleting somebody's fee
+   *  is not this screen's call to make. */
+  legacyFuturityFee?: FeeRow | null;
+  futurityCount?: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const [legacyFee, setLegacyFee] = useState<FeeRow | null>(legacyFuturityFee);
+  const [removingLegacy, setRemovingLegacy] = useState(false);
+
+  async function removeLegacyFuturityFee() {
+    if (!legacyFee) return;
+    setError(null);
+    setRemovingLegacy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/fees/${legacyFee.id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => null);
+        setError(j?.detail || 'Could not remove that fee.');
+        return;
+      }
+      setLegacyFee(null);
+      router.refresh();
+    } finally {
+      setRemovingLegacy(false);
+    }
+  }
 
   const [officeChargeDollars, setOfficeChargeDollars] = useState(
     initialOfficeChargeCents > 0 ? centsToDollars(initialOfficeChargeCents) : '',
@@ -219,10 +248,9 @@ export default function FeesClient({
         }
       }
 
-      // Step 5 is the final wizard step — when the save succeeds the user
-      // has reached the end of setup, so take them to the main show admin
-      // page rather than refreshing in place.
-      router.push(`/admin/shows/${showId}`);
+      // Classes are Step 6 and the futurity programme is Step 7, so the save
+      // carries on through the wizard rather than dropping out to the show.
+      router.push(`/admin/shows/${showId}/classes`);
     } finally {
       setBusy(false);
     }
@@ -407,6 +435,65 @@ export default function FeesClient({
         )}
       </section>
 
+      <section
+        className="p-4 rounded-lg border space-y-3"
+        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+      >
+        <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+          Futurity
+        </h2>
+        <p className="text-sm" style={{ color: COLORS.muted }}>
+          A futurity is not a fee. It runs its own classes at its own prices —
+          the same class costs different money depending on which category the
+          entrant qualifies for — closes entries on a stated day, charges an
+          office fee per horse that depends on club membership, and hands out
+          Hi-Point awards. All of that is set up in{' '}
+          <Link
+            href={`/admin/shows/${showId}/futurities`}
+            className="underline"
+            style={{ color: COLORS.warn }}
+          >
+            Step 7
+          </Link>
+          .
+        </p>
+
+        {legacyFee && (
+          <div
+            className="rounded border px-3 py-2 text-sm space-y-2"
+            style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          >
+            <p>
+              <strong>This show still carries an old flat futurity fee</strong> of{' '}
+              {centsToDollars(legacyFee.amount_cents)} per entry, from before
+              futurities were their own programme.
+              {futurityCount > 0
+                ? ' It is charged on top of the futurity’s own pricing, so every entrant is being billed twice.'
+                : ' Remove it once the futurity is set up in Step 7, or entrants will be billed for both.'}
+            </p>
+            <button
+              type="button"
+              onClick={removeLegacyFuturityFee}
+              disabled={removingLegacy}
+              className="text-sm rounded px-3 py-1.5 border disabled:opacity-50"
+              style={{ borderColor: '#c0392b', backgroundColor: '#fff', color: '#922' }}
+            >
+              {removingLegacy ? 'Removing…' : 'Remove the old futurity fee'}
+            </button>
+          </div>
+        )}
+
+        <Link
+          href={`/admin/shows/${showId}/futurities`}
+          className="inline-block text-sm rounded px-4 py-2"
+          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+        >
+          {futurityCount > 0
+            ? `Futurities (${futurityCount}) →`
+            : '+ Add a futurity'}
+        </Link>
+      </section>
+
       <div className="flex justify-end">
         <button
           type="button"
@@ -415,7 +502,7 @@ export default function FeesClient({
           className="text-sm rounded px-4 py-2 disabled:opacity-50"
           style={{ backgroundColor: COLORS.warn, color: '#fff' }}
         >
-          {busy ? 'Saving…' : 'Save & finish setup →'}
+          {busy ? 'Saving…' : 'Save & continue to Classes →'}
         </button>
       </div>
     </div>

@@ -26,7 +26,8 @@ export default async function FuturitySettingsPage({
           Settings
         </h1>
         <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
-          {futurity.name}
+          {futurity.name} — everything the entry form states, from the deadline to
+          the release.
         </p>
       </div>
 

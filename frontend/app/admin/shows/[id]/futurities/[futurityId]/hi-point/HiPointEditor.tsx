@@ -110,6 +110,13 @@ export default function HiPointEditor({
                     <p className="text-xs" style={{ color: COLORS.muted }}>
                       {SCORING_LABEL[division.scoring_method]}
                     </p>
+                    {(division.award_name || division.reserve_award_name) && (
+                      <p className="text-xs" style={{ color: COLORS.accent }}>
+                        {[division.award_name, division.reserve_award_name]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() => setEditing(division.id)}
@@ -162,6 +169,8 @@ function DivisionForm({
   const [scoring, setScoring] = useState<DivisionScoring>(
     division?.scoring_method ?? 'sum_placings',
   );
+  const [award, setAward] = useState(division?.award_name ?? '');
+  const [reserveAward, setReserveAward] = useState(division?.reserve_award_name ?? '');
   const [rows, setRows] = useState<ClassRow[]>(rowsFor(futurity, division));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +206,8 @@ function DivisionForm({
       const body = {
         name: name.trim(),
         scoring_method: scoring,
+        award_name: award.trim() || null,
+        reserve_award_name: reserveAward.trim() || null,
         sort_order: division?.sort_order ?? futurity.divisions.length,
         classes: picked.map((r) => ({
           class_id: r.class_id,
@@ -292,6 +303,36 @@ function DivisionForm({
               </option>
             ))}
           </select>
+        </label>
+      </div>
+
+      {/* What the winner receives. The ranking is what this screen computes;
+          the saddle is what the entry form advertises and what the office is
+          asked about all weekend. */}
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+            Champion award (optional)
+          </span>
+          <input
+            value={award}
+            onChange={(e) => setAward(e.target.value)}
+            placeholder="e.g. Hi-Point Saddle"
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: COLORS.border }}
+          />
+        </label>
+        <label className="block">
+          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+            Reserve award (optional)
+          </span>
+          <input
+            value={reserveAward}
+            onChange={(e) => setReserveAward(e.target.value)}
+            placeholder="e.g. Reserve Hi-Point Buckle"
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: COLORS.border }}
+          />
         </label>
       </div>
 

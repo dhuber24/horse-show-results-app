@@ -177,6 +177,10 @@ function FuturityLine({ line }: { line: BillFuturityLine }) {
             ` + ${formatMoney(line.office_fee_cents)} office fee${
               line.is_member ? ' (member)' : ''
             }`}
+          {line.membership_fee_cents > 0 &&
+            ` + ${formatMoney(line.membership_fee_cents)} ${
+              line.membership_name ?? 'membership'
+            }`}
           {line.is_late && ` + ${formatMoney(line.late_fee_cents)} late`}
         </span>
       </dt>

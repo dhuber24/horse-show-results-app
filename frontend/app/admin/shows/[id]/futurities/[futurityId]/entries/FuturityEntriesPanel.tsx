@@ -183,8 +183,26 @@ function EntryRow({
     <>
       <tr style={{ color: COLORS.text }} className="border-t" >
         <td className="py-2 pr-3 tabular-nums">{entry.back_number ?? '—'}</td>
-        <td className="py-2 pr-3">{entry.horse_name ?? '—'}</td>
-        <td className="py-2 pr-3">{entry.exhibitor_name ?? '—'}</td>
+        <td className="py-2 pr-3">
+          {entry.horse_name ?? '—'}
+          {/* The entry form asks for foaling date, sire and dam, and a futurity
+              judged in age divisions cannot do without them. Flagged rather than
+              refused: the office is taking a paper form across a counter, and
+              blocking the entry would not produce the sire's name. */}
+          {entry.missing_horse_details.length > 0 && (
+            <span className="block text-xs" style={{ color: '#922' }}>
+              missing {entry.missing_horse_details.join(', ')}
+            </span>
+          )}
+        </td>
+        <td className="py-2 pr-3">
+          {entry.exhibitor_name ?? '—'}
+          {entry.shown_by_name && (
+            <span className="block text-xs" style={{ color: COLORS.muted }}>
+              shown by {entry.shown_by_name}
+            </span>
+          )}
+        </td>
         <td className="py-2 pr-3">
           <select
             value={entry.fee_tier_id ?? ''}
@@ -209,6 +227,25 @@ function EntryRow({
             />
             member
           </label>
+          {futurity.membership_options.length > 0 && (
+            <select
+              value={entry.membership_option_id ?? ''}
+              disabled={busy}
+              onChange={(e) =>
+                patch({ membership_option_id: e.target.value || null })
+              }
+              className="border rounded px-2 py-1 mt-1 text-xs"
+              style={{ borderColor: COLORS.border }}
+              title="A club membership bought with this entry, charged once. Separate from the member office fee above, which follows a card they already hold."
+            >
+              <option value="">no membership bought</option>
+              {futurity.membership_options.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({formatCents(m.amount_cents)})
+                </option>
+              ))}
+            </select>
+          )}
         </td>
         <td className="py-2 pr-3 text-right tabular-nums">{entry.entered_class_count}</td>
         <td className="py-2 pr-3">
@@ -283,6 +320,8 @@ function AddEntryForm({
   const [horseId, setHorseId] = useState('');
   const [tierId, setTierId] = useState(futurity.fee_tiers[0]?.id ?? '');
   const [isMember, setIsMember] = useState(false);
+  const [membershipId, setMembershipId] = useState('');
+  const [exhibitorName, setExhibitorName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -304,7 +343,9 @@ function AddEntryForm({
           show_entry_id: showEntryId,
           horse_id: horseId,
           fee_tier_id: tierId || null,
+          membership_option_id: membershipId || null,
           is_member: isMember,
+          shown_by_name: exhibitorName.trim() || null,
         }),
       });
       if (!res.ok) {
@@ -313,8 +354,10 @@ function AddEntryForm({
         return;
       }
       // Kept open so a queue of entries goes in one after another, like the
-      // desk's add-entry form.
+      // desk's add-entry form. The category, membership and member flag stay as
+      // they are: a queue at the counter is usually the same answers twice.
       setHorseId('');
+      setExhibitorName('');
       router.refresh();
     } finally {
       setBusy(false);
@@ -415,6 +458,44 @@ function AddEntryForm({
           />
           Club member ({formatCents(futurity.office_fee_member_cents)} office fee
           instead of {formatCents(futurity.office_fee_nonmember_cents)})
+        </label>
+
+        {futurity.membership_options.length > 0 && (
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Buying a membership?
+            </span>
+            <select
+              value={membershipId}
+              onChange={(e) => setMembershipId(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm"
+              style={{ borderColor: COLORS.border }}
+            >
+              <option value="">— no —</option>
+              {futurity.membership_options.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} — {formatCents(m.amount_cents)}
+                </option>
+              ))}
+            </select>
+            <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
+              Charged once, on top of the office fee. Somebody joining today is
+              not yet a member for the fee above.
+            </span>
+          </label>
+        )}
+
+        <label className="block">
+          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+            Exhibitor, if not the owner
+          </span>
+          <input
+            value={exhibitorName}
+            onChange={(e) => setExhibitorName(e.target.value)}
+            placeholder="who is showing the horse"
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: COLORS.border }}
+          />
         </label>
       </div>
 

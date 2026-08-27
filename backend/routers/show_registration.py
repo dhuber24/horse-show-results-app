@@ -67,7 +67,7 @@ from models import (
     ShowEntryReservation,
     ShowFee,
 )
-from routers.futurities import load_billable_futurities
+from routers.futurities import load_billable_futurities, missing_horse_details
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
@@ -921,6 +921,7 @@ async def _load_futurity_for_show(show_id: UUID, futurity_id: UUID, db: AsyncSes
         .where(Futurity.id == futurity_id, Futurity.show_id == show_id)
         .options(
             selectinload(Futurity.fee_tiers),
+            selectinload(Futurity.membership_options),
             selectinload(Futurity.futurity_classes),
         )
     )
@@ -954,6 +955,7 @@ async def list_futurities_for_exhibitor(
             .where(Futurity.show_id == show_id)
             .options(
                 selectinload(Futurity.fee_tiers),
+                selectinload(Futurity.membership_options),
                 selectinload(Futurity.futurity_classes).selectinload(FuturityClass.class_),
             )
             .order_by(Futurity.created_at)
@@ -974,6 +976,7 @@ async def list_futurities_for_exhibitor(
                 .options(
                     selectinload(FuturityEntry.horse),
                     selectinload(FuturityEntry.fee_tier),
+                    selectinload(FuturityEntry.membership_option),
                 )
             )
         ).scalars().all()
@@ -989,9 +992,21 @@ async def list_futurities_for_exhibitor(
             "name": f.name,
             "description": f.description,
             "entry_deadline": f.entry_deadline,
+            "entry_deadline_time": (
+                f.entry_deadline_time.isoformat() if f.entry_deadline_time else None
+            ),
+            "entry_deadline_timezone": f.entry_deadline_timezone,
             "late_fee_cents": f.late_fee_cents,
             "office_fee_member_cents": f.office_fee_member_cents,
             "office_fee_nonmember_cents": f.office_fee_nonmember_cents,
+            # The words on the entry form. An exhibitor entering here is filling
+            # in the same form the show prints, so it has to say the same things
+            # — which categories exist, what is won, what happens to the money.
+            "entry_instructions": f.entry_instructions,
+            "award_notice": f.award_notice,
+            "rules_notice": f.rules_notice,
+            "refund_policy": f.refund_policy,
+            "requires_horse_pedigree": f.requires_horse_pedigree,
             # Quoted, so the screen can warn before someone enters rather than
             # after the bill arrives. What an existing enrollment is actually
             # charged is settled by its own `entered_at`.
@@ -1014,6 +1029,17 @@ async def list_futurities_for_exhibitor(
                 }
                 for t in sorted(f.fee_tiers, key=lambda t: (t.sort_order, t.name))
             ],
+            "membership_options": [
+                {
+                    "id": str(m.id),
+                    "name": m.name,
+                    "description": m.description,
+                    "amount_cents": m.amount_cents,
+                }
+                for m in sorted(
+                    f.membership_options, key=lambda m: (m.sort_order, m.name)
+                )
+            ],
             "my_entries": [
                 {
                     "id": str(e.id),
@@ -1021,7 +1047,14 @@ async def list_futurities_for_exhibitor(
                     "horse_name": e.horse.name if e.horse else None,
                     "fee_tier_id": str(e.fee_tier_id) if e.fee_tier_id else None,
                     "fee_tier_name": e.fee_tier.name if e.fee_tier else None,
+                    "membership_option_id": (
+                        str(e.membership_option_id) if e.membership_option_id else None
+                    ),
+                    "membership_option_name": (
+                        e.membership_option.name if e.membership_option else None
+                    ),
                     "is_member": e.is_member,
+                    "shown_by_name": e.shown_by_name,
                     "entered_at": e.entered_at,
                 }
                 for e in by_futurity.get(f.id, [])
@@ -1035,7 +1068,9 @@ class FuturityEnrollRequest(BaseModel):
     futurity_id: UUID
     horse_id: UUID
     fee_tier_id: Optional[UUID] = None
+    membership_option_id: Optional[UUID] = None
     is_member: bool = False
+    shown_by_name: Optional[str] = None
 
 
 @router.post("/futurities", status_code=201)
@@ -1070,6 +1105,25 @@ async def enroll_in_futurity(
         if not any(t.id == body.fee_tier_id for t in futurity.fee_tiers):
             raise HTTPException(422, "That category does not belong to this futurity.")
 
+    if body.membership_option_id is not None and not any(
+        m.id == body.membership_option_id for m in futurity.membership_options
+    ):
+        raise HTTPException(422, "That membership does not belong to this futurity.")
+
+    # The entry form asks for foaling date, sire and dam, and a futurity judged
+    # in age divisions cannot do without them. Refused here and only here: the
+    # values live on a horse record this caller owns and can fix in a minute,
+    # where the office taking a paper entry across the counter has no such
+    # option and gets the same shortfall reported as a flag instead.
+    horse = await db.get(Horse, body.horse_id)
+    missing = missing_horse_details(futurity, horse)
+    if missing:
+        raise HTTPException(
+            422,
+            f"This futurity needs the horse's {', '.join(missing)}. Add "
+            "it on the horse's profile, then enter.",
+        )
+
     clash = (
         await db.execute(
             select(FuturityEntry.id).where(
@@ -1086,7 +1140,9 @@ async def enroll_in_futurity(
         show_entry_id=show_entry.id,
         horse_id=body.horse_id,
         fee_tier_id=body.fee_tier_id,
+        membership_option_id=body.membership_option_id,
         is_member=body.is_member,
+        shown_by_name=(body.shown_by_name or "").strip() or None,
         entered_at=date.today(),
     )
     db.add(enrollment)

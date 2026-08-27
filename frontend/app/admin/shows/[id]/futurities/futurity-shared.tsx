@@ -5,6 +5,11 @@
  * Hi-Point, Entries and Standings — so the types, the breadcrumb trail, and the
  * money formatting are defined once here rather than restated on each. Mirrors
  * `pot-shared.tsx`, which does the same job for side pots.
+ *
+ * Since migration 109 a futurity also carries the words on its entry form: the
+ * deadline to the minute, what the awards are, the rules its classes run under,
+ * how the categories work, the refund policy, and the release. Those are all
+ * free text because they come from the club running the futurity.
  */
 
 import Link from 'next/link';
@@ -36,6 +41,28 @@ export interface FeeTier {
   sort_order: number;
 }
 
+/** A club membership the futurity sells at entry. Buying one is not the same
+ *  fact as `FuturityEntry.is_member`, which decides the office fee — an entrant
+ *  may already hold a card. */
+export interface MembershipOption {
+  id: string;
+  name: string;
+  description: string | null;
+  amount_cents: number;
+  sort_order: number;
+}
+
+/** A release scoped to this futurity. Written and signed through the waiver
+ *  endpoints — the futurity payload carries it read-only so its own screens can
+ *  show what an entrant agrees to. */
+export interface FuturityWaiver {
+  id: string;
+  title: string;
+  body: string;
+  is_required: boolean;
+  signature_count: number;
+}
+
 export interface DivisionClass {
   class_id: string;
   class_number: string | null;
@@ -49,6 +76,10 @@ export interface Division {
   futurity_id: string;
   name: string;
   scoring_method: DivisionScoring;
+  /** What the champion and reserve receive. The ranking is the computation;
+   *  the saddle is what the entry form advertises. */
+  award_name: string | null;
+  reserve_award_name: string | null;
   sort_order: number;
   classes: DivisionClass[];
 }
@@ -59,13 +90,25 @@ export interface Futurity {
   name: string;
   description: string | null;
   entry_deadline: string | null;
+  /** Display precision on the deadline ("by 7:00 PM"). Lateness is still
+   *  decided by the enrollment date against the deadline *date* — this is what
+   *  the entry form prints, not a second clock. */
+  entry_deadline_time: string | null;
+  entry_deadline_timezone: string | null;
   late_fee_cents: number;
   office_fee_member_cents: number;
   office_fee_nonmember_cents: number;
+  entry_instructions: string | null;
+  award_notice: string | null;
+  rules_notice: string | null;
+  refund_policy: string | null;
+  requires_horse_pedigree: boolean;
   created_at: string;
   classes: FuturityClass[];
   fee_tiers: FeeTier[];
+  membership_options: MembershipOption[];
   divisions: Division[];
+  waivers: FuturityWaiver[];
   entry_count: number;
 }
 
@@ -82,11 +125,22 @@ export interface FuturityEntry {
   exhibitor_name: string | null;
   fee_tier_id: string | null;
   fee_tier_name: string | null;
+  membership_option_id: string | null;
+  membership_option_name: string | null;
+  membership_fee_cents: number;
   is_member: boolean;
+  /** Who is showing the horse when that is not the owner. Distinct from
+   *  `exhibitor_name` above, which is the account holder this enrollment hangs
+   *  off — the two are regularly different people at a futurity. */
+  shown_by_name: string | null;
   entered_at: string;
   is_late: boolean;
   entered_class_count: number;
   charge_cents: number;
+  /** Entry-form fields the horse record does not have yet — foaling date, sire,
+   *  dam. Reported, never enforced on the staff path: the office is taking a
+   *  paper form across a counter and cannot supply a sire by refusing an entry. */
+  missing_horse_details: string[];
   notes: string | null;
   created_at: string;
 }
@@ -121,6 +175,42 @@ export const COLORS = {
 } as const;
 
 export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+export const centsToDollars = (cents: number) => (cents / 100).toFixed(2);
+
+export function dollarsToCents(input: string): number {
+  const n = Number.parseFloat(input);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100);
+}
+
+/** "19:00:00" → "7:00 PM". The value comes back from Postgres as a TIME, which
+ *  `new Date()` cannot parse on its own, so the parts are read directly. */
+export function formatTime(value: string | null): string {
+  if (!value) return '';
+  const [h, m] = value.split(':').map(Number);
+  if (Number.isNaN(h)) return value;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m ?? 0).padStart(2, '0')} ${suffix}`;
+}
+
+/** The deadline as the entry form prints it: day, then hour, then the zone
+ *  label the show typed. Every part after the date is optional. */
+export function formatDeadline(
+  futurity: Pick<
+    Futurity,
+    'entry_deadline' | 'entry_deadline_time' | 'entry_deadline_timezone'
+  >,
+): string {
+  if (!futurity.entry_deadline) return 'Open — no closing date';
+  const parts = [formatDate(futurity.entry_deadline)];
+  if (futurity.entry_deadline_time) {
+    parts.push(`by ${formatTime(futurity.entry_deadline_time)}`);
+  }
+  if (futurity.entry_deadline_timezone) parts.push(futurity.entry_deadline_timezone);
+  return parts.join(' ');
+}
 
 export const SCORING_LABEL: Record<DivisionScoring, string> = {
   sum_placings: 'Sum of placings (lowest wins)',
