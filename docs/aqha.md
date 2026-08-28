@@ -70,15 +70,23 @@ AQHA's records research descriptions confirm that AQHA show records are centered
 - exhibitor
 - horse/exhibitor or horse-level division context depending on Open, Youth, Amateur, Select, Rookie, Level 1, Level 2, and Level 3
 
-The app uses `class_associations.association_class_code` to carry AQHA class codes. AQHA standard classes are stored in `aqha_standard_classes`, and the 2026 official list is available in `database/seeds/aqha_standard_classes.csv`.
+The app uses `class_associations.association_class_code` to carry AQHA class codes. AQHA standard classes are stored in `association_standard_classes` (the view over
+`association_standard_class_versions`, filtered to the AQHA show type; the
+`aqha_standard_classes` table was dropped in migration 114). The 2026 official list is
+still available in `database/seeds/aqha_standard_classes.csv`. Refreshing the list is
+now an admin upload at `/admin/standard-classes` — it reads AQHA's Class Master Listing
+PDF directly, previews a diff, and versions every change.
+`scripts/extract_aqha_standard_classes_from_pdf.py` is kept for producing a CSV offline;
+`scripts/import_aqha_standard_classes.py` was removed, since it wrote in place to the
+table migration 114 dropped.
 
 Implemented AQHA data and code paths:
 
 - Migration: `database/migrations/043_aqha_support.sql`
 - Class-code extraction: `scripts/extract_aqha_standard_classes_from_pdf.py`
-- Class-code import: `scripts/import_aqha_standard_classes.py`
+- Class-code import: `/admin/standard-classes` (ADMIN). `scripts/import_aqha_standard_classes.py` was removed in migration 114 — it wrote in place to the dropped `aqha_standard_classes` table, which the versioned catalog cannot accept.
 - Backend lookup: `GET /aqha-standard-classes/` and `GET /aqha-standard-classes/divisions`
-- Bulk class import: `POST /shows/{show_id}/classes/bulk` for AQHA shows. Each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket): discipline comes from name-keyword classification in `backend/rules/disciplines.py`; section comes from the `aqha_standard_classes.division` column (which holds the bracket — Open/Amateur/Youth/EWD). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
+- Bulk class import: `POST /shows/{show_id}/classes/bulk` for AQHA shows. Each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket): discipline comes from name-keyword classification in `backend/rules/disciplines.py`; section comes from the catalog's `division` column (which holds the bracket — Open/Amateur/Youth/EWD). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
 - Validation endpoint: `GET /shows/{show_id}/aqha-validation`
 - Frontend picker: `frontend/app/admin/shows/[id]/AQHAClassPicker.tsx`
 - Frontend validation proxy: `frontend/app/api/shows/[showId]/aqha-validation/route.ts`
@@ -92,7 +100,7 @@ The 2026 class-code load produced 1,589 classes: 491 Open, 451 Amateur, 626 Yout
 - The app has per-association horse/exhibitor registrations, but no AQHA-specific membership expiration/amateur/youth/Level 1 eligibility workflow.
 - Horse records can store registrations by association, and AQHA entry validation now requires an AQHA horse registration number for AQHA classes.
 - Horse age is derivable from foaling date, and AQHA entry validation now covers junior/senior, 2-year-old performance timing, ranch/VRH minimum age, youth/stallion restrictions, youth age, and select-amateur age where current data allows.
-- `class_associations` can carry AQHA codes, and `aqha_standard_classes` plus API/UI picker/importer plumbing now exists. The 2026 AQHA Class Master Listing has been extracted to `database/seeds/aqha_standard_classes.csv` and loaded into the database.
+- `class_associations` can carry AQHA codes, and the shared class-code catalog plus API/UI picker/importer plumbing now exists. The 2026 AQHA Class Master Listing has been extracted to `database/seeds/aqha_standard_classes.csv` and loaded into the database.
 - Bulk import now supports APHA and AQHA standard-class sources.
 - Results are currently one placing per class entry. AQHA multi-judge / multi-show-number reporting likely needs judge-specific result cards or a show-number dimension.
 - DQ handling exists for APHA-ish fields, but AQHA explicitly requires DQed horses to count as entries while not receiving a placing. That rule should be represented association-neutrally.
@@ -117,7 +125,7 @@ The first safe-win build is now implemented: an AQHA class-code catalog, AQHA cl
 Entry create/update blocks AQHA entries when validation returns an error:
 
 - missing AQHA class code on the class
-- class code not present in `aqha_standard_classes`
+- class code not present in the AQHA catalog (`association_standard_classes`)
 - missing horse on an AQHA entry
 - horse missing AQHA registration number
 - exhibitor missing AQHA membership number, except EWD is warning-only today because AQHA has rule exceptions that need more specific data
@@ -137,7 +145,7 @@ Show-level validation currently reports:
 - AQHA approval status not marked `APPROVED`
 - no assigned show manager or show secretary with an AQHA show-management workshop date within 3 years of show start
 - classes missing AQHA class codes
-- class codes not present in `aqha_standard_classes`
+- class codes not present in the AQHA catalog (`association_standard_classes`)
 - Level 1 Amateur/Youth classes missing a corresponding base class
 - all existing entry-level AQHA issues
 
@@ -150,15 +158,9 @@ Show-level validation currently reports:
 python scripts/extract_aqha_standard_classes_from_pdf.py "<path-to-AQHA-Class-Master-Listing.pdf>" database/seeds/aqha_standard_classes.csv --source-year 2026
 ```
 
-3. If the source is already spreadsheet data, convert it to CSV with columns equivalent to `code`, `name`, and `division`; optional columns are `sort_order`, `source_year`, and `notes`.
-4. Validate without writing:
+3. If the source is already spreadsheet data, convert it to CSV with columns equivalent to `code`, `name`, and `division`; optional columns are `sort_order` and `notes`.
+4. Sign in as an ADMIN and open **Admin → Class Codes** (`/admin/standard-classes`). Pick AQHA, choose the PDF or the CSV, and press **Compare with catalog** — this parses and diffs and writes nothing.
+5. Read the diff. Added and changed rows are applied; codes missing from the file are listed separately and are only retired if you tick them.
+6. Press **Apply to catalog**. Changed rows close their old version and open a new one, so the previous text stays readable in `association_standard_class_versions`.
 
-```powershell
-python scripts/import_aqha_standard_classes.py database/seeds/aqha_standard_classes.csv --dry-run --source-year 2026
-```
-
-5. Replace the lookup table once the dry run passes:
-
-```powershell
-python scripts/import_aqha_standard_classes.py database/seeds/aqha_standard_classes.csv --replace --source-year 2026
-```
+The AQHA PDF can be uploaded directly — step 2 is only needed to keep a CSV copy in the repo, or when the association's layout changes and the reader needs a hand.

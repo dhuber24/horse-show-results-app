@@ -31,7 +31,9 @@ export default function ShowbillActions({
       const text = value == null ? '' : String(value);
       return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
     };
-    const header = ['Date', 'Class #', 'Class', 'Discipline', 'Division', 'Ring', 'Entry fee'];
+    const header = [
+      'Date', 'Class #', 'Class', 'Discipline', 'Division', 'Ring', 'Entry fee', 'Sanctioned by',
+    ];
     const lines = [
       header.join(','),
       ...classes.map((c) =>
@@ -43,6 +45,9 @@ export default function ShowbillActions({
           c.division_name ?? '',
           c.ring_name ?? '',
           (c.entry_fee_cents / 100).toFixed(2),
+          // The sheet has to say which classes carry a club's per-class fee;
+          // without it the spreadsheet cannot reproduce the printed bill.
+          (c.sanctioning_codes ?? []).join(' '),
         ]
           .map(esc)
           .join(','),

@@ -366,6 +366,18 @@ class Class(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    # `lazy="selectin"` for the same reason `associations` is: this is read on
+    # every path that prices a class — the bill, the registration quote, the
+    # public schedule — and an unloaded relationship in an async request is a
+    # MissingGreenlet 500 rather than a wrong number. Loading it with the class
+    # costs one extra SELECT and removes the eager-load footgun from every
+    # caller.
+    sanctioning = relationship(
+        "ClassSanctioning",
+        back_populates="class_",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -385,6 +397,40 @@ class Class(Base):
     futurity_division_classes = relationship(
         "FuturityDivisionClass", back_populates="class_", cascade="all, delete-orphan"
     )
+
+
+class ClassSanctioning(Base):
+    """Which clubs sanction this class.
+
+    A club approves a list of classes, not a whole show: an NSBA-sanctioned
+    show runs plenty of classes NSBA has nothing to do with, and an exhibitor
+    entering one of those owes no sanction fee on it. A row here means the class
+    carries that club's `show_sanctioning.per_class_fee_cents`.
+
+    Points at `associations` and not `show_types` — clubs are deliberately not
+    show types (migration 080), and `ClassAssociation` above answers a different
+    question (the breed association's *class code*, for catalog imports).
+    """
+
+    __tablename__ = "class_sanctioning"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    class_id = Column(
+        UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False
+    )
+    association_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("associations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("class_id", "association_id", name="class_sanctioning_uniq"),
+    )
+
+    class_ = relationship("Class", back_populates="sanctioning")
+    association = relationship("Association", lazy="selectin")
 
 
 class ClassAssociation(Base):
@@ -1396,24 +1442,80 @@ class ShowManager(Base):
     user = relationship("User", back_populates="manager_shows")
 
 
-class AphaStandardClass(Base):
-    __tablename__ = "apha_standard_classes"
+class AssociationClassImport(Base):
+    """One applied class-code upload, so a catalog row can name where it came from."""
 
-    code = Column(Text, primary_key=True)
-    name = Column(Text, nullable=False)
-    division = Column(Text, nullable=False)
-    sort_order = Column(Integer, nullable=False, default=0)
+    __tablename__ = "association_class_imports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    filename = Column(Text, nullable=False)
+    source_year = Column(Integer, nullable=True)
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    uploaded_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    added_count = Column(Integer, nullable=False, server_default="0")
+    changed_count = Column(Integer, nullable=False, server_default="0")
+    retired_count = Column(Integer, nullable=False, server_default="0")
+    unchanged_count = Column(Integer, nullable=False, server_default="0")
+
+    show_type = relationship("ShowType", lazy="selectin")
 
 
-class AqhaStandardClass(Base):
-    __tablename__ = "aqha_standard_classes"
+class AssociationStandardClassVersion(Base):
+    """Every version of every class code an association has published.
 
-    code = Column(Text, primary_key=True)
+    Type 2: rows are never updated in place and never deleted. A changed name
+    closes the open version (`inactive_date`) and opens a new one; a code
+    dropped from the new file just closes. A show run under a code the
+    association has since retired still renders its own program.
+
+    Write through this model; *read* through AssociationStandardClass, which is
+    the view over the open rows.
+    """
+
+    __tablename__ = "association_standard_class_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=False)
+    code = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
     division = Column(Text, nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     source_year = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+    effective_date = Column(Date, nullable=False, server_default=func.current_date())
+    inactive_date = Column(Date, nullable=True)
+    import_id = Column(UUID(as_uuid=True), ForeignKey("association_class_imports.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class AssociationStandardClass(Base):
+    """Read-only mapping over the `association_standard_classes` VIEW.
+
+    The view is `inactive_date IS NULL`. Reading it rather than the versions
+    table is what keeps a retired code off the class pickers without every
+    caller remembering the filter.
+    """
+
+    __tablename__ = "association_standard_classes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True)
+    show_type_id = Column(UUID(as_uuid=True), nullable=False)
+    code = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    division = Column(Text, nullable=False)
+    sort_order = Column(Integer, nullable=False)
+    source_year = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    effective_date = Column(Date, nullable=False)
+
+
+# The view is created by migration 114. Startup runs Base.metadata.create_all,
+# and on a database where the migration has not run yet that would create a
+# *table* under the view's name and then the migration's CREATE VIEW would
+# fail. Dropping it from the metadata keeps it out of create_all entirely;
+# the mapper holds its own reference to the Table, so queries are unaffected.
+Base.metadata.remove(AssociationStandardClass.__table__)
 
 
 class SidePot(Base):

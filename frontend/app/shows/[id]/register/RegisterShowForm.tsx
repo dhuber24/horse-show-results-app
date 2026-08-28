@@ -85,7 +85,7 @@ function EnteredRow({
         {line.class_date ? formatDay(line.class_date) : '—'}
       </td>
       <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: '#8b7355' }}>
-        {formatMoney(line.fee_cents + line.nsba_sanction_cents)}
+        {formatMoney(line.fee_cents + line.sanction_cents)}
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
         {isConfirming ? (
@@ -260,7 +260,7 @@ export default function RegisterShowForm({
             </h3>
             {entered.length > 0 && (
               <span className="text-xs" style={{ color: '#8b7355' }}>
-                {formatMoney(bill.class_fee_total_cents + bill.nsba_sanction_total_cents)} in class
+                {formatMoney(bill.class_fee_total_cents + bill.sanction_total_cents)} in class
                 fees
               </span>
             )}

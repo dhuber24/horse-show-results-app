@@ -18,18 +18,7 @@
  * directly above them. Everything below that is what the bill adds.
  */
 
-const UNIT_LABEL: Record<string, string> = {
-  flat: 'flat',
-  per_entry: 'per entry',
-  per_horse: 'per horse',
-  per_judge: 'per judge',
-  per_class_per_horse: 'per class, per horse',
-  per_night: 'per night',
-  per_stall: 'per stall',
-  per_bag: 'per bag',
-  per_show: 'per show',
-  percent_of_entry: '% of entry',
-};
+import { unitLabel } from '@/lib/fee-units';
 
 export type ShowbillClassRow = {
   class_number: string;
@@ -39,6 +28,11 @@ export type ShowbillClassRow = {
   division_name: string | null;
   ring_name: string | null;
   entry_fee_cents: number;
+  /** Codes of the clubs that sanction this class. Printed against the row
+   *  because a per-class sanction fee is only owed on the classes the club
+   *  approves — "NSBA, $3.00 per class" over a schedule with no per-class
+   *  marking leaves an exhibitor unable to work out their own bill. */
+  sanctioning_codes?: string[] | null;
 };
 
 type Club = { association_id: string; code: string; name: string; per_class_fee_cents: number };
@@ -244,7 +238,8 @@ export default function ShowbillDocument({
                       {club.name} ({club.code})
                       {club.per_class_fee_cents > 0 && (
                         <span style={{ color: '#8b7355' }}>
-                          {' '}— {formatMoney(club.per_class_fee_cents)} per class
+                          {' '}— {formatMoney(club.per_class_fee_cents)} per class,
+                          on the classes marked {club.code} below
                         </span>
                       )}
                     </li>
@@ -292,6 +287,15 @@ export default function ShowbillDocument({
                         </td>
                         <td className="py-1.5 pr-2 align-top w-full">
                           {cls.class_name}
+                          {(cls.sanctioning_codes ?? []).map((code) => (
+                            <span
+                              key={code}
+                              className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
+                              style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                            >
+                              {code}
+                            </span>
+                          ))}
                           {(cls.discipline_name || cls.division_name || cls.ring_name) && (
                             <div className="text-xs" style={{ color: '#8b7355' }}>
                               {[cls.discipline_name, cls.division_name, cls.ring_name]
@@ -335,7 +339,7 @@ export default function ShowbillDocument({
               <div style={{ color: '#2c1810' }}>
                 {fee.label}
                 <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {' '}({UNIT_LABEL[fee.unit] ?? fee.unit})
+                  {' '}({unitLabel(fee.unit)})
                 </span>
                 {fee.notes && (
                   <div className="text-xs" style={{ color: '#8b7355' }}>{fee.notes}</div>

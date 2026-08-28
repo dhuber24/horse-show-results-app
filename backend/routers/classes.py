@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
@@ -14,8 +14,8 @@ from models import (
     Result,
     Ring,
     ClassAssociation,
-    AphaStandardClass,
-    AqhaStandardClass,
+    ClassSanctioning,
+    ShowSanctioning,
     ShowType,
     Discipline,
     Division,
@@ -26,10 +26,12 @@ from rules.disciplines import classify_class_name
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
+    ClassSanctioningReplace, ClassSanctioningOut,
     BulkClassCreate,
     ClassesFromLibraryCreate,
 )
 from routers.shows import _assert_show_access
+import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/classes", tags=["Classes"])
 
@@ -222,6 +224,150 @@ async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
     await db.commit()
 
 
+# ── Club sanctioning ──────────────────────────────────────────────────────────
+#
+# Declared above the "/{class_id}" routes on purpose: FastAPI matches in
+# declaration order, and "sanctioning" arriving at a UUID path parameter is a
+# 422 rather than a miss.
+
+
+async def _show_sanctioning_or_404(
+    show_id: UUID, association_id: UUID, db: AsyncSession
+) -> ShowSanctioning:
+    """The club must already be one this show carries.
+
+    Designating a class for a club the show has not enrolled would create a row
+    `sanction_rates` can never price, so the class would read as sanctioned on
+    every screen and bill nothing.
+    """
+    row = await db.get(ShowSanctioning, (show_id, association_id))
+    if row is None:
+        raise HTTPException(
+            404,
+            "This show does not carry that sanctioning. Add it in setup Step 3 first.",
+        )
+    return row
+
+
+@router.get("/sanctioning", response_model=list[ClassSanctioningOut])
+async def list_class_sanctioning(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Every club this show carries, and which classes it sanctions."""
+    clubs = (
+        (
+            await db.execute(
+                select(ShowSanctioning)
+                .options(selectinload(ShowSanctioning.association))
+                .where(ShowSanctioning.show_id == show_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not clubs:
+        return []
+
+    rows = (
+        await db.execute(
+            select(ClassSanctioning.association_id, ClassSanctioning.class_id)
+            .join(Class, Class.id == ClassSanctioning.class_id)
+            .where(Class.show_id == show_id)
+        )
+    ).all()
+    by_association: dict = {}
+    for association_id, class_id in rows:
+        by_association.setdefault(association_id, []).append(class_id)
+
+    return [
+        ClassSanctioningOut(
+            association_id=club.association_id,
+            code=club.association.code if club.association else "",
+            name=club.association.name if club.association else "",
+            per_class_fee_cents=club.per_class_fee_cents,
+            class_ids=by_association.get(club.association_id, []),
+        )
+        for club in clubs
+    ]
+
+
+@router.put(
+    "/sanctioning/{association_id}",
+    response_model=ClassSanctioningOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def replace_class_sanctioning(
+    show_id: UUID,
+    association_id: UUID,
+    body: ClassSanctioningReplace,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set which classes this club sanctions — the whole list, replacing what is there.
+
+    Every id must be a class in this show. A stray one is rejected rather than
+    skipped: the caller sent a set of ticked boxes, and quietly dropping one
+    would leave the screen showing a designation that was never saved.
+    """
+    club = await _show_sanctioning_or_404(show_id, association_id, db)
+
+    wanted = set(body.class_ids)
+    if wanted:
+        found = set(
+            (
+                await db.execute(
+                    select(Class.id)
+                    .where(Class.show_id == show_id)
+                    .where(Class.id.in_(wanted))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        missing = wanted - found
+        if missing:
+            raise HTTPException(
+                422,
+                f"{len(missing)} of those classes are not in this show.",
+            )
+
+    existing = set(
+        (
+            await db.execute(
+                select(ClassSanctioning.class_id)
+                .join(Class, Class.id == ClassSanctioning.class_id)
+                .where(Class.show_id == show_id)
+                .where(ClassSanctioning.association_id == association_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    # Only the difference is written. Deleting the lot and re-inserting would
+    # reset `created_at` on classes nobody touched, and this runs over a
+    # 170-class show every time somebody ticks one box.
+    to_remove = existing - wanted
+    if to_remove:
+        await db.execute(
+            delete(ClassSanctioning)
+            .where(ClassSanctioning.association_id == association_id)
+            .where(ClassSanctioning.class_id.in_(to_remove))
+        )
+    for class_id in wanted - existing:
+        db.add(ClassSanctioning(class_id=class_id, association_id=association_id))
+
+    await db.commit()
+
+    return ClassSanctioningOut(
+        association_id=association_id,
+        code=club.association.code if club.association else "",
+        name=club.association.name if club.association else "",
+        per_class_fee_cents=club.per_class_fee_cents,
+        class_ids=sorted(wanted, key=str),
+    )
+
+
 @router.get("/")
 async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
     await _get_show_or_404(show_id, db)
@@ -265,6 +411,15 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             "ring_sort_order": ring_sort_order,
             "discipline_name": discipline_name,
             "division_name": division_name,
+            # Which clubs sanction this class. On the payload rather than left
+            # to a second request because the show bill prints it against the
+            # class row — a per-class sanction fee that the bill cannot say
+            # which classes carry is the thing migration 113 exists to fix.
+            "sanctioning_codes": [
+                row.association.code
+                for row in (cls.sanctioning or [])
+                if row.association is not None
+            ],
         }
         for (
             cls,
@@ -548,11 +703,7 @@ async def bulk_create_classes(
         raise HTTPException(400, "Bulk import from an association class list is only available for APHA or AQHA shows")
 
     codes = [item.code for item in body.classes]
-    standard_model = AphaStandardClass if show_type.code == "APHA" else AqhaStandardClass
-    result = await db.execute(
-        select(standard_model).where(standard_model.code.in_(codes))
-    )
-    standard_map = {sc.code: sc for sc in result.scalars().all()}
+    standard_map = await standard_classes.lookup_many(db, show_type.code, codes)
 
     missing = [c for c in codes if c not in standard_map]
     if missing:

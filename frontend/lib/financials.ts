@@ -66,12 +66,32 @@ export type FinancialFeeLine = {
   early_rate_quantity: number;
 };
 
+/**
+ * What one of the show's automatic charges has billed across the show.
+ *
+ * Kept apart from `FinancialFeeLine` rather than folded in: both are `show_fees`
+ * rows, but the Stalls, Shavings & Camping report reads that list as "what
+ * exhibitors booked" and foots it against `reservation_total_cents`.
+ */
+export type FinancialChargeLine = {
+  show_fee_id: string;
+  code: string;
+  label: string;
+  unit: string;
+  amount_cents: number;
+  quantity: number;
+  line_total_cents: number;
+  /** How many exhibitors carried this charge. */
+  exhibitors: number;
+};
+
 export type FinancialTotals = {
   accounts: number;
   class_fee_total_cents: number;
-  nsba_sanction_total_cents: number;
+  sanction_total_cents: number;
   office_charge_total_cents: number;
   reservation_total_cents: number;
+  charge_total_cents: number;
   billed_cents: number;
   collected_cents: number;
   refunded_cents: number;
@@ -86,6 +106,7 @@ export type FinancialTotals = {
   accounts_paid_in_full: number;
   accounts_unpaid: number;
   fee_lines: FinancialFeeLine[];
+  charge_lines: FinancialChargeLine[];
 };
 
 export type FinancialRegistrations = {

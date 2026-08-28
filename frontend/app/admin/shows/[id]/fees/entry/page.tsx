@@ -1,6 +1,8 @@
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { isAutomaticUnit } from '@/lib/fee-units';
+import type { ShowCharge } from '@/components/ShowChargesEditor';
 import EntryFeesEditor from './EntryFeesEditor';
 
 async function fetchShowFees(showId: string, headers: HeadersInit) {
@@ -25,18 +27,10 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
     fetchJudges(id, headers || {}),
   ]);
 
-  const perHorseFees = fees.filter((f: { unit: string }) => f.unit === 'per_horse');
-  const perJudgeFees = fees.filter((f: { unit: string }) => f.unit === 'per_judge');
-  const judgeTypes = [
-    show.show_type_code && show.show_type_code !== 'OPEN'
-      ? { code: show.show_type_code, name: show.show_type_name ?? show.show_type_code }
-      : null,
-    ...((show.affiliations ?? []).map((a: { show_type_code: string; show_type_name: string }) => (
-      a.show_type_code && a.show_type_code !== 'OPEN'
-        ? { code: a.show_type_code, name: a.show_type_name ?? a.show_type_code }
-        : null
-    ))),
-  ].filter(Boolean);
+  // Picked out by unit, not by a list of codes: the whole point of these rows is
+  // that the show manager names their own. See AUTOMATIC_FEE_UNITS in
+  // backend/billing.py for what makes a unit one of these.
+  const charges: ShowCharge[] = fees.filter((f: { unit: string }) => isAutomaticUnit(f.unit));
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -53,18 +47,18 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
           <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Entry Fees</h1>
         </div>
         <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
-          Office charges, per-judge fees, and per-class entry fees.
+          The office charge, any fee the show adds per exhibitor, horse or judge,
+          and what each class costs to enter.
         </p>
       </div>
 
       <EntryFeesEditor
         showId={id}
         initialOfficeChargeCents={show.office_charge_cents ?? 0}
-        initialPerHorseFees={perHorseFees}
-        initialPerJudgeFees={perJudgeFees}
+        initialOfficeChargeBasis={show.office_charge_basis ?? 'per_back_number'}
+        initialCharges={charges}
         initialClasses={classes}
-        judges={judges}
-        judgeTypes={judgeTypes}
+        judgeCount={judges.length}
       />
     </main>
   );

@@ -68,6 +68,11 @@ async def list_my_shows(
             # otherwise lazy-load them mid-serialization.
             selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.sanctioning),
             selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.venue_rel),
+            # `build_bill` reads the show's own automatic charges and its judge
+            # panel off the Show row, so both travel with every show reachable
+            # from this query.
+            selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.fees),
+            selectinload(Entry.class_).selectinload(Class.show).selectinload(Show.judges),
             selectinload(Entry.horse),
         )
         .join(Class, Entry.class_id == Class.id)
@@ -81,6 +86,8 @@ async def list_my_shows(
         .options(
             selectinload(ShowEntry.show).selectinload(Show.sanctioning),
             selectinload(ShowEntry.show).selectinload(Show.venue_rel),
+            selectinload(ShowEntry.show).selectinload(Show.fees),
+            selectinload(ShowEntry.show).selectinload(Show.judges),
             selectinload(ShowEntry.reservations).selectinload(ShowEntryReservation.show_fee),
         )
         .where(ShowEntry.exhibitor_id == exhibitor.id)

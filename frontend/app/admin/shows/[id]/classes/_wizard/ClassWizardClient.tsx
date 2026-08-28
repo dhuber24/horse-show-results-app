@@ -6,6 +6,7 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-p
 
 export type StandardItem = {
   id: string;
+  show_type_id?: string | null;
   name: string;
   sort_order: number;
   default_score_type?: string;
@@ -66,6 +67,7 @@ export default function ClassWizardClient({
   initialClasses,
   standardDisciplines,
   standardDivisions,
+  standardLibraryLabel,
 }: {
   showId: string;
   showStartDate: string;
@@ -75,6 +77,7 @@ export default function ClassWizardClient({
   initialClasses: ClassItem[];
   standardDisciplines: StandardItem[];
   standardDivisions: StandardItem[];
+  standardLibraryLabel: string;
 }) {
   const router = useRouter();
 
@@ -157,6 +160,7 @@ export default function ClassWizardClient({
           showId={showId}
           existing={disciplines}
           standardOptions={standardDisciplines}
+          standardLabel={standardLibraryLabel}
           busy={busy}
           setBusy={setBusy}
           setError={setError}
@@ -176,6 +180,7 @@ export default function ClassWizardClient({
           disciplines={disciplines}
           existing={divisions}
           standardOptions={standardDivisions}
+          standardLabel={standardLibraryLabel}
           busy={busy}
           setBusy={setBusy}
           setError={setError}
@@ -420,6 +425,7 @@ function DisciplineStep({
   showId,
   existing,
   standardOptions,
+  standardLabel,
   busy,
   setBusy,
   setError,
@@ -430,6 +436,7 @@ function DisciplineStep({
   showId: string;
   existing: DisciplineItem[];
   standardOptions: StandardItem[];
+  standardLabel: string;
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
@@ -567,7 +574,7 @@ function DisciplineStep({
 
       <div>
         <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
-          Standard library (AQHA / APHA shared)
+          Standard library ({standardLabel})
         </p>
         <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
           Click an item to add it to the show; click again to remove it.
@@ -677,6 +684,7 @@ function DivisionStep({
   disciplines,
   existing,
   standardOptions,
+  standardLabel,
   busy,
   setBusy,
   setError,
@@ -689,6 +697,7 @@ function DivisionStep({
   disciplines: DisciplineItem[];
   existing: DivisionItem[];
   standardOptions: StandardItem[];
+  standardLabel: string;
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
@@ -831,7 +840,7 @@ function DivisionStep({
 
       <div>
         <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
-          Standard library (AQHA / APHA shared)
+          Standard library ({standardLabel})
         </p>
         <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
           Click an item to add it to the show; click again to remove it.

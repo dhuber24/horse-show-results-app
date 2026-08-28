@@ -1,5 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import { isAutomaticUnit } from '@/lib/fee-units';
+import type { ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow, type SanctioningRow } from './FeesClient';
 import StepLayout from '../_lib/StepLayout';
 import { fetchStepCounts } from '../_lib/fetchStepCounts';
@@ -29,12 +31,28 @@ export default async function SetupFeesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [allFees, sanctioning, stepsInput] = await Promise.all([
-    fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
-    fetchAuthed<SanctioningRow[]>(`${API_URL}/shows/${id}/sanctioning/`, []),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
-  ]);
+  const [allFees, sanctioning, judges, classSanctioning, classes, stepsInput] =
+    await Promise.all([
+      fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
+      fetchAuthed<SanctioningRow[]>(`${API_URL}/shows/${id}/sanctioning/`, []),
+      fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
+      fetchAuthed<{ association_id: string; class_ids: string[] }[]>(
+        `${API_URL}/shows/${id}/classes/sanctioning`,
+        [],
+      ),
+      fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/classes/`, []),
+      fetchStepCounts(id, show.office_charge_cents ?? 0),
+    ]);
+  // A per-class sanction fee only bills on classes the club approves, so the
+  // amount on its own does not say whether it charges anybody. See migration 113.
+  const sanctionedCounts: Record<string, number> = Object.fromEntries(
+    classSanctioning.map((c) => [c.association_id, c.class_ids.length]),
+  );
   const otherFees = allFees.filter((f) => FEE_CODES.has(f.code));
+  // The show's own charges, picked out by unit rather than by a list of codes:
+  // the whole point is that a manager names their own, so there is no code here
+  // to match on. See AUTOMATIC_FEE_UNITS in backend/billing.py.
+  const charges = allFees.filter((f) => isAutomaticUnit(f.unit)) as ShowCharge[];
   const legacyFuturityFee =
     allFees.find((f) => f.code === LEGACY_FUTURITY_CODE) ?? null;
 
@@ -44,10 +62,15 @@ export default async function SetupFeesPage({
       showName={show.name}
       current="fees"
       title="Step 5: Show Fees"
-      subtitle="Office charge, standard class fee, and jackpot. Per-sanctioning class fees come from Step 3; futurity pricing comes from Step 7."
+      subtitle="Office charge, standard class fee, jackpot, and any other fee this show adds per exhibitor, horse or judge. Per-sanctioning class fees come from Step 3; futurity pricing comes from Step 7."
       stepsInput={{
         ...stepsInput,
-        feesCount: otherFees.length > 0 || (show.office_charge_cents ?? 0) > 0 ? 1 : 0,
+        feesCount:
+          otherFees.length > 0 ||
+          charges.length > 0 ||
+          (show.office_charge_cents ?? 0) > 0
+            ? 1
+            : 0,
       }}
     >
       <FeesClient
@@ -55,7 +78,11 @@ export default async function SetupFeesPage({
         initialOfficeChargeCents={show.office_charge_cents ?? 0}
         initialOfficeChargeBasis={show.office_charge_basis ?? 'per_back_number'}
         initialFees={otherFees}
+        initialCharges={charges}
+        judgeCount={judges.length}
         sanctioning={sanctioning}
+        sanctionedCounts={sanctionedCounts}
+        classCount={classes.length}
         legacyFuturityFee={legacyFuturityFee}
         futurityCount={stepsInput.futurityCount}
       />

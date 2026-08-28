@@ -3,17 +3,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-type Unit =
-  | 'flat'
-  | 'per_entry'
-  | 'per_horse'
-  | 'per_judge'
-  | 'per_class_per_horse'
-  | 'per_night'
-  | 'per_stall'
-  | 'per_bag'
-  | 'per_show'
-  | 'percent_of_entry';
+import {
+  UNIT_LABEL as UNIT_LABELS,
+  isAutomaticUnit,
+  type FeeUnit as Unit,
+} from '@/lib/fee-units';
 
 interface ShowFee {
   id: string;
@@ -35,23 +29,11 @@ interface Props {
   initialFees: ShowFee[];
 }
 
-const UNIT_LABELS: Record<Unit, string> = {
-  flat: 'flat',
-  per_entry: 'per entry',
-  per_horse: 'per horse',
-  per_judge: 'per judge',
-  per_class_per_horse: 'per class/horse',
-  per_night: 'per night',
-  per_stall: 'per stall',
-  per_bag: 'per bag',
-  per_show: 'per show',
-  percent_of_entry: '% of entry',
-};
-
 const BOARDING_UNIT_OPTIONS: Unit[] = [
   'flat',
   'per_entry',
   'per_night',
+  'per_day',
   'per_stall',
   'per_bag',
   'per_show',
@@ -63,7 +45,13 @@ const BOARDING_UNIT_OPTIONS: Unit[] = [
  *  early rate — nothing else produces a reservation for a discount to apply
  *  to, and the backend rejects one on any other unit. Mirrors
  *  RESERVABLE_FEE_UNITS in backend/billing.py. */
-const RESERVABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag', 'per_night', 'per_show']);
+const RESERVABLE_UNITS = new Set<Unit>([
+  'per_stall',
+  'per_bag',
+  'per_night',
+  'per_day',
+  'per_show',
+]);
 
 function dollarsFromCents(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -148,7 +136,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     const res = await fetch(`/api/shows/${showId}/fees/seed`, { method: 'POST' });
     if (res.ok) {
       const seeded: ShowFee[] = await res.json();
-      const boardingSeeded = seeded.filter((f) => f.unit !== 'per_horse' && f.unit !== 'per_judge');
+      const boardingSeeded = seeded.filter((f) => !isAutomaticUnit(f.unit));
       const merged = [...fees, ...boardingSeeded].sort((a, b) => a.sort_order - b.sort_order);
       setFees(merged);
       refreshDrafts(merged);

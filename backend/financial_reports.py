@@ -41,6 +41,30 @@ def _money(cents: int) -> str:
     return f"-${abs(cents) / 100:,.2f}" if cents < 0 else f"${cents / 100:,.2f}"
 
 
+# How a unit reads in a report cell. `code.replace("_", " ")` was fine while
+# every unit was two words; `per_judge_per_horse` is not, and "per judge per
+# horse" is exactly the ambiguity migration 112 split the unit to remove.
+UNIT_LABEL = {
+    "per_exhibitor": "per exhibitor",
+    "per_horse": "per horse",
+    "per_judge_per_horse": "per judge, per horse",
+    "per_judge_per_exhibitor": "per judge, per exhibitor",
+    "per_stall": "per stall",
+    "per_bag": "per bag",
+    "per_night": "per night",
+    "per_day": "per day",
+    "per_show": "per show",
+    "per_entry": "per entry",
+    "per_class_per_horse": "per class, per horse",
+    "percent_of_entry": "% of entry",
+    "flat": "flat",
+}
+
+
+def _unit_label(unit: str) -> str:
+    return UNIT_LABEL.get(unit, unit.replace("_", " "))
+
+
 def _sorted_by_back_number(accounts: list[dict]) -> list[dict]:
     """Back number order, with the not-yet-assigned last.
 
@@ -81,14 +105,27 @@ def _revenue_summary(fin: dict) -> dict:
         })
 
     add("Class entry fees", totals["class_fee_total_cents"])
-    add("NSBA sanction fees", totals["nsba_sanction_total_cents"], "6% of entry fee, $3 minimum")
+    add(
+        "Club sanction fees",
+        totals["sanction_total_cents"],
+        "Per-class fee for each club sanctioning the class entered",
+    )
     add(
         "Office charge",
         totals["office_charge_total_cents"],
         "per horse" if fin.get("office_charge_basis") == "per_horse" else "per back number",
     )
+    # The show's own automatic charges, each on its own row. Folding them into
+    # one "other fees" line would hide the thing the office opens this report to
+    # find out — which charge the money came from.
+    for charge in totals.get("charge_lines", []):
+        add(
+            charge["label"],
+            charge["line_total_cents"],
+            f"{_money(charge['amount_cents'])} {_unit_label(charge['unit'])}",
+        )
     for fee in totals["fee_lines"]:
-        add(fee["label"], fee["line_total_cents"], f"{fee['quantity']} × {fee['unit'].replace('_', ' ')}")
+        add(fee["label"], fee["line_total_cents"], f"{fee['quantity']} × {_unit_label(fee['unit'])}")
 
     notes = [
         "Amounts are what the show has billed. Payments are recorded against an "
@@ -256,7 +293,7 @@ def _fees_sold(fin: dict) -> dict:
         {
             "label": fee["label"],
             "code": fee["code"],
-            "unit": fee["unit"].replace("_", " "),
+            "unit": _unit_label(fee["unit"]),
             "quantity": fee["quantity"],
             "early_rate_quantity": fee["early_rate_quantity"],
             "line_total_cents": fee["line_total_cents"],
@@ -284,6 +321,61 @@ def _fees_sold(fin: dict) -> dict:
             "priced at the rate in force on the day it was booked, so a show with "
             "an early deadline will show two rates against one fee.",
         ] if rows else ["Nothing reservable has been booked at this show yet."],
+    }
+
+
+def _charges_applied(fin: dict) -> dict:
+    """The show's own per-exhibitor / per-horse / per-judge charges.
+
+    The counterpart to Stalls, Shavings & Camping: that sheet is what people
+    asked for, this one is what the show applied to them whether they asked or
+    not. Both are `show_fees` rows and they are reported apart for that reason —
+    "12 stalls sold" and "12 exhibitors charged a gate fee" are not the same
+    kind of number and should never be added up together.
+    """
+    rows = [
+        {
+            "label": charge["label"],
+            "code": charge["code"],
+            "unit": _unit_label(charge["unit"]),
+            "amount_cents": charge["amount_cents"],
+            "exhibitors": charge["exhibitors"],
+            "quantity": charge["quantity"],
+            "line_total_cents": charge["line_total_cents"],
+        }
+        for charge in fin["totals"].get("charge_lines", [])
+    ]
+    return {
+        "columns": [
+            _col("label", "Charge"),
+            _col("code", "Code"),
+            _col("unit", "Charged"),
+            _col("amount_cents", "Rate", money=True),
+            _col("exhibitors", "Exhibitors", right=True),
+            _col("quantity", "Units", right=True),
+            _col("line_total_cents", "Billed", money=True),
+        ],
+        "rows": rows,
+        "totals": {
+            # Money only. Adding the exhibitor counts across rows double-counts
+            # everyone who carries two charges, and adding the unit counts adds
+            # horses to judge-horses — neither is a number the office wants.
+            "label": f"{len(rows)} charge(s)",
+            "line_total_cents": fin["totals"].get("charge_total_cents", 0),
+        },
+        "notes": [
+            "These are charged automatically to every exhibitor who has entered "
+            "a class — nobody books them. \"Units\" is what the rate was "
+            "multiplied by across the show: exhibitors for a per-exhibitor "
+            "charge, horses for a per-horse one, and judges × horses for a fee "
+            "quoted per judge.",
+            "The office charge on the show row is not listed here. It is one "
+            "fixed charge rather than a fee row, and it appears on its own line "
+            "in the Revenue Summary.",
+        ] if rows else [
+            "This show applies no automatic charges. They are set up under "
+            "Other fees in Step 5 of show setup."
+        ],
     }
 
 
@@ -356,6 +448,11 @@ _REPORTS: dict[str, dict] = {
         "title": "Stalls, Shavings & Camping",
         "description": "What exhibitors actually reserved, and how much of it went at the early rate.",
         "build": _fees_sold,
+    },
+    "charges-applied": {
+        "title": "Office, Horse & Judge Charges",
+        "description": "The charges the show applies to everyone who entered, and what each has billed.",
+        "build": _charges_applied,
     },
     "side-pot-money": {
         "title": "Side Pot Money",

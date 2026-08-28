@@ -26,6 +26,13 @@ def make_show(**overrides) -> SimpleNamespace:
         office_charge_cents=0,
         office_charge_basis="per_back_number",
         sanctioning=[],
+        # `build_bill` reads the show's own fee catalog and its judge panel off
+        # the Show row, the same way it reads `office_charge_cents`. Defaulted
+        # to empty so a test about class fees says nothing about either — and
+        # present at all so a test that forgets them fails the way the app does
+        # rather than passing on a stub the ORM would never hand over.
+        fees=[],
+        judges=[],
         # Dates
         start_date=date(2026, 6, 1),
         end_date=date(2026, 6, 3),
@@ -41,12 +48,37 @@ def make_show(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-def make_sanctioning(code: Optional[str]) -> SimpleNamespace:
+def make_sanctioning(
+    code: Optional[str], per_class_fee_cents: int = 300, association_id=None
+) -> SimpleNamespace:
     """One `show_sanctioning` row. `code=None` builds the row with no
     association attached, which is the shape a half-finished registry edit
-    leaves behind."""
-    association = None if code is None else SimpleNamespace(code=code)
-    return SimpleNamespace(association=association)
+    leaves behind.
+
+    `association_id` is what `class_sanctioning` joins on, so a test that wants
+    a club to actually charge has to hand the same id to `make_class_sanction`.
+    Defaulted to a fresh uuid rather than to the code, so two rows for the same
+    club in one test are still distinguishable."""
+    association_id = association_id or uuid4()
+    association = None if code is None else SimpleNamespace(code=code, name=code)
+    return SimpleNamespace(
+        association=association,
+        association_id=association_id,
+        per_class_fee_cents=per_class_fee_cents,
+    )
+
+
+def make_class_sanction(sanctioning) -> SimpleNamespace:
+    """A `class_sanctioning` row pointing at the club `sanctioning` describes.
+
+    Takes the show_sanctioning row rather than a bare id because the two only
+    mean anything together — a designation for a club the show does not carry
+    is priced at zero, which is a case worth being able to build deliberately.
+    """
+    return SimpleNamespace(
+        association_id=sanctioning.association_id,
+        association=sanctioning.association,
+    )
 
 
 def make_fee(**overrides) -> SimpleNamespace:
@@ -64,6 +96,15 @@ def make_fee(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def make_judges(count: int) -> list:
+    """A judge panel, as `build_bill` sees it: only the size matters.
+
+    These are `show_judges` assignment rows, not registry judges — nothing in
+    billing reads a name off them.
+    """
+    return [SimpleNamespace(id=uuid4()) for _ in range(count)]
+
+
 def make_class(**overrides) -> SimpleNamespace:
     defaults = dict(
         id=uuid4(),
@@ -71,6 +112,10 @@ def make_class(**overrides) -> SimpleNamespace:
         class_name="Western Pleasure",
         class_date=date(2026, 6, 1),
         entry_fee_cents=2500,
+        # No club sanctions this class unless a test says so. Defaulted to empty
+        # rather than omitted so a class built here behaves like one the ORM
+        # loaded — `sanctioning` is `lazy="selectin"` and is never absent.
+        sanctioning=[],
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

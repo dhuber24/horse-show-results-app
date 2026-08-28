@@ -86,11 +86,26 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
-    show = await db.get(
-        Show,
-        show_id,
-        options=[selectinload(Show.sanctioning)],
+    """The Show row, with everything `build_bill` reads off it loaded.
+
+    A plain `select` rather than `db.get(..., options=[...])`: `get` silently
+    drops the options when the row is already in the session's identity map —
+    the common case here, since the desk loads the show before calling this —
+    and the first read of an unloaded relationship in an async request is a
+    MissingGreenlet 500. `fees` and `judges` are what `charge_lines` bills the
+    show's own per-horse and per-judge charges from.
+    """
+    result = await db.execute(
+        select(Show)
+        .options(
+            selectinload(Show.sanctioning),
+            selectinload(Show.fees),
+            selectinload(Show.judges),
+        )
+        .where(Show.id == show_id)
+        .execution_options(populate_existing=True)
     )
+    show = result.scalar_one_or_none()
     if not show:
         raise HTTPException(404, "Show not found")
     return show

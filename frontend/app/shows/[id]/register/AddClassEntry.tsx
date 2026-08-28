@@ -208,7 +208,7 @@ export default function AddClassEntry({
                   <option key={c.id} value={c.id}>
                     {c.class_number} — {c.class_name}
                     {c.entry_fee_cents > 0 ? ` (${formatMoney(c.entry_fee_cents)})` : ''}
-                    {c.is_nsba_approved ? ' · NSBA' : ''}
+                    {c.sanctioning_codes.length > 0 ? ` · ${c.sanctioning_codes.join(', ')}` : ''}
                     {ridingAlready ? ' · another horse' : ''}
                   </option>
                 );
@@ -315,7 +315,7 @@ export default function AddClassEntry({
           <span className="text-xs" style={{ color: '#8b7355' }}>
             {activeClass.entry_fee_cents > 0
               ? `${formatMoney(
-                  activeClass.entry_fee_cents + activeClass.nsba_sanction_cents,
+                  activeClass.entry_fee_cents + activeClass.sanction_cents,
                 )} added to your bill`
               : 'No entry fee'}
           </span>

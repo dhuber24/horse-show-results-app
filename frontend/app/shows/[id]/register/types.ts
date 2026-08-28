@@ -19,8 +19,8 @@ export type PreviewClass = {
    *  horses in them. Everything else is once per exhibitor. */
   score_type: string;
   entry_fee_cents: number;
-  is_nsba_approved: boolean;
-  nsba_sanction_cents: number;
+  sanctioning_codes: string[];
+  sanction_cents: number;
 };
 
 export type HealthCheck = {

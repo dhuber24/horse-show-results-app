@@ -548,6 +548,27 @@ class ClassUpdate(BaseModel):
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
 
+class ClassSanctioningReplace(BaseModel):
+    """The classes one club sanctions at this show — the whole set, every time.
+
+    Replace rather than add/remove for the same reason `ShowSanctioningReplace`
+    is: the screen holds a set of ticked boxes, and sending the set it now holds
+    cannot leave a stale row behind the way a stream of deltas can.
+    """
+
+    class_ids: list[UUID] = Field(default_factory=list)
+
+
+class ClassSanctioningOut(BaseModel):
+    """One club's sanctioned-class list, with the fee that makes it cost money."""
+
+    association_id: UUID
+    code: str
+    name: str
+    per_class_fee_cents: int
+    class_ids: list[UUID] = Field(default_factory=list)
+
+
 class ClassAssociationCreate(BaseModel):
     show_type_id: UUID
     association_class_code: Optional[str] = Field(default=None, max_length=50)
@@ -604,13 +625,35 @@ class ClassOut(BaseModel):
 
 # ── Show Fees ─────────────────────────────────────────────────────────────────
 
+# Three families, and which one a unit belongs to is the whole of what it means
+# — see the COMMENT migration 112 puts on `show_fees.unit`.
+#
+#   reserved  — per_stall / per_bag / per_night / per_day / per_show.
+#               Quantities the exhibitor books at sign-up; billed through
+#               `show_entry_reservations` and the only family that may carry an
+#               early rate.
+#   automatic — per_exhibitor / per_horse / per_judge_per_horse /
+#               per_judge_per_exhibitor. Charged to every exhibitor with
+#               entries, derived from what they entered and the size of the
+#               judge panel.
+#   neither   — flat / per_entry / per_class_per_horse / percent_of_entry.
+#               Published price-list text; they bill nobody, because either the
+#               occurrence is not derivable (`flat`) or `classes.entry_fee_cents`
+#               already charges it (`per_entry` and friends).
+#
+# `per_judge` was split into the two compound units in migration 112: "per
+# judge" alone does not say what it multiplies, and the two readings differ by
+# however many horses somebody brought.
 FeeUnit = Literal[
     'flat',
     'per_entry',
+    'per_exhibitor',
     'per_horse',
-    'per_judge',
+    'per_judge_per_horse',
+    'per_judge_per_exhibitor',
     'per_class_per_horse',
     'per_night',
+    'per_day',
     'per_stall',
     'per_bag',
     'per_show',
@@ -2766,7 +2809,7 @@ class BillClassLineOut(BaseModel):
     class_date: Optional[date] = None
     horse_name: Optional[str] = None
     fee_cents: int
-    nsba_sanction_cents: int
+    sanction_cents: int
 
 
 class BillReservationLineOut(BaseModel):
@@ -2782,6 +2825,27 @@ class BillReservationLineOut(BaseModel):
     standard_amount_cents: int
     is_early_rate: bool
     reserved_at: date
+    line_total_cents: int
+
+
+class BillChargeLineOut(BaseModel):
+    """One of the show's own automatic charges, applied to this exhibitor.
+
+    As against `BillReservationLineOut`, which is a quantity they booked: a
+    charge is derived from what they entered, so there is no `reserved_at` and
+    no early rate to choose between. `horse_count` and `judge_count` travel with
+    the line so the bill can print the arithmetic — "$5.00 × 3 judges × 2
+    horses" is checkable against a paper show bill in a way "$5.00 × 6" is not.
+    """
+
+    show_fee_id: UUID
+    code: str
+    label: str
+    unit: FeeUnit
+    amount_cents: int
+    horse_count: int
+    judge_count: int
+    quantity: int
     line_total_cents: int
 
 
@@ -2819,13 +2883,15 @@ class BillOut(BaseModel):
 
     class_lines: list[BillClassLineOut] = Field(default_factory=list)
     reservation_lines: list[BillReservationLineOut] = Field(default_factory=list)
+    charge_lines: list[BillChargeLineOut] = Field(default_factory=list)
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
-    nsba_sanction_total_cents: int
+    sanction_total_cents: int
     office_charge_cents: int
     office_charge_basis: str
     office_charge_total_cents: int
     reservation_total_cents: int
+    charge_total_cents: int = 0
     futurity_total_cents: int = 0
     total_cents: int
 
@@ -2865,12 +2931,35 @@ class FinancialFeeLineOut(BaseModel):
     early_rate_quantity: int = 0
 
 
+class FinancialChargeLineOut(BaseModel):
+    """What one of the show's automatic charges has billed across the show.
+
+    Kept apart from `FinancialFeeLineOut` rather than folded in with it. Both
+    are `show_fees` rows, but the Fees Reserved report reads that list as "what
+    exhibitors booked at sign-up" and foots it against `reservation_total_cents`
+    — a drug fee nobody booked would leave that sheet's rows disagreeing with
+    its own total.
+    """
+
+    show_fee_id: UUID
+    code: str
+    label: str
+    unit: FeeUnit
+    amount_cents: int
+    quantity: int
+    line_total_cents: int
+    # How many exhibitors carried this charge — the count the office checks a
+    # per-back-number fee against.
+    exhibitors: int = 0
+
+
 class FinancialTotalsOut(BaseModel):
     accounts: int = 0
     class_fee_total_cents: int = 0
-    nsba_sanction_total_cents: int = 0
+    sanction_total_cents: int = 0
     office_charge_total_cents: int = 0
     reservation_total_cents: int = 0
+    charge_total_cents: int = 0
     futurity_total_cents: int = 0
     billed_cents: int = 0
     collected_cents: int = 0
@@ -2886,6 +2975,7 @@ class FinancialTotalsOut(BaseModel):
     accounts_paid_in_full: int = 0
     accounts_unpaid: int = 0
     fee_lines: list[FinancialFeeLineOut] = Field(default_factory=list)
+    charge_lines: list[FinancialChargeLineOut] = Field(default_factory=list)
 
 
 class FinancialRegistrationsOut(BaseModel):
@@ -3095,3 +3185,76 @@ class ShowDeskRosterRow(BaseModel):
     exhibitor_name: str
     back_number: Optional[int] = None
     signed_up: bool = False
+
+
+# ── Association class-code imports ──────────────────────────────────────────
+
+class StandardClassRowOut(BaseModel):
+    code: str
+    name: str
+    division: str
+    sort_order: int = 0
+    notes: Optional[str] = None
+
+
+class StandardClassChangeOut(BaseModel):
+    """One code the file states differently from the catalog."""
+    code: str
+    before: StandardClassRowOut
+    after: StandardClassRowOut
+    #: Which of name / division / sort_order differ, so the reviewer can tell a
+    #: renamed class from one that only moved in the running order.
+    fields: list[str] = Field(default_factory=list)
+
+
+class StandardClassImportPreviewOut(BaseModel):
+    show_type_id: UUID
+    show_type_code: str
+    filename: str
+    parsed_count: int
+    unchanged_count: int
+    added: list[StandardClassRowOut] = Field(default_factory=list)
+    changed: list[StandardClassChangeOut] = Field(default_factory=list)
+    #: In the catalog, absent from this file. Nothing is retired unless the
+    #: admin says so — a code an old show used still has to resolve.
+    retired: list[StandardClassRowOut] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    #: Lines the reader could not place. Empty is the expected case; anything
+    #: here means the association changed its layout.
+    skipped: list[str] = Field(default_factory=list)
+
+
+class StandardClassImportResultOut(BaseModel):
+    import_id: UUID
+    show_type_code: str
+    added_count: int
+    changed_count: int
+    retired_count: int
+    unchanged_count: int
+    active_count: int
+
+
+class AssociationClassImportOut(BaseModel):
+    id: UUID
+    show_type_id: UUID
+    show_type_code: Optional[str] = None
+    filename: str
+    source_year: Optional[int] = None
+    uploaded_at: datetime
+    uploaded_by_name: Optional[str] = None
+    added_count: int
+    changed_count: int
+    retired_count: int
+    unchanged_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class StandardClassCatalogOut(BaseModel):
+    show_type_id: UUID
+    show_type_code: str
+    active_count: int
+    divisions: list[str] = Field(default_factory=list)
+    pdf_supported: bool = False
+    last_import: Optional[AssociationClassImportOut] = None

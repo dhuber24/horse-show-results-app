@@ -8,6 +8,7 @@ const adminTiles = [
   { href: '/admin/horses', title: 'Horses', description: 'Add and edit horses in the system.', icon: 'H' },
   { href: '/admin/trainers', title: 'Trainers', description: 'Manage trainer registry records used on horse profiles.', icon: 'R' },
   { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scribes.', icon: 'U' },
+  { href: '/admin/standard-classes', title: 'Class Codes', description: "Load an association's approved class list from their published file.", icon: 'C' },
 ];
 
 const showSecretaryTiles = [

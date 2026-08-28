@@ -1,6 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { isAutomaticUnit } from '@/lib/fee-units';
 import BoardingFeesEditor from './BoardingFeesEditor';
 
 async function fetchShowFees(showId: string, headers: HeadersInit) {
@@ -17,9 +18,10 @@ export default async function BoardingFeesPage({ params }: { params: Promise<{ i
     fetchShowFees(id, headers || {}),
   ]);
 
-  const boardingFees = fees.filter(
-    (f: { unit: string }) => f.unit !== 'per_horse' && f.unit !== 'per_judge',
-  );
+  // Everything except the charges the show applies automatically — those are
+  // edited on Entry Fees and in setup Step 5, and offering them here as well
+  // would be two screens writing one row in two vocabularies.
+  const boardingFees = fees.filter((f: { unit: string }) => !isAutomaticUnit(f.unit));
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">

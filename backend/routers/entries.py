@@ -9,7 +9,6 @@ from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import (
-    AqhaStandardClass,
     Class,
     ClassAssociation,
     CogginsOverrideAudit,
@@ -21,6 +20,7 @@ from models import (
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
+import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/entries", tags=["Entries"])
 
@@ -87,7 +87,7 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
         context["aqha_show_type_id"] = show.show_type_id
         context["aqha_association_id"] = await get_aqha_association_id(db)
         context["aqha_class_code"] = aqha_code
-        context["aqha_class"] = await db.get(AqhaStandardClass, aqha_code) if aqha_code else None
+        context["aqha_class"] = await standard_classes.lookup(db, "AQHA", aqha_code)
     return context
 
 

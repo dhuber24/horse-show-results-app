@@ -8,14 +8,17 @@ collects on them, so a silent regression here charges a real person the wrong
 amount.
 """
 from datetime import date
+from uuid import uuid4
 
 import pytest
 
 import billing
 from tests.factories import (
+    make_class_sanction,
     make_class,
     make_entry,
     make_fee,
+    make_judges,
     make_payment,
     make_payout,
     make_reservation,
@@ -67,33 +70,82 @@ def test_fee_rate_without_an_early_rate_is_always_the_standard_amount():
     assert billing.fee_rate_cents(fee, date(2030, 1, 1)) == 5000
 
 
-# ── NSBA sanctioning ──────────────────────────────────────────────────────────
+# ── Club sanctioning (migration 113) ──────────────────────────────────────────
 
 
-def test_nsba_sanction_is_six_percent_with_a_three_dollar_floor():
-    assert billing.nsba_sanction_cents(10000) == 600           # 6% of $100
-    assert billing.nsba_sanction_cents(2500) == 300            # 6% is $1.50 → floored to $3
-    assert billing.nsba_sanction_cents(0) == 300               # owed even on a free class
-    assert billing.nsba_sanction_cents(5000) == 300            # 6% is exactly $3
+def test_sanction_rates_reads_the_per_class_fee_off_each_club():
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    wsca = make_sanctioning("WSCA", per_class_fee_cents=200)
+    rates = billing.sanction_rates(make_show(sanctioning=[nsba, wsca]))
+    assert rates == {nsba.association_id: 300, wsca.association_id: 200}
 
 
-def test_show_is_nsba_sanctioned_only_via_a_club_row():
-    assert not billing.show_is_nsba_sanctioned(make_show())
-    assert not billing.show_is_nsba_sanctioned(make_show(sanctioning=[make_sanctioning("WSCA")]))
-    assert billing.show_is_nsba_sanctioned(
-        make_show(sanctioning=[make_sanctioning("WSCA"), make_sanctioning("NSBA")])
-    )
+def test_sanction_rates_drops_a_club_with_no_fee_set():
+    """A show that enrolled a club without pricing it charges nothing, rather
+    than putting a $0.00 line on every entry."""
+    unpriced = make_sanctioning("WSCA", per_class_fee_cents=0)
+    rates = billing.sanction_rates(make_show(sanctioning=[unpriced]))
+    assert rates == {}
 
 
-def test_show_sanctioning_tolerates_a_row_with_no_association():
+def test_sanction_rates_tolerates_a_row_with_no_association():
     """A sanctioning row whose association did not load must not raise — the
     bill is not the place to discover a dangling reference."""
-    show = make_show(sanctioning=[make_sanctioning(None), make_sanctioning("NSBA")])
-    assert billing.show_is_nsba_sanctioned(show) is True
+    dangling = make_sanctioning(None, per_class_fee_cents=300)
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=500)
+    rates = billing.sanction_rates(make_show(sanctioning=[dangling, nsba]))
+    assert rates[nsba.association_id] == 500
 
 
-def test_show_sanctioning_handles_a_null_collection():
-    assert not billing.show_is_nsba_sanctioned(make_show(sanctioning=None))
+def test_sanction_rates_handles_a_null_collection():
+    assert billing.sanction_rates(make_show(sanctioning=None)) == {}
+
+
+def test_an_undesignated_class_carries_no_sanction_fee():
+    """The whole point of migration 113. A show carrying NSBA sanctioning runs
+    plenty of classes NSBA has nothing to do with, and the exhibitor entering
+    one of those owes nothing on it."""
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
+    assert billing.class_sanction_cents(make_class(), rates) == 0
+
+
+def test_a_designated_class_carries_that_club_s_fee():
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
+    cls = make_class(sanctioning=[make_class_sanction(nsba)])
+    assert billing.class_sanction_cents(cls, rates) == 300
+
+
+def test_a_dual_sanctioned_class_carries_both_fees():
+    """Two clubs approving the same class is two sanction fees, not the larger
+    of the two — each club collects its own."""
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    wsca = make_sanctioning("WSCA", per_class_fee_cents=200)
+    rates = billing.sanction_rates(make_show(sanctioning=[nsba, wsca]))
+    cls = make_class(
+        sanctioning=[make_class_sanction(nsba), make_class_sanction(wsca)]
+    )
+    assert billing.class_sanction_cents(cls, rates) == 500
+
+
+def test_a_designation_for_a_club_the_show_dropped_charges_nothing():
+    """Removing a club in Step 3 leaves its class designations behind. They
+    must price at zero rather than at whatever the club used to charge."""
+    dropped = make_sanctioning("WSCA", per_class_fee_cents=200)
+    cls = make_class(sanctioning=[make_class_sanction(dropped)])
+    assert billing.class_sanction_cents(cls, rates={}) == 0
+
+
+def test_sanction_fee_does_not_scale_with_the_entry_fee():
+    """It is a flat per-class amount, not a percentage. A $100 class and a $25
+    class designated for the same club owe the same."""
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
+    for fee in (0, 2500, 10000):
+        cls = make_class(entry_fee_cents=fee, sanctioning=[make_class_sanction(nsba)])
+        assert billing.class_sanction_cents(cls, rates) == 300
+
 
 
 # ── The office charge honours the show's stated basis ─────────────────────────
@@ -136,13 +188,13 @@ def test_bill_totals_its_four_components():
     bill = billing.build_bill(show, entries, reservations)
 
     assert bill["class_fee_total_cents"] == 5500
-    assert bill["nsba_sanction_total_cents"] == 0
+    assert bill["sanction_total_cents"] == 0
     assert bill["office_charge_total_cents"] == 1000
     assert bill["reservation_total_cents"] == 10000
     assert bill["total_cents"] == 16500
     assert bill["total_cents"] == (
         bill["class_fee_total_cents"]
-        + bill["nsba_sanction_total_cents"]
+        + bill["sanction_total_cents"]
         + bill["office_charge_total_cents"]
         + bill["reservation_total_cents"]
     )
@@ -164,16 +216,35 @@ def test_bill_counts_distinct_horses_for_a_per_horse_office_charge():
     assert bill["office_charge_total_cents"] == 2000, "two distinct horses, not three entries"
 
 
-def test_bill_charges_nsba_sanction_per_entry():
+def test_bill_charges_sanction_per_entry():
     """Money is per entry, not per class — an exhibitor showing two horses in
     the same pattern class owes two sanction fees."""
-    show = make_show(sanctioning=[make_sanctioning("NSBA")])
-    entries = [make_entry(cls=make_class(entry_fee_cents=10000)) for _ in range(2)]
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=600)
+    show = make_show(sanctioning=[nsba])
+    cls = make_class(entry_fee_cents=10000, sanctioning=[make_class_sanction(nsba)])
+    entries = [make_entry(cls=cls) for _ in range(2)]
 
     bill = billing.build_bill(show, entries, [])
 
-    assert bill["nsba_sanction_total_cents"] == 1200
-    assert all(line["nsba_sanction_cents"] == 600 for line in bill["class_lines"])
+    assert bill["sanction_total_cents"] == 1200
+    assert all(line["sanction_cents"] == 600 for line in bill["class_lines"])
+
+
+def test_bill_charges_sanction_only_on_the_designated_classes():
+    """The regression migration 113 exists to prevent: an NSBA show billing a
+    sanction fee on every class an exhibitor entered."""
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    show = make_show(sanctioning=[nsba])
+    entries = [
+        make_entry(cls=make_class(sanctioning=[make_class_sanction(nsba)])),
+        make_entry(cls=make_class()),
+        make_entry(cls=make_class()),
+    ]
+
+    bill = billing.build_bill(show, entries, [])
+
+    assert bill["sanction_total_cents"] == 300, "one designated class, not three"
+    assert [line["sanction_cents"] for line in bill["class_lines"]] == [300, 0, 0]
 
 
 def test_bill_skips_an_entry_whose_class_is_gone():
@@ -319,8 +390,18 @@ def test_a_settled_account_counts_as_paid_in_full():
 
 
 def test_rollup_sums_each_billed_category():
-    show = make_show(office_charge_cents=1000, sanctioning=[make_sanctioning("NSBA")])
-    entries = [make_entry(cls=make_class(entry_fee_cents=10000))]
+    show = make_show(
+        office_charge_cents=1000,
+        sanctioning=[make_sanctioning("NSBA", per_class_fee_cents=600)],
+    )
+    entries = [
+        make_entry(
+            cls=make_class(
+                entry_fee_cents=10000,
+                sanctioning=[make_class_sanction(show.sanctioning[0])],
+            )
+        )
+    ]
     reservations = [make_reservation(fee=make_fee(amount_cents=5000), quantity=1)]
     account = billing.build_account(show, entries, reservations, [])
 
@@ -328,7 +409,7 @@ def test_rollup_sums_each_billed_category():
 
     assert totals["accounts"] == 2
     assert totals["class_fee_total_cents"] == 20000
-    assert totals["nsba_sanction_total_cents"] == 1200
+    assert totals["sanction_total_cents"] == 1200
     assert totals["office_charge_total_cents"] == 2000
     assert totals["reservation_total_cents"] == 10000
     assert totals["billed_cents"] == 33200
@@ -427,24 +508,156 @@ def test_an_empty_side_pot_pays_out_nothing():
     }
 
 
+# ── The show's own automatic charges (migration 112) ──────────────────────────
+
+
+def _charged(fee, entries, judges=0):
+    """Bill one exhibitor at a show carrying exactly this one automatic fee."""
+    return billing.build_bill(
+        make_show(fees=[fee], judges=make_judges(judges)), entries, []
+    )
+
+
+def test_a_per_exhibitor_charge_is_charged_once_however_many_horses():
+    fee = make_fee(code="gate", label="Gate fee", unit="per_exhibitor", amount_cents=1500)
+    bill = _charged(fee, [make_entry(), make_entry()])
+    assert bill["charge_total_cents"] == 1500
+    assert bill["charge_lines"][0]["quantity"] == 1
+
+
+def test_a_per_horse_charge_counts_distinct_horses():
+    """Two entries on one horse is one horse, the same rule the per-horse office
+    charge follows — a drug fee is levied on the animal, not on the paperwork."""
+    horse = uuid4()
+    fee = make_fee(code="drug", label="Drug fee", unit="per_horse", amount_cents=800)
+    bill = _charged(fee, [make_entry(horse_id=horse), make_entry(horse_id=horse), make_entry()])
+    assert bill["charge_total_cents"] == 1600
+    assert bill["charge_lines"][0]["quantity"] == 2
+
+
+def test_a_per_judge_per_horse_charge_multiplies_both():
+    fee = make_fee(code="judge", label="Judge fee", unit="per_judge_per_horse", amount_cents=500)
+    bill = _charged(fee, [make_entry(), make_entry()], judges=3)
+    assert bill["charge_total_cents"] == 3000
+    line = bill["charge_lines"][0]
+    assert (line["judge_count"], line["horse_count"], line["quantity"]) == (3, 2, 6)
+
+
+def test_a_per_judge_per_exhibitor_charge_ignores_the_horse_count():
+    """The half of "per judge" that the split exists to keep apart.
+
+    Same fee, same panel, same two horses as the test above — and a fifth of
+    the money. Which of the two a show means is not recoverable from the amount,
+    which is why the unit says it.
+    """
+    fee = make_fee(code="judge", unit="per_judge_per_exhibitor", amount_cents=500)
+    bill = _charged(fee, [make_entry(), make_entry()], judges=3)
+    assert bill["charge_total_cents"] == 1500
+
+
+def test_an_automatic_charge_needs_entries():
+    """Signing up is not entering. Somebody holding a stall and no classes has
+    not incurred the show's per-horse costs — the rule `office_charge_total_cents`
+    already applies."""
+    fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500)
+    assert _charged(fee, [])["charge_total_cents"] == 0
+
+
+def test_a_free_charge_produces_no_line():
+    """`POST /shows/{id}/fees/seed` writes its templates at $0 for the secretary
+    to fill in. A column of $0.00 rows teaches people to skim the bill."""
+    fee = make_fee(code="drug", unit="per_horse", amount_cents=0)
+    assert _charged(fee, [make_entry()])["charge_lines"] == []
+
+
+def test_a_per_judge_charge_is_nothing_without_a_panel():
+    """No judges assigned yet is zero judges, not one. Guessing at a panel size
+    would bill a number the show never agreed to."""
+    fee = make_fee(code="judge", unit="per_judge_per_horse", amount_cents=500)
+    assert _charged(fee, [make_entry()], judges=0)["charge_lines"] == []
+
+
+@pytest.mark.parametrize("unit", ["flat", "per_entry", "per_class_per_horse", "percent_of_entry"])
+def test_price_list_units_bill_nobody(unit):
+    """`flat` because the app cannot derive who left the stall dirty; the rest
+    because `classes.entry_fee_cents` already charges per entry and billing a
+    `standard_class` row on top of it would double every class."""
+    fee = make_fee(code="x", unit=unit, amount_cents=2500)
+    assert _charged(fee, [make_entry()])["charge_total_cents"] == 0
+
+
+def test_a_reservable_fee_is_never_charged_automatically():
+    """A stall the exhibitor did not book is not a stall they owe for."""
+    fee = make_fee(code="stall", unit="per_stall", amount_cents=5000)
+    assert _charged(fee, [make_entry()])["charge_total_cents"] == 0
+
+
+def test_charges_are_added_to_the_bill_total():
+    show = make_show(
+        office_charge_cents=1000,
+        fees=[
+            make_fee(code="gate", unit="per_exhibitor", amount_cents=1500),
+            make_fee(code="drug", unit="per_horse", amount_cents=800),
+        ],
+        judges=make_judges(2),
+    )
+    bill = billing.build_bill(show, [make_entry(cls=make_class(entry_fee_cents=2500))], [])
+    # 2500 class + 1000 office + 1500 gate + 800 drug
+    assert bill["charge_total_cents"] == 2300
+    assert bill["total_cents"] == 5800
+
+
+def test_the_rollup_keeps_charges_apart_from_reservations():
+    """Both are `show_fees` rows and they are summarised separately.
+
+    The Stalls, Shavings & Camping report foots `fee_lines` against
+    `reservation_total_cents`; a drug fee nobody booked appearing there would
+    leave that sheet's rows disagreeing with its own total.
+    """
+    fee = make_fee(code="drug", label="Drug fee", unit="per_horse", amount_cents=800)
+    show = make_show(fees=[fee])
+    accounts = [
+        billing.build_account(show, [make_entry()], [], []),
+        billing.build_account(show, [make_entry(), make_entry()], [], []),
+    ]
+    totals = billing.summarize_accounts(accounts)
+    assert totals["fee_lines"] == []
+    assert totals["charge_total_cents"] == 2400
+    (charge,) = totals["charge_lines"]
+    assert (charge["quantity"], charge["exhibitors"], charge["line_total_cents"]) == (3, 2, 2400)
+
+
+def test_automatic_fees_are_the_other_half_of_reservable_fees():
+    fees = [
+        make_fee(code="A", unit="per_horse"),
+        make_fee(code="B", unit="per_stall"),
+        make_fee(code="C", unit="flat"),
+        make_fee(code="D", unit="per_judge_per_exhibitor"),
+    ]
+    assert [f.code for f in billing.automatic_fees(fees)] == ["A", "D"]
+    assert [f.code for f in billing.reservable_fees(fees)] == ["B"]
+
+
 # ── Fee helpers ───────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("unit", ["per_stall", "per_bag", "per_night", "per_show"])
+@pytest.mark.parametrize(
+    "unit", ["per_stall", "per_bag", "per_night", "per_day", "per_show"]
+)
 def test_reservable_units_are_offered(unit):
     assert billing.reservable_fees([make_fee(unit=unit)])
 
 
-@pytest.mark.parametrize("unit", ["per_night", "per_show"])
+@pytest.mark.parametrize("unit", ["per_night", "per_day", "per_show"])
 def test_a_reservation_is_priced_the_same_whatever_the_unit_calls_it(unit):
     """The unit names what the quantity counts; it never enters the arithmetic.
 
-    Camping is one line item priced either by the night or by the show
-    (migration 108), and both go through this same rate x quantity. That is
-    exactly why `PATCH /shows/{id}/fees/{fee_id}` refuses to change the unit on
-    a fee somebody has already reserved: nothing downstream would notice that
-    "3 nights" had become "3 spots", and the bill would just quietly say
-    something else.
+    Camping is one line item priced by the night, by the day or by the show
+    (migrations 108, 111), and all three go through this same rate x quantity.
+    That is exactly why `PATCH /shows/{id}/fees/{fee_id}` refuses to change the
+    unit on a fee somebody has already reserved: nothing downstream would
+    notice that "3 nights" had become "3 days" or "3 spots", and the bill would
+    just quietly say something else.
     """
     fee = make_fee(code="camping", unit=unit, amount_cents=6000)
     bill = billing.build_bill(
@@ -454,10 +667,14 @@ def test_a_reservation_is_priced_the_same_whatever_the_unit_calls_it(unit):
     assert bill["reservation_lines"][0]["unit"] == unit
 
 
-@pytest.mark.parametrize("unit", ["per_entry", "flat", "per_horse"])
+@pytest.mark.parametrize(
+    "unit", ["per_entry", "flat", "per_horse", "per_judge_per_horse"]
+)
 def test_non_reservable_units_are_not_offered(unit):
     """A class entry fee is never reserved a quantity of — it is charged per
-    entry, so an early rate would have nothing to apply to."""
+    entry, so an early rate would have nothing to apply to. Nor is a charge the
+    show applies to everybody: `per_horse` and `per_judge_per_horse` bill
+    automatically, which is the opposite of something you book."""
     assert billing.reservable_fees([make_fee(unit=unit)]) == []
 
 

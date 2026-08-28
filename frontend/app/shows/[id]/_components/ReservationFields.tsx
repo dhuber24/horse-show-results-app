@@ -80,20 +80,21 @@ const UNIT_GROUPS: { key: string; heading: string; blurb: string; units: string[
     units: ['per_bag'],
   },
   {
-    // per_night and per_show under one heading because they are the two ways a
-    // venue prices the same camping spot, and the show picks one (migration
-    // 108). Splitting them put "Camping" and "For the whole show" side by side
-    // and left a whole-show camping spot filed under neither name the
-    // exhibitor was looking for.
+    // per_night, per_day and per_show under one heading because they are the
+    // three ways a venue prices the same camping spot, and the show picks one
+    // (migrations 108, 111). Splitting them put "Camping" and "For the whole
+    // show" side by side and left a whole-show camping spot filed under
+    // neither name the exhibitor was looking for.
     //
     // What that split was guarding against — booking two *nights* of a
     // $60-for-the-weekend hook-up and being charged $120 — is now handled where
     // it actually bites: the noun sits against the number being typed, not
-    // just in a heading above it.
+    // just in a heading above it. That matters more with per_day in the mix,
+    // where the wrong count is off by one rather than obviously doubled.
     key: 'camping',
     heading: 'Camping & hook-ups',
     blurb: 'Space on the grounds.',
-    units: ['per_night', 'per_show'],
+    units: ['per_night', 'per_day', 'per_show'],
   },
 ];
 
@@ -101,20 +102,29 @@ const UNIT_NOUN: Record<string, string> = {
   per_stall: 'stall',
   per_bag: 'bag',
   per_night: 'night',
+  per_day: 'day',
   per_show: 'spot',
 };
 
-/** What the number in the box counts, said next to the box. A per_night and a
- *  per_show line look identical until you read the rate, and they are the one
- *  pair in this form where getting it wrong doubles the charge. */
+/** What the number in the box counts, said next to the box. A per_night, a
+ *  per_day and a per_show line look identical until you read the rate, and
+ *  they are the one set in this form where getting the count wrong changes
+ *  what you pay — by a whole extra spot for per_show, and by a day for the
+ *  night/day pair, which is the easier of the two to miss. */
 function unitBlurb(units: string[]): string {
-  const hasNight = units.includes('per_night');
-  const hasShow = units.includes('per_show');
-  if (hasNight && hasShow) {
-    return 'Count nights for anything priced by the night, and spots for anything priced for the whole show.';
+  const camping = ['per_night', 'per_day', 'per_show'].filter((u) => units.includes(u));
+  if (camping.length > 1) {
+    return 'Check what each line is priced by — nights, days, or one price per spot for the whole show — and count that.';
   }
-  if (hasShow) return 'Charged once each for the whole show, however long you stay.';
-  if (hasNight) return 'Count nights, not campers.';
+  if (camping[0] === 'per_show') {
+    return 'Charged once each for the whole show, however long you stay.';
+  }
+  if (camping[0] === 'per_day') {
+    return 'Count days, not campers — a Friday-to-Sunday show is three days.';
+  }
+  if (camping[0] === 'per_night') {
+    return 'Count nights, not campers — a Friday-to-Sunday show is two nights.';
+  }
   return '';
 }
 

@@ -20,15 +20,23 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
 
 async function fetchStandardLibrary(
   showTypes: { id: string; code: string }[],
-): Promise<{ disciplines: StandardItem[]; divisions: StandardItem[] }> {
-  // OPEN's class wizard pulls from the AQHA + APHA standard catalogs — the
-  // disciplines and divisions both associations use are a good starting
-  // point for an unaffiliated show, and the secretary can still add custom.
-  const breedCodes = ['AQHA', 'APHA'];
-  const breedIds = showTypes.filter((t) => breedCodes.includes(t.code)).map((t) => t.id);
+  showTypeId: string,
+  showTypeCode: string | null,
+): Promise<{ disciplines: StandardItem[]; divisions: StandardItem[]; label: string }> {
+  // A breed show picks from its own association's catalog. OPEN has no
+  // association of its own, so it pulls the AQHA + APHA standard catalogs
+  // instead - the disciplines and divisions both associations run are a good
+  // starting point for an unaffiliated show. Either way the endpoint adds the
+  // generic (show_type_id NULL) fallback rows, and the secretary can still
+  // add anything custom.
+  const isOpen = showTypeCode === 'OPEN';
+  const sourceIds = isOpen
+    ? showTypes.filter((t) => t.code === 'AQHA' || t.code === 'APHA').map((t) => t.id)
+    : [showTypeId];
+  const label = isOpen ? 'AQHA / APHA shared' : (showTypeCode ?? 'standard');
 
   const disciplineLists = await Promise.all(
-    breedIds.map((id) =>
+    sourceIds.map((id) =>
       fetchAuthed<StandardItem[]>(
         `${API_URL}/standard-setup/disciplines?show_type_id=${encodeURIComponent(id)}`,
         [],
@@ -36,7 +44,7 @@ async function fetchStandardLibrary(
     ),
   );
   const divisionLists = await Promise.all(
-    breedIds.map((id) =>
+    sourceIds.map((id) =>
       fetchAuthed<StandardItem[]>(
         `${API_URL}/standard-setup/divisions?show_type_id=${encodeURIComponent(id)}`,
         [],
@@ -44,12 +52,17 @@ async function fetchStandardLibrary(
     ),
   );
 
+  // The association's own row beats the generic fallback of the same name -
+  // both come back in one list, and the association's carries its score type
+  // and its running order.
   function dedupe(lists: StandardItem[][]): StandardItem[] {
     const seen = new Map<string, StandardItem>();
     for (const list of lists) {
       for (const item of list) {
         const key = item.name.trim().toLowerCase();
-        if (key && !seen.has(key)) seen.set(key, item);
+        if (!key) continue;
+        const held = seen.get(key);
+        if (!held || (!held.show_type_id && item.show_type_id)) seen.set(key, item);
       }
     }
     return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -58,6 +71,7 @@ async function fetchStandardLibrary(
   return {
     disciplines: dedupe(disciplineLists),
     divisions: dedupe(divisionLists),
+    label,
   };
 }
 
@@ -74,39 +88,21 @@ export default async function ShowClassesPage({
   const show = await fetchShow(id);
   const stepsInput = await fetchStepCounts(id, show.office_charge_cents ?? 0);
 
-  if (show.show_type_code !== 'OPEN') {
-    return (
-      <StepLayout
-        showId={id}
-        showName={show.name}
-        current="classes"
-        title="Step 6: Classes"
-        subtitle="Build the class schedule for this show."
-        stepsInput={stepsInput}
-      >
-        <div
-          className="rounded border p-4 text-sm space-y-2"
-          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
-        >
-          <p>
-            Class setup for {show.show_type_code ?? 'this show type'} is being rebuilt.
-            The new OPEN wizard ships first; per-association flows come next.
-          </p>
-          <Link href={`/admin/shows/${id}`} className="hover:underline" style={{ color: '#8b4513' }}>
-            ← Back to show
-          </Link>
-        </div>
-      </StepLayout>
-    );
-  }
-
-  const [showTypes, disciplines, divisions, classes] = await Promise.all([
+  const [showTypes, disciplines, divisions, classes, clubs] = await Promise.all([
     fetchShowTypes(),
     fetchDisciplines(id),
     fetchDivisions(id),
     fetchClasses(id),
+    fetchAuthed<{ association_id: string; code: string; class_ids: string[] }[]>(
+      `${API_URL}/shows/${id}/classes/sanctioning`,
+      [],
+    ),
   ]);
-  const standardLibrary = await fetchStandardLibrary(showTypes);
+  const standardLibrary = await fetchStandardLibrary(
+    showTypes,
+    show.show_type_id,
+    show.show_type_code ?? null,
+  );
 
   return (
     <StepLayout
@@ -114,9 +110,31 @@ export default async function ShowClassesPage({
       showName={show.name}
       current="classes"
       title="Step 6: Classes"
-      subtitle="Three steps: pick disciplines, pick divisions, build classes."
+      subtitle="Three steps: pick disciplines, pick divisions, build classes. If a club sanctions this show, say which of these classes it approves in Sanctioned Classes."
       stepsInput={stepsInput}
     >
+      {clubs.length > 0 && (
+        <div
+          className="rounded border p-3 mb-4 text-sm flex items-center justify-between gap-3 flex-wrap"
+          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
+        >
+          <span>
+            {clubs
+              .map((c) => `${c.code} (${c.class_ids.length} class${c.class_ids.length === 1 ? '' : 'es'})`)
+              .join(', ')}{' '}
+            — a club approves a list of classes, not the whole schedule, and its
+            per-class fee is charged on those classes only.
+          </span>
+          <Link
+            href={`/admin/shows/${id}/classes/sanctioning`}
+            className="underline whitespace-nowrap"
+            style={{ color: '#8b4513' }}
+          >
+            Sanctioned Classes →
+          </Link>
+        </div>
+      )}
+
       <ClassWizardClient
         showId={id}
         showStartDate={show.start_date}
@@ -126,6 +144,7 @@ export default async function ShowClassesPage({
         initialClasses={classes as ClassItem[]}
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
+        standardLibraryLabel={standardLibrary.label}
       />
     </StepLayout>
   );

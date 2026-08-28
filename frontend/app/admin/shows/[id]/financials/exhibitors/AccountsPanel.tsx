@@ -10,6 +10,7 @@ import {
   type FinancialAccount,
   type PaymentMethod,
 } from '@/lib/financials';
+import { unitLabel } from '@/lib/fee-units';
 import AutoRefresh from '../AutoRefresh';
 
 type Filter = 'owing' | 'settled' | 'all';
@@ -240,7 +241,7 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
   const { bill } = account;
   const rows = [
     { label: 'Class entry fees', cents: bill.class_fee_total_cents },
-    { label: 'NSBA sanction fees', cents: bill.nsba_sanction_total_cents },
+    { label: 'Club sanction fees', cents: bill.sanction_total_cents },
     {
       label: `Office charge (${
         bill.office_charge_basis === 'per_horse' ? 'per horse' : 'per back number'
@@ -250,6 +251,16 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
     ...bill.reservation_lines.map((line) => ({
       label: `${line.label} — ${line.quantity} × ${formatMoney(line.amount_cents)}${
         line.is_early_rate ? ' (early rate)' : ''
+      }`,
+      cents: line.line_total_cents,
+    })),
+    // The show's own charges. The multiplier is spelled out for the same reason
+    // the futurity line names the horse and the category: this is a charge
+    // nobody booked, so the desk needs to be able to answer "why is this $30?"
+    // without opening the fee editor.
+    ...(bill.charge_lines ?? []).map((line) => ({
+      label: `${line.label} — ${formatMoney(line.amount_cents)} ${unitLabel(line.unit)}${
+        line.quantity > 1 ? ` × ${line.quantity}` : ''
       }`,
       cents: line.line_total_cents,
     })),

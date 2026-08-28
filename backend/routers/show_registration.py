@@ -43,15 +43,14 @@ from billing import (
     build_bill,
     early_rate_is_open,
     fee_rate_cents,
-    nsba_sanction_cents,
+    class_sanction_cents,
     office_charge_total_cents,
     reservable_fees,
-    show_is_nsba_sanctioned,
+    sanction_rates,
 )
 from database import get_db
 from dependencies import INTERNAL_API_KEY, require_authenticated, safe_uuid
 from models import (
-    AqhaStandardClass,
     Class,
     ClassAssociation,
     Entry,
@@ -72,6 +71,7 @@ from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
 from schemas import EntryOut
+import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/register", tags=["Show Registration"])
 
@@ -94,7 +94,7 @@ class FeeBreakdownItem(BaseModel):
     class_number: str
     class_name: str
     fee_cents: int
-    nsba_sanction_cents: int = 0
+    sanction_cents: int = 0
 
 
 class ShowRegistrationResult(BaseModel):
@@ -102,18 +102,20 @@ class ShowRegistrationResult(BaseModel):
     created_entries: list[EntryOut]
     fee_breakdown: list[FeeBreakdownItem]
     subtotal_fee_cents: int
-    nsba_sanction_total_cents: int = 0
+    sanction_total_cents: int = 0
     office_charge_total_cents: int = 0
     total_fee_cents: int
 
 
-def _class_is_nsba(show: Show, class_: Class) -> bool:
-    """Whether this class carries an NSBA sanction fee.
+def _class_sanction_cents(show: Show, class_: Class) -> int:
+    """The club sanction fees one entry in this class owes.
 
-    Sanctioning is a property of the show, not of the individual class — the
-    per-class signature is kept because the callers iterate classes.
+    Thin wrapper over `billing.class_sanction_cents` so this router keeps
+    quoting the number the bill will actually charge rather than deriving a
+    second one. It re-reads `sanction_rates` per call, which is fine for the
+    handful of callers here; `build_bill` hoists it out of its loop.
     """
-    return show_is_nsba_sanctioned(show)
+    return class_sanction_cents(class_, sanction_rates(show))
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -135,8 +137,14 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
         select(Show)
         .options(
             selectinload(Show.show_type),
-            # Needed by _class_is_nsba: club sanctioning drives NSBA fees.
+            # Needed by _class_sanction_cents: the per-class rate is read
+            # off the show's club sanctioning rows.
             selectinload(Show.sanctioning),
+            # Read by `billing.charge_lines` off the Show row, the same way
+            # `office_charge_cents` is: the show's own per-horse and per-judge
+            # charges, and the panel size they multiply by.
+            selectinload(Show.fees),
+            selectinload(Show.judges),
         )
         .where(Show.id == show_id)
     )
@@ -263,9 +271,7 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
         context["aqha_show_type_id"] = show.show_type_id
         context["aqha_association_id"] = await get_aqha_association_id(db)
         context["aqha_class_code"] = aqha_code
-        context["aqha_class"] = (
-            await db.get(AqhaStandardClass, aqha_code) if aqha_code else None
-        )
+        context["aqha_class"] = await standard_classes.lookup(db, "AQHA", aqha_code)
     return context
 
 
@@ -598,12 +604,15 @@ async def preview_registration(
                 # once per exhibitor and the POST enforces that.
                 "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
-                "is_nsba_approved": _class_is_nsba(show, c),
-                "nsba_sanction_cents": (
-                    nsba_sanction_cents(c.entry_fee_cents)
-                    if _class_is_nsba(show, c)
-                    else 0
-                ),
+                # Which clubs sanction this class, and what that adds to the
+                # entry — not every class at a sanctioned show carries a
+                # sanction fee (migration 113).
+                "sanctioning_codes": [
+                    row.association.code
+                    for row in (c.sanctioning or [])
+                    if row.association is not None
+                ],
+                "sanction_cents": _class_sanction_cents(show, c),
             }
             for c in classes
         ],
@@ -803,18 +812,14 @@ async def register_for_show(
 
         db.add(entry)
         created.append(entry)
-        sanction_cents = (
-            nsba_sanction_cents(cls.entry_fee_cents)
-            if _class_is_nsba(show, cls)
-            else 0
-        )
+        sanction_cents = _class_sanction_cents(show, cls)
         fee_breakdown.append(
             FeeBreakdownItem(
                 class_id=cls.id,
                 class_number=cls.class_number,
                 class_name=cls.class_name,
                 fee_cents=cls.entry_fee_cents,
-                nsba_sanction_cents=sanction_cents,
+                sanction_cents=sanction_cents,
             )
         )
         subtotal += cls.entry_fee_cents
@@ -847,7 +852,7 @@ async def register_for_show(
         created_entries=[EntryOut.model_validate(e) for e in created],
         fee_breakdown=fee_breakdown,
         subtotal_fee_cents=subtotal,
-        nsba_sanction_total_cents=sanction_total,
+        sanction_total_cents=sanction_total,
         office_charge_total_cents=office_charge_total,
         total_fee_cents=total_fee,
     )

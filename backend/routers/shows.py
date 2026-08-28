@@ -12,7 +12,6 @@ from typing import Optional
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
 from models import (
-    AqhaStandardClass,
     Association,
     ClassAssociation,
     Show,
@@ -41,6 +40,7 @@ from schemas import (
     ShowAffiliationUpdate,
 )
 from rules import get_rules
+import standard_classes
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
@@ -571,10 +571,7 @@ async def aqha_validation(
             if code
         }
     )
-    standard_result = await db.execute(
-        select(AqhaStandardClass).where(AqhaStandardClass.code.in_(codes))
-    )
-    standard_by_code = {row.code: row for row in standard_result.scalars().all()}
+    standard_by_code = await standard_classes.lookup_many(db, "AQHA", list(codes))
 
     aqha_association_id = await get_aqha_association_id(db)
 

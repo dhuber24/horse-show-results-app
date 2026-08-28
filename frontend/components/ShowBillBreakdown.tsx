@@ -1,9 +1,11 @@
 import {
   formatMoney,
   type Bill,
+  type BillChargeLine,
   type BillFuturityLine,
   type BillReservationLine,
 } from '@/lib/my-shows';
+import { unitLabel } from '@/lib/fee-units';
 
 /**
  * What one show costs the signed-in exhibitor, itemised.
@@ -60,7 +62,7 @@ export default function ShowBillBreakdown({
                     )}
                   </td>
                   <td className="py-1.5 align-top text-right whitespace-nowrap">
-                    {formatMoney(line.fee_cents + line.nsba_sanction_cents)}
+                    {formatMoney(line.fee_cents + line.sanction_cents)}
                   </td>
                 </tr>
               ))}
@@ -81,16 +83,19 @@ export default function ShowBillBreakdown({
             <dd className="text-right">{formatMoney(bill.class_fee_total_cents)}</dd>
           </>
         )}
-        {bill.nsba_sanction_total_cents > 0 && (
+        {bill.sanction_total_cents > 0 && (
           <>
-            <dt title="NSBA sanction fee: 6% of class fee, $3 minimum, on each NSBA-approved class.">
-              NSBA sanction fees
+            <dt title="Each sanctioning club's per-class fee, charged only on the classes that club approves.">
+              Club sanction fees
             </dt>
-            <dd className="text-right">{formatMoney(bill.nsba_sanction_total_cents)}</dd>
+            <dd className="text-right">{formatMoney(bill.sanction_total_cents)}</dd>
           </>
         )}
         {bill.reservation_lines.map((line) => (
           <ReservationLine key={line.show_fee_id} line={line} />
+        ))}
+        {(bill.charge_lines ?? []).map((line) => (
+          <ChargeLine key={line.show_fee_id} line={line} />
         ))}
         {(bill.futurity_lines ?? []).map((line) => (
           <FuturityLine key={line.futurity_entry_id} line={line} />
@@ -123,6 +128,34 @@ export default function ShowBillBreakdown({
         </dd>
       </dl>
     </div>
+  );
+}
+
+/**
+ * One of the show's own charges.
+ *
+ * The arithmetic is shown rather than only the total, because this is the line
+ * an exhibitor did not ask for and will want to check: "$5.00 × 3 judges × 2
+ * horses" answers the question that a bare $30.00 raises.
+ */
+function ChargeLine({ line }: { line: BillChargeLine }) {
+  const parts = [formatMoney(line.amount_cents)];
+  if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
+    parts.push(`× ${line.judge_count} judge${line.judge_count === 1 ? '' : 's'}`);
+  }
+  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
+    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
+  }
+  return (
+    <>
+      <dt title={`Charged ${unitLabel(line.unit)}.`}>
+        {line.label}
+        <span className="text-xs" style={{ color: '#8b7355' }}>
+          {' '}({parts.join(' ')})
+        </span>
+      </dt>
+      <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
+    </>
   );
 }
 

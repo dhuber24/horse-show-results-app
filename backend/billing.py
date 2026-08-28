@@ -14,12 +14,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable, Optional
 
-# NSBA Sanction Fees rule: 6% of entry fee, minimum $3, charged on every
-# NSBA-approved entry (owed even if the exhibitor scratches).
-# Source: https://www.nsba.com/images/documents/Show-Approval-Documents/Sanction-Fees.pdf
-NSBA_SANCTION_MIN_CENTS = 300
-NSBA_SANCTION_RATE = 0.06
-
 # Which `show_fees` rows an exhibitor may reserve a quantity of at sign-up.
 # Keyed on unit rather than a list of codes so a show that adds its own
 # per-stall or per-night fee is offered without a code change here.
@@ -31,10 +25,38 @@ NSBA_SANCTION_RATE = 0.06
 # costs $60 each. Pricing that as per_night silently doubles it on a two-day
 # show, which is why the unit exists (migration 106).
 #
-# per_night and per_show are the two ways a venue prices the *same* camping
-# spot, which is why the setup step offers them as a choice on one line rather
-# than as two fee rows (migration 108).
-RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night", "per_show")
+# per_night, per_day and per_show are the three ways a venue prices the *same*
+# camping spot, which is why the setup step offers them as a choice on one line
+# rather than as three fee rows (migrations 108, 111). A day is not a night: a
+# Friday-to-Sunday show is three days and two nights, so a per-day rate charged
+# against a count of nights under-bills every camper by a day.
+RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night", "per_day", "per_show")
+
+# Which `show_fees` rows the show charges automatically, from what the exhibitor
+# entered rather than from anything they booked (migration 112).
+#
+# `shows.office_charge_cents` was the only such charge the app had, and there is
+# exactly one of it. A show bill routinely carries several — an office fee per
+# back number, a drug fee per horse, a judge fee per judge per horse - and the
+# `per_horse` / `per_judge` rows the fee editors have accepted since migration
+# 060 printed on the price list and reached nobody's account.
+#
+# `flat` is deliberately not here. A flat fee is charged once however many you
+# have, and its *occurrence* is not derivable: a stall cleanout penalty applies
+# to whoever left a mess, which no query answers. `per_exhibitor` is derived
+# from having entries, which is the test `office_charge_total_cents` already
+# makes.
+#
+# `per_entry`, `per_class_per_horse` and `percent_of_entry` are not here either,
+# and must not be added: they are the class-fee vocabulary, and
+# `classes.entry_fee_cents` is what charges per entry. Billing the setup step's
+# `standard_class` row on top of it would double every class on every bill.
+AUTOMATIC_FEE_UNITS = (
+    "per_exhibitor",
+    "per_horse",
+    "per_judge_per_horse",
+    "per_judge_per_exhibitor",
+)
 
 
 def has_early_rate(fee) -> bool:
@@ -69,22 +91,43 @@ def fee_rate_cents(fee, booked_on: Optional[date] = None) -> int:
     return fee.early_amount_cents if early_rate_is_open(fee, booked_on) else fee.amount_cents
 
 
-def show_is_nsba_sanctioned(show) -> bool:
-    """NSBA approval comes from club sanctioning, not from the show type.
+def sanction_rates(show) -> dict:
+    """What each club this show carries charges per class it sanctions.
 
-    Migration 080 split clubs out of show_types: NSBA is a club association a
-    show opts into via show_sanctioning, so an "NSBA show" is now (for example)
-    an OPEN or AQHA show carrying NSBA sanctioning.
+    `{association_id: per_class_fee_cents}`, read off `show_sanctioning` — the
+    amount the manager set in setup Step 3/5 and which the public show bill has
+    always printed as "$2.00 per class". Clubs with no fee set are kept out, so
+    a show that enrolled a club without pricing it bills nothing rather than
+    zero-value lines.
+
+    Migration 080 split clubs out of `show_types`, so "this show is NSBA
+    sanctioned" is a `show_sanctioning` row rather than a show type.
     """
-    return any(
-        s.association is not None and s.association.code == "NSBA"
+    return {
+        s.association_id: s.per_class_fee_cents
         for s in (show.sanctioning or [])
-    )
+        if (s.per_class_fee_cents or 0) > 0
+    }
 
 
-def nsba_sanction_cents(entry_fee_cents: int) -> int:
-    pct = int(round(entry_fee_cents * NSBA_SANCTION_RATE))
-    return max(NSBA_SANCTION_MIN_CENTS, pct)
+def class_sanction_cents(cls, rates: dict) -> int:
+    """The club sanction fees one entry in this class owes.
+
+    Summed over the clubs that actually sanction *this class*
+    (`class_sanctioning`, migration 113) rather than applied to every class at a
+    sanctioned show — an NSBA show runs plenty of classes NSBA has nothing to do
+    with, and the exhibitor entering one of those owes nothing on it. A
+    dual-sanctioned class legitimately carries both clubs' fees.
+
+    `rates` comes from `sanction_rates(show)` and is passed in rather than
+    re-derived per class: the caller is already looping entries, and re-reading
+    `show.sanctioning` inside the loop is how a bill ends up quoting a different
+    number than the screen it was opened from.
+    """
+    total = 0
+    for row in (getattr(cls, "sanctioning", None) or []):
+        total += rates.get(row.association_id, 0)
+    return total
 
 
 def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool) -> int:
@@ -99,6 +142,80 @@ def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool
     if show.office_charge_basis == "per_horse":
         return show.office_charge_cents * distinct_horse_count
     return show.office_charge_cents
+
+
+def charge_multiplier(unit: str, horse_count: int, judge_count: int) -> int:
+    """How many of an automatic fee one exhibitor owes.
+
+    The unit names both halves of the multiplication on purpose. "Per judge"
+    alone does not say what it multiplies, and the two readings differ by
+    however many horses somebody brought — three judges at $5 is $15 or $30 —
+    which is the same trap `per_night` / `per_day` exist to close. A unit this
+    does not recognise returns 0 rather than guessing: it is a price-list row,
+    not a charge.
+    """
+    if unit == "per_exhibitor":
+        return 1
+    if unit == "per_horse":
+        return horse_count
+    if unit == "per_judge_per_exhibitor":
+        return judge_count
+    if unit == "per_judge_per_horse":
+        return judge_count * horse_count
+    return 0
+
+
+def charge_lines(
+    fees: Iterable,
+    horse_count: int,
+    judge_count: int,
+    has_entries: bool,
+) -> tuple[list[dict], int]:
+    """Itemize the show's own automatic charges for one exhibitor.
+
+    Returns (lines, total_cents). Nothing is charged to somebody with no
+    entries — the same rule `office_charge_total_cents` applies, and for the
+    same reason: a signed-up exhibitor who has not entered a class has not
+    incurred the show's per-horse costs.
+
+    A fee priced at zero produces no line. `POST /shows/{id}/fees/seed` writes
+    several fee templates at $0 for the secretary to fill in, and a column of
+    $0.00 rows on every exhibitor's bill is noise that teaches people to skim
+    it.
+
+    There is no early rate here, and `_assert_early_rate_valid` refuses to store
+    one on these units: an early rate is chosen by the day a line was *booked*,
+    and nothing books these.
+    """
+    if not has_entries:
+        return [], 0
+    lines: list[dict] = []
+    total = 0
+    for fee in fees:
+        if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
+            continue
+        quantity = charge_multiplier(fee.unit, horse_count, judge_count)
+        if quantity <= 0:
+            continue
+        line_total = fee.amount_cents * quantity
+        lines.append(
+            {
+                "show_fee_id": fee.id,
+                "code": fee.code,
+                "label": fee.label,
+                "unit": fee.unit,
+                "amount_cents": fee.amount_cents,
+                # Both counts travel with the line so the bill can show the
+                # arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
+                # against a paper bill in a way "$5.00 x 6" is not.
+                "horse_count": horse_count,
+                "judge_count": judge_count,
+                "quantity": quantity,
+                "line_total_cents": line_total,
+            }
+        )
+        total += line_total
+    return lines, total
 
 
 def futurity_charge_cents(
@@ -238,7 +355,7 @@ def build_bill(
     `futurities` defaults to empty so every existing caller keeps working and a
     show with no futurity is unchanged down to the key set.
     """
-    nsba = show_is_nsba_sanctioned(show)
+    rates = sanction_rates(show)
 
     class_lines: list[dict] = []
     class_fee_total = 0
@@ -250,7 +367,7 @@ def build_bill(
         cls = entry.class_
         if cls is None:
             continue
-        sanction = nsba_sanction_cents(cls.entry_fee_cents) if nsba else 0
+        sanction = class_sanction_cents(cls, rates)
         class_lines.append(
             {
                 "entry_id": entry.id,
@@ -260,7 +377,7 @@ def build_bill(
                 "class_date": cls.class_date,
                 "horse_name": entry.horse.name if getattr(entry, "horse", None) else None,
                 "fee_cents": cls.entry_fee_cents,
-                "nsba_sanction_cents": sanction,
+                "sanction_cents": sanction,
             }
         )
         class_fee_total += cls.entry_fee_cents
@@ -297,24 +414,36 @@ def build_bill(
         reservation_total += line_total
 
     office_total = office_charge_total_cents(show, len(horse_ids), bool(entry_list))
+    # The show's own automatic charges (migration 112). `show.fees` and
+    # `show.judges` are read off the Show row, the way `office_charge_cents` and
+    # `sanctioning` already are, so every caller must eager-load both. An
+    # unloaded relationship raises MissingGreenlet in an async request, which is
+    # loud; defaulting to "this show has no fees" would silently under-bill an
+    # entire show, which is not.
+    charge_line_list, charge_total = charge_lines(
+        show.fees or [], len(horse_ids), len(show.judges or []), bool(entry_list)
+    )
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 
     return {
         "class_lines": class_lines,
         "reservation_lines": reservation_lines,
+        "charge_lines": charge_line_list,
         "futurity_lines": futurity_line_list,
         "class_fee_total_cents": class_fee_total,
-        "nsba_sanction_total_cents": sanction_total,
+        "sanction_total_cents": sanction_total,
         "office_charge_cents": show.office_charge_cents,
         "office_charge_basis": show.office_charge_basis,
         "office_charge_total_cents": office_total,
         "reservation_total_cents": reservation_total,
+        "charge_total_cents": charge_total,
         "futurity_total_cents": futurity_total,
         "total_cents": (
             class_fee_total
             + sanction_total
             + office_total
             + reservation_total
+            + charge_total
             + futurity_total
         ),
     }
@@ -381,9 +510,10 @@ def summarize_accounts(accounts: Iterable) -> dict:
     totals = {
         "accounts": 0,
         "class_fee_total_cents": 0,
-        "nsba_sanction_total_cents": 0,
+        "sanction_total_cents": 0,
         "office_charge_total_cents": 0,
         "reservation_total_cents": 0,
+        "charge_total_cents": 0,
         "futurity_total_cents": 0,
         "billed_cents": 0,
         "collected_cents": 0,
@@ -398,15 +528,22 @@ def summarize_accounts(accounts: Iterable) -> dict:
     # Per-fee rollup: how many stalls the show actually sold, and for how much.
     # Keyed by fee id so a show's own custom fee is included with no change here.
     fee_lines: dict = {}
+    # The automatic charges are rolled up separately rather than folded into
+    # `fee_lines`. Both are `show_fees` rows, but the Fees Reserved report reads
+    # `fee_lines` as "what exhibitors booked at sign-up" and foots it against
+    # `reservation_total_cents` — mixing in a drug fee nobody booked would leave
+    # that sheet's rows disagreeing with its own total.
+    charge_rollup: dict = {}
 
     for account in accounts:
         bill = account["bill"]
         totals["accounts"] += 1
         for key in (
             "class_fee_total_cents",
-            "nsba_sanction_total_cents",
+            "sanction_total_cents",
             "office_charge_total_cents",
             "reservation_total_cents",
+            "charge_total_cents",
             "futurity_total_cents",
         ):
             # .get, because an account built before futurities existed — or by
@@ -448,8 +585,29 @@ def summarize_accounts(accounts: Iterable) -> dict:
             if line["is_early_rate"]:
                 fee["early_rate_quantity"] += line["quantity"]
 
+        for line in bill.get("charge_lines", []):
+            charge = charge_rollup.setdefault(
+                line["show_fee_id"],
+                {
+                    "show_fee_id": line["show_fee_id"],
+                    "code": line["code"],
+                    "label": line["label"],
+                    "unit": line["unit"],
+                    "amount_cents": line["amount_cents"],
+                    "quantity": 0,
+                    "line_total_cents": 0,
+                    "exhibitors": 0,
+                },
+            )
+            charge["quantity"] += line["quantity"]
+            charge["line_total_cents"] += line["line_total_cents"]
+            charge["exhibitors"] += 1
+
     totals["net_balance_cents"] = totals["billed_cents"] - totals["net_paid_cents"]
     totals["fee_lines"] = sorted(fee_lines.values(), key=lambda f: f["label"] or "")
+    totals["charge_lines"] = sorted(
+        charge_rollup.values(), key=lambda f: f["label"] or ""
+    )
     return totals
 
 
@@ -476,6 +634,15 @@ def reservable_fees(fees: Iterable) -> list:
     """The show's fee rows an exhibitor picks quantities of, in the secretary's
     configured order."""
     return [f for f in fees if f.unit in RESERVABLE_FEE_UNITS]
+
+
+def automatic_fees(fees: Iterable) -> list:
+    """The show's fee rows that bill without anyone asking for them.
+
+    The other half of `reservable_fees`, and what the fee editors filter on so a
+    charge the show applies to everybody is never offered as something to book.
+    """
+    return [f for f in fees if f.unit in AUTOMATIC_FEE_UNITS]
 
 
 def find_fee(fees: Iterable, fee_id) -> Optional[object]:

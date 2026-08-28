@@ -1,4 +1,5 @@
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import { isAutomaticUnit } from '@/lib/fee-units';
 import type { WizardStepsInput } from '../../../_wizard/steps';
 
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
@@ -41,7 +42,11 @@ export async function fetchStepCounts(
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
   const otherFeeCount = fees.filter((f) => FEE_CODES.has(f.code)).length;
-  const feesDone = otherFeeCount > 0 || officeChargeCents > 0;
+  // A show whose only Step 5 money is its own named charge — a drug fee per
+  // horse, say — has done the step. Matched by unit rather than by code,
+  // because a manager names these themselves and there is no code to look for.
+  const chargeCount = fees.filter((f) => isAutomaticUnit(f.unit)).length;
+  const feesDone = otherFeeCount > 0 || chargeCount > 0 || officeChargeCents > 0;
 
   return {
     showId,

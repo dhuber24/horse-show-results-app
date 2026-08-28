@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEditor';
 
 type SanctioningFeeState = { association_id: string; dollars: string };
 
@@ -14,6 +15,8 @@ export type FeeRow = {
   unit: string;
   notes: string | null;
 };
+
+export type { ShowCharge };
 
 export type SanctioningRow = {
   association_id: string;
@@ -38,6 +41,7 @@ const SLOTS = [
     unit: 'per_entry',
     placeholder: 'e.g. 25.00',
     notesPlaceholder: 'e.g. Includes association sanction fee',
+    hint: 'Published on the show bill. What an entry is actually billed comes from the fee on each class in Step 6, so a class priced differently there charges its own amount.',
   },
   {
     code: 'jackpot',
@@ -45,6 +49,7 @@ const SLOTS = [
     unit: 'per_entry',
     placeholder: 'e.g. 15.00',
     notesPlaceholder: 'e.g. 80% paid back to top 3',
+    hint: 'Published on the show bill only. A jackpot is not charged on every class: each side pot bundles the classes you pick for it, and the buy-in that actually bills is set on the pot itself.',
   },
   // A futurity slot used to sit here. It has moved to Step 7 and is not coming
   // back: one amount cannot say that the same class costs $75, $100 or $150
@@ -70,7 +75,11 @@ export default function FeesClient({
   initialOfficeChargeCents,
   initialOfficeChargeBasis,
   initialFees,
+  initialCharges,
+  judgeCount,
   sanctioning,
+  sanctionedCounts,
+  classCount,
   legacyFuturityFee = null,
   futurityCount = 0,
 }: {
@@ -78,7 +87,20 @@ export default function FeesClient({
   initialOfficeChargeCents: number;
   initialOfficeChargeBasis: string;
   initialFees: FeeRow[];
+  /** The show's own per-exhibitor / per-horse / per-judge charges. Saved by
+   *  `ShowChargesEditor` a row at a time rather than by this screen's Save
+   *  button — they are `show_fees` rows with their own endpoints, and folding
+   *  them into the wizard's batch save would mean re-implementing add, edit and
+   *  remove here. */
+  initialCharges: ShowCharge[];
+  judgeCount: number;
   sanctioning: SanctioningRow[];
+  /** How many classes each club actually sanctions, keyed by association id.
+   *  Shown next to the amount because the two numbers only mean anything
+   *  together: a $3 per-class fee against zero approved classes bills nothing,
+   *  and that used to be invisible here. */
+  sanctionedCounts: Record<string, number>;
+  classCount: number;
   /** A `futurity` fee row from before this screen stopped offering one. Shown
    *  so it can be removed deliberately — a show that also sets up a real
    *  futurity would otherwise bill both, and silently deleting somebody's fee
@@ -339,6 +361,22 @@ export default function FeesClient({
                 <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
                   {s.label}
                 </span>
+                <span className="block text-xs" style={{ color: COLORS.muted }}>
+                  {s.hint}
+                  {s.code === 'jackpot' && (
+                    <>
+                      {' '}
+                      <Link
+                        href={`/admin/shows/${showId}/side-pots`}
+                        className="underline"
+                        style={{ color: COLORS.warn }}
+                      >
+                        Set up side pots
+                      </Link>
+                      .
+                    </>
+                  )}
+                </span>
               </span>
               <label className="block">
                 <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
@@ -390,8 +428,18 @@ export default function FeesClient({
               style={{ borderColor: COLORS.border }}
             >
               <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
-                Sanctioning per-class fees (added on top of the standard class
-                fee for eligible classes)
+                Sanctioning per-class fees, added on top of the class fee — but
+                only on the classes that club actually approves. A club
+                sanctions a list of classes, not the whole schedule, so nothing
+                is charged until you say which ones in{' '}
+                <Link
+                  href={`/admin/shows/${showId}/classes/sanctioning`}
+                  className="underline"
+                  style={{ color: COLORS.warn }}
+                >
+                  Sanctioned Classes
+                </Link>
+                .
               </p>
               {sanctioning.map((s) => {
                 const fee = sanctioningFees.find(
@@ -407,7 +455,11 @@ export default function FeesClient({
                         {s.name}
                       </span>
                       <span className="font-mono text-xs" style={{ color: '#8b4513' }}>
-                        {s.code} per-entry fee
+                        {s.code} per-class fee
+                      </span>
+                      <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                        {sanctionedCounts[s.association_id] ?? 0} of{' '}
+                        {classCount} classes marked {s.code}-approved
                       </span>
                     </span>
                     <label className="block">
@@ -434,6 +486,13 @@ export default function FeesClient({
           </>
         )}
       </section>
+
+      <ShowChargesEditor
+        showId={showId}
+        initialCharges={initialCharges}
+        judgeCount={judgeCount}
+        judgesHref={`/admin/shows/${showId}/setup/judges`}
+      />
 
       <section
         className="p-4 rounded-lg border space-y-3"

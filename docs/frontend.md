@@ -231,7 +231,8 @@ Horse registration UI splits the two kinds:
 ## Association Class Pickers
 
 - APHA shows can bulk-add official APHA reference classes from `APHAClassPicker`.
-- AQHA shows can bulk-add official AQHA classes from `AQHAClassPicker`, backed by `aqha_standard_classes`.
+- AQHA shows can bulk-add official AQHA classes from `AQHAClassPicker`, backed by the shared class-code catalog (`association_standard_classes`).
+- `/admin/standard-classes` (ADMIN only) loads an association's approved class list from the file they publish. Two steps by design: **Compare with catalog** parses and diffs and writes nothing, then **Apply** re-sends the same file with the retirements ticked. Codes missing from the file are never retired unless the admin ticks them.
 - AQHA show dashboards display validation counts from `/api/shows/[showId]/aqha-validation`; the card shows missing class-code, registration, membership, age, and approval-status issues that the backend can currently verify.
 - Admin user profiles include an AQHA show-management workshop date. AQHA validation uses this date for assigned show managers and show secretaries.
 - Entry create/edit forms surface association validation messages returned by FastAPI instead of a generic save failure.

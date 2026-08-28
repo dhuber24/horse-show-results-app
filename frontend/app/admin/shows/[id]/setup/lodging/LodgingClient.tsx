@@ -94,7 +94,8 @@ const SLOTS: readonly Slot[] = [
     // per_show — and that asked the manager which product the venue sells when
     // the only real question is how they charge for the one spot. A manager
     // who filled in both put two camping charges on the same bill with nothing
-    // to say so. One line, two ways to price it (migration 108).
+    // to say so. One line, three ways to price it (migrations 108, 111): by
+    // the night, by the day, or one price for the whole show.
     code: 'camping',
     aliases: ['hookup'],
     title: 'Camping / electrical hook-up',
@@ -104,6 +105,12 @@ const SLOTS: readonly Slot[] = [
         value: 'per_night',
         choice: 'Per night',
         noun: 'night',
+        placeholder: 'e.g. 30.00',
+      },
+      {
+        value: 'per_day',
+        choice: 'Per day',
+        noun: 'day',
         placeholder: 'e.g. 30.00',
       },
       {
@@ -431,7 +438,7 @@ export default function LodgingClient({
                 <p className="text-xs" style={{ color: COLORS.muted }}>
                   {slot.unit === 'per_show'
                     ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
-                    : `Charged for each ${chosen.noun} an exhibitor books.`}
+                    : `Charged for each ${chosen.noun} an exhibitor books — a Friday-to-Sunday show is three days and two nights.`}
                   {unitLocked && <> {lockReason}</>}
                 </p>
               )}

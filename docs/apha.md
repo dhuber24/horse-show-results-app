@@ -57,7 +57,12 @@ This lets one class carry, for example, APHA and NSBA codes.
 
 ## APHA Standard Class Import
 
-APHA reference classes are stored in `apha_standard_classes`.
+APHA reference classes are stored in `association_standard_classes` (the view over
+`association_standard_class_versions`, filtered to the APHA show type). Admins load
+the current list by uploading APHA's own **Approved Class Codes** PDF at
+`/admin/standard-classes` — the reader is `parse_apha_pdf` in
+`backend/imports/class_codes.py`, and the upload previews a diff before anything is
+written. `apha_standard_classes` was dropped in migration 114.
 
 Backend endpoints:
 
@@ -71,7 +76,7 @@ Frontend component:
 
 Bulk import from the APHA catalog only applies to APHA shows. AQHA shows use the parallel AQHA standard-class catalog and picker.
 
-On import, each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket). Discipline comes from name-keyword classification in `backend/rules/disciplines.py` — APHA codes don't encode discipline cleanly (e.g. code `R1` alone covers six different disciplines), but APHA class names are clean enough for 100% keyword coverage. Section comes from the `apha_standard_classes.division` column (which holds the bracket — Amateur/Youth/Novice/Open/etc.). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
+On import, each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket). Discipline comes from name-keyword classification in `backend/rules/disciplines.py` — APHA codes don't encode discipline cleanly (e.g. code `R1` alone covers six different disciplines), but APHA class names are clean enough for 100% keyword coverage. Section comes from the catalog's `division` column (which holds the bracket — Amateur/Youth/Novice/Open/etc.). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
 
 ## APHA Results Export
 

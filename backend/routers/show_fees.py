@@ -82,7 +82,7 @@ def _assert_early_rate_valid(
         raise HTTPException(
             422,
             "An early rate only applies to fees exhibitors reserve a quantity "
-            "of at sign-up (per stall, per bag, per night, per show).",
+            "of at sign-up (per stall, per bag, per night, per day, per show).",
         )
 
 

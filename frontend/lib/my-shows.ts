@@ -37,7 +37,7 @@ export type BillClassLine = {
   class_date: string;
   horse_name: string | null;
   fee_cents: number;
-  nsba_sanction_cents: number;
+  sanction_cents: number;
 };
 
 export type BillReservationLine = {
@@ -52,6 +52,27 @@ export type BillReservationLine = {
   standard_amount_cents: number;
   is_early_rate: boolean;
   reserved_at: string;
+  line_total_cents: number;
+};
+
+/**
+ * One of the show's own charges, applied to this exhibitor.
+ *
+ * As against `BillReservationLine`, which is a quantity they booked: a charge is
+ * derived from what they entered, so there is no `reserved_at` and no early rate
+ * to choose between. The counts travel with the line so the bill can print the
+ * arithmetic — "$5.00 × 3 judges × 2 horses" is checkable against a paper show
+ * bill in a way "$5.00 × 6" is not.
+ */
+export type BillChargeLine = {
+  show_fee_id: string;
+  code: string;
+  label: string;
+  unit: string;
+  amount_cents: number;
+  horse_count: number;
+  judge_count: number;
+  quantity: number;
   line_total_cents: number;
 };
 
@@ -87,13 +108,15 @@ export type BillFuturityLine = {
 export type Bill = {
   class_lines: BillClassLine[];
   reservation_lines: BillReservationLine[];
+  charge_lines: BillChargeLine[];
   futurity_lines: BillFuturityLine[];
   class_fee_total_cents: number;
-  nsba_sanction_total_cents: number;
+  sanction_total_cents: number;
   office_charge_cents: number;
   office_charge_basis: string;
   office_charge_total_cents: number;
   reservation_total_cents: number;
+  charge_total_cents: number;
   futurity_total_cents: number;
   total_cents: number;
 };
