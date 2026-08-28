@@ -2,6 +2,22 @@
 
 ## August 2026
 
+### APHA Rules Existed Everywhere Except In The Rules Engine
+
+Reading the 2026 APHA rule book against the app turned up four things wrong at once, all of them quiet.
+
+**`backend/rules/apha.py` was an empty subclass.** `class APHARules(DefaultRules)` with a `code` attribute and nothing else, sitting beside a fully-implemented `AQHARules`. The two APHA entry rules the app did have — the Solid Paint-Bred bar on Open classes (SC-325.A.1) and the required relationship-to-owner on Amateur/Youth entries — were written inline in `routers/entries.py`, the show desk endpoint.
+
+**So they were enforced at one door out of two.** The exhibitor's own class registration in `routers/show_registration.py` has always validated through `rules.get_rules(...).validate_entry(...)`, which for APHA returned an empty list. An exhibitor self-registering could enter a Solid Paint-Bred horse in an Open class. Both checks now live in the rules class and both doors get them; the frontends already rendered the `ASSOCIATION_VALIDATION_FAILED` envelope, so nothing changed on screen except that the rule now fires.
+
+**The APHA export raised `AttributeError` on any show with a registered horse.** It read `reg.show_type_id` off each `horse_registrations` row, and migration 080 dropped that column eight months of commits ago — registrations key on `associations` now. Nothing tested the endpoint, so it had been dead since. A class *code* keys on `show_types` and a registration *number* keys on `associations`; those two lookups sit four lines apart in this function, which is exactly why one of them was wrong. `association_id_by_code(db, code)` generalizes the existing `get_aqha_association_id` helper.
+
+**And the export contains no results.** It downloaded as `apha_results_<id>.csv` and its header row has no place, no judge, no score — it is an entry list. It is also the only CSV export in the whole backend. Renamed to `apha_entries_*.csv`, because a file called "results" that has none is how an office submits the wrong thing to an association after the show has ended. It also now reads the membership number from `exhibitor_registrations` before falling back to the pre-080 `exhibitors.apha_member_number` column.
+
+**`_issue` moved up to `DefaultRules`.** It was defined identically on `AQHARules` and would have been copied a third time. `backend/tests/test_apha_rules.py` is new — 27 cases, and the last one asserts that `get_rules("APHA")` really returns `APHARules`, since every other test in the file would pass against a stub.
+
+Repair only. No new APHA capability: the Walk-Trot divisions are still missing from the `entries.apha_division` CHECK, zones are still unmodeled, and there is still no results report.
+
 ### An Association's Class Codes Are Uploaded, Not Coded
 
 Setting up classes for an APHA show stopped at a placeholder: *"Class setup for APHA is being rebuilt. The new OPEN wizard ships first; per-association flows come next."* The per-association flows never came. The wizard rebuild removed the old APHA/AQHA class pickers and gated the replacement to `show_type_code === 'OPEN'`, so every breed show — including the 172-class MNSPHC Paint-O-Rama — had no way into its own class schedule.

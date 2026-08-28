@@ -375,8 +375,3 @@ class AQHARules(DefaultRules):
     def _base_class_name(self, class_name):
         value = LEVEL_1_RE.sub("", class_name.upper())
         return re.sub(r"\s+", " ", value.replace("-", " ")).strip()
-
-    def _issue(self, severity, code, message, **extra):
-        issue = {"severity": severity, "code": code, "message": message}
-        issue.update({key: str(value) for key, value in extra.items() if value is not None})
-        return issue

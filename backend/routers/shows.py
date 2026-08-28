@@ -385,16 +385,23 @@ async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_u
     raise HTTPException(403, "Not authorized for this show")
 
 
-async def get_aqha_association_id(db: AsyncSession) -> Optional[UUID]:
-    """AQHA's row in the `associations` registry.
+async def association_id_by_code(db: AsyncSession, code: str) -> Optional[UUID]:
+    """A body's row in the `associations` registry, by code.
 
     Horse and exhibitor registration numbers key on `associations`, not on
-    `show_types` (migration 080), so AQHA entry validation needs this id rather
-    than the show's show_type_id. Shared by every caller that builds an AQHA
-    validation context.
+    `show_types` (migration 080). Anything reading a registration or membership
+    number needs this id, and reaching for `show.show_type_id` instead is the
+    mistake that left the APHA export raising AttributeError on every show whose
+    entered horses held a registration row.
     """
-    result = await db.execute(select(Association.id).where(Association.code == "AQHA"))
+    result = await db.execute(select(Association.id).where(Association.code == code))
     return result.scalar_one_or_none()
+
+
+async def get_aqha_association_id(db: AsyncSession) -> Optional[UUID]:
+    """AQHA's row in the `associations` registry. Shared by every caller that
+    builds an AQHA validation context."""
+    return await association_id_by_code(db, "AQHA")
 
 
 async def _count_show_classes(db: AsyncSession, show_id: UUID) -> int:
@@ -642,11 +649,16 @@ async def apha_export(
     if not show.apha_show_number:
         raise HTTPException(400, "Set the APHA Show Number on the show before exporting")
 
-    # Load APHA show type id for registration lookup
+    # Two different APHA ids, doing two different jobs. A class *code* is the
+    # breed body's catalog identifier and keys on `show_types`; a registration or
+    # membership *number* is an affiliation and keys on `associations` (migration
+    # 080). Reading `show_type_id` off a registration row is what broke this
+    # endpoint — the column has not existed since 080.
     apha_type_result = await db.execute(
         select(ShowType).where(ShowType.code == "APHA")
     )
     apha_show_type = apha_type_result.scalar_one_or_none()
+    apha_association_id = await association_id_by_code(db, "APHA")
 
     # Fetch all entries for this show with related data
     entries_result = await db.execute(
@@ -655,7 +667,7 @@ async def apha_export(
         .where(Class.show_id == show_id)
         .options(
             selectinload(Entry.class_),
-            selectinload(Entry.exhibitor),
+            selectinload(Entry.exhibitor).selectinload(Exhibitor.registrations),
             selectinload(Entry.horse).selectinload(Horse.registrations),
         )
         .order_by(Entry.exhibitor_id, Class.class_number)
@@ -694,42 +706,49 @@ async def apha_export(
 
     show_yr = show.start_date.year if show.start_date else ""
 
+    def apha_registration_number(horse) -> str:
+        """The horse's APHA number, off the `associations`-keyed registry."""
+        if horse is None or not apha_association_id:
+            return ""
+        for reg in horse.registrations:
+            if reg.association_id == apha_association_id:
+                return reg.registration_number or ""
+        return ""
+
+    def apha_member_number(exhibitor) -> str:
+        """The exhibitor's APHA membership number.
+
+        `exhibitor_registrations` is the registry every other affiliation reads
+        from, so it wins. `exhibitors.apha_member_number` is the pre-080 column
+        and is still the only place some records carry a number, so it stays as a
+        fallback rather than silently exporting a blank.
+        """
+        if exhibitor is None:
+            return ""
+        if apha_association_id:
+            for reg in exhibitor.registrations:
+                if reg.association_id == apha_association_id:
+                    return reg.member_number or ""
+        return exhibitor.apha_member_number or ""
+
     for entry in entries:
-        if entry.horse is None:
-            writer.writerow([
-                show.apha_show_number,
-                show_yr,
-                back_number_map.get(entry.exhibitor_id, ""),
-                "",
-                "",
-                apha_code_by_class.get(entry.class_.id, ""),
-                entry.class_.class_name,
-                entry.exhibitor.apha_member_number or "",
-                entry.exhibitor.full_name,
-            ])
-            continue
-
-        reg_number = ""
-        if apha_show_type:
-            for reg in entry.horse.registrations:
-                if reg.show_type_id == apha_show_type.id:
-                    reg_number = reg.registration_number
-                    break
-
         writer.writerow([
             show.apha_show_number,
             show_yr,
             back_number_map.get(entry.exhibitor_id, ""),
-            reg_number,
-            entry.horse.name,
+            apha_registration_number(entry.horse),
+            entry.horse.name if entry.horse else "",
             apha_code_by_class.get(entry.class_.id, ""),
             entry.class_.class_name,
-            entry.exhibitor.apha_member_number or "",
+            apha_member_number(entry.exhibitor),
             entry.exhibitor.full_name,
         ])
 
     csv_content = output.getvalue()
-    filename = f"apha_results_{show_id}.csv"
+    # Named for what it holds. This export carries entries, not placings — there
+    # is no place, judge or score column in it — and a file called "results" that
+    # contains none is how an office submits the wrong thing to APHA.
+    filename = f"apha_entries_{show_id}.csv"
 
     return StreamingResponse(
         iter([csv_content]),

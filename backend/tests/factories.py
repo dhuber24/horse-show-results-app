@@ -121,12 +121,33 @@ def make_class(**overrides) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def make_horse(name="Dusty", **overrides) -> SimpleNamespace:
+    """A horse, as the association rules engines see it.
+
+    `rules/apha.py` and `rules/aqha.py` read attributes off whatever they are
+    handed and never touch a session, so a namespace is the whole fixture.
+    Defaults describe a Regular Registry horse with nothing unusual about it.
+    """
+    defaults = dict(
+        id=uuid4(),
+        name=name,
+        is_solid_paint_bred=False,
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
 def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> SimpleNamespace:
     """A class entry.
 
     `cls` and `horse_id` sentinel-default rather than defaulting to None, so a
     test can pass None explicitly to build the orphaned-class and no-horse
     cases — which are exactly the ones `build_bill` has a branch for.
+
+    `status` defaults to ENTERED because that is what the association rules key
+    on: an entry the rules engine considers withdrawn is skipped entirely, and a
+    fixture that silently defaulted to withdrawn would make every rule test pass
+    for the wrong reason.
     """
     if horse_id is ...:
         horse_id = uuid4()
@@ -138,10 +159,15 @@ def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> Simple
         # Carried alongside `class_` because futurity billing matches entries to
         # a futurity's classes by id without loading the class itself.
         class_id=cls.id if cls is not None else None,
-        horse=SimpleNamespace(name=horse_name) if horse_name is not None else None,
+        horse=make_horse(name=horse_name) if horse_name is not None else None,
         horse_id=horse_id,
         exhibitor_id=uuid4(),
         back_number=None,
+        # Association validation fields. None is the ordinary case — most shows
+        # are not APHA and never name a division.
+        status="ENTERED",
+        apha_division=None,
+        relationship_to_owner=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

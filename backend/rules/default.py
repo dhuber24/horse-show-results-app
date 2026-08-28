@@ -33,3 +33,15 @@ class DefaultRules:
         if not place or place < 1:
             return 0
         return max(11 - place, 0)
+
+    def _issue(self, severity, code, message, **extra):
+        """One validation issue, in the shape both entry doors already render.
+
+        `routers/entries.py` and `routers/show_registration.py` filter on
+        `severity == "error"` and show `message` to the person entering, so a
+        warning is reported without blocking. Extra ids are stringified because
+        this dict is serialized straight into an HTTP response.
+        """
+        issue = {"severity": severity, "code": code, "message": message}
+        issue.update({key: str(value) for key, value in extra.items() if value is not None})
+        return issue

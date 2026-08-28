@@ -157,13 +157,12 @@ async def create_entry(
         raise HTTPException(400, "This class is closed and is not accepting entries")
     horse = await _get_horse_or_404(body.horse_id, db)
     exhibitor = await _get_exhibitor_or_404(body.exhibitor_id, db)
-    if body.apha_division == "OPEN":
-        if horse and horse.is_solid_paint_bred:
-            raise HTTPException(400, "Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1)")
 
-    _RELATIONSHIP_REQUIRED = {"AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"}
-    if body.apha_division in _RELATIONSHIP_REQUIRED and not body.relationship_to_owner:
-        raise HTTPException(400, f"relationship_to_owner is required for {body.apha_division} division entries")
+    # The APHA division checks that used to sit here are in `rules/apha.py` now,
+    # and run below through `rules.validate_entry` like every other association
+    # rule. They were only ever enforced on this endpoint, so the exhibitor's own
+    # class registration — which has always gone through the rules engine — was
+    # validated against an empty APHA rule set.
 
     # Pattern classes (showmanship/horsemanship/trail) can have the same
     # exhibitor entered on multiple horses; rail classes cannot.
