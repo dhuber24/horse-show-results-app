@@ -83,6 +83,41 @@ class ShowType(Base):
     shows = relationship("Show", back_populates="show_type")
 
 
+class ShowCategory(Base):
+    """What kind of show this is, and the judge panel it permits.
+
+    APHA SC-100 and SC-105 name four: Single-Judge, Two-Judge, Paint-O-Rama and
+    Zone Show. Keyed on `show_types` the way `JudgingSystem` is -- which
+    categories exist is the breed body's taxonomy, and `show_type_id` NULL is a
+    generic row offered whatever the show type.
+
+    `judge_limit_basis` is the column that keeps the findings honest. SC-100.A
+    and SC-105.C.1 limit judges "in the arena at any given time", which is
+    concurrency; the app records assignments and knows nothing about who is in
+    the arena when, so for those the judge count is a hint that the category may
+    be wrong rather than a rule check. SC-105.D.2 and SC-105.E.2 bound the total,
+    and that the app can check outright.
+    """
+    __tablename__ = "show_categories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True
+    )
+    code = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    min_judges = Column(Integer, nullable=True)
+    max_judges = Column(Integer, nullable=True)
+    judge_limit_basis = Column(Text, nullable=False)
+    min_days = Column(Integer, nullable=True)
+    rule_reference = Column(Text, nullable=True)
+    sort_order = Column(Integer, nullable=False, server_default="0")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    show_type = relationship("ShowType", lazy="selectin")
+
+
 class Venue(Base):
     __tablename__ = "venues"
 
@@ -107,6 +142,20 @@ class Show(Base):
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
+    # The day entries close (migration 123). Records only: it does not gate
+    # self-registration and it does not fire the `post_entry` fee. APHA SC-090.C
+    # measures the approval-application deadline against this or the show's first
+    # day, whichever comes first, and without it the app could only count from the
+    # later of the two -- which is the optimistic direction on a deadline.
+    entry_deadline = Column(Date, nullable=True)
+    # What kind of show this is and the judge panel it allows (migration 124).
+    # NULL means the show has not said, which is how every show predating the
+    # migration reads -- and which APHA's application asks for.
+    show_category_id = Column(UUID(as_uuid=True), ForeignKey("show_categories.id"), nullable=True)
+    # A clinic run alongside the show. One boolean because it changes a check:
+    # SC-105.C.3 exempts a two-judge show offered with a clinic from the SC-095
+    # minimum class requirements.
+    offers_clinic = Column(Boolean, nullable=False, server_default="false")
     status = Column(Text, nullable=False, default="DRAFT")
     apha_show_number = Column(Text, nullable=True)
     # APHA zone 1-14 (migration 119). NULL means not stated. Zones 12, 13 and 14
@@ -138,6 +187,10 @@ class Show(Base):
 
     venue_rel = relationship("Venue", back_populates="shows")
     show_type = relationship("ShowType", back_populates="shows")
+    # `lazy="selectin"` for the reason `Class.sanctioning` is: the show payload is
+    # built by hand for every row of the show list, so an unloaded relationship
+    # here is either N+1 lazy IO or a MissingGreenlet inside an async request.
+    show_category = relationship("ShowCategory", lazy="selectin")
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     affiliations = relationship("ShowAffiliation", back_populates="show", cascade="all, delete", lazy="selectin")
     rings = relationship("Ring", back_populates="show", cascade="all, delete")

@@ -12,6 +12,7 @@ passes vacuously against a stub.
 """
 import pytest
 
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from rules import get_rules
@@ -24,9 +25,20 @@ from rules.apha import (
     DIVISIONS,
     APHARules,
     RELATIONSHIP_REQUIRED_DIVISIONS,
+    application_window,
+    category_requirements,
+    show_minimums,
+    show_name_reservations,
     zone_individual_work_note,
 )
-from tests.factories import make_class, make_entry, make_horse, make_show
+from tests.factories import (
+    make_class,
+    make_entry,
+    make_horse,
+    make_judges,
+    make_show,
+    make_show_judge,
+)
 
 
 def declaration(kind="novice_eligibility"):
@@ -419,3 +431,571 @@ def test_a_non_apha_show_does_not_get_apha_rules():
     entry = make_entry(cls=cls, horse=make_horse(is_solid_paint_bred=True), apha_division="OPEN")
 
     assert get_rules("OPEN").validate_entry(entry, make_show(), cls) == []
+
+
+# ── SC-090: getting the show approved ────────────────────────────────────────
+
+
+def _codes(issues):
+    return [issue["code"] for issue in issues]
+
+
+@pytest.mark.parametrize("days_out,band", [
+    (365, "standard"),
+    (91, "standard"),
+    (90, "standard"),      # "at least ninety (90) days" — 90 is still standard
+    (89, "late"),
+    (60, "late"),
+    (59, "late_second"),
+    (30, "late_second"),   # "less than thirty (30)" — 30 can still be approved
+    (29, "closed"),
+    (0, "closed"),
+    (-14, "closed"),
+])
+def test_the_application_ladder_bands_on_the_rules_own_numbers(days_out, band):
+    """SC-090.C/D. The boundaries are the whole point: the rule says "at least
+    ninety" and "less than sixty", so 90 and 30 fall on the generous side, and an
+    off-by-one here is a late fee somebody was told they would not be paying."""
+    as_of = date(2026, 1, 1)
+    window = application_window(make_show(start_date=as_of + timedelta(days=days_out)), as_of)
+    assert window["band"] == band
+    assert window["days_remaining"] == days_out
+
+
+def test_the_window_counts_to_the_entry_deadline_when_that_comes_first():
+    """SC-090.C measures against "the show or contest entry deadline or show
+    date, whichever comes first", and it is the earlier one that sets the fee."""
+    window = application_window(
+        make_show(start_date=date(2026, 6, 1), entry_deadline=date(2026, 3, 1)),
+        date(2026, 1, 1),
+    )
+    assert window["basis"] == "entry_deadline"
+    assert window["basis_date"] == date(2026, 3, 1)
+    assert window["band"] == "late_second"
+
+
+def test_an_entry_deadline_after_the_show_is_ignored():
+    """Whichever comes *first*. A deadline later than the show is a typo, and
+    counting from it would hand the office more time than the rule allows."""
+    window = application_window(
+        make_show(start_date=date(2026, 6, 1), entry_deadline=date(2026, 9, 1)),
+        date(2026, 1, 1),
+    )
+    assert window["basis"] == "start_date"
+    assert window["basis_date"] == date(2026, 6, 1)
+
+
+def test_the_standard_deadline_is_ninety_days_before_the_basis():
+    window = application_window(make_show(start_date=date(2026, 6, 1)), date(2026, 1, 1))
+    assert window["standard_deadline"] == date(2026, 3, 3)
+
+
+def test_a_show_with_no_start_date_has_no_window():
+    """Not a shape the database allows. It is a shape a half-built object has,
+    and the alternative is a TypeError inside a readiness panel."""
+    assert application_window(make_show(start_date=None), date(2026, 1, 1)) is None
+
+
+def test_a_show_number_on_file_ends_the_deadline_ladder():
+    """APHA assigns the number on approval, so it is the approval as far as this
+    app can see. Nagging an approved show about its application window is how a
+    readiness panel teaches the office to ignore it."""
+    show = make_show(start_date=date(2026, 1, 10), apha_show_number="26-1234")
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    assert "APHA_APPLICATION_DEADLINE" not in _codes(issues)
+    assert "APHA_SHOW_NUMBER_MISSING" not in _codes(issues)
+
+
+def test_a_show_inside_thirty_days_with_no_number_is_an_error():
+    """SC-090.D.3 — APHA will not approve it. That is not advice, which is why it
+    is the one thing on this panel that is not a warning."""
+    show = make_show(start_date=date(2026, 1, 20), apha_show_number=None)
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
+    assert deadline["severity"] == "error"
+    assert "SC-090.D.3" in deadline["message"]
+
+
+def test_a_show_with_no_entry_deadline_says_its_count_may_be_optimistic():
+    """Counting from the show date is the *later* of SC-090.C's two dates, so the
+    app reports more time than the rule may allow. Saying so is the whole
+    mitigation — the alternative is a green panel and a rejected application."""
+    show = make_show(start_date=date(2026, 6, 1), entry_deadline=None, apha_show_number=None)
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
+    assert "no entry deadline is set" in deadline["message"]
+
+
+def test_an_entry_deadline_on_file_drops_the_caveat():
+    show = make_show(
+        start_date=date(2026, 6, 1), entry_deadline=date(2026, 5, 1), apha_show_number=None
+    )
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    deadline = next(i for i in issues if i["code"] == "APHA_APPLICATION_DEADLINE")
+    assert "no entry deadline is set" not in deadline["message"]
+    assert "the entry deadline" in deadline["message"]
+
+
+@pytest.mark.parametrize("name,word", [
+    ("Lone Star Championship Show", "championship"),
+    ("Midwest Champions Classic", "champion"),
+    ("World of Color Paint Show", "world"),
+    ("National Paint Futurity", "national"),
+    ("International Paint Spectacular", "international"),
+])
+def test_reserved_words_in_a_show_name_are_reported(name, word):
+    """SC-090.L and SC-090.P."""
+    assert word in show_name_reservations(name)
+
+
+def test_championship_is_reported_as_itself_not_as_champion():
+    """The pattern is ordered longest-first. Reporting both would send somebody
+    looking for a second problem that is the same word."""
+    assert list(show_name_reservations("Paint-O-Rama Championship")) == ["championship"]
+
+
+def test_international_does_not_also_report_national():
+    """The word boundary does this rather than the ordering, and it is the case
+    that breaks first if anybody loosens the pattern to a substring match."""
+    assert list(show_name_reservations("International Paint Show")) == ["international"]
+
+
+def test_an_ordinary_show_name_reserves_nothing():
+    assert show_name_reservations("MNSPHC Paint-O-Rama") == {}
+    assert show_name_reservations(None) == {}
+
+
+def test_a_judge_with_no_apha_carding_is_reported_by_name():
+    """SC-090.B. Reported and never refused: this reads `judge_associations`,
+    which is what somebody typed into the registry, not APHA's approved list."""
+    show = make_show(apha_show_number="26-1", judges=[make_show_judge(codes=("AQHA",))])
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    issue = next(i for i in issues if i["code"] == "APHA_JUDGE_NOT_CARDED")
+    assert "Dale Rogers" in issue["message"]
+    assert issue["severity"] == "warning"
+
+
+def test_an_apha_carded_judge_is_not_reported():
+    show = make_show(apha_show_number="26-1", judges=[make_show_judge(codes=("APHA", "AQHA"))])
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    assert "APHA_JUDGE_NOT_CARDED" not in _codes(issues)
+
+
+def test_a_panel_with_no_judges_is_reported_once():
+    """Once, not once per missing carding — there are no judges to iterate over.
+    The application is also priced per judge, so the count is not cosmetic."""
+    show = make_show(apha_show_number="26-1", judges=[])
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    assert _codes(issues).count("APHA_JUDGES_NOT_ASSIGNED") == 1
+
+
+def test_a_billing_style_judge_panel_produces_no_carding_noise():
+    """`make_judges` builds the assignment rows billing counts, with no registry
+    judge behind them. That is also the shape a caller who forgot to eager-load
+    `ShowJudge.judge` hands over, and inventing a finding from it would report
+    every judge at the show as uncarded."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    assert "APHA_JUDGE_NOT_CARDED" not in _codes(issues)
+
+
+def test_an_empty_class_list_blocks_approval_and_says_so():
+    """SC-090.E — approval is not granted until the show bill reaches APHA."""
+    show = make_show(apha_show_number="26-1")
+    issues = APHARules().validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)})
+    assert "APHA_CLASS_LIST_EMPTY" in _codes(issues)
+
+
+def test_class_changes_inside_thirty_days_need_written_notice():
+    """SC-090.E. Nothing in the app sends that notice, which is exactly why the
+    panel says so rather than letting the edit go through quietly."""
+    show = make_show(start_date=date(2026, 1, 20), apha_show_number="26-1")
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 1, 1)})
+    notice = next(i for i in issues if i["code"] == "APHA_CLASS_LIST_NOTICE")
+    assert "written notification" in notice["message"]
+
+
+def test_the_class_list_notice_stops_once_the_show_has_started():
+    """A show in progress is past amending, and a countdown that keeps running on
+    every finished show is noise across the whole historical record."""
+    show = make_show(start_date=date(2026, 1, 20), apha_show_number="26-1")
+    issues = APHARules().validate_show_schedule(show, [make_class()], {"as_of": date(2026, 2, 1)})
+    assert "APHA_CLASS_LIST_NOTICE" not in _codes(issues)
+
+
+def test_only_a_closed_application_window_is_an_error():
+    """Everything else here is something the office can still act on, and an
+    error nobody can clear is one they learn to scroll past."""
+    show = make_show(
+        name="World Championship Show",
+        start_date=date(2026, 6, 1),
+        apha_show_number=None,
+        judges=[make_show_judge(codes=("AQHA",))],
+    )
+    issues = APHARules().validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)})
+    assert issues, "expected this deliberately messy show to report something"
+    assert {i["severity"] for i in issues} == {"warning"}
+
+
+def test_the_schedule_check_is_reached_through_the_dispatcher():
+    """The same guard the entry rules carry: `get_rules` handing back the base
+    class would make every assertion above pass vacuously against an empty list."""
+    show = make_show(apha_show_number=None, start_date=date(2026, 1, 20))
+    assert get_rules("APHA").validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)})
+    assert get_rules("OPEN").validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)}) == []
+
+
+# ── SC-095: the minimum a show must offer ────────────────────────────────────
+
+
+def _cls(name, bracket=None, discipline="Halter"):
+    """A class as SC-095.A has to read it: a name, a bracket, and the discipline
+    the classifier assigned. All three, because "Open halter, 2 and under" is not
+    a column and lives half in the name and half in the bracket."""
+    return make_class(
+        class_name=name,
+        discipline=SimpleNamespace(name=discipline) if discipline else None,
+        division=SimpleNamespace(name=bracket) if bracket else None,
+    )
+
+
+def _minimums(judge_count=3, classes=()):
+    return show_minimums(make_show(judges=make_judges(judge_count)), list(classes))
+
+
+def test_sc095_does_not_apply_under_three_judges():
+    """"For shows with 3 or more judges." A two-judge show is not held to it, and
+    a show still being built has no panel at all — neither is a finding."""
+    assert _minimums(2, [])["applies"] is False
+    assert _minimums(0, [])["applies"] is False
+    assert _minimums(3, [])["applies"] is True
+
+
+@pytest.mark.parametrize("name,bracket", [
+    ("Yearling Stallions", "Yearling"),
+    ("Two Year Old Mares", "Two Year Old"),
+    ("Weanling Geldings", "Open"),
+    ("2 Year Old Fillies", "Open"),
+])
+def test_junior_halter_is_recognised_from_the_name_or_the_bracket(name, bracket):
+    """SC-095.A.1.a, "Junior, 2 and Under"."""
+    assert _minimums(3, [_cls(name, bracket)])["open_junior_halter"] == [name]
+
+
+@pytest.mark.parametrize("name,bracket", [
+    ("Three Year Old Stallions", "Three Year Old"),
+    ("Four Year & Older Mares", "Four Year & Older"),
+    ("Aged Geldings", "Open"),
+])
+def test_senior_halter_is_recognised_from_the_name_or_the_bracket(name, bracket):
+    """SC-095.A.1.b, "Senior, 3 and Over"."""
+    assert _minimums(3, [_cls(name, bracket)])["open_senior_halter"] == [name]
+
+
+@pytest.mark.parametrize("name,bracket", [
+    ("Amateur Stallions All Ages", "Amateur"),
+    ("Youth Geldings All Ages", "Youth"),
+    ("Novice Amateur Mares", "Novice Amateur"),
+    ("All Breed Yearling Halter, All Sexes (Futurity Class)", "Futurity"),
+    ("Solid Paint-Bred Yearling Mares", "Open"),
+    ("Halter", "Walk-Trot All Ages"),
+])
+def test_another_divisions_halter_is_not_open_halter(name, bracket):
+    """SC-095.A asks for the **Open** division. Open is not a column, so it is
+    read as the absence of another division's name — in the class name or in the
+    bracket, since a real schedule puts it in either."""
+    minimums = _minimums(3, [_cls(name, bracket)])
+    assert minimums["open_junior_halter"] == []
+    assert minimums["open_senior_halter"] == []
+    assert minimums["open_halter_unclassified"] == []
+
+
+def test_a_grand_and_reserve_class_is_open_halter_with_no_age():
+    """The case the `unclassified` list exists for. Reporting "no Junior halter
+    found" over a schedule that plainly has one is how an office learns to stop
+    reading the panel."""
+    minimums = _minimums(3, [_cls("Grand & Reserve Stallions", "Open")])
+    assert minimums["open_halter_unclassified"] == ["Grand & Reserve Stallions"]
+
+
+def test_junior_horse_performance_classes_are_not_junior_halter():
+    """A trap worth its own test. APHA's *performance* Junior/Senior split is
+    5-and-under against 6-and-over and has nothing to do with halter's 2 and 3, so
+    matching on the word "Junior" would read a Junior Western Pleasure as a halter
+    class — and satisfy SC-095.A.1.a with a class that cannot."""
+    minimums = _minimums(3, [
+        _cls("Junior Western Pleasure", "Junior Horse (5 & Younger)",
+             discipline="Western Pleasure"),
+    ])
+    assert minimums["open_junior_halter"] == []
+    assert minimums["performance_upper_bound"] == 1
+
+
+def test_every_halter_discipline_counts_as_halter_not_performance():
+    """Performance Halter and Halter — Group are not the classes SC-095.A.1 asks
+    for, but they are halter. Counting them as performance contests would inflate
+    the one number here that can produce a finding."""
+    minimums = _minimums(3, [
+        _cls("Performance Halter Stallions", "Open", discipline="Performance Halter"),
+        _cls("Get of Sire", "Open", discipline="Halter — Group"),
+    ])
+    assert minimums["performance_upper_bound"] == 0
+
+
+def test_a_two_judge_show_is_not_held_to_the_minimums():
+    show = make_show(apha_show_number="26-1", judges=make_judges(2))
+    issues = APHARules().validate_show_schedule(show, [], {"as_of": date(2026, 1, 1)})
+    assert [code for code in _codes(issues) if code.startswith("APHA_MINIMUM")] == []
+
+
+def test_no_open_halter_at_all_is_reported():
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    classes = [_cls(f"Western Pleasure {i}", "Open", discipline="Western Pleasure")
+               for i in range(6)]
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    assert "APHA_MINIMUM_HALTER_MISSING" in _codes(issues)
+
+
+def test_a_missing_age_split_is_reported_only_when_every_class_was_understood():
+    """An Open halter class the app could not place is exactly the case where it
+    must not claim a gap — the answer may be sitting in the one it did not read."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    senior_only = [_cls("Aged Stallions", "Open")] + [
+        _cls(f"Trail {i}", "Open", discipline="Trail") for i in range(4)
+    ]
+
+    issues = APHARules().validate_show_schedule(show, senior_only, {"as_of": date(2026, 1, 1)})
+    gap = next(i for i in issues if i["code"] == "APHA_MINIMUM_HALTER_AGE_GAP")
+    assert "Junior (2 and under)" in gap["message"]
+
+    with_unknown = senior_only + [_cls("Grand & Reserve Stallions", "Open")]
+    issues = APHARules().validate_show_schedule(show, with_unknown, {"as_of": date(2026, 1, 1)})
+    assert "APHA_MINIMUM_HALTER_AGE_GAP" not in _codes(issues)
+
+
+def test_a_show_short_of_four_performance_classes_is_reported():
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    classes = [
+        _cls("Yearling Stallions", "Yearling"),
+        _cls("Aged Stallions", "Open"),
+        _cls("Western Pleasure", "Open", discipline="Western Pleasure"),
+    ]
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    short = next(i for i in issues if i["code"] == "APHA_MINIMUM_PERFORMANCE_SHORT")
+    assert "SC-190.A" in short["message"]
+    assert "however performance contests are counted" in short["message"]
+
+
+def test_four_non_halter_classes_clears_the_performance_minimum():
+    """The count is an upper bound, so it can only be trusted downward. At four or
+    more the app says nothing rather than guessing at SC-190.A's definition — one
+    that has not been supplied."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    classes = [
+        _cls("Yearling Stallions", "Yearling"),
+        _cls("Aged Stallions", "Open"),
+    ] + [_cls(f"Class {i}", "Open", discipline="Trail") for i in range(4)]
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    assert "APHA_MINIMUM_PERFORMANCE_SHORT" not in _codes(issues)
+
+
+def test_a_complete_schedule_reports_no_minimums_finding():
+    """The shape of a real Paint show: halter split by age and sex, and plenty of
+    performance. Nothing here is a finding, and the checklist still reports it."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(4))
+    classes = [
+        _cls("Yearling Stallions", "Yearling"),
+        _cls("Two Year Old Mares", "Two Year Old"),
+        _cls("Three Year Old Geldings", "Three Year Old"),
+        _cls("Four Year & Older Mares", "Four Year & Older"),
+        _cls("Grand & Reserve Stallions", "Open"),
+        _cls("Amateur Stallions All Ages", "Amateur"),
+    ] + [_cls(f"Class {i}", "Open", discipline="Trail") for i in range(8)]
+
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    assert [code for code in _codes(issues) if code.startswith("APHA_MINIMUM")] == []
+
+    minimums = show_minimums(show, classes)
+    assert len(minimums["open_junior_halter"]) == 2
+    assert len(minimums["open_senior_halter"]) == 2
+    assert minimums["open_halter_unclassified"] == ["Grand & Reserve Stallions"]
+    assert minimums["performance_upper_bound"] == 8
+
+
+def test_the_checklist_and_the_findings_read_one_schedule():
+    """`validate_show_schedule` takes the precomputed minimums off the context, so
+    the checklist the panel prints and the findings printed beside it are the same
+    pass over the same classes rather than two."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    empty = show_minimums(show, [])
+    issues = APHARules().validate_show_schedule(
+        show,
+        [_cls("Yearling Stallions", "Yearling")],
+        {"as_of": date(2026, 1, 1), "minimums": empty},
+    )
+    assert "APHA_MINIMUM_HALTER_MISSING" in _codes(issues)
+
+
+# ── SC-100 and SC-105: what kind of show, and how many judges ────────────────
+
+
+def _category(code, name, min_judges, max_judges, basis, min_days=None, rule="SC-105"):
+    return SimpleNamespace(
+        code=code,
+        name=name,
+        min_judges=min_judges,
+        max_judges=max_judges,
+        judge_limit_basis=basis,
+        min_days=min_days,
+        rule_reference=rule,
+    )
+
+
+SINGLE_JUDGE = _category("single_judge", "Single-Judge Show", 1, 1, "in_arena", None, "SC-100.A")
+TWO_JUDGE = _category("two_judge", "Two-Judge Show", 2, 2, "in_arena", None, "SC-105.C")
+PAINT_O_RAMA = _category("paint_o_rama", "Paint-O-Rama", 3, 4, "total", None, "SC-105.D")
+ZONE_SHOW = _category("zone_show", "Zone Show", 2, 6, "total", 2, "SC-105.E")
+
+
+def _categorised(category, judge_count, **overrides):
+    """An approved show with a category and a panel, and nothing else wrong."""
+    return make_show(
+        apha_show_number="26-1",
+        show_category=category,
+        judges=make_judges(judge_count),
+        **overrides,
+    )
+
+
+def _schedule_issues(show, classes=None):
+    if classes is None:
+        classes = [
+            _cls("Yearling Stallions", "Yearling"),
+            _cls("Aged Stallions", "Open"),
+        ] + [_cls(f"Class {i}", "Open", discipline="Trail") for i in range(4)]
+    return APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+
+
+def test_a_show_that_does_not_say_what_kind_it_is_is_reported():
+    """The category decides the judge panel and, through SC-095, the class
+    schedule. APHA's application asks for it, so a blank is a real gap."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(2))
+    assert "APHA_SHOW_CATEGORY_NOT_SET" in _codes(_schedule_issues(show))
+
+
+def test_a_category_within_its_limits_reports_nothing():
+    assert [c for c in _codes(_schedule_issues(_categorised(PAINT_O_RAMA, 4)))
+            if c.startswith("APHA_CATEGORY") or c.startswith("APHA_SHOW_CATEGORY")] == []
+
+
+def test_a_paint_o_rama_over_four_judges_breaks_the_rule_outright():
+    """SC-105.D.2 bounds the judges a Paint-O-Rama may *have* — "limited to three
+    (3) or four (4) judges" — so the assignment count answers it directly."""
+    issues = _schedule_issues(_categorised(PAINT_O_RAMA, 5))
+    exceeded = next(i for i in issues if i["code"] == "APHA_CATEGORY_JUDGE_LIMIT_EXCEEDED")
+    assert "SC-105.D" in exceeded["message"]
+    assert "5 are assigned" in exceeded["message"]
+
+
+def test_a_zone_show_over_six_judges_breaks_the_rule_outright():
+    issues = _schedule_issues(_categorised(ZONE_SHOW, 7, end_date=date(2026, 6, 3)))
+    assert "APHA_CATEGORY_JUDGE_LIMIT_EXCEEDED" in _codes(issues)
+
+
+def test_a_two_judge_show_with_extra_judges_is_a_hint_not_a_violation():
+    """SC-105.C.1 limits a two-judge show to two judges **in the arena at any
+    given time**. The app records assignments and knows nothing about who is in
+    the arena when, so three assigned judges may be a perfectly legal rotation —
+    the finding has to say it is asking about the category, not the rule."""
+    issues = _schedule_issues(_categorised(TWO_JUDGE, 3))
+    hint = next(i for i in issues if i["code"] == "APHA_CATEGORY_JUDGE_COUNT_UNEXPECTED")
+    assert "in the arena at any given time" in hint["message"]
+    assert "not a rule it can tell you was broken" in hint["message"]
+    assert "APHA_CATEGORY_JUDGE_LIMIT_EXCEEDED" not in _codes(issues)
+
+
+def test_a_single_judge_show_with_two_judges_is_the_same_kind_of_hint():
+    issues = _schedule_issues(_categorised(SINGLE_JUDGE, 2))
+    hint = next(i for i in issues if i["code"] == "APHA_CATEGORY_JUDGE_COUNT_UNEXPECTED")
+    assert "1 judge in the arena" in hint["message"]
+
+
+def test_a_category_short_of_its_minimum_is_reported():
+    issues = _schedule_issues(_categorised(PAINT_O_RAMA, 2))
+    short = next(i for i in issues if i["code"] == "APHA_CATEGORY_JUDGE_COUNT_SHORT")
+    assert "at least 3 judges" in short["message"]
+
+
+def test_a_show_with_no_judges_yet_gets_no_category_count_finding():
+    """A show still being built has no panel, and `APHA_JUDGES_NOT_ASSIGNED`
+    already says so once. Saying it twice in different words is noise."""
+    codes = _codes(_schedule_issues(_categorised(PAINT_O_RAMA, 0)))
+    assert "APHA_CATEGORY_JUDGE_COUNT_SHORT" not in codes
+    assert "APHA_JUDGES_NOT_ASSIGNED" in codes
+
+
+def test_a_one_day_zone_show_is_reported():
+    """SC-105.E.2 — "on two or more consecutive days"."""
+    show = _categorised(ZONE_SHOW, 6, start_date=date(2026, 6, 1), end_date=date(2026, 6, 1))
+    short = next(i for i in _schedule_issues(show) if i["code"] == "APHA_CATEGORY_TOO_SHORT")
+    assert "2 or more consecutive days" in short["message"]
+    assert "This show runs 1." in short["message"]
+
+
+def test_a_two_day_zone_show_clears_the_length_rule():
+    show = _categorised(ZONE_SHOW, 6, start_date=date(2026, 6, 1), end_date=date(2026, 6, 2))
+    assert "APHA_CATEGORY_TOO_SHORT" not in _codes(_schedule_issues(show))
+
+
+def test_a_two_judge_show_with_a_clinic_is_exempt_from_the_sc095_minimums():
+    """SC-105.C.3. It can genuinely fire despite SC-095 only biting at three or
+    more judges, because a two-judge show is limited to two **in the arena** — a
+    show rotating three judges is categorised two_judge and counts three."""
+    show = _categorised(TWO_JUDGE, 3, offers_clinic=True)
+    minimums = show_minimums(show, [])
+    assert minimums["applies"] is False
+    assert "SC-105.C.3" in minimums["exempt_reason"]
+    assert [c for c in _codes(_schedule_issues(show, [])) if c.startswith("APHA_MINIMUM")] == []
+
+
+def test_the_same_show_without_the_clinic_is_not_exempt():
+    show = _categorised(TWO_JUDGE, 3, offers_clinic=False)
+    minimums = show_minimums(show, [])
+    assert minimums["applies"] is True
+    assert minimums["exempt_reason"] is None
+    assert "APHA_MINIMUM_HALTER_MISSING" in _codes(_schedule_issues(show, []))
+
+
+def test_the_clinic_exemption_belongs_to_two_judge_shows_only():
+    """A Paint-O-Rama offering a clinic is still held to SC-095. SC-105.C.3 sits
+    under Two-Judge Shows and names no other category."""
+    show = _categorised(PAINT_O_RAMA, 3, offers_clinic=True)
+    assert show_minimums(show, [])["applies"] is True
+
+
+def test_the_unverifiable_requirements_are_text_against_the_category():
+    """Regional club sponsorship, the per-year caps, clinician approval — all
+    facts about APHA's calendar or its club registry. Reported as text because a
+    finding the office can never clear is one they learn to scroll past."""
+    notes = category_requirements(_categorised(PAINT_O_RAMA, 4))
+    assert any("Regional Club" in note for note in notes)
+    assert any("two Paint-O-Ramas a year" in note for note in notes)
+
+
+def test_a_multiple_judge_category_also_carries_the_independence_notes():
+    """SC-105.B.4 and B.3 apply to every multiple-judge show. Both are already
+    how the app works — one card per judge, one entry under all of them — and
+    saying so is how the office can see it is not quietly doing something else."""
+    notes = category_requirements(_categorised(ZONE_SHOW, 6))
+    assert any("no consultation during judging" in note for note in notes)
+    assert any("an entry under every judge" in note.lower() for note in notes)
+
+
+def test_a_single_judge_show_does_not_carry_the_multiple_judge_notes():
+    notes = category_requirements(_categorised(SINGLE_JUDGE, 1))
+    assert notes
+    assert not any("consultation" in note for note in notes)
+
+
+def test_a_show_with_no_category_has_no_requirements_to_report():
+    assert category_requirements(make_show()) == []

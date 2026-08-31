@@ -4,6 +4,14 @@ import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import ValidationIssues, { ValidationResult } from '@/components/ValidationIssues';
+import AphaMinimums from './AphaMinimums';
+import {
+  APPLICATION_BANDS,
+  APPLICATION_BASIS_LABELS,
+  AphaApplicationWindow,
+  AphaShowMinimums,
+} from '@/lib/apha';
 
 const tiles = (showId: string) => [
   // Staff and the class schedule were tiles of their own. Both are things you
@@ -69,19 +77,13 @@ const scoringTile = (showId: string) => ({
   icon: '🏆',
 });
 
-type AqhaValidationIssue = {
-  severity: 'error' | 'warning';
-  code: string;
-  message: string;
-  class_id?: string;
-  class_code?: string;
-  entry_id?: string;
-};
-
-type AqhaValidationData = {
-  error_count: number;
-  warning_count: number;
-  issues: AqhaValidationIssue[];
+// Both readiness endpoints return the same shape, which is why the issue list
+// is one component. APHA adds the SC-090 application window on top, because a
+// countdown is not a finding — it is still true when nothing is wrong.
+type AphaValidationData = ValidationResult & {
+  application_window: AphaApplicationWindow | null;
+  minimums: AphaShowMinimums | null;
+  category_requirements: string[];
 };
 
 async function fetchScribeNames(
@@ -112,8 +114,12 @@ async function fetchUnreadMessageCount(
   return json.unread ?? 0;
 }
 
-async function getAqhaValidation(showId: string, headers: Record<string, string>) {
-  const res = await fetch(`${API_URL}/shows/${showId}/aqha-validation`, {
+async function getAssociationValidation(
+  showId: string,
+  association: 'aqha' | 'apha',
+  headers: Record<string, string>,
+) {
+  const res = await fetch(`${API_URL}/shows/${showId}/${association}-validation`, {
     headers,
     cache: 'no-store',
   });
@@ -129,7 +135,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   const isShowAdmin = user?.role === 'SHOW_SECRETARY';
 
   let scribeNames: string[] = [];
-  let aqhaValidation: AqhaValidationData | null = null;
+  let aqhaValidation: ValidationResult | null = null;
+  let aphaValidation: AphaValidationData | null = null;
   let unreadMessages = 0;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
@@ -144,7 +151,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       fetchUnreadMessageCount(id, headers),
     ]);
     if (show.show_type_code === 'AQHA') {
-      aqhaValidation = await getAqhaValidation(id, headers);
+      aqhaValidation = await getAssociationValidation(id, 'aqha', headers);
+    } else if (show.show_type_code === 'APHA') {
+      aphaValidation = await getAssociationValidation(id, 'apha', headers);
     }
   }
 
@@ -302,36 +311,108 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           <div className="rounded p-3 text-sm" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
             AQHA approval readiness: venue selected, class schedule built, AQHA class codes assigned, judge/show details confirmed, and show bill submitted with approval.
           </div>
-          {aqhaValidation && (
-            <div className="rounded border p-3 text-sm space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#fffaf3' }}>
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-medium" style={{ color: '#2c1810' }}>AQHA validation</p>
-                <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {aqhaValidation.error_count} error{aqhaValidation.error_count === 1 ? '' : 's'} · {aqhaValidation.warning_count} warning{aqhaValidation.warning_count === 1 ? '' : 's'}
-                </span>
+          {aqhaValidation && <ValidationIssues label="AQHA validation" data={aqhaValidation} />}
+          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+            Update AQHA approval details
+          </a>
+        </div>
+      )}
+
+      {show.show_type_code === 'APHA' && (
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-semibold" style={{ color: '#2c1810' }}>APHA Approval</h2>
+            {/* APHA issues the show number on approval, and the results export
+                refuses without it, so its presence is the closest thing the app
+                holds to an approval flag. */}
+            <span
+              className="text-xs font-mono px-2 py-1 rounded"
+              style={
+                show.apha_show_number
+                  ? { backgroundColor: '#e6f2e9', color: '#2f6b3f' }
+                  : { backgroundColor: '#fef3c7', color: '#92400e' }
+              }
+            >
+              {show.apha_show_number ? `SHOW #${show.apha_show_number}` : 'NO SHOW NUMBER'}
+            </span>
+          </div>
+
+          <p className="text-sm" style={{ color: '#8b7355' }}>
+            {show.show_category
+              ? `${show.show_category.name} (${show.show_category.rule_reference ?? 'SC-105'})`
+              : 'Kind of show not stated'}
+            {show.offers_clinic ? ' · clinic alongside' : ''}
+          </p>
+
+          {aphaValidation?.application_window && (
+            <div className="rounded p-3 text-sm" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
+              <div className="grid sm:grid-cols-3 gap-2">
+                <p>
+                  <span className="block text-xs" style={{ color: '#8b7355' }}>Application due</span>
+                  <span className="font-mono">{aphaValidation.application_window.standard_deadline}</span>
+                </p>
+                <p>
+                  <span className="block text-xs" style={{ color: '#8b7355' }}>
+                    Counted to the {APPLICATION_BASIS_LABELS[aphaValidation.application_window.basis]}
+                  </span>
+                  <span className="font-mono">{aphaValidation.application_window.basis_date}</span>
+                </p>
+                <p>
+                  <span className="block text-xs" style={{ color: '#8b7355' }}>Days remaining</span>
+                  <span className="font-mono">{aphaValidation.application_window.days_remaining}</span>
+                </p>
               </div>
-              {aqhaValidation.issues.length === 0 ? (
-                <p style={{ color: '#2f6b3f' }}>No AQHA validation issues found.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {aqhaValidation.issues.slice(0, 6).map((issue, index) => (
-                    <li key={`${issue.code}-${index}`} style={{ color: issue.severity === 'error' ? '#b42318' : '#92400e' }}>
-                      <span className="font-mono text-xs uppercase mr-1">{issue.severity}</span>
-                      {issue.class_code && <span className="font-mono text-xs mr-1">[{issue.class_code}]</span>}
-                      {issue.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {aqhaValidation.issues.length > 6 && (
-                <p className="text-xs" style={{ color: '#8b7355' }}>
-                  Showing first 6 of {aqhaValidation.issues.length} issues.
+              <p
+                className="mt-2 font-medium"
+                style={{
+                  color:
+                    APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'bad'
+                      ? '#b42318'
+                      : APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'warn'
+                        ? '#92400e'
+                        : '#2f6b3f',
+                }}
+              >
+                {APPLICATION_BANDS[aphaValidation.application_window.band].label}
+              </p>
+              {aphaValidation.application_window.basis === 'start_date' && (
+                <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+                  Counted from the show date because no entry deadline is set. SC-090.C
+                  measures from the entry deadline where that comes first, so the real
+                  cutoff may be earlier than this — set it on the show details.
                 </p>
               )}
             </div>
           )}
+
+          {aphaValidation?.minimums && <AphaMinimums minimums={aphaValidation.minimums} />}
+
+          {aphaValidation && <ValidationIssues label="APHA readiness" data={aphaValidation} />}
+
+          {/* SC-100 / SC-105 conditions the app cannot check — regional club
+              sponsorship, the per-year caps, clinician approval. Text rather
+              than findings: an item nobody can ever clear would train the office
+              to scroll past the list above it. */}
+          {aphaValidation && aphaValidation.category_requirements.length > 0 && (
+            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: '#faf6f0' }}>
+              <p className="font-medium" style={{ color: '#2c1810' }}>
+                Not checked here
+              </p>
+              <ul className="space-y-1 list-disc pl-4" style={{ color: '#5c3d1e' }}>
+                {aphaValidation.category_requirements.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <p className="text-xs" style={{ color: '#8b7355' }}>
+            Read-only. Nothing here is filed with APHA, and none of it is verified
+            against APHA&rsquo;s records — the approved-judge list and the approval
+            itself are theirs.
+          </p>
           <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
-            Update AQHA approval details
+            Update APHA show details
           </a>
         </div>
       )}

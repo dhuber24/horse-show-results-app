@@ -1,4 +1,4 @@
-import { fetchShow, fetchVenues, fetchShowTypes } from '@/lib/api';
+import { fetchShow, fetchVenues, fetchShowTypes, fetchShowCategories } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import EditShowForm from '../EditShowForm';
 import ShowStaffPanel, { type PendingInvite } from '../ShowStaffPanel';
@@ -30,6 +30,7 @@ export default async function EditShowDetailsPage({
   const [
     venues,
     showTypes,
+    showCategories,
     managers,
     availableManagers,
     secretaries,
@@ -42,6 +43,7 @@ export default async function EditShowDetailsPage({
   ] = await Promise.all([
     fetchVenues(),
     fetchShowTypes(),
+    fetchShowCategories(),
     fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/managers`, []),
     fetchAuthed<StaffUser[]>(`${API_URL}/users/by-role?role=SHOW_MANAGER`, []),
     fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/admins`, []),
@@ -63,7 +65,12 @@ export default async function EditShowDetailsPage({
       stepsInput={stepsInput}
     >
       <div className="space-y-6">
-        <EditShowForm show={show} venues={venues} showTypes={showTypes} />
+        <EditShowForm
+          show={show}
+          venues={venues}
+          showTypes={showTypes}
+          showCategories={showCategories}
+        />
 
         <div className="space-y-2">
           <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>

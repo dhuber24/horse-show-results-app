@@ -33,13 +33,16 @@ from models import (
     User,
 )
 from schemas import (
+    APHAValidationOut,
     AssociationValidationOut,
     ShowCreate,
     ShowUpdate,
     ShowOut,
     ShowAffiliationUpdate,
 )
+from apha_context import apha_entry_context
 from rules import get_rules
+from rules.apha import application_window, category_requirements, show_minimums
 import standard_classes
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
@@ -56,8 +59,41 @@ def _serialize(show: Show) -> dict:
         "show_type_name": show.show_type.name if show.show_type else None,
         "start_date": show.start_date,
         "end_date": show.end_date,
+        # The day entries close (migration 123). Records only -- it gates nothing
+        # and bills nothing; APHA SC-090.C counts the approval deadline back from
+        # it, or from start_date when it is unset.
+        "entry_deadline": show.entry_deadline,
         "status": show.status,
         "apha_show_number": show.apha_show_number,
+        # Serialized here because this function builds the payload by hand and
+        # ShowOut would otherwise fill the gap with its own default. Left out, it
+        # meant every show reported `apha_zone: null` whatever was stored -- and
+        # the edit form, loading that null and posting it back, wiped the zone on
+        # the next save. The migration-097 note below warned about this exact
+        # shape; the zone arrived in migration 119, after it.
+        "apha_zone": show.apha_zone,
+        # Which kind of show, and whether a clinic runs alongside (migration 124).
+        # `Show.show_category` is lazy="selectin" so this costs one extra SELECT
+        # for the whole list rather than one per show.
+        "show_category_id": show.show_category_id,
+        "show_category": (
+            {
+                "id": str(show.show_category.id),
+                "show_type_id": (
+                    str(show.show_category.show_type_id)
+                    if show.show_category.show_type_id else None
+                ),
+                "code": show.show_category.code,
+                "name": show.show_category.name,
+                "min_judges": show.show_category.min_judges,
+                "max_judges": show.show_category.max_judges,
+                "judge_limit_basis": show.show_category.judge_limit_basis,
+                "min_days": show.show_category.min_days,
+                "rule_reference": show.show_category.rule_reference,
+            }
+            if show.show_category else None
+        ),
+        "offers_clinic": show.offers_clinic,
         "aqha_show_number": show.aqha_show_number,
         "aqha_approval_status": show.aqha_approval_status,
         "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
@@ -640,6 +676,96 @@ async def aqha_validation(
         "error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
         "warning_count": sum(1 for issue in issues if issue.get("severity") == "warning"),
         "issues": issues,
+    }
+
+
+@router.get("/{show_id}/apha-validation", response_model=APHAValidationOut)
+async def apha_validation(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """SC-090 approval readiness plus the per-entry APHA rules, in one read.
+
+    The entry rules already run at both entry doors and block there, so the
+    schedule half is most of what comes back. They are re-run anyway because an
+    entry that passed can stop passing without anybody touching it: a horse
+    flagged Solid Paint-Bred after it was entered, a division corrected at the
+    desk, a fifth horse added under SC-185.F.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+
+    result = await db.execute(
+        select(Show)
+        .options(
+            selectinload(Show.show_type),
+            selectinload(Show.venue_rel),
+            # SC-090.B reads each assigned judge's carding. `Judge.associations`
+            # is lazy="selectin" on the model, so loading the judge brings it.
+            selectinload(Show.judges).selectinload(ShowJudge.judge),
+        )
+        .where(Show.id == show_id)
+    )
+    show = result.scalar_one_or_none()
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if not show.show_type or show.show_type.code != "APHA":
+        raise HTTPException(400, "This show is not an APHA approved show")
+
+    classes_result = await db.execute(
+        select(Class)
+        # SC-095.A reads the discipline the classifier assigned and the bracket,
+        # because "Open halter, 2 and under" is not a column and has to be read
+        # off both. The rules module is pure and never touches a session, so an
+        # unloaded relationship here is a MissingGreenlet inside the check.
+        .options(selectinload(Class.discipline), selectinload(Class.division))
+        .where(Class.show_id == show_id)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+    classes = classes_result.scalars().all()
+
+    rules = get_rules("APHA")
+    today = date.today()
+    # Computed once and passed in, so the checklist on the payload and the
+    # findings in the list cannot disagree about the same schedule.
+    minimums = show_minimums(show, classes)
+    issues = rules.validate_show_schedule(
+        show, classes, {"as_of": today, "minimums": minimums}
+    )
+
+    # The same context both entry doors build. One pair of queries for the whole
+    # show, rather than one per entry per rule.
+    entry_context = await apha_entry_context(show_id, db)
+    entries_result = await db.execute(
+        select(Entry)
+        .join(Class, Entry.class_id == Class.id)
+        .where(Class.show_id == show_id)
+        .options(selectinload(Entry.class_), selectinload(Entry.horse))
+        .order_by(Class.sort_order.nullslast(), Class.class_number)
+    )
+    for entry in entries_result.scalars().all():
+        entry_issues = rules.validate_entry(entry, show, entry.class_, entry_context)
+        for issue in entry_issues:
+            issue.setdefault("entry_id", str(entry.id))
+        issues.extend(entry_issues)
+
+    # Withheld once the show has a number, for the reason `validate_show_schedule`
+    # gives: APHA assigns it on approval, so the ladder no longer applies.
+    window = None
+    if not (show.apha_show_number or "").strip():
+        window = application_window(show, today)
+
+    return {
+        "show_id": show_id,
+        "association": "APHA",
+        "error_count": sum(1 for issue in issues if issue.get("severity") == "error"),
+        "warning_count": sum(1 for issue in issues if issue.get("severity") == "warning"),
+        "issues": issues,
+        "application_window": window,
+        "minimums": minimums,
+        "category_requirements": category_requirements(show),
     }
 
 

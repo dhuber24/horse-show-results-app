@@ -163,6 +163,39 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/register/trainer` | Trainer account registration |
 | `/admin/venues` | Venue management |
 
+## Association Readiness Panels
+
+The show dashboard carries an approval panel for AQHA and for APHA, each fed by
+its own endpoint (`/api/shows/[showId]/aqha-validation`,
+`/api/shows/[showId]/apha-validation`). Both endpoints return the same shape, so
+the findings are drawn by **one** component — `components/ValidationIssues.tsx` —
+for the reason the two report registries share `ReportTable`. Two copies would
+eventually disagree about what a warning looks like, on the one screen whose
+whole job is telling an office what is wrong before somebody else does.
+
+It sorts errors above warnings before truncating, so a shortened list never hides
+the worst of it, and the count in the header always reports the whole set. It is
+a pure render with no hooks, so it stays a server component.
+
+The APHA panel adds two things above the findings, both for the same reason: a
+countdown and a checklist are still true when nothing is wrong, so neither is a
+finding.
+
+* The **SC-090 application window** — the deadline, what it is counted to, and
+  the days left. Band labels live in `lib/apha.ts` beside the rest of the APHA
+  display copy; the band itself is decided in `backend/rules/apha.py`, which
+  holds the rule's numbers.
+* The show's **category** and whether a clinic runs alongside it, then any
+  SC-100/SC-105 conditions the app cannot check, under a **Not checked here**
+  heading. Text rather than findings, because an item nobody can ever clear
+  would train the office to scroll past the list that matters.
+* The **SC-095.A minimum classes** checklist (`AphaMinimums.tsx`), when the show
+  has three or more judges. It prints the Open halter classes the backend found
+  for each age split *and the ones it could not place*, because Open division and
+  the halter age split are inferred from class names and brackets rather than
+  read off a column — the lists are the evidence, and the counts alone would
+  invite more trust than the inference deserves. It says so on the panel.
+
 ## Validation
 
 Run from `frontend/`:

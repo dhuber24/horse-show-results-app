@@ -19,8 +19,11 @@ interface Show {
   show_type_code: string | null;
   start_date: string;
   end_date: string;
+  entry_deadline: string | null;
   apha_show_number: string | null;
   apha_zone: number | null;
+  show_category_id: string | null;
+  offers_clinic: boolean;
   aqha_show_number: string | null;
   aqha_approval_status: string;
   aqha_approval_submitted_at: string | null;
@@ -31,6 +34,20 @@ interface ShowType {
   id: string;
   code: string;
   name: string;
+}
+
+/** APHA SC-100 / SC-105. `show_type_id` null is a generic row, offered for any
+ *  show type. */
+interface ShowCategory {
+  id: string;
+  show_type_id: string | null;
+  code: string;
+  name: string;
+  min_judges: number | null;
+  max_judges: number | null;
+  judge_limit_basis: string;
+  min_days: number | null;
+  rule_reference: string | null;
 }
 
 const COLORS = {
@@ -49,10 +66,12 @@ export default function EditShowForm({
   show,
   venues,
   showTypes,
+  showCategories = [],
 }: {
   show: Show;
   venues: Venue[];
   showTypes: ShowType[];
+  showCategories?: ShowCategory[];
 }) {
   const router = useRouter();
 
@@ -62,8 +81,11 @@ export default function EditShowForm({
     show_type_id: show.show_type_id ?? '',
     start_date: show.start_date,
     end_date: show.end_date,
+    entry_deadline: show.entry_deadline ?? '',
     apha_show_number: show.apha_show_number ?? '',
     apha_zone: show.apha_zone === null || show.apha_zone === undefined ? '' : String(show.apha_zone),
+    show_category_id: show.show_category_id ?? '',
+    offers_clinic: show.offers_clinic ?? false,
     aqha_show_number: show.aqha_show_number ?? '',
     aqha_approval_status: show.aqha_approval_status ?? 'NOT_SUBMITTED',
     aqha_approval_submitted_at: show.aqha_approval_submitted_at ?? '',
@@ -80,6 +102,14 @@ export default function EditShowForm({
   };
 
   const selectedShowType = showTypes.find((t) => t.id === form.show_type_id);
+
+  // A category belongs to one show type, plus the generic rows that belong to
+  // none. Filtered here rather than refetched, because the show-type picker sits
+  // directly above and the list has to change the moment it does.
+  const categoriesForType = showCategories.filter(
+    (c) => c.show_type_id === null || c.show_type_id === form.show_type_id,
+  );
+  const selectedCategory = categoriesForType.find((c) => c.id === form.show_category_id);
 
   const handleSave = async () => {
     if (!form.name || !form.start_date || !form.end_date || !form.show_type_id) {
@@ -99,8 +129,11 @@ export default function EditShowForm({
         show_type_id: form.show_type_id,
         start_date: form.start_date,
         end_date: form.end_date,
+        entry_deadline: form.entry_deadline || null,
         apha_show_number: form.apha_show_number || null,
         apha_zone: form.apha_zone ? Number(form.apha_zone) : null,
+        show_category_id: form.show_category_id || null,
+        offers_clinic: form.offers_clinic,
         aqha_show_number: form.aqha_show_number || null,
         aqha_approval_status: form.aqha_approval_status,
         aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
@@ -222,6 +255,81 @@ export default function EditShowForm({
             />
           </label>
         </div>
+
+        <label className="block">
+          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+            Entry deadline
+          </span>
+          <input
+            name="entry_deadline"
+            type="date"
+            value={form.entry_deadline}
+            onChange={handleChange}
+            className="w-full border rounded px-3 py-2"
+            style={{ borderColor: COLORS.border }}
+          />
+          <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
+            The day entries close. Recorded, not enforced — it does not close
+            self-registration and it does not add the post-entry fee. An APHA show
+            counts its approval-application deadline back from this date, or from
+            the first day of the show when it is left blank.
+          </span>
+        </label>
+
+        {categoriesForType.length > 0 && (
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Kind of show
+            </span>
+            <select
+              name="show_category_id"
+              value={form.show_category_id}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              style={{ borderColor: COLORS.border }}
+            >
+              <option value="">Not stated</option>
+              {categoriesForType.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.rule_reference ? ` (${c.rule_reference})` : ''}
+                </option>
+              ))}
+            </select>
+            {selectedCategory && (
+              <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
+                {selectedCategory.min_judges === selectedCategory.max_judges
+                  ? `${selectedCategory.max_judges} judge${selectedCategory.max_judges === 1 ? '' : 's'}`
+                  : `${selectedCategory.min_judges ?? 1}\u2013${selectedCategory.max_judges} judges`}
+                {selectedCategory.judge_limit_basis === 'in_arena'
+                  ? ' in the arena at any given time'
+                  : ''}
+                {selectedCategory.min_days
+                  ? `, over ${selectedCategory.min_days} or more consecutive days`
+                  : ''}
+                .
+              </span>
+            )}
+          </label>
+        )}
+
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={form.offers_clinic}
+            onChange={(e) => setForm((prev) => ({ ...prev, offers_clinic: e.target.checked }))}
+            className="mt-1"
+          />
+          <span className="text-sm" style={{ color: COLORS.text }}>
+            A clinic runs alongside this show
+            <span className="block text-xs" style={{ color: COLORS.muted }}>
+              For an APHA two-judge show this lifts the SC-095 minimum class
+              requirements, pending APHA approval. The clinician must be approved by
+              APHA, and the show may not run in conjunction with an approved
+              Paint-O-Rama — neither of which the app can check.
+            </span>
+          </span>
+        </label>
 
         {selectedShowType?.code === 'APHA' && (
           <label className="block">

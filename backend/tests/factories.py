@@ -36,9 +36,18 @@ def make_show(**overrides) -> SimpleNamespace:
         # Dates
         start_date=date(2026, 6, 1),
         end_date=date(2026, 6, 3),
+        # The day entries close (migration 123). None is the ordinary case -- most
+        # shows have never set one, which is the case APHA SC-090.C has to fall
+        # back from.
+        entry_deadline=None,
         # APHA zone 1-14 (migration 119). None is the ordinary case — most
         # shows are not APHA and none of them state a zone by default.
         apha_zone=None,
+        # What kind of APHA show, and whether a clinic runs alongside it
+        # (migration 124). None is every show that has not said — which is the
+        # case SC-100 and SC-105 have nothing to check against.
+        show_category=None,
+        offers_clinic=False,
         # Health paperwork policy (migration 097)
         requires_coggins=True,
         requires_health_certificate=False,
@@ -108,6 +117,25 @@ def make_judges(count: int) -> list:
     return [SimpleNamespace(id=uuid4()) for _ in range(count)]
 
 
+def make_show_judge(first="Dale", last="Rogers", codes=("APHA",)) -> SimpleNamespace:
+    """One `show_judges` assignment carrying the registry judge behind it.
+
+    Separate from `make_judges` on purpose: billing counts the panel and reads
+    nothing off it, while APHA SC-090.B reads the judge's name and what they are
+    carded with. A panel built for one is the wrong shape for the other, and a
+    single factory serving both would quietly give every billing test a name.
+    """
+    return SimpleNamespace(
+        id=uuid4(),
+        judge=SimpleNamespace(
+            id=uuid4(),
+            first_name=first,
+            last_name=last,
+            associations=[SimpleNamespace(code=code) for code in codes],
+        ),
+    )
+
+
 def make_class(**overrides) -> SimpleNamespace:
     defaults = dict(
         id=uuid4(),
@@ -115,6 +143,12 @@ def make_class(**overrides) -> SimpleNamespace:
         class_name="Western Pleasure",
         class_date=date(2026, 6, 1),
         entry_fee_cents=2500,
+        # The classifier-assigned riding style and the bracket, as the ORM hands
+        # them over. Both default to None because most tests say nothing about
+        # either -- and APHA SC-095.A reads them together, since "Open halter, 2
+        # and under" lives half in the class name and half in the bracket.
+        discipline=None,
+        division=None,
         # No club sanctions this class unless a test says so. Defaulted to empty
         # rather than omitted so a class built here behaves like one the ORM
         # loaded — `sanctioning` is `lazy="selectin"` and is never absent.

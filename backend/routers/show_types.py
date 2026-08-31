@@ -5,8 +5,8 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin
-from models import ShowType
-from schemas import ShowTypeCreate, ShowTypeUpdate, ShowTypeOut
+from models import ShowCategory, ShowType
+from schemas import ShowCategoryCreate, ShowCategoryOut, ShowTypeCreate, ShowTypeUpdate, ShowTypeOut
 
 router = APIRouter(prefix="/show-types", tags=["ShowTypes"])
 
@@ -24,6 +24,40 @@ async def create_show_type(body: ShowTypeCreate, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(st)
     return st
+
+
+@router.get("/categories", response_model=list[ShowCategoryOut])
+async def list_show_categories(db: AsyncSession = Depends(get_db)):
+    """Every show category, generic and per-show-type (APHA SC-100, SC-105).
+
+    Declared **before** `/{show_type_id}`: FastAPI matches in declaration order,
+    and the other way round "categories" is parsed as a UUID and 422s. Same
+    reason `/archive` precedes `/{slug}` in the show reports router.
+
+    Returned whole rather than filtered per type, because the show edit form has
+    a show-type picker beside the category one and has to re-filter the moment
+    the type changes. Four rows.
+    """
+    result = await db.execute(
+        select(ShowCategory)
+        .where(ShowCategory.is_active.is_(True))
+        .order_by(ShowCategory.sort_order, ShowCategory.name)
+    )
+    return result.scalars().all()
+
+
+@router.post(
+    "/categories",
+    response_model=ShowCategoryOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_show_category(body: ShowCategoryCreate, db: AsyncSession = Depends(get_db)):
+    category = ShowCategory(**body.model_dump())
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+    return category
 
 
 @router.get("/{show_type_id}", response_model=ShowTypeOut)

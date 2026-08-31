@@ -148,6 +148,21 @@ export async function fetchShowTypes() {
 }
 
 /**
+ * What kinds of show each show type recognises — APHA's Single-Judge, Two-Judge,
+ * Paint-O-Rama and Zone Show (SC-100, SC-105), plus any generic rows.
+ *
+ * Returns [] rather than throwing: the category picker is one field on the show
+ * details form, and losing the whole form because a lookup was unavailable is a
+ * worse failure than an empty select. Fetched whole because the form's show-type
+ * picker sits beside it and has to re-filter the moment the type changes.
+ */
+export async function fetchShowCategories() {
+  const res = await fetch(`${API_URL}/show-types/categories`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/**
  * The registry of bodies a horse or person can be affiliated with (breed
  * registries and club bodies). Distinct from show types, which are show
  * configuration. Pass `type` to fetch only 'breed' or only 'club'.

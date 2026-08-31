@@ -95,11 +95,16 @@ class ShowCreate(BaseModel):
     show_type_id: UUID
     start_date: date
     end_date: date
+    # The day entries close (migration 123). Records only -- see the model.
+    entry_deadline: Optional[date] = None
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
     # zone is wrong at exactly the shows that sit near a border.
     apha_zone: Optional[int] = Field(default=None, ge=1, le=14)
+    # Which kind of show, and whether a clinic runs alongside it (migration 124).
+    show_category_id: Optional[UUID] = None
+    offers_clinic: bool = False
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
     aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
@@ -118,11 +123,14 @@ class ShowUpdate(BaseModel):
     show_type_id: Optional[UUID] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    entry_deadline: Optional[date] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
     # zone is wrong at exactly the shows that sit near a border.
     apha_zone: Optional[int] = Field(default=None, ge=1, le=14)
+    show_category_id: Optional[UUID] = None
+    offers_clinic: Optional[bool] = None
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
     aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
     aqha_approval_submitted_at: Optional[date] = None
@@ -157,6 +165,44 @@ class ShowAffiliationOut(BaseModel):
 class ShowAffiliationUpdate(BaseModel):
     show_type_ids: list[UUID]
 
+class ShowCategoryCreate(BaseModel):
+    """Admin-only. The four APHA categories arrive in migration 124's seed; this
+    exists so another association's taxonomy can be added without a migration,
+    the way the judging-system catalog is meant to grow."""
+    show_type_id: Optional[UUID] = None
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=100)
+    min_judges: Optional[int] = Field(default=None, ge=1, le=50)
+    max_judges: Optional[int] = Field(default=None, ge=1, le=50)
+    judge_limit_basis: Literal["total", "in_arena"] = "total"
+    min_days: Optional[int] = Field(default=None, ge=1, le=30)
+    rule_reference: Optional[str] = Field(default=None, max_length=50)
+    sort_order: int = 0
+
+
+class ShowCategoryOut(BaseModel):
+    """What kind of show this is, and the judge panel it permits (migration 124).
+
+    `judge_limit_basis` is what stops a finding overclaiming. `total` means the
+    rule bounds how many judges the show may have, which the app can check.
+    `in_arena` means it bounds how many may judge at once (APHA SC-100.A,
+    SC-105.C.1) -- concurrency the app does not model, so the assignment count is
+    only a reason to check the category.
+    """
+    id: UUID
+    show_type_id: Optional[UUID] = None
+    code: str
+    name: str
+    min_judges: Optional[int] = None
+    max_judges: Optional[int] = None
+    judge_limit_basis: str
+    min_days: Optional[int] = None
+    rule_reference: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ShowOut(BaseModel):
     id: UUID
     name: str
@@ -167,9 +213,13 @@ class ShowOut(BaseModel):
     show_type_name: Optional[str] = None
     start_date: date
     end_date: date
+    entry_deadline: Optional[date] = None
     status: str
     apha_show_number: Optional[str] = None
     apha_zone: Optional[int] = None
+    show_category_id: Optional[UUID] = None
+    show_category: Optional[ShowCategoryOut] = None
+    offers_clinic: bool = False
     aqha_show_number: Optional[str] = None
     aqha_approval_status: str = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
@@ -2497,6 +2547,69 @@ class AssociationValidationOut(BaseModel):
     error_count: int
     warning_count: int
     issues: list[AssociationValidationIssue] = []
+
+
+class APHAApplicationWindowOut(BaseModel):
+    """APHA SC-090.C/D -- the approval application ladder for one show.
+
+    Structured rather than folded into an issue message, because the readiness
+    panel draws a date and a countdown from it and re-parsing a sentence to get
+    them back is how a screen and the rule behind it drift apart.
+
+    `basis` says which date the count runs to. A show with no entry deadline on
+    file is counted from its first day, which SC-090.C only permits when that is
+    the earlier of the two -- so the panel reports the basis rather than just the
+    number of days.
+    """
+    basis: Literal["start_date", "entry_deadline"]
+    basis_date: date
+    standard_deadline: date
+    days_remaining: int
+    band: Literal["standard", "late", "late_second", "closed"]
+
+
+class APHAShowMinimumsOut(BaseModel):
+    """APHA SC-095.A -- what a three-or-more-judge show has to offer.
+
+    Carried beside the findings rather than folded into them, for the same reason
+    the application window is: a minimum-requirements checklist is still true when
+    nothing is wrong. Only the shortfalls that survive every reading of the rule
+    are raised as issues -- the rest is these lists, for a human to read.
+
+    `open_halter_unclassified` is the honest half. "Open division" is not a column
+    and the halter age split is not either, so both are inferred from the class
+    name and its bracket; a Grand & Reserve Champion class is Open halter with no
+    age in it, and belongs on a list rather than in a false finding.
+
+    `performance_upper_bound` counts every class the classifier did not route to a
+    halter discipline. SC-190.A defines a performance contest and has not been
+    supplied, so this is an upper bound and named as one.
+    """
+    judge_count: int
+    applies: bool
+    required_performance: int
+    open_junior_halter: list[str] = []
+    open_senior_halter: list[str] = []
+    open_halter_unclassified: list[str] = []
+    performance_upper_bound: int
+    # Set when SC-105.C.3 lifts the requirement -- a two-judge show offered with a
+    # clinic. `applies` is already False; this says which rule did it, because
+    # "not required" and "under three judges" are different answers.
+    exempt_reason: Optional[str] = None
+
+
+class APHAValidationOut(AssociationValidationOut):
+    """The APHA readiness read.
+
+    `application_window` is None once the show has an APHA show number on file:
+    APHA assigns one on approval, so the ladder is history from that moment.
+    """
+    application_window: Optional[APHAApplicationWindowOut] = None
+    minimums: Optional[APHAShowMinimumsOut] = None
+    # SC-100 / SC-105 requirements for the chosen category that the app cannot
+    # check -- regional club sponsorship, per-year caps, clinician approval.
+    # Text rather than findings: a finding nobody can clear is one they scroll past.
+    category_requirements: list[str] = []
 
 
 class ExhibitorCreateWithUser(BaseModel):

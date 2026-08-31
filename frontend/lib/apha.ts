@@ -123,3 +123,67 @@ export const RELATIONSHIP_REQUIRED_DIVISIONS = new Set([
   'YOUTH_WALK_TROT_11_18',
   'YOUTH_WALK_TROT_5_10',
 ]);
+
+// ── SC-090: getting the show approved ────────────────────────────────────────
+
+/**
+ * The approval application ladder, as the readiness panel labels it.
+ *
+ * The band itself is decided in `backend/rules/apha.py`, which holds the rule's
+ * numbers and the fee each one carries; this is only how the answer reads on
+ * screen. Keep the two in step, the way `NOVICE_ELIGIBILITY_STATEMENT` is kept
+ * in step with `ATTESTATION_STATEMENTS`.
+ */
+export const APPLICATION_BANDS = {
+  standard: { label: 'Standard window', tone: 'ok' },
+  late: { label: 'Late — penalty fee per judge', tone: 'warn' },
+  late_second: { label: 'Late — larger penalty fee per judge', tone: 'warn' },
+  closed: { label: 'Closed — APHA will not approve', tone: 'bad' },
+} as const;
+
+export type ApplicationBand = keyof typeof APPLICATION_BANDS;
+
+/**
+ * Which date the count runs to. Reported rather than hidden: with no entry
+ * deadline on file the app can only count from the show's first day, and
+ * SC-090.C allows that only when it is the earlier of the two — so the panel has
+ * to be able to say which one it used.
+ */
+export const APPLICATION_BASIS_LABELS = {
+  start_date: 'first day of the show',
+  entry_deadline: 'entry deadline',
+} as const;
+
+export type AphaApplicationWindow = {
+  basis: keyof typeof APPLICATION_BASIS_LABELS;
+  basis_date: string;
+  standard_deadline: string;
+  days_remaining: number;
+  band: ApplicationBand;
+};
+
+/**
+ * SC-095.A — what a three-or-more-judge show has to offer.
+ *
+ * `open_halter_unclassified` is the honest half of this. "Open division" is not a
+ * column and neither is halter's 2-and-under / 3-and-over split, so both are read
+ * out of the class name and its bracket; a Grand & Reserve Champion class is Open
+ * halter with no age in it and belongs on a list rather than in a false finding.
+ *
+ * `performance_upper_bound` counts every class the classifier did not route to a
+ * halter discipline. SC-190.A defines what a performance contest is and has not
+ * been supplied, so the number is an upper bound and the panel says so.
+ */
+export type AphaShowMinimums = {
+  judge_count: number;
+  applies: boolean;
+  required_performance: number;
+  open_junior_halter: string[];
+  open_senior_halter: string[];
+  open_halter_unclassified: string[];
+  performance_upper_bound: number;
+  /** Set when SC-105.C.3 lifts the requirement — a two-judge show offered with a
+   *  clinic. `applies` is already false; this says which rule did it, because
+   *  "not required" and "under three judges" are different answers. */
+  exempt_reason: string | null;
+};

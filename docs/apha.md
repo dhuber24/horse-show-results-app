@@ -37,7 +37,7 @@ Rules:
 
 | Area | Field |
 | --- | --- |
-| Shows | `apha_show_number` |
+| Shows | `apha_show_number`, `apha_zone`, `entry_deadline` |
 | Horses | `is_solid_paint_bred`, `color_id` + `pattern_id` |
 | Exhibitors | `exhibitor_registrations` (number + `expires_at`), `date_of_birth`, legacy APHA columns |
 | Entries | `apha_division`, `relationship_to_owner`, `is_disqualified` |
@@ -342,6 +342,226 @@ paperwork follows.
 The pre-080 `exhibitors.apha_member_number` / `apha_member_expiry` columns are
 backfilled into the registry by 117 and left in place — some records carry a
 number only there, and the export still falls back to them.
+
+## Getting The Show Approved
+
+`GET /shows/{id}/apha-validation` is the APHA twin of the AQHA readiness read, in
+the same shape and drawn by the same component. It runs
+`APHARules.validate_show_schedule` over the show, then re-runs the per-entry
+rules over every entry, and returns one list of issues plus the SC-090
+application window.
+
+**Everything it reports is a warning bar one.** None of SC-090 is enforceable
+from here: the application goes to APHA on paper, the approved-judge list is
+APHA's, and whether a show is APHA-sponsored — and so entitled to the word
+"Championship" — is not a fact this app holds. What the app holds is the
+calendar, the show's name, its class list and its judge panel, which is enough to
+put each condition in front of the office while there is still time to act on it.
+Nobody should meet these rules for the first time in a rejection letter.
+
+The single error is a show that has run out of time to apply at all (SC-090.D.3),
+because that is not advice. An error nobody can clear is one people learn to
+scroll past, which is the failure mode this whole panel exists to avoid.
+
+### The show number is the approval
+
+APHA assigns the show number when it approves the show, and the results export
+already refuses without one, so a number on file is the strongest evidence this
+app can hold that approval happened. The deadline ladder is therefore history the
+moment the number appears, and `application_window` comes back None.
+
+The cost of being wrong is one nag at an office that has been approved but has
+not typed the number in yet — and the fix for that is the field they already
+have. The alternative was a second set of `apha_approval_status` /
+`_submitted_at` / `_notes` columns mirroring the AQHA ones, which would have been
+the third time this repo made the same association-prefixed pair; migration 114
+exists because of the second time. See the Sharp Edge in `Claude.md`.
+
+### The application ladder
+
+SC-090.C wants the application postmarked at least 90 days out, and SC-090.D
+prices the bands underneath — a late penalty fee per judge under 90 days, a
+larger one under 60, and no approval at all under 30. `application_window()` in
+`rules/apha.py` returns the basis date, the 90-day deadline, the days remaining
+and the band; the panel draws a countdown from it rather than parsing a sentence.
+
+The boundaries follow the rule's own wording: "at least ninety (90) days" makes
+90 standard, and "less than thirty (30)" leaves 30 still approvable. An off-by-one
+here is a late fee somebody was told they would not be paying.
+
+**The measurement is against the entry deadline or the show date, whichever comes
+first** — which is why `shows.entry_deadline` exists (migration 123). A show that
+has not set one is counted from its first day, and the window reports
+`basis: "start_date"` so the panel can say the real cutoff may be earlier. That
+fallback is the optimistic direction, so it is stated rather than hidden.
+
+### The class list, the name, and the judges
+
+* **SC-090.E/F** — approval is not granted until the class list or show bill
+  reaches APHA, and amendments inside 30 days need written notification. The app
+  does not send that notice and says so, rather than letting the edit go through
+  quietly. The countdown stops once the show has started; a finished show does not
+  need a running clock on every screen.
+* **SC-090.L and SC-090.P** — "Champion"/"Championship" are reserved for
+  APHA-sponsored shows, and "World", "National" and "International" need APHA's
+  written permission. Checked against `shows.name`, because that string is a fact
+  the app holds. Reported and never refused: a club holding that permission is
+  entitled to the name.
+* **SC-090.B** — judges are selected from APHA's current approved list. What the
+  app checks is `judge_associations`, which is what somebody typed into the judge
+  registry, so this reports a gap in the app's **own records** and never claims a
+  judge is unapproved. The reverse holds too: a carding recorded here does not
+  make a judge approved. Only APHA's list does that, and the app does not hold it.
+
+### What kind of show it is (SC-100, SC-105)
+
+APHA divides approved shows into four categories, and each carries its own judge
+limit. They live in `show_categories` (migration 124), keyed on `show_types` the
+way `judging_systems` is, and are chosen on the show details form.
+
+| Category | Judges | Days | Rule |
+| --- | --- | --- | --- |
+| Single-Judge Show | 1 in the arena at any given time | one or more | SC-100.A |
+| Two-Judge Show | 2 in the arena at any given time | one or more | SC-105.C.1 |
+| Paint-O-Rama | 3 or 4, never more than 4 at once | one or more | SC-105.D.2 |
+| Zone Show | at most 6 | **two or more** | SC-105.E.2 |
+
+**Two different claims, and `judge_limit_basis` says which one is being made.**
+SC-105.D.2 and SC-105.E.2 bound how many judges a show may *have* — "limited to
+three (3) or four (4) judges", "a maximum of six (6) judges" — so the assignment
+count answers them outright, and the finding is
+`APHA_CATEGORY_JUDGE_LIMIT_EXCEEDED`. SC-100.A and SC-105.C.1 bound how many may
+judge **in the arena at any given time**, which is concurrency the app does not
+model: a two-judge show rotating three judges through a two-judge arena is
+perfectly legal. There the finding is
+`APHA_CATEGORY_JUDGE_COUNT_UNEXPECTED` and it says in as many words that it is a
+reason to check the category rather than a rule it can tell you was broken.
+
+The category-count checks are skipped entirely at zero judges: a show still being
+built has no panel, and `APHA_JUDGES_NOT_ASSIGNED` already says so once.
+Migration 124 also puts `min_judges` at 2 for the Zone Show, on the basis of
+SC-105.A defining multiple-judge shows as "two-judge shows, Paint-O-Ramas or Zone
+Shows" — one judge is not multiple. SC-105.E.2 itself states only a maximum.
+
+### The clinic, and what it lifts
+
+`shows.offers_clinic` exists because it changes a check. SC-105.C.3 exempts a
+two-judge show offered with a clinic from the SC-095 minimum class requirements,
+pending APHA approval, so `show_minimums()` returns `applies: false` with an
+`exempt_reason` naming the rule — reported separately from the judge count,
+because "not required" and "under three judges" are different answers and only
+one of them changes when the show adds a judge.
+
+It can genuinely fire despite SC-095 only biting at three or more judges, and the
+reason is the concurrency reading above: a `two_judge` show may legitimately have
+three judges assigned. Everything else the rules say about clinics — that the
+clinician must be APHA-approved, and that the show may not run in conjunction
+with an approved Paint-O-Rama (SC-100.A.1, SC-105.C.2) — is not checkable and
+rides on the panel as text.
+
+### What SC-100 and SC-105 are not modeled for
+
+Reported against the chosen category as text (`category_requirements()`), never
+as findings, because a finding the office can never clear is one they learn to
+scroll past:
+
+* Paint-O-Rama sponsorship by an official APHA Regional Club (SC-105.D.1), and
+  the livestock-show and state-fair exception (SC-105.D.3.a.2).
+* The per-year caps — two Paint-O-Ramas per regional club, four in Zone 10, one
+  Zone Show per zone (SC-105.D.3.a, SC-105.E.1). The app holds one show and
+  cannot count a club's year.
+* Clinician approval, and the location and sequencing rules for back-to-back
+  two-judge shows (SC-105.C.4, SC-105.C.7).
+* SC-105.B's ten-judge ceiling on shows held in combination, which is a fact
+  about several shows at once.
+* **Ancillary judges** (SC-105.B.7.b) — `show_judges` has no main/ancillary
+  distinction, so nothing enforces that an ancillary judge is aligned with
+  exactly one main judge.
+* SC-105.B.5's concurrent-judging arena split, and SC-105.B.6's rule that Grand
+  and Reserve Champion results wait until every judge has finished that sex
+  division. The publish gate already refuses to post a class until every
+  **assigned** judge has filed a card, which covers the narrow reading of B.6;
+  the broad one needs the feeder classes, and "the respective sex division" is
+  not something the app can identify.
+
+Two of SC-105.B are already how the app works, and are stated on the panel for
+every multiple-judge category so the office can see it is not quietly doing
+something else: **B.4**, that each judge works independently with no consultation
+during judging except over a disqualification or a 5- or 3-point penalty with a
+scribe or designated person present — the app never combines judges' cards and
+places each independently; and **B.3**, that an entry is an entry under every
+judge with fees assessed accordingly — which is exactly what the
+`per_judge_per_horse` and `per_judge_per_exhibitor` fee units do.
+
+### The minimum a show must offer (SC-095)
+
+SC-095.A is conditional on the judge panel — **three or more judges** and the
+show must offer two Open halter classes (Junior, 2 and under; Senior, 3 and
+over) and four performance contests, or it is not approved. The panel size is the
+one hard fact in the rule.
+
+Everything else is inference, and the whole design follows from that. "Open
+division" is not a column: the app holds a per-show discipline (`Halter`) and a
+per-show bracket, and at a real APHA show the Open halter classes are bracketed
+by **age** ("Yearling", "Four Year & Older") while Amateur and Youth carry their
+names in the bracket instead. So Open is read as the absence of another
+division's name, and the age split is read out of the class name and its bracket
+together.
+
+**So almost none of it is reported as a finding.** `show_minimums()` returns what
+it found — the Junior list, the Senior list, and the Open halter classes it could
+not place — and the panel prints all three for somebody to check by eye. Only
+shortfalls that survive every reading of the rule are raised:
+
+| Finding | When |
+| --- | --- |
+| `APHA_MINIMUM_HALTER_MISSING` | No Open halter class of any kind |
+| `APHA_MINIMUM_HALTER_AGE_GAP` | Junior or Senior missing, **and every Open halter class was understood** |
+| `APHA_MINIMUM_PERFORMANCE_SHORT` | Fewer than four non-halter classes |
+
+The middle one carries the important restriction. A Grand & Reserve Champion
+class is Open halter with no age in it, so a schedule holding one is a schedule
+the app has not fully read — claiming a missing Junior class there is how an
+office learns to stop reading the panel.
+
+`performance_upper_bound` counts every class the classifier did *not* route to a
+halter discipline, which makes it an **upper bound**. SC-190.A defines what
+counts as a performance contest and has not been supplied, so the only safe use
+of the number is noticing when it falls below four: a show short of four under
+the broadest possible reading is short under every reading. Performance Halter
+and Halter — Group count as halter here, because counting them as performance
+would inflate the one number that can produce a finding.
+
+One trap has a test of its own. APHA's *performance* Junior/Senior split is
+5-and-under against 6-and-over and has nothing to do with halter's 2 and 3, so
+matching on the word "Junior" would read a Junior Western Pleasure as satisfying
+SC-095.A.1.a.
+
+### SC-095.B and .C are permissions, not requirements
+
+B allows age divisions to be added "if entries justify" (SC-185.E). There is
+nothing to check in a permission.
+
+C allows an approved show to hold classes concurrently with other equine
+associations — "the horses will work one time for each class and the judge(s)
+will judge the class for exhibitors in the APHA and the other equine
+associations concurrently". That is the rule the app's dual-sanctioning already
+assumes: `class_sanctioning` designates **one** class as approved by another club
+rather than duplicating it, which is precisely "the horses will work one time".
+It is also why a dual-sanctioned class legitimately carries both clubs' fees —
+two bodies are taking results off one go.
+
+### What SC-090 is not modeled for
+
+Most of the rule is APHA's scheduling problem rather than the app's, and none of
+it is derivable here: the 200-mile separation between same-date shows (SC-090.J),
+show-date priority and the traditional holiday weekends (SC-090.K), and the
+reserved titles in SC-090.P beyond the words in the name check. The app holds one
+show and does not know where any other show is.
+
+**SC-090.G is not checked** — a show that denies or restricts entries in the
+events listed in SC-175, SC-180 or SC-190 does not get its results approved. That
+needs those three rules, which have not been supplied.
 
 ## APHA Entry Validation
 
