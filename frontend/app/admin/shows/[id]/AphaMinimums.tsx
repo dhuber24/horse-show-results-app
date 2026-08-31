@@ -80,21 +80,30 @@ export default function AphaMinimums({ minimums }: { minimums: AphaShowMinimums 
         <Found names={minimums.open_halter_unclassified} emptyIsBad={false} />
       </p>
       <p>
-        <span className="text-xs" style={{ color: COLORS.muted }}>
-          Performance contests, at most:{' '}
+        <span className="text-xs" style={{ color: COLORS.muted }}>Performance contests: </span>
+        <span
+          style={{
+            color:
+              minimums.performance_confirmed < minimums.required_performance
+                ? COLORS.bad
+                : COLORS.text,
+          }}
+        >
+          {minimums.performance_confirmed}
         </span>
-        <span style={{ color: minimums.performance_upper_bound < minimums.required_performance ? COLORS.bad : COLORS.text }}>
-          {minimums.performance_upper_bound}
-        </span>
         <span className="text-xs" style={{ color: COLORS.muted }}>
-          {' '}(of {minimums.required_performance} required)
+          {' '}of {minimums.required_performance} required
+          {minimums.performance_upper_bound > minimums.performance_confirmed
+            ? `, plus ${minimums.performance_upper_bound - minimums.performance_confirmed} class(es) neither halter nor named in SC-190.A`
+            : ''}
         </span>
       </p>
       <p className="text-xs pt-1" style={{ color: COLORS.muted }}>
         Open division and the halter age split are read from each class name and its
-        bracket, not from a column, so check the lists rather than trusting the
-        counts. The performance figure counts every class that is not halter —
-        SC-190.A decides what actually qualifies.
+        bracket rather than from a column, so check the lists rather than trusting
+        the counts. Performance contests are counted against SC-190.A&rsquo;s own list
+        of events, by the discipline each class was given — a class routed to the
+        wrong discipline is counted wrong.
       </p>
     </div>
   );

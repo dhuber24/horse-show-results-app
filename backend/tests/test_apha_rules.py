@@ -25,6 +25,7 @@ from rules.apha import (
     DIVISIONS,
     APHARules,
     RELATIONSHIP_REQUIRED_DIVISIONS,
+    THREE_YEAR_OLD_DISCIPLINES,
     application_window,
     category_requirements,
     show_minimums,
@@ -783,7 +784,10 @@ def test_a_show_short_of_four_performance_classes_is_reported():
     issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
     short = next(i for i in issues if i["code"] == "APHA_MINIMUM_PERFORMANCE_SHORT")
     assert "SC-190.A" in short["message"]
-    assert "however performance contests are counted" in short["message"]
+    # One Western Pleasure is an event SC-190.A names; the two halter classes are
+    # not counted at all, so there is nothing unmatched to mention.
+    assert "1 class is an event" in short["message"]
+    assert "neither halter nor named there" not in short["message"]
 
 
 def test_four_non_halter_classes_clears_the_performance_minimum():
@@ -999,3 +1003,182 @@ def test_a_single_judge_show_does_not_carry_the_multiple_judge_notes():
 
 def test_a_show_with_no_category_has_no_requirements_to_report():
     assert category_requirements(make_show()) == []
+
+
+# ── SC-190: what a performance contest actually is ───────────────────────────
+
+
+def test_the_performance_count_is_now_against_sc190s_own_list():
+    """Before SC-190.A arrived the only number available was "classes that are
+    not halter" — an upper bound that could notice a show short of four and never
+    confirm one that met it. Four named events now confirm it outright."""
+    minimums = _minimums(3, [
+        _cls("Western Pleasure", "Open", discipline="Western Pleasure"),
+        _cls("Trail", "Open", discipline="Trail"),
+        _cls("Reining", "Open", discipline="Reining"),
+        _cls("Hunter Under Saddle", "Open", discipline="Hunter Under Saddle"),
+    ])
+    assert minimums["performance_confirmed"] == 4
+    assert minimums["performance_upper_bound"] == 4
+
+
+@pytest.mark.parametrize("discipline", [
+    "Showmanship",
+    "Longe Line",
+    "In-Hand Trail",
+    "Barrel Racing",
+    "Hunt Seat Equitation",
+    "Western Horsemanship",
+    "Color Class",
+    "Lead Line",
+])
+def test_classes_sc190_does_not_name_are_not_confirmed_performance(discipline):
+    """What is absent from SC-190.A's enumeration is as informative as what is
+    in it. Showmanship, Longe Line and In-Hand Trail appear in SC-190.A.1 and
+    A.2 as classes a young horse may be offered, but not in the list itself; the
+    speed events and the equitation classes are not there at all."""
+    minimums = _minimums(3, [_cls("A class", "Open", discipline=discipline)])
+    assert minimums["performance_confirmed"] == 0
+    # Still counted as not-halter, so the older upper bound is unchanged.
+    assert minimums["performance_upper_bound"] == 1
+
+
+def test_a_schedule_of_speed_events_alone_is_short_of_four():
+    """The consequence of the list above, stated as a test because it is the
+    behaviour change somebody would be surprised by."""
+    show = make_show(apha_show_number="26-1", judges=make_judges(3))
+    classes = [_cls("Yearling Stallions", "Yearling")] + [
+        _cls(f"Barrels {i}", "Open", discipline="Barrel Racing") for i in range(6)
+    ]
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    short = next(i for i in issues if i["code"] == "APHA_MINIMUM_PERFORMANCE_SHORT")
+    assert "0 classes are an event SC-190.A names" in short["message"]
+    assert "6 more are neither halter nor named there" in short["message"]
+
+
+def test_green_variants_count_as_their_parent_event():
+    """SC-190.A lists Green Trail and Green Reining separately, and the
+    classifier routes both to their parents — so the discipline set here is
+    twenty names for the rule's twenty-eight entries."""
+    minimums = _minimums(3, [
+        _cls("Green Trail", "Green Horse", discipline="Trail"),
+        _cls("Green Reining", "Green Horse", discipline="Reining"),
+    ])
+    assert minimums["performance_confirmed"] == 2
+
+
+# ── SC-190.A.3.a: three years old for the versatility and ranch events ───────
+
+
+def _aged_entry(cls, foaled, division="OPEN"):
+    return make_entry(
+        cls=cls,
+        horse=make_horse(foaling_date=foaled),
+        apha_division=division,
+    )
+
+
+def _age_context(cls, discipline):
+    return {"apha_disciplines": {cls.id: discipline}, "apha_entries": []}
+
+
+@pytest.mark.parametrize("discipline", sorted(THREE_YEAR_OLD_DISCIPLINES))
+def test_a_two_year_old_may_not_be_shown_in_the_three_year_old_events(discipline):
+    """SC-190.A.3.a. An error rather than a warning: a missing Coggins can be
+    produced and a membership bought at the desk, but a two-year-old cannot
+    become three, so nothing at the show can make the entry eligible."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2024, 4, 1))  # two years old in 2026
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, discipline))
+    too_young = next(i for i in issues if i["code"] == "APHA_HORSE_TOO_YOUNG")
+    assert too_young["severity"] == "error"
+    assert discipline in too_young["message"]
+    assert "SC-190.A.3.a" in too_young["message"]
+
+
+def test_a_three_year_old_is_old_enough():
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2023, 5, 1))
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding"))
+    assert "APHA_HORSE_TOO_YOUNG" not in _codes(issues)
+
+
+def test_age_is_counted_in_show_years_not_birthdays():
+    """Every horse has a January 1 birthday. A horse foaled in December 2023 is
+    three for the whole of 2026, months before the anniversary — which is why
+    this mirrors AQHA's `_calendar_year_age` rather than subtracting dates."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 1, 5))
+    entry = _aged_entry(cls, date(2023, 12, 20))
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Pleasure"))
+    assert "APHA_HORSE_TOO_YOUNG" not in _codes(issues)
+
+
+def test_a_horse_with_no_foaling_date_is_not_refused():
+    """The check declines rather than guessing. Refusing an entry over an age
+    nobody recorded would block the horse instead of producing the paperwork —
+    the same reasoning that took the block off health documents."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, None)
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding"))
+    assert "APHA_HORSE_TOO_YOUNG" not in _codes(issues)
+
+
+def test_a_show_with_no_discipline_map_runs_no_age_check():
+    """Every non-APHA show, and any caller that has not built a context. A cap or
+    an age limit applied to a guessed discipline refuses entries for the wrong
+    reason — the rule `_check_horse_caps` already follows."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2025, 4, 1))
+
+    assert "APHA_HORSE_TOO_YOUNG" not in _codes(APHARules().validate_entry(entry, show, cls, {}))
+
+
+@pytest.mark.parametrize("discipline", [
+    "Ranch Trail",
+    "Ranch Reining",
+    "Ranch Conformation",
+    "Timed Ranch Trail",
+    "Ranch Cow Work",
+])
+def test_ranch_classes_sc190_does_not_name_are_not_age_checked(discipline):
+    """"Ranch classes" is read as the ranch events SC-190.A enumerates and no
+    wider. The classifier knows a dozen disciplines starting with the word, and
+    Ranch Conformation is a halter class — a rule applied to every one of them
+    would refuse entries in classes the rule never listed."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2025, 4, 1))  # a yearling
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, discipline))
+    assert "APHA_HORSE_TOO_YOUNG" not in _codes(issues)
+
+
+def test_the_age_check_runs_whatever_division_the_entry_names():
+    """SC-190.A.3.a is about the horse, so it runs before the division is looked
+    at — the same place the SC-185.F horse caps run, and for the same reason."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2025, 4, 1), division="")
+
+    issues = APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding"))
+    assert "APHA_HORSE_TOO_YOUNG" in _codes(issues)
+
+
+def test_a_withdrawn_entry_is_not_age_checked():
+    """`entry_is_active` gates the whole rule set. A scratched horse is not one
+    somebody is showing."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2025, 4, 1))
+    entry.status = "WITHDRAWN"
+
+    assert APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding")) == []

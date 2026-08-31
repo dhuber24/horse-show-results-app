@@ -2591,6 +2591,11 @@ class APHAShowMinimumsOut(BaseModel):
     open_junior_halter: list[str] = []
     open_senior_halter: list[str] = []
     open_halter_unclassified: list[str] = []
+    # Classes whose discipline is one SC-190.A enumerates. This is the figure the
+    # requirement is judged on; `performance_upper_bound` (everything that is not
+    # halter) is kept beside it so the panel can say how many classes were not
+    # matched and therefore how much of the count rests on the classifier.
+    performance_confirmed: int = 0
     performance_upper_bound: int
     # Set when SC-105.C.3 lifts the requirement -- a two-judge show offered with a
     # clinic. `applies` is already False; this says which rule did it, because

@@ -493,6 +493,32 @@ places each independently; and **B.3**, that an entry is an entry under every
 judge with fees assessed accordingly — which is exactly what the
 `per_judge_per_horse` and `per_judge_per_exhibitor` fee units do.
 
+### Three years old for the versatility and ranch events (SC-190.A.3.a)
+
+"Horses must be three-years-old or older to exhibit in English Versatility
+Pattern, Western Versatility Pattern, and Ranch classes." Checked on entry at
+both doors, and **an error rather than a warning** — a departure from most of the
+APHA work here, and deliberate. A missing Coggins can be produced and a
+membership bought at the counter; a two-year-old cannot become three, so the
+entry is ineligible in a way nothing at the show can fix, and results filed on it
+are what APHA refuses.
+
+Age is counted in **show years** — every horse has a January 1 birthday, so a
+horse foaled in December 2023 is three for the whole of 2026. `horse_calendar_age`
+mirrors AQHA's `_calendar_year_age` deliberately: the convention belongs to the
+industry rather than to one association, and two implementations would eventually
+disagree about a December foal.
+
+It declines to run in the two cases where it would be guessing — no foaling date
+on file gives no age, and no discipline in the context is every non-APHA show.
+Same posture as the SC-185.F horse caps, which read the same map.
+
+**"Ranch classes" is read as the ranch events SC-190.A enumerates and no wider.**
+The classifier knows a dozen disciplines beginning with the word — Ranch Trail,
+Ranch Reining, Ranch Conformation — and Ranch Conformation is a halter class. A
+rule applied to every name starting with "Ranch" would refuse entries in classes
+the rule never listed.
+
 ### The minimum a show must offer (SC-095)
 
 SC-095.A is conditional on the judge panel — **three or more judges** and the
@@ -524,18 +550,88 @@ class is Open halter with no age in it, so a schedule holding one is a schedule
 the app has not fully read — claiming a missing Junior class there is how an
 office learns to stop reading the panel.
 
-`performance_upper_bound` counts every class the classifier did *not* route to a
-halter discipline, which makes it an **upper bound**. SC-190.A defines what
-counts as a performance contest and has not been supplied, so the only safe use
-of the number is noticing when it falls below four: a show short of four under
-the broadest possible reading is short under every reading. Performance Halter
-and Halter — Group count as halter here, because counting them as performance
-would inflate the one number that can produce a finding.
+**Performance contests are counted against SC-190.A's own list.**
+`PERFORMANCE_DISCIPLINES` holds the twenty disciplines behind that rule's
+twenty-eight entries — the Green variants collapse into their parents because
+the classifier routes them there — written as the names `rules/disciplines.py`
+produces so the two cannot drift on wording. `performance_confirmed` is the
+figure the requirement is judged on.
+
+Before SC-190.A arrived the only number available was `performance_upper_bound`,
+every class that is *not* halter. That could notice a show short of four and
+could never confirm one that met it. It is still computed and still reported,
+because the gap between the two says how many classes were not matched and
+therefore how much of the count rests on the classifier having routed them
+correctly. On a real 172-class Paint show: 68 confirmed, 134 not halter, and
+every one of the 66 in between is a class SC-190.A genuinely does not enumerate.
+
+**What is absent from that list is as informative as what is in it.**
+Showmanship, Longe Line and In-Hand Trail appear in SC-190.A.1 and A.2 as classes
+a yearling or two-year-old may be offered, but not in the enumeration; the speed
+events and the equitation classes are not there at all. So a schedule of nothing
+but barrel racing counts **zero** performance contests toward SC-095, which is a
+surprising enough consequence to have its own test. The finding reports both
+numbers so that reading can be checked rather than trusted.
+
+Performance Halter and Halter — Group count as halter throughout, because
+counting them as performance would inflate the number that produces the finding.
 
 One trap has a test of its own. APHA's *performance* Junior/Senior split is
 5-and-under against 6-and-over and has nothing to do with halter's 2 and 3, so
 matching on the word "Junior" would read a Junior Western Pleasure as satisfying
 SC-095.A.1.a.
+
+### What SC-175 and SC-180 carry that is not modeled
+
+SC-175.M.6 is worth recording as a correction rather than a gap: it gives the
+recommended halter age classes as Weanling, Yearling, Two-year-old,
+Three-year-old, Four-year-old-and-older, **or combined as "2 and Under" and "3
+and Over"** — which is exactly the Junior/Senior split SC-095.A.1 asks for and
+exactly what `show_minimums` was already reading out of class names. That reading
+was inference when it was written; SC-175.M.6 makes it the rule's own structure.
+
+Still not modeled, and each one is a real rule the app is silent about:
+
+* **SC-175.D** — a horse may show in only one point-earning halter class, though
+  a Youth and/or Amateur halter class is allowed in addition to the Open
+  age-group class. Checkable in principle from the show-wide entry context, but
+  Grand and Reserve Champion classes sit in the same discipline and division as
+  the age classes that feed them, so a naive check would flag every champion
+  qualifier. It needs championship classes identified first.
+* **SC-175.M.7** — Performance Halter is for horses that completed at least one
+  performance class other than showmanship at the same show, and they may not
+  enter the other SC-175 halter classes. Both halves are derivable and neither is
+  built.
+* **SC-175.M.8** — a mare in the Broodmare class may not enter the other halter
+  classes, and eligibility rests on a Broodmare status card show management
+  inspects. The exclusivity is derivable; the card is a `show_verifications` kind
+  that does not exist.
+* **SC-175.M.10** — Grand and Reserve Champions are mandatory in each sex
+  division once three horses aged one or older are exhibited in it. Needs sex
+  divisions and championship classes identified, plus entry ages.
+* **SC-175.C** — only weanlings may be exhibited without a registration
+  certificate.
+* **SC-175.G** — all Open halter classes of a sex division must be judged before
+  that division's Grand and Reserve. Same family as SC-105.B.6, and blocked on
+  the same thing.
+* **SC-175.L.3** — the halter disqualification list (lameness, parrot mouth,
+  cryptorchid, incorrect pattern, failure to set up, loose horse, disruptive
+  horse, pacing). These map onto `results.outcome = 'disqualified'` and would make
+  a good catalog beside `judging_penalties`, with the Youth and Amateur exception
+  in L.3.d and L.3.e — not disqualified, but not placed over anyone who completed
+  the pattern — needing care, because it is a placing rule rather than an outcome.
+* **SC-180** — Produce of Dam takes two produce with at least one Regular
+  Registry, Get of Sire takes three with at least two. No points are awarded.
+  Group halter classes are already their own discipline in the classifier; the
+  composition rules are not checked.
+* **SC-190.A.1 and A.2** — the May 15 rules for what a yearling or two-year-old
+  may be offered. Derivable from the class date and the horse's age, and not yet
+  built; SC-190.A.3.a was taken first because it carries no date arithmetic.
+* **SC-190.A** also opens by requiring APHA registration to exhibit in a
+  performance class at all (RG-010.B, SC-165.A). `horse_registrations` holds the
+  numbers, so this is derivable — but it would refuse entries on paperwork, which
+  is the block this app deliberately took off health documents, so it wants a
+  decision rather than a patch.
 
 ### SC-095.B and .C are permissions, not requirements
 
@@ -559,9 +655,12 @@ show-date priority and the traditional holiday weekends (SC-090.K), and the
 reserved titles in SC-090.P beyond the words in the name check. The app holds one
 show and does not know where any other show is.
 
-**SC-090.G is not checked** — a show that denies or restricts entries in the
-events listed in SC-175, SC-180 or SC-190 does not get its results approved. That
-needs those three rules, which have not been supplied.
+**SC-090.G is still not checked**, and now for a better reason than a missing
+rule. SC-175, SC-180 and SC-190 have been supplied, so the events are known —
+but the rule is about a show that *denies or restricts entries* in them, and the
+app can see which classes a show **offers**, never whether an entry was refused
+at the desk or an eligibility condition was attached outside the app. The
+supplied text moved this from "unknown" to "known and unanswerable".
 
 ## APHA Entry Validation
 

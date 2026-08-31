@@ -191,10 +191,12 @@ finding.
   would train the office to scroll past the list that matters.
 * The **SC-095.A minimum classes** checklist (`AphaMinimums.tsx`), when the show
   has three or more judges. It prints the Open halter classes the backend found
-  for each age split *and the ones it could not place*, because Open division and
-  the halter age split are inferred from class names and brackets rather than
-  read off a column — the lists are the evidence, and the counts alone would
-  invite more trust than the inference deserves. It says so on the panel.
+  for each age split *and the ones it could not place*, because Open division is
+  inferred from class names and brackets rather than read off a column — the
+  lists are the evidence, and the counts alone would invite more trust than the
+  inference deserves. Performance contests are counted against SC-190.A's own
+  list of events by each class's assigned discipline, with the number of classes
+  that matched neither shown beside it. The panel says all of this.
 
 ## Validation
 

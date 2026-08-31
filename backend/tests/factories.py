@@ -169,6 +169,10 @@ def make_horse(name="Dusty", **overrides) -> SimpleNamespace:
         id=uuid4(),
         name=name,
         is_solid_paint_bred=False,
+        # None is the ordinary case: plenty of horses have no foaling date on
+        # file, and APHA SC-190.A.3.a declines to check an age nobody recorded
+        # rather than guessing one.
+        foaling_date=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

@@ -382,10 +382,14 @@ def show_minimums(show, classes):
     exemption = sc095_clinic_exemption(show)
     junior, senior, unclassified = [], [], []
     performance = 0
+    confirmed = 0
 
     for cls in classes or []:
         if not _is_halter(cls):
             performance += 1
+            discipline = getattr(cls, "discipline", None)
+            if (getattr(discipline, "name", None) or "") in PERFORMANCE_DISCIPLINES:
+                confirmed += 1
             continue
         text = _class_text(cls)
         if _NOT_OPEN_RE.search(text):
@@ -406,6 +410,7 @@ def show_minimums(show, classes):
         "open_junior_halter": junior,
         "open_senior_halter": senior,
         "open_halter_unclassified": unclassified,
+        "performance_confirmed": confirmed,
         "performance_upper_bound": performance,
     }
 
@@ -508,6 +513,86 @@ def category_requirements(show):
     if code and code != "single_judge":
         notes.extend(MULTIPLE_JUDGE_NOTES)
     return notes
+
+
+# ── SC-190: what a performance contest actually is ───────────────────────────
+#
+# SC-190.A enumerates the performance classes, and SC-095.A.2 cites it by name
+# when it asks a three-or-more-judge show for "Four (4) Performance contests".
+# Until this list arrived the app could only count classes that were *not*
+# halter, which is an upper bound: useful for noticing a show short of four, and
+# useless for confirming one that meets it.
+#
+# Written as the discipline names `rules/disciplines.py` produces, so the two
+# cannot drift on wording — the same arrangement `INDIVIDUAL_WORKING_EVENTS`
+# uses. SC-190.A's "Green" variants collapse into their parents because the
+# classifier routes them there: Green Trail is Trail, Green Reining is Reining.
+# Twenty-eight entries in the rule, twenty disciplines here.
+#
+# What is **not** on this list is as informative as what is. Showmanship, Longe
+# Line and In-Hand Trail appear in SC-190.A.1 and A.2 as classes a yearling or
+# two-year-old may be offered, but not in the enumeration itself; the speed
+# events and the equitation classes are not there either. So a schedule of
+# nothing but barrel racing counts zero performance contests toward SC-095, and
+# the finding says which classes it did count so that reading can be checked
+# rather than trusted.
+PERFORMANCE_DISCIPLINES = frozenset({
+    "Hunter Under Saddle",
+    "Hunter Hack",
+    "English Versatility Pattern",
+    "Working Hunter",
+    "Jumping",
+    "Pleasure Driving",
+    "Western Pleasure",
+    "Western Versatility Pattern",
+    "Western Riding",
+    "Reining",
+    "Trail",
+    "Working Cow Horse",
+    "Cutting",
+    "Tie-Down Roping",
+    "Team Penning",
+    "Ranch Cutting",
+    "Ranch Sorting",
+    "Ranch Rail Pleasure",
+    "Ranch Riding",
+    "Ranch Pleasure",
+})
+
+# SC-190.A.3.a — "Horses must be three-years-old or older to exhibit in English
+# Versatility Pattern, Western Versatility Pattern, and Ranch classes."
+#
+# "Ranch classes" is read as the ranch events SC-190.A itself enumerates, and no
+# wider. The classifier knows a dozen disciplines beginning with "Ranch" — Ranch
+# Trail, Ranch Reining, Ranch Conformation — and Ranch Conformation is a halter
+# class, so a rule applied to every name starting with the word would refuse
+# entries in classes SC-190.A never listed.
+THREE_YEAR_OLD_DISCIPLINES = frozenset({
+    "English Versatility Pattern",
+    "Western Versatility Pattern",
+    "Ranch Cutting",
+    "Ranch Sorting",
+    "Ranch Rail Pleasure",
+    "Ranch Riding",
+    "Ranch Pleasure",
+})
+MINIMUM_PERFORMANCE_AGE = 3
+
+
+def horse_calendar_age(horse, show):
+    """The horse's age in show years. Every horse has a January 1 birthday.
+
+    None when there is no foaling date on file, which is how the age checks
+    decline to run rather than guessing at an age nobody has recorded. Mirrors
+    AQHA's `_calendar_year_age` deliberately — the convention belongs to the
+    industry rather than to one association, and two implementations of it would
+    eventually disagree about a horse foaled in December.
+    """
+    foaling = getattr(horse, "foaling_date", None)
+    if foaling is None:
+        return None
+    show_date = getattr(show, "start_date", None) or date.today()
+    return max(0, show_date.year - foaling.year)
 
 
 class APHARules(DefaultRules):
@@ -710,17 +795,28 @@ class APHARules(DefaultRules):
                 "class was found. Both age splits must be offered.",
             ))
 
-        found = minimums["performance_upper_bound"]
-        if found < MINIMUM_PERFORMANCE_CONTESTS:
-            noun = "class is" if found == 1 else "classes are"
-            issues.append(self._issue(
-                "warning",
-                "APHA_MINIMUM_PERFORMANCE_SHORT",
+        # Counted against SC-190.A's own enumeration since that arrived. Before
+        # it, the only available number was "classes that are not halter", which
+        # is an upper bound -- it could notice a show short of four and could
+        # never confirm one that met it.
+        confirmed = minimums["performance_confirmed"]
+        unmatched = minimums["performance_upper_bound"] - confirmed
+        if confirmed < MINIMUM_PERFORMANCE_CONTESTS:
+            noun = "class is" if confirmed == 1 else "classes are"
+            message = (
                 f"{judges} judges, so SC-095.A applies: four performance contests "
-                f"are required (SC-190.A). Only {found} {noun} not halter on this "
-                "schedule, so the show is short of four however performance "
-                "contests are counted.",
-            ))
+                f"are required. {confirmed} {noun} an event SC-190.A names."
+            )
+            if unmatched:
+                # The classifier assigns each class a discipline, and a class it
+                # routed elsewhere may still be a performance contest. Saying how
+                # many were not matched is what lets somebody check the count
+                # instead of taking it on trust.
+                message += (
+                    f" {unmatched} more {'is' if unmatched == 1 else 'are'} neither "
+                    "halter nor named there -- worth checking whether any qualify."
+                )
+            issues.append(self._issue("warning", "APHA_MINIMUM_PERFORMANCE_SHORT", message))
         return issues
 
     def _check_class_list(self, show, classes, as_of):
@@ -821,6 +917,7 @@ class APHARules(DefaultRules):
         # riding Open or Youth, so this runs before the division is looked at —
         # and therefore also on entries that name no division at all.
         issues.extend(self._check_horse_caps(entry, cls, context))
+        issues.extend(self._check_horse_age(entry, show, cls, context))
 
         division = (getattr(entry, "apha_division", None) or "").strip().upper()
         if not division:
@@ -914,6 +1011,40 @@ class APHARules(DefaultRules):
             class_id=getattr(cls, "id", None),
             horse_id=horse_id,
             exhibitor_id=getattr(entry, "exhibitor_id", None),
+        )]
+
+    def _check_horse_age(self, entry, show, cls, context):
+        """SC-190.A.3.a — three years old or older for the versatility patterns and
+        the ranch events SC-190.A names.
+
+        An error rather than a warning, which is a departure from most of the
+        APHA work here and deliberate. A missing Coggins can be produced and a
+        membership can be bought at the desk; a two-year-old cannot become three,
+        so the entry is ineligible in a way nothing at the show can fix, and
+        results filed on it are what APHA refuses.
+
+        It declines to run in the two cases where it would be guessing: no
+        foaling date on file gives no age, and no discipline in the context is
+        every non-APHA show. Same posture as the SC-185.F horse caps, which read
+        the same map and block on the same basis.
+        """
+        discipline = self._discipline_of(context, getattr(cls, "id", None))
+        if discipline not in THREE_YEAR_OLD_DISCIPLINES:
+            return []
+
+        horse = getattr(entry, "horse", None)
+        age = horse_calendar_age(horse, show)
+        if age is None or age >= MINIMUM_PERFORMANCE_AGE:
+            return []
+
+        return [self._issue(
+            "error",
+            "APHA_HORSE_TOO_YOUNG",
+            f"{getattr(horse, 'name', None) or 'This horse'} is {age} and must be "
+            f"{MINIMUM_PERFORMANCE_AGE} or older to be shown in {discipline} "
+            "(APHA SC-190.A.3.a).",
+            class_id=getattr(cls, "id", None),
+            horse_id=getattr(horse, "id", None),
         )]
 
     def _check_walk_trot_shared_horse(self, entry, cls, context, division):

@@ -170,9 +170,11 @@ export type AphaApplicationWindow = {
  * out of the class name and its bracket; a Grand & Reserve Champion class is Open
  * halter with no age in it and belongs on a list rather than in a false finding.
  *
- * `performance_upper_bound` counts every class the classifier did not route to a
- * halter discipline. SC-190.A defines what a performance contest is and has not
- * been supplied, so the number is an upper bound and the panel says so.
+ * `performance_confirmed` counts the classes whose discipline is one SC-190.A
+ * enumerates, and is what the requirement is judged on.
+ * `performance_upper_bound` — everything that is not halter — is kept beside it
+ * so the panel can show how many classes were not matched, and therefore how
+ * much of the count rests on the classifier having routed them correctly.
  */
 export type AphaShowMinimums = {
   judge_count: number;
@@ -181,6 +183,7 @@ export type AphaShowMinimums = {
   open_junior_halter: string[];
   open_senior_halter: string[];
   open_halter_unclassified: string[];
+  performance_confirmed: number;
   performance_upper_bound: number;
   /** Set when SC-105.C.3 lifts the requirement — a two-judge show offered with a
    *  clinic. `applies` is already false; this says which rule did it, because
