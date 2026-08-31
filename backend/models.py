@@ -356,6 +356,13 @@ class Class(Base):
     # NULL = results are a staff-only draft; timestamp = posted to the public
     # /live and /results screens. See migration 094.
     results_published_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # When the judge posted this class's pattern, and which pattern it was
+    # (migration 120). Every pattern class in the rule book requires it at least
+    # an hour before the class. The pattern *itself* is posted physically at the
+    # show and is deliberately not stored — a second copy here could disagree
+    # with the board exhibitors actually walked, and somebody would ride this one.
+    pattern_posted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    pattern_notes = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")

@@ -10,6 +10,8 @@ Read/write access: ADMIN, or an assigned Gate Steward / Show Secretary /
 Show Manager for the show. Everything here is operational state — it never
 touches placings or results.
 """
+import random
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -29,6 +31,8 @@ from models import (
     ShowSecretary,
 )
 from schemas import (
+    ClassPatternPost,
+    ClassPatternStatus,
     GateCheckInBody,
     GateCheckInResult,
     GateClassStatusBody,
@@ -223,6 +227,94 @@ async def set_gate_check_in(
         "entry": _serialize_entry(entry, back_numbers),
         "class_gate_status": class_.gate_status,
     }
+
+
+@router.patch("/classes/{class_id}/pattern", response_model=ClassPatternStatus)
+async def set_pattern_posted(
+    show_id: UUID,
+    class_id: UUID,
+    body: ClassPatternPost,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record that this class's pattern has gone up.
+
+    Every pattern class in the rule book requires the judge to post the pattern
+    at least an hour before the class (AM-115.B.2, YP-120.B.2, and the hunt-seat
+    equitation class procedure). It is one of the few show-management duties
+    stated as mandatory with a deadline, and the app had nowhere to record it.
+
+    The timestamp is taken here, not from the caller — a class that could name
+    the minute could claim it met the one-hour rule after the fact.
+
+    **The app cannot check the hour, and does not pretend to.** `classes` carries
+    a `class_date` and no start time, so there is nothing to measure an hour back
+    from. What this gives the office is *whether* the pattern went up and when,
+    which is the half that is answerable. Adding a start time to every class to
+    derive the other half is a bigger change than this rule justifies on its own.
+
+    Nothing is refused over this either way: refusing a class would not have
+    posted its pattern any earlier, which is the same reasoning that took the
+    block off health paperwork.
+
+    The pattern *itself* is not stored. It goes up on a board by the gate, and a
+    second copy here could disagree with the one exhibitors actually walked.
+    """
+    await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    class_ = await _get_class_or_404(show_id, class_id, db)
+
+    class_.pattern_posted_at = datetime.now(timezone.utc) if body.posted else None
+    if body.pattern_notes is not None:
+        class_.pattern_notes = body.pattern_notes.strip() or None
+    await db.commit()
+    await db.refresh(class_)
+
+    return ClassPatternStatus(
+        class_id=class_.id,
+        pattern_posted_at=class_.pattern_posted_at,
+        pattern_notes=class_.pattern_notes,
+    )
+
+
+@router.post("/classes/{class_id}/draw", response_model=list[GateEntryOut])
+async def draw_gate_order(
+    show_id: UUID,
+    class_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Draw the order of go at random.
+
+    SC-185.I: "A working order may be established by drawing for that order. The
+    exhibitor does not necessarily need to be present during the drawing." Every
+    individual-work class procedure in the rule book then says a working order is
+    *required* — so the app had the order (`entries.gate_order`, dragged into
+    place by hand) and no way to produce one the way the rules describe.
+
+    Deliberately re-drawable and not recorded as an event: the same rule lets
+    show management alter the order at its discretion, and a draw the steward
+    cannot redo after a scratch would be worse than no draw at all. Dragging
+    still works afterwards, which is that discretion.
+    """
+    await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_class_or_404(show_id, class_id, db)
+
+    entries, _ = await _load_class_entries(class_id, db, show_id)
+    order = list(entries)
+    # `SystemRandom` rather than the default Mersenne Twister: this decides who
+    # works first in a class people have paid to enter, and a sequence somebody
+    # could reproduce from a seed is not a draw.
+    random.SystemRandom().shuffle(order)
+    for position, entry in enumerate(order, start=1):
+        entry.gate_order = position
+    await db.commit()
+
+    entries, back_numbers = await _load_class_entries(class_id, db, show_id)
+    return [_serialize_entry(e, back_numbers) for e in entries]
 
 
 @router.post("/classes/{class_id}/reset", response_model=list[GateEntryOut])

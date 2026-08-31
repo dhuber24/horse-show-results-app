@@ -29,6 +29,7 @@ endpoints return 403 and the secretary must add late entries through the admin
 flow.
 """
 from datetime import date
+from types import SimpleNamespace
 from uuid import UUID
 from typing import Optional
 
@@ -70,6 +71,7 @@ from routers.futurities import load_billable_futurities, missing_horse_details
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
+from apha_context import apha_entry_context
 from attestations import build_attestations
 from schemas import EntryOut
 import standard_classes
@@ -268,8 +270,18 @@ def _aqha_class_code(show: Show, class_: Class) -> str | None:
     return None
 
 
-async def _association_validation_context(show: Show, class_: Class, db: AsyncSession):
-    context: dict = {}
+async def _association_validation_context(
+    show: Show, class_: Class, db: AsyncSession, shared: Optional[dict] = None
+):
+    """Per-class validation context, on top of whatever is show-wide.
+
+    `shared` carries the show-wide half — APHA's entry limits need every other
+    entry at the show, which is one query, not one per class in a batch. It is
+    also the batch's own running total: entries created earlier in this request
+    are appended to it, because six horses submitted together are still six
+    horses and the database has not seen any of them yet.
+    """
+    context: dict = dict(shared or {})
     if show.show_type and show.show_type.code == "AQHA":
         aqha_code = _aqha_class_code(show, class_)
         context["aqha_show_type_id"] = show.show_type_id
@@ -741,6 +753,14 @@ async def register_for_show(
 
     rules = get_rules(show.show_type.code if show.show_type else None)
 
+    # APHA's horse caps and its Walk-Trot shared-horse rule are about the
+    # exhibitor's *other* entries at this show, which one entry cannot answer.
+    # Built once for the whole request rather than per class, and added to as the
+    # batch goes so entries submitted together count against each other.
+    shared_context: dict = {}
+    if show.show_type and show.show_type.code == "APHA":
+        shared_context = await apha_entry_context(show.id, db)
+
     # Pull all of this exhibitor's existing entries for the requested classes
     # so we can pre-check "exhibitor already in this non-pattern class" rules
     # and reject duplicates inside the submitted batch too.
@@ -802,7 +822,7 @@ async def register_for_show(
             entry,
             show,
             cls,
-            await _association_validation_context(show, cls, db),
+            await _association_validation_context(show, cls, db, shared_context),
         )
         errors = [i for i in issues if i.get("severity") == "error"]
         if errors:
@@ -820,6 +840,17 @@ async def register_for_show(
 
         db.add(entry)
         created.append(entry)
+        # Count this one against the rest of the batch. Nothing is flushed until
+        # the end, so without this six horses submitted in one request would each
+        # be validated against a show that has none of the other five in it.
+        if "apha_entries" in shared_context:
+            shared_context["apha_entries"].append(SimpleNamespace(
+                id=entry.id,
+                exhibitor_id=exhibitor.id,
+                horse_id=item.horse_id,
+                class_id=item.class_id,
+                apha_division=item.apha_division,
+            ))
         sanction_cents = _class_sanction_cents(show, cls)
         fee_breakdown.append(
             FeeBreakdownItem(

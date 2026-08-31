@@ -106,6 +106,53 @@ INDIVIDUAL_WORK_DISCIPLINES = frozenset({
 })
 
 
+# SC-185.F — "An exhibitor may exhibit a maximum of five horses, with no maximum
+# restriction on the number of Junior or Senior horses up to a total of five, in
+# individual working events", followed by a named list. These are those events as
+# `rules/disciplines.py` spells them, so the two cannot drift apart on wording.
+#
+# The rule's Green variants are absent on purpose: the classifier routes "Green
+# Trail" to Trail and "Green Working Hunter" to Working Hunter, which is the same
+# event for this cap. Utility Driving is in the rule and **not** here, because the
+# classifier has no such discipline — inventing a mapping to Pleasure Driving
+# would cap a different event than the one APHA named.
+INDIVIDUAL_WORKING_EVENTS = frozenset({
+    "Barrel Racing",
+    "Breakaway Roping",
+    "Cutting",
+    "English Versatility Pattern",
+    "Jumping",
+    "Pole Bending",
+    "Ranch Box Drive",
+    "Ranch Cow Work",
+    "Ranch Cutting",
+    "Ranch Pleasure",
+    "Ranch Reining",
+    "Ranch Riding",
+    "Ranch Sorting",
+    "Ranch Trail",
+    "Reining",
+    "Stake Race",
+    "Steer Stopping",
+    "Team Penning",
+    "Team Roping",
+    "Tie-Down Roping",
+    "Timed Ranch Trail",
+    "Trail",
+    "Western Riding",
+    "Western Versatility Pattern",
+    "Working Cow Horse",
+    "Working Hunter",
+})
+MAX_INDIVIDUAL_WORKING_HORSES = 5
+
+# SC-185.F.1 — "In Longe Line, and In-Hand Trail an exhibitor may show a maximum
+# of two horses." Counted per event rather than across the pair: the rule names
+# them separately and they run as separate classes.
+TWO_HORSE_EVENTS = frozenset({"Longe Line", "In-Hand Trail"})
+MAX_TWO_HORSE_EVENT_HORSES = 2
+
+
 def zone_individual_work_note(show, discipline_name):
     """The class-procedure note for this show's zone, or None.
 
@@ -144,29 +191,150 @@ class APHARules(DefaultRules):
         if not self.entry_is_active(entry):
             return []
 
+        context = context or {}
+        issues: list[dict[str, Any]] = []
+
+        # How many horses somebody may show is not a question about the division.
+        # SC-185.F caps the exhibitor across the whole show whether they are
+        # riding Open or Youth, so this runs before the division is looked at —
+        # and therefore also on entries that name no division at all.
+        issues.extend(self._check_horse_caps(entry, cls, context))
+
         division = (getattr(entry, "apha_division", None) or "").strip().upper()
         if not division:
-            # No division named. Which division an entry belongs in is not
-            # derivable from the class alone — the same class is run for Open,
-            # Amateur and Youth — so there is nothing here to check against.
-            return []
+            # Which division an entry belongs in is not derivable from the class
+            # alone — the same class is run for Open, Amateur and Youth — so
+            # nothing below it has anything to check against.
+            return issues
 
         if division not in DIVISIONS:
             # Caught here rather than left to the CHECK constraint, which would
             # surface as an IntegrityError on commit — a 409 naming nothing, from
             # a request whose other entries may already be valid.
-            return [self._issue(
+            issues.append(self._issue(
                 "error",
                 "APHA_DIVISION_UNKNOWN",
                 f"{division} is not an APHA division.",
                 class_id=getattr(cls, "id", None),
-            )]
+            ))
+            return issues
 
-        issues: list[dict[str, Any]] = []
         issues.extend(self._check_solid_paint_bred(entry, cls, division))
         issues.extend(self._check_relationship_to_owner(entry, cls, division))
         issues.extend(self._check_novice_eligibility(entry, cls, division))
+        issues.extend(self._check_walk_trot_shared_horse(entry, cls, context, division))
         return issues
+
+    # ── How many horses one exhibitor may show ───────────────────────────────
+
+    def _discipline_of(self, context, class_id):
+        return (context.get("apha_disciplines") or {}).get(class_id)
+
+    def _other_entries(self, context, entry):
+        """Every other live entry at this show, as the context supplied them.
+
+        Excludes the entry being validated by id, so re-validating an existing
+        entry on PATCH does not count it against its own cap. A brand-new entry
+        has no id yet and matches nothing, which is the same answer.
+        """
+        entry_id = getattr(entry, "id", None)
+        return [
+            e for e in (context.get("apha_entries") or [])
+            if e.id != entry_id
+        ]
+
+    def _horses_in_events(self, context, entry, events):
+        """Distinct horses this exhibitor already has entered in those events."""
+        exhibitor_id = getattr(entry, "exhibitor_id", None)
+        return {
+            e.horse_id
+            for e in self._other_entries(context, entry)
+            if e.exhibitor_id == exhibitor_id
+            and e.horse_id is not None
+            and self._discipline_of(context, e.class_id) in events
+        }
+
+    def _check_horse_caps(self, entry, cls, context):
+        """SC-185.F and SC-185.F.1 — how many horses one exhibitor may show.
+
+        Counted in **distinct horses across the show**, not entries in this
+        class: the rule caps how many horses somebody may bring to an event, and
+        six classes on one horse is one horse. Silently skipped when the context
+        carries no disciplines, which is every non-APHA show and any caller that
+        has not built one — a cap that guesses at the discipline would refuse
+        entries for the wrong reason.
+        """
+        discipline = self._discipline_of(context, getattr(cls, "id", None))
+        horse_id = getattr(entry, "horse_id", None)
+        if discipline is None or horse_id is None:
+            return []
+
+        if discipline in TWO_HORSE_EVENTS:
+            events, cap, what = {discipline}, MAX_TWO_HORSE_EVENT_HORSES, discipline
+        elif discipline in INDIVIDUAL_WORKING_EVENTS:
+            events, cap, what = (
+                INDIVIDUAL_WORKING_EVENTS,
+                MAX_INDIVIDUAL_WORKING_HORSES,
+                "individual working events",
+            )
+        else:
+            return []
+
+        horses = self._horses_in_events(context, entry, events)
+        horses.add(horse_id)
+        if len(horses) <= cap:
+            return []
+        return [self._issue(
+            "error",
+            "APHA_HORSE_LIMIT_EXCEEDED",
+            f"An exhibitor may show at most {cap} horses in {what} at one show "
+            f"(APHA SC-185.F). This would be {len(horses)}.",
+            class_id=getattr(cls, "id", None),
+            horse_id=horse_id,
+            exhibitor_id=getattr(entry, "exhibitor_id", None),
+        )]
+
+    def _check_walk_trot_shared_horse(self, entry, cls, context, division):
+        """AM-300.H — one horse, one Amateur Walk-Trot exhibitor, per event.
+
+        "A horse may not be shown by more than one exhibitor in the same event in
+        the Amateur Walk-Trot division (all age classes) at the same horse show."
+
+        A different shape from every other limit here: it is per **horse** and
+        crosses exhibitors, where the rest are per exhibitor. Scoped to the
+        event — the same horse may legitimately carry one Walk-Trot exhibitor in
+        Trail and another in Western Pleasure.
+        """
+        if division != "AMATEUR_WALK_TROT":
+            return []
+        discipline = self._discipline_of(context, getattr(cls, "id", None))
+        horse_id = getattr(entry, "horse_id", None)
+        if discipline is None or horse_id is None:
+            return []
+
+        exhibitor_id = getattr(entry, "exhibitor_id", None)
+        clash = next(
+            (
+                e for e in self._other_entries(context, entry)
+                if e.horse_id == horse_id
+                and e.exhibitor_id != exhibitor_id
+                and (e.apha_division or "").upper() == "AMATEUR_WALK_TROT"
+                and self._discipline_of(context, e.class_id) == discipline
+            ),
+            None,
+        )
+        if clash is None:
+            return []
+        horse = getattr(entry, "horse", None)
+        return [self._issue(
+            "error",
+            "APHA_WALK_TROT_HORSE_SHARED",
+            f"{getattr(horse, 'name', None) or 'This horse'} is already shown in "
+            f"{discipline} by another Amateur Walk-Trot exhibitor at this show. "
+            "One horse, one Walk-Trot exhibitor per event (APHA AM-300.H).",
+            class_id=getattr(cls, "id", None),
+            horse_id=horse_id,
+        )]
 
     def _check_solid_paint_bred(self, entry, cls, division):
         """SC-325.A.1 — a Solid Paint-Bred horse may not enter Open classes.

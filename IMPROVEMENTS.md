@@ -2,6 +2,24 @@
 
 ## August 2026
 
+### How Many Horses You Brought Is Not A Question About One Entry
+
+The rest of Phase 2's show-running work. Four rules, and the first thing they needed was for `validate_entry` to be able to see something other than the entry in front of it.
+
+**Three limits, and the third has a different shape.** SC-185.F caps an exhibitor at five horses across the individual working events; SC-185.F.1 at two in Longe Line and, separately, two in In-Hand Trail. AM-300.H is the odd one: *a horse* may not be shown by two different Amateur Walk-Trot exhibitors in the same event at one show — per horse, across exhibitors, where every other limit in the app is per exhibitor or per class.
+
+None of that is answerable from one entry, so `backend/apha_context.py` reads the show once — class-to-discipline, plus every live entry — and both doors pass it in the validation context. On the batch registration path it is built once and **appended to as the batch goes**: six horses submitted in a single request are still six horses, and none of them are flushed when the second one is validated.
+
+Three details the tests pin down. The caps count **distinct horses, not entries**, because six classes on one horse is one horse and the rule limits what somebody brings. They run **before the division is looked at** — SC-185.F applies whether the exhibitor is riding Open or Youth — which is why they sit above the early return that skips everything else when no division is named; the first draft put them below it and every cap silently did nothing. And **no context means no cap**: a non-APHA show builds no discipline map, and refusing an entry on a guessed discipline is worse than not checking.
+
+Two things deliberately left out. Utility Driving is in SC-185.F's list and not in ours, because `rules/disciplines.py` has no such discipline and mapping it to Pleasure Driving would cap a different event than the one APHA named. And the equitation/horsemanship two-horse limit is carried as *text* in the zone note rather than enforced, because it appears only inside the Zones 12-14 exception in AM-115.C and the hunt-seat procedure, and YP-120.C's version of the same exception omits it.
+
+**A working order can now be drawn.** SC-185.I says one may be established by drawing, and every individual-work class procedure then requires a working order — so the app had the order (`entries.gate_order`, dragged into place) and no way to produce one the way the rules describe. Re-drawable on purpose: the same rule lets show management alter the order at its discretion, and a draw that could not be redone after a scratch would be worse than none. `SystemRandom`, because this decides who works first in a class people paid to enter.
+
+**Migration 120 records when the pattern went up.** Every pattern class in the rule book requires the judge to post it at least an hour before, which is one of the few show-management duties stated as mandatory with a deadline attached.
+
+Two honest limits, both stated in the code rather than papered over. **The app cannot check the hour** — `classes` carries a date and no start time, so there is nothing to measure back from; recording whether and when is the half that is answerable, and adding a start time to every class is a bigger change than this rule justifies on its own. And **the pattern itself is not stored**: it goes up on a board by the gate, and a second copy here could disagree with the one exhibitors actually walked — worse than no copy, because somebody would ride this one. `pattern_notes` holds the judge's reference to it instead.
+
 ### A Card That Stops At Third Looks Finished
 
 Phase 2 of the APHA work, in progress. Two of the show-running items.

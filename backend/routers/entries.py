@@ -20,6 +20,7 @@ from models import (
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
+from apha_context import apha_entry_context
 from attestations import build_attestations
 import standard_classes
 
@@ -89,6 +90,11 @@ async def _association_validation_context(show: Show, class_: Class, db: AsyncSe
         context["aqha_association_id"] = await get_aqha_association_id(db)
         context["aqha_class_code"] = aqha_code
         context["aqha_class"] = await standard_classes.lookup(db, "AQHA", aqha_code)
+    if show.show_type and show.show_type.code == "APHA":
+        # The horse caps and the Walk-Trot shared-horse rule are about the
+        # exhibitor’s *other* entries at this show, which one entry cannot
+        # answer. Built once per request; see `apha_context`.
+        context.update(await apha_entry_context(show.id, db))
     return context
 
 

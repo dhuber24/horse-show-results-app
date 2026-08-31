@@ -156,6 +156,68 @@ Three things about that check:
   (1, 2, 4 missing 3), so a card that simply stops at third looked finished to
   it, which is the shape a half-entered card actually has.
 
+### How many horses one exhibitor may show
+
+Three limits, and the third has a different shape from the other two:
+
+| Rule | Limit | Scope |
+| --- | --- | --- |
+| SC-185.F | 5 horses | Per exhibitor, across all the individual working events, per show |
+| SC-185.F.1 | 2 horses | Per exhibitor, in Longe Line — and separately, in In-Hand Trail |
+| AM-300.H | 1 exhibitor | Per **horse**, per event, within Amateur Walk-Trot |
+
+The first two are per exhibitor. The last is per horse and crosses exhibitors,
+which is why none of them can be answered from the entry alone.
+`apha_context.apha_entry_context(show_id, db)` reads the whole show once —
+`apha_disciplines` (class → discipline) and `apha_entries` — and both routers
+pass it in the validation context. On the batch registration path it is built
+once and **appended to as the batch goes**, because six horses submitted in one
+request are still six horses and none of them are flushed yet.
+
+Things worth keeping in view:
+
+- **The caps count distinct horses, not entries.** Six classes on one horse is
+  one horse; the rule limits how many horses somebody brings.
+- **They run before the division is considered**, and therefore on entries that
+  name no division at all — SC-185.F caps the exhibitor whether they are riding
+  Open or Youth.
+- **No context means no cap.** A non-APHA show builds no discipline map, and a
+  caller that has not built one must not have entries refused on a guessed
+  discipline. A class routed to the "Unassigned" placeholder is likewise not
+  capped, because it has no event.
+- **Utility Driving is in the rule and not in the list.** `rules/disciplines.py`
+  has no such discipline, and mapping it to Pleasure Driving would cap a
+  different event than the one APHA named.
+- The equitation/horsemanship two-horse limit is **not** enforced. It appears
+  only inside the Zones 12-14 exception in AM-115.C and the hunt-seat equitation
+  procedure, and YP-120.C's version of the same exception omits it — so it is
+  carried in the zone note's text rather than as a rule.
+
+### Working orders and posted patterns
+
+`POST /shows/{id}/gate/classes/{cid}/draw` draws the order of go at random
+(SC-185.I). The steward could always drag the order into place; there was no way
+to produce one the way the rules describe. Re-drawable on purpose — the same rule
+lets show management alter the order at its discretion, and a draw that could not
+be redone after a scratch would be worse than none. It uses `SystemRandom`,
+because this decides who works first in a class people paid to enter.
+
+`PATCH .../pattern` records that a class's pattern has gone up (migration 120:
+`classes.pattern_posted_at`, `classes.pattern_notes`). The timestamp is taken by
+the backend, never sent by the caller — a class that could name the minute could
+claim it met the one-hour rule after the fact.
+
+Two deliberate limits:
+
+- **The app cannot check the hour.** `classes` carries a date and no start time,
+  so there is nothing to measure an hour back from. Recording *whether* and
+  *when* is the half that is answerable; adding a start time to every class is a
+  bigger change than this rule justifies on its own.
+- **The pattern itself is not stored.** It goes up on a board by the gate, and a
+  second copy here could disagree with the one exhibitors actually walked —
+  somebody would ride this one. `pattern_notes` holds the judge's reference to
+  it ("Green Western Riding Pattern #1"), which is what the office needs.
+
 ### Membership standing
 
 Membership numbers live in `exhibitor_registrations`, which since migration 117

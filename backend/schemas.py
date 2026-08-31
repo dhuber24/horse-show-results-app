@@ -551,6 +551,31 @@ class ClassUpdate(BaseModel):
     status: Optional[Literal["OPEN", "CLOSED"]] = None
     score_type: Optional[ScoreType] = None
     entry_fee_cents: Optional[int] = Field(default=None, ge=0)
+    # Which pattern, in the judge’s words (migration 120). The pattern itself is
+    # posted physically at the show and is deliberately not stored.
+    pattern_notes: Optional[str] = Field(default=None, max_length=2000)
+
+class ClassPatternPost(BaseModel):
+    """Recording that a class’s pattern has gone up.
+
+    `posted` rather than a timestamp from the caller: the fact is that it is up
+    now, and letting a client name the minute would let a class claim it met the
+    one-hour rule after the fact. Setting it false takes the posting back, which
+    is what a steward needs when they ticked the wrong class.
+    """
+    posted: bool = True
+    pattern_notes: Optional[str] = Field(default=None, max_length=2000)
+
+class ClassPatternStatus(BaseModel):
+    """Whether a class’s pattern is up, and which one.
+
+    No “how long before the class” figure: `classes` carries a date and no start
+    time, so there is nothing to measure the rule’s hour back from. Reporting a
+    number the app cannot derive would be worse than reporting none.
+    """
+    class_id: UUID
+    pattern_posted_at: Optional[datetime] = None
+    pattern_notes: Optional[str] = None
 
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
@@ -622,6 +647,8 @@ class ClassOut(BaseModel):
     entry_fee_cents: int = 0
     gate_status: str = "pending"
     results_published_at: Optional[datetime] = None
+    pattern_posted_at: Optional[datetime] = None
+    pattern_notes: Optional[str] = None
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime

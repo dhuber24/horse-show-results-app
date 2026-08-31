@@ -14,6 +14,9 @@ type ClassRow = {
   status: string;
   ring_id: string | null;
   gate_status: GateClassStatus;
+  score_type?: string;
+  /** When the judge posted this class’s pattern (migration 120). */
+  pattern_posted_at?: string | null;
   /** The association’s class-procedure note for this show’s zone, where it has
    *  one. APHA Zones 12-14 run equitation and horsemanship individually from
    *  the gate with no rail work — a different class than the same class in
@@ -47,6 +50,11 @@ function localToday(): string {
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   return `${now.getFullYear()}-${mm}-${dd}`;
+}
+
+/** A posting time, read as a clock time — the steward cares about "when", not the date. */
+function formatPosted(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 export default function GatePanel({ showId, classes: initialClasses }: { showId: string; classes: ClassRow[] }) {
@@ -272,6 +280,63 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
     }
   }
 
+  // Every pattern class in the rule book requires the judge to post the pattern
+  // at least an hour before it runs. The app cannot check the hour — classes
+  // carry a date and no start time — so this records whether it went up and
+  // when, which is the half that is answerable.
+  async function setPatternPosted(posted: boolean) {
+    if (!selectedClassId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/shows/${showId}/gate/classes/${selectedClassId}/pattern`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ posted }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.detail || 'Failed to record the pattern.');
+        return;
+      }
+      setClasses(prev =>
+        prev.map(c =>
+          c.id === selectedClassId ? { ...c, pattern_posted_at: json.pattern_posted_at } : c,
+        ),
+      );
+    } catch {
+      setError('Network error — please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // SC-185.I — "a working order may be established by drawing for that order."
+  // The steward could always drag the order into place; there was no way to
+  // produce one the way the rules describe. Re-drawable on purpose: the same
+  // rule lets show management alter the order at its discretion, and a draw
+  // that could not be redone after a scratch would be worse than none.
+  async function drawOrder() {
+    if (!selectedClassId) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/shows/${showId}/gate/classes/${selectedClassId}/draw`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.detail || 'Failed to draw the order of go.');
+        return;
+      }
+      setEntries(json);
+    } catch {
+      setError('Network error — please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Full reset: clears all check-ins and returns the class to Waiting.
   async function resetClass() {
     if (!selectedClassId) return;
@@ -391,12 +456,45 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 {classLabel(selectedClass)}
               </span>
               {entries.length > 1 && (
-                <span className="text-xs" style={{ color: '#d4b896' }}>· drag to reorder</span>
+                <>
+                  <span className="text-xs" style={{ color: '#d4b896' }}>· drag to reorder</span>
+                  <button
+                    type="button"
+                    onClick={drawOrder}
+                    disabled={busy}
+                    title="Draw the order of go at random (APHA SC-185.I). You can still drag afterwards."
+                    className="text-xs underline disabled:opacity-50"
+                    style={{ color: '#8b4513' }}
+                  >
+                    · draw order
+                  </button>
+                </>
               )}
               {savingOrder && (
                 <span className="text-xs" style={{ color: '#1f4e1f' }}>· saving…</span>
               )}
             </div>
+            {selectedClass.score_type === 'pattern' && (
+              <div
+                className="text-xs mb-3 rounded px-2 py-1.5 flex items-center gap-2 flex-wrap"
+                style={{ backgroundColor: selectedClass.pattern_posted_at ? '#ecfdf5' : '#faf7f2', border: `1px solid ${selectedClass.pattern_posted_at ? '#a7f3d0' : '#e8d5b7'}` }}
+              >
+                <span style={{ color: selectedClass.pattern_posted_at ? '#065f46' : '#8b7355' }}>
+                  {selectedClass.pattern_posted_at
+                    ? `✓ Pattern posted ${formatPosted(selectedClass.pattern_posted_at)}`
+                    : 'Pattern not yet posted — the rules require it an hour before the class.'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPatternPosted(!selectedClass.pattern_posted_at)}
+                  disabled={busy}
+                  className="underline disabled:opacity-50"
+                  style={{ color: '#8b4513' }}
+                >
+                  {selectedClass.pattern_posted_at ? 'Undo' : 'Mark posted'}
+                </button>
+              </div>
+            )}
             {selectedClass.procedure_note && (
               <p
                 className="text-xs mb-3 rounded px-2 py-1.5"
