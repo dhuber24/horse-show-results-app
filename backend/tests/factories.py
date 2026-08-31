@@ -36,6 +36,9 @@ def make_show(**overrides) -> SimpleNamespace:
         # Dates
         start_date=date(2026, 6, 1),
         end_date=date(2026, 6, 3),
+        # APHA zone 1-14 (migration 119). None is the ordinary case — most
+        # shows are not APHA and none of them state a zone by default.
+        apha_zone=None,
         # Health paperwork policy (migration 097)
         requires_coggins=True,
         requires_health_certificate=False,

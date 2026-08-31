@@ -97,6 +97,9 @@ class ShowCreate(BaseModel):
     end_date: date
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
+    # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
+    # zone is wrong at exactly the shows that sit near a border.
+    apha_zone: Optional[int] = Field(default=None, ge=1, le=14)
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
     aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
@@ -117,6 +120,9 @@ class ShowUpdate(BaseModel):
     end_date: Optional[date] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
+    # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
+    # zone is wrong at exactly the shows that sit near a border.
+    apha_zone: Optional[int] = Field(default=None, ge=1, le=14)
     aqha_show_number: Optional[str] = Field(default=None, max_length=50)
     aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
     aqha_approval_submitted_at: Optional[date] = None
@@ -163,6 +169,7 @@ class ShowOut(BaseModel):
     end_date: date
     status: str
     apha_show_number: Optional[str] = None
+    apha_zone: Optional[int] = None
     aqha_show_number: Optional[str] = None
     aqha_approval_status: str = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
@@ -2052,6 +2059,17 @@ class ResultOut(BaseModel):
 
 
 # ── Results Publish Gate ───────────────────────────────────────────────────────
+
+class ClassResultsPublishIn(BaseModel):
+    """Posting a class.
+
+    `acknowledge_incomplete` posts past an association placing-depth shortfall —
+    APHA SC-110.I wants one through seven under every judge, and the app cannot
+    see a scratch, a disqualification, or a class the judge genuinely placed
+    shallow. So it names the gap and lets a human say yes.
+    """
+    acknowledge_incomplete: bool = False
+
 
 class ClassResultsPublishOut(BaseModel):
     """Result of posting a class's placings to the public screens."""

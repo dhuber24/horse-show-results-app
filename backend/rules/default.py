@@ -27,6 +27,19 @@ class DefaultRules:
         """Return validation issue dicts for show-level readiness checks."""
         return []
 
+    def required_published_places(self, cls) -> int | None:
+        """How many places each judge must have filed before a class is posted.
+
+        None means the association does not say, which is the honest default —
+        an OPEN show answers to nobody about how deep it places, and inventing a
+        number here would block a jackpot that only pays three.
+
+        Associations that *do* say override this. The number is a floor, not a
+        target: a class with fewer entries than that can only fill what it has,
+        which is the caller's job to cap.
+        """
+        return None
+
     def calculate_points(self, result, cls):
         """Points awarded for a placing. Default: 1st=10, 2nd=9, ... down to 1."""
         place = getattr(result, "place", None)

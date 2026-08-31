@@ -4,9 +4,10 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import (
@@ -16,8 +17,10 @@ from dependencies import (
     require_api_key,
 )
 from models import Class, Entry, Result, ResultAudit, Show, ShowJudge
+from rules import get_rules
 from schemas import (
     AuditOut,
+    ClassResultsPublishIn,
     ClassResultsPublishOut,
     ResultBulkSave,
     ResultCreate,
@@ -61,6 +64,38 @@ async def _require_active_show(show_id: UUID, db: AsyncSession):
         raise HTTPException(404, "Show not found")
     if show.status != "ACTIVE":
         raise HTTPException(403, "Show is not active. Placings can only be entered for active shows.")
+
+
+def placing_shortfall(results, entry_count: int, judge_ids, required: Optional[int]):
+    """Which of the required places each judge's card is still missing.
+
+    `required` comes from the association (`rules.required_published_places`) and
+    is a floor: a class with four entries can only fill four places, so the depth
+    checked is `min(required, entry_count)`.
+
+    Cards are the show's **assigned judges**, not the judges who happen to have
+    filed — a three-judge panel where one has entered nothing is exactly the case
+    SC-110.I is about, and keying off the results would report it as complete.
+    A show with no judges assigned has one unattributed card, which is what the
+    NULL `judge_id` means.
+
+    Returns [] when the association names no depth, so this costs nothing on a
+    show whose rules do not ask.
+    """
+    if not required or entry_count <= 0:
+        return []
+    depth = min(required, entry_count)
+    cards = list(judge_ids) or [None]
+    shortfall = []
+    for card in cards:
+        placed = {
+            r.place for r in results
+            if r.judge_id == card and r.place is not None
+        }
+        missing = [p for p in range(1, depth + 1) if p not in placed]
+        if missing:
+            shortfall.append({"judge_id": card, "missing": missing})
+    return shortfall
 
 
 async def _validate_judge(show_id: UUID, judge_id: Optional[UUID], db: AsyncSession) -> None:
@@ -196,22 +231,95 @@ async def list_results(
     return result.scalars().all()
 
 
+async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: AsyncSession) -> None:
+    """422 with the per-judge shortfall, where the association names a depth."""
+    show = await db.execute(
+        select(Show).options(selectinload(Show.show_type)).where(Show.id == show_id)
+    )
+    show = show.scalar_one_or_none()
+    rules = get_rules(show.show_type.code if show and show.show_type else None)
+    required = rules.required_published_places(class_)
+    if not required:
+        return
+
+    entry_count = await db.scalar(
+        select(func.count(Entry.id)).where(
+            Entry.class_id == class_.id, Entry.status == "ENTERED"
+        )
+    ) or 0
+    judge_ids = list((await db.execute(
+        select(ShowJudge.id).where(ShowJudge.show_id == show_id).order_by(ShowJudge.sort_order)
+    )).scalars().all())
+    results = list((await db.execute(
+        select(Result).where(Result.class_id == class_.id)
+    )).scalars().all())
+
+    shortfall = placing_shortfall(results, entry_count, judge_ids, required)
+    if not shortfall:
+        return
+
+    names = {j.id: j for j in (await db.execute(
+        select(ShowJudge).options(selectinload(ShowJudge.judge)).where(
+            ShowJudge.show_id == show_id
+        )
+    )).scalars().all()}
+
+    def label(judge_id):
+        assignment = names.get(judge_id)
+        judge = getattr(assignment, "judge", None) if assignment else None
+        return getattr(judge, "name", None) or "Unattributed card"
+
+    raise HTTPException(
+        422,
+        {
+            "code": "PLACINGS_INCOMPLETE",
+            "message": (
+                f"Every judge must have placed one through {min(required, entry_count)} "
+                "before this class is posted."
+            ),
+            "required_places": required,
+            "shortfall": [
+                {
+                    "judge_id": str(s["judge_id"]) if s["judge_id"] else None,
+                    "judge_name": label(s["judge_id"]),
+                    "missing": s["missing"],
+                }
+                for s in shortfall
+            ],
+        },
+    )
+
+
 @router.post(
     "/publish",
     response_model=ClassResultsPublishOut,
     dependencies=[Depends(require_admin_or_scribe)],
 )
 async def publish_results(
-    show_id: UUID, class_id: UUID, db: AsyncSession = Depends(get_db)
+    show_id: UUID,
+    class_id: UUID,
+    body: Optional[ClassResultsPublishIn] = None,
+    db: AsyncSession = Depends(get_db),
 ):
     """Post a class's results to the public screens.
 
     Idempotent: re-posting an already-published class keeps the original
     timestamp rather than moving it, so "when did this go up?" stays answerable
     after a correction.
+
+    Where the association names a placing depth (APHA SC-110.I: one through seven
+    under every judge), an incomplete card is refused with the shortfall named,
+    and `acknowledge_incomplete` posts anyway. It is a confirmation rather than a
+    hard block because the app cannot see a scratch, a disqualification, or a
+    class the judge genuinely placed shallow — but it must not be silent, because
+    the scribe form's own gap warning only catches *interior* gaps and a card
+    that simply stops at third looks finished to it.
     """
     await _require_active_show(show_id, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
+
+    if class_.results_published_at is None and not (body and body.acknowledge_incomplete):
+        await _raise_for_incomplete_placings(show_id, class_, db)
 
     if class_.results_published_at is None:
         class_.results_published_at = datetime.now(timezone.utc)

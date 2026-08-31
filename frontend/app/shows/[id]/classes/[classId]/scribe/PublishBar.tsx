@@ -64,6 +64,14 @@ function StatusLine({ status, lastSavedAt, error, onRetry }: Pick<Props, 'status
   return <span style={{ color: MUTED }}>Changes save automatically.</span>;
 }
 
+/** The association placing-depth shortfall the backend reports (APHA SC-110.I). */
+interface DepthShortfall {
+  code: string;
+  message: string;
+  required_places: number;
+  shortfall: { judge_id: string | null; judge_name: string; missing: number[] }[];
+}
+
 export default function PublishBar({
   showId,
   classId,
@@ -80,10 +88,15 @@ export default function PublishBar({
   const [publishing, setPublishing] = useState(false);
   const [confirmGap, setConfirmGap] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  // The association's own placing-depth rule, reported by the backend rather
+  // than guessed at here — APHA wants one through seven under every judge
+  // (SC-110.I), and other associations say nothing at all. The local gap check
+  // only sees interior gaps, so a card that simply stops at third reaches this.
+  const [depthShortfall, setDepthShortfall] = useState<DepthShortfall | null>(null);
 
   const isLive = publishedAt !== null;
 
-  const doPublish = async () => {
+  const doPublish = async (acknowledgeIncomplete = false) => {
     setPublishing(true);
     setPublishError(null);
     setConfirmGap(false);
@@ -93,10 +106,22 @@ export default function PublishBar({
       const res = await fetch('/api/results/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ showId, classId }),
+        body: JSON.stringify({
+          showId,
+          classId,
+          acknowledge_incomplete: acknowledgeIncomplete,
+        }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.detail ?? 'Failed to post results');
+      if (!res.ok) {
+        const detail = json.detail;
+        if (detail && typeof detail === 'object' && detail.code === 'PLACINGS_INCOMPLETE') {
+          setDepthShortfall(detail as DepthShortfall);
+          return;
+        }
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to post results');
+      }
+      setDepthShortfall(null);
       onPublished(json.results_published_at);
     } catch (err: any) {
       setPublishError(err.message ?? 'Failed to post results');
@@ -142,7 +167,7 @@ export default function PublishBar({
             View public results →
           </Link>
         ) : (
-          !confirmGap && (
+          !confirmGap && !depthShortfall && (
             <button
               type="button"
               onClick={handlePublishClick}
@@ -156,6 +181,41 @@ export default function PublishBar({
           )
         )}
       </div>
+
+      {depthShortfall && (
+        <div
+          className="mt-3 px-3 py-2 rounded text-sm space-y-2"
+          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+        >
+          <p>
+            ⚠ {depthShortfall.message}
+          </p>
+          <ul className="list-disc pl-5">
+            {depthShortfall.shortfall.map((s) => (
+              <li key={s.judge_id ?? 'unattributed'}>
+                <span className="font-medium">{s.judge_name}</span> — missing {s.missing.join(', ')}
+              </li>
+            ))}
+          </ul>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => void doPublish(true)}
+              disabled={publishing}
+              className="font-semibold hover:underline disabled:opacity-50"
+            >
+              {publishing ? 'Posting…' : 'Post anyway'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDepthShortfall(null)}
+              className="hover:underline"
+            >
+              Go back
+            </button>
+          </div>
+        </div>
+      )}
 
       {confirmGap && gapWarning && (
         <div
@@ -171,7 +231,7 @@ export default function PublishBar({
           </span>
           <button
             type="button"
-            onClick={() => void doPublish()}
+            onClick={() => void doPublish(true)}
             className="font-semibold hover:underline"
             style={{ color: '#b45309' }}
           >

@@ -22,6 +22,7 @@ from models import (
     discipline_divisions,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from rules.apha import zone_individual_work_note
 from rules.disciplines import classify_class_name
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
@@ -370,7 +371,7 @@ async def replace_class_sanctioning(
 
 @router.get("/")
 async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
-    await _get_show_or_404(show_id, db)
+    show = await _get_show_or_404(show_id, db)
     # Distinct entries, not result rows: a class judged by a panel holds one
     # row per entry *per judge* (migration 095), so counting rows would report
     # "24 placed" in an eight-horse class with three judges.
@@ -411,6 +412,12 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             "ring_sort_order": ring_sort_order,
             "discipline_name": discipline_name,
             "division_name": division_name,
+            # The association's class-procedure note for this show's zone, where it
+            # has one — APHA Zones 12-14 work equitation and horsemanship
+            # individually from the gate with no rail work. Computed here rather
+            # than in the gate screen, so the rule lives in `rules/apha.py` and
+            # every surface that shows a class quotes the same sentence.
+            "procedure_note": zone_individual_work_note(show, discipline_name),
             # Which clubs sanction this class. On the payload rather than left
             # to a second request because the show bill prints it against the
             # class row — a per-class sanction fee that the bill cannot say

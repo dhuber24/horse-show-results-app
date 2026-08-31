@@ -108,6 +108,54 @@ registration screen — like `relationship_to_owner`. Both forms show the tickbo
 and disable the button until it is ticked, so neither posts an entry it already
 knows will 422.
 
+### Zones
+
+`shows.apha_zone` (1-14, migration 119). NULL means **not stated**, and nothing
+derives it from the venue's state — a guessed zone is wrong at exactly the shows
+that sit near a border. Set in setup Step 1.
+
+Zones turned up in five separate rules while reading the rule book, and only one
+of them is actionable with the data the app holds: in **Zones 12, 13 and 14**,
+equitation and horsemanship are worked individually from the gate with no line-up
+and no rail work, with a required working order and a maximum of two horses per
+exhibitor (AM-115.C, YP-120.C, and the hunt-seat equitation class procedure).
+
+`zone_individual_work_note(show, discipline_name)` returns that as **text**, not
+as enforcement: whether the class was worked from the gate, whether there was
+rail work, and whether the judge asked for a line-up all happen in an arena and
+are not facts the app has. What it can do is put the rule in front of the person
+running the gate before the class starts — the note rides on the class list
+payload as `procedure_note` and renders on the gate screen's order-of-go panel.
+
+The other four uses need data the app does not have: Green class point thresholds
+(25, or 10 in Zones 12-14), Zone Shows, zone year-end awards, and the `(Zone
+12-14)` text that currently lives inside class names in the loaded catalog
+because there was nowhere else to put it.
+
+### How deep a class must be placed before it is posted
+
+SC-110.I: *"The show management must announce placings in all classes under all
+judges of all contestants one through seven places after the class is complete."*
+
+`rules.required_published_places(cls)` returns 7 for APHA and **None** by
+default — an OPEN show answers to nobody about how deep it places, and inventing
+a number would block a jackpot that only pays three. `placing_shortfall()` in
+`routers/results.py` reports which places each judge's card is still missing;
+`POST .../results/publish` refuses with `PLACINGS_INCOMPLETE` and the per-judge
+shortfall, and `acknowledge_incomplete` posts anyway.
+
+Three things about that check:
+
+- **The depth is capped by the class.** Four entries cannot fill seven places.
+- **Cards are the show's assigned judges, not the judges who have filed.** A
+  three-judge panel where one has entered nothing is the case the rule is about,
+  and keying off the results would report it complete.
+- **It confirms rather than blocks.** The app cannot see a scratch, a
+  disqualification, or a class the judge genuinely placed shallow. But it must
+  not be silent: the scribe form's own gap warning only catches *interior* gaps
+  (1, 2, 4 missing 3), so a card that simply stops at third looked finished to
+  it, which is the shape a half-entered card actually has.
+
 ### Membership standing
 
 Membership numbers live in `exhibitor_registrations`, which since migration 117

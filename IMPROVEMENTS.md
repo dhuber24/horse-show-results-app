@@ -2,6 +2,20 @@
 
 ## August 2026
 
+### A Card That Stops At Third Looks Finished
+
+Phase 2 of the APHA work, in progress. Two of the show-running items.
+
+**The publish gate could not see a card that simply stopped.** The scribe form has warned about place gaps since the gate went in, and what it detects is *interior* gaps — 1, 2, 4 with 3 missing. Places 1-3 on a class of twenty passed clean, because there is no interior gap in 1-2-3. That is the shape a half-entered card actually has, and it is the shape SC-110.I is about: *"the show management must announce placings in all classes under all judges of all contestants one through seven places."*
+
+`rules.required_published_places(cls)` returns 7 for APHA and **None** by default, because an OPEN show answers to nobody about how deep it places and a hard-coded seven would block a jackpot that pays three. Two details the tests pin down. The depth is capped by the class, so four entries do not owe seven places. And **cards are the show's assigned judges, not the judges who have filed** — a three-judge panel where one has entered nothing is exactly the case the rule exists for, and reading the judges out of the results would report that class complete.
+
+It confirms rather than blocks: the app cannot see a scratch, a disqualification, or a class the judge genuinely placed shallow. But it is no longer silent, and the check is server-side, so it holds for any caller rather than only for the screen that happens to compute it.
+
+**Migration 119 gives a show its APHA zone.** Zones came up in five separate rules and the app had no representation of them at all — class procedure, Green class point thresholds, the `(Zone 12-14)` text living inside class names in the loaded catalog because there was nowhere else for it, Zone Shows, and zone year-end awards. Only the first is actionable with data the app holds, and it happens to be the one somebody needs at the rail: in Zones 12, 13 and 14, equitation and horsemanship are worked individually from the gate with no line-up and no rail work.
+
+That is surfaced as **text on the gate screen**, not enforced. Whether the class was worked from the gate, whether there was rail work, and whether the judge asked for a line-up all happen in an arena and are not facts the app has. What it can do is put the rule in front of the gate steward before the class starts. Nothing derives the zone from the venue's state, because a guessed zone is wrong at exactly the shows that sit near a border.
+
 ### Walk-Trot Is A Division, And A Paint Is A Colour And A Pattern
 
 Phase 1 of the APHA work: the app's lists were shorter than APHA's, so exhibitors were being forced into answers that were wrong.

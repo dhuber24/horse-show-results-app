@@ -20,6 +20,7 @@ interface Show {
   start_date: string;
   end_date: string;
   apha_show_number: string | null;
+  apha_zone: number | null;
   aqha_show_number: string | null;
   aqha_approval_status: string;
   aqha_approval_submitted_at: string | null;
@@ -62,6 +63,7 @@ export default function EditShowForm({
     start_date: show.start_date,
     end_date: show.end_date,
     apha_show_number: show.apha_show_number ?? '',
+    apha_zone: show.apha_zone === null || show.apha_zone === undefined ? '' : String(show.apha_zone),
     aqha_show_number: show.aqha_show_number ?? '',
     aqha_approval_status: show.aqha_approval_status ?? 'NOT_SUBMITTED',
     aqha_approval_submitted_at: show.aqha_approval_submitted_at ?? '',
@@ -98,6 +100,7 @@ export default function EditShowForm({
         start_date: form.start_date,
         end_date: form.end_date,
         apha_show_number: form.apha_show_number || null,
+        apha_zone: form.apha_zone ? Number(form.apha_zone) : null,
         aqha_show_number: form.aqha_show_number || null,
         aqha_approval_status: form.aqha_approval_status,
         aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
@@ -233,6 +236,30 @@ export default function EditShowForm({
               style={{ borderColor: COLORS.border }}
               placeholder="e.g. 2024-TX-0042"
             />
+          </label>
+        )}
+        {selectedShowType?.code === 'APHA' && (
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              APHA Zone
+            </span>
+            <select
+              name="apha_zone"
+              value={form.apha_zone}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              style={{ borderColor: COLORS.border }}
+            >
+              <option value="">Not stated</option>
+              {Array.from({ length: 14 }, (_, i) => i + 1).map((z) => (
+                <option key={z} value={z}>Zone {z}</option>
+              ))}
+            </select>
+            <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
+              Zones 12, 13 and 14 change how equitation and horsemanship are run —
+              each exhibitor worked individually from the gate, no rail work. The
+              gate screen shows the rule on those classes.
+            </span>
           </label>
         )}
         {selectedShowType?.code === 'AQHA' && (

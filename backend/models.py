@@ -109,6 +109,12 @@ class Show(Base):
     end_date = Column(Date, nullable=False)
     status = Column(Text, nullable=False, default="DRAFT")
     apha_show_number = Column(Text, nullable=True)
+    # APHA zone 1-14 (migration 119). NULL means not stated. Zones 12, 13 and 14
+    # change class procedure for equitation and horsemanship — worked
+    # individually from the gate, no rail work — and lower the Green class point
+    # threshold to 10. Nothing derives it from the venue's state: a zone the app
+    # guessed at would be wrong at exactly the shows that sit near a border.
+    apha_zone = Column(Integer, nullable=True)
     aqha_show_number = Column(Text, nullable=True)
     aqha_approval_status = Column(Text, nullable=False, default="NOT_SUBMITTED")
     aqha_approval_submitted_at = Column(Date, nullable=True)

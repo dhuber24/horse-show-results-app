@@ -14,6 +14,12 @@ type ClassRow = {
   status: string;
   ring_id: string | null;
   gate_status: GateClassStatus;
+  /** The association’s class-procedure note for this show’s zone, where it has
+   *  one. APHA Zones 12-14 run equitation and horsemanship individually from
+   *  the gate with no rail work — a different class than the same class in
+   *  Zone 3, and the steward needs it before the class starts. Computed by the
+   *  backend so the wording lives in one place. */
+  procedure_note?: string | null;
 };
 
 type GateEntry = {
@@ -391,6 +397,14 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 <span className="text-xs" style={{ color: '#1f4e1f' }}>· saving…</span>
               )}
             </div>
+            {selectedClass.procedure_note && (
+              <p
+                className="text-xs mb-3 rounded px-2 py-1.5"
+                style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+              >
+                ⚠ {selectedClass.procedure_note}
+              </p>
+            )}
             <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
               {entries.length === 0
                 ? 'No entries in this class.'

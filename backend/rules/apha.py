@@ -89,8 +89,56 @@ ATTESTATION_STATEMENTS = {
 }
 
 
+# SC-110.I — "The show management must announce placings in all classes under all
+# judges of all contestants one through seven places after the class is complete."
+PUBLISHED_PLACES = 7
+
+# Zones where equitation and horsemanship are worked individually from the gate
+# with no rail work and a required working order (AM-115.C, YP-120.C, and the
+# hunt-seat equitation class procedure). Every one of those rules carries the
+# same exception clause, so it is one list.
+INDIVIDUAL_WORK_ZONES = frozenset({12, 13, 14})
+
+# The disciplines that exception applies to, as `rules/disciplines.py` names them.
+INDIVIDUAL_WORK_DISCIPLINES = frozenset({
+    "Hunt Seat Equitation",
+    "Western Horsemanship",
+})
+
+
+def zone_individual_work_note(show, discipline_name):
+    """The class-procedure note for this show's zone, or None.
+
+    Returned as text rather than enforced, because none of it is data the app
+    holds: whether the class was worked from the gate, whether there was rail
+    work, and whether the judge asked for a line-up are all things that happen in
+    an arena. What the app can do is put the rule in front of the person running
+    the gate before the class starts.
+    """
+    zone = getattr(show, "apha_zone", None)
+    if zone not in INDIVIDUAL_WORK_ZONES:
+        return None
+    if discipline_name not in INDIVIDUAL_WORK_DISCIPLINES:
+        return None
+    return (
+        f"Zone {zone}: work each exhibitor individually from the gate. "
+        "No line-up and no rail work, and a working order is required. "
+        "Maximum two horses per exhibitor."
+    )
+
+
 class APHARules(DefaultRules):
     code = "APHA"
+
+    def required_published_places(self, cls) -> int:
+        """SC-110.I. Seven, under every judge, before a class is posted.
+
+        The scribe screen has warned about *interior* gaps since the publish gate
+        went in — 1, 2, 4 with 3 missing. It says nothing about a card that stops
+        short, so places 1-3 on a class of twenty passed clean, and that is the
+        shape a half-entered card actually has.
+        """
+        return PUBLISHED_PLACES
 
     def validate_entry(self, entry, show, cls, context=None):
         if not self.entry_is_active(entry):

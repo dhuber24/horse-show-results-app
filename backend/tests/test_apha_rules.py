@@ -17,11 +17,14 @@ from types import SimpleNamespace
 from rules import get_rules
 from rules.apha import (
     ATTESTATION_REQUIRED_DIVISIONS,
+    INDIVIDUAL_WORK_DISCIPLINES,
+    INDIVIDUAL_WORK_ZONES,
     ATTESTATION_STATEMENTS,
     DIVISION_LABELS,
     DIVISIONS,
     APHARules,
     RELATIONSHIP_REQUIRED_DIVISIONS,
+    zone_individual_work_note,
 )
 from tests.factories import make_class, make_entry, make_horse, make_show
 
@@ -375,6 +378,37 @@ def test_the_message_uses_the_divisions_own_name(rules, show):
     message = errors(rules.validate_entry(entry, show, cls))[0]["message"]
 
     assert message.startswith("Youth Walk-Trot 11-18 division entries")
+
+
+# ── Zones 12-14 change how a class is run ────────────────────────────────────
+
+@pytest.mark.parametrize("zone", sorted(INDIVIDUAL_WORK_ZONES))
+@pytest.mark.parametrize("discipline", sorted(INDIVIDUAL_WORK_DISCIPLINES))
+def test_the_zone_note_appears_where_the_exception_applies(zone, discipline):
+    note = zone_individual_work_note(make_show(apha_zone=zone), discipline)
+
+    assert note is not None
+    assert f"Zone {zone}" in note
+    assert "no rail work" in note.lower()
+
+
+@pytest.mark.parametrize("zone", [1, 3, 11, 15, None])
+def test_other_zones_get_no_note(zone):
+    assert zone_individual_work_note(make_show(apha_zone=zone), "Western Horsemanship") is None
+
+
+@pytest.mark.parametrize("discipline", ["Western Pleasure", "Trail", "Halter", None])
+def test_other_disciplines_get_no_note(discipline):
+    """The exception is written into the equitation and horsemanship class
+    procedures. Putting it on every class in the zone would be a warning people
+    learn to scroll past."""
+    assert zone_individual_work_note(make_show(apha_zone=12), discipline) is None
+
+
+def test_a_show_that_never_stated_its_zone_gets_no_note():
+    """NULL means not stated, and nothing guesses from the venue's state — a
+    guessed zone is wrong at exactly the shows that sit near a border."""
+    assert zone_individual_work_note(make_show(), "Hunt Seat Equitation") is None
 
 
 def test_a_non_apha_show_does_not_get_apha_rules():
