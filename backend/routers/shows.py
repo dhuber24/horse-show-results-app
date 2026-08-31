@@ -231,6 +231,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Class.id,
             Result.place,
             Result.is_tie,
+            Result.outcome,
+            Result.outcome_note,
             Entry.back_number,
             ShowEntry.back_number,
             Exhibitor.full_name,
@@ -254,6 +256,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Class.status != "DRAFT",
             Class.results_published_at.isnot(None),
         )
+        # Result.place sorts NULLs last by default, which is where an entry that
+        # was not placed belongs — behind everyone who was.
         .order_by(ShowJudge.sort_order.nulls_first(), Result.place)
     )
 
@@ -262,6 +266,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         class_id,
         place,
         is_tie,
+        outcome,
+        outcome_note,
         entry_bn,
         show_bn,
         exhibitor_name,
@@ -273,6 +279,11 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             {
                 "place": place,
                 "is_tie": bool(is_tie),
+                # Migration 121. A row with no place is not an empty row — it is a
+                # disqualification, an elimination, or a no score, and the sheet
+                # has to say which.
+                "outcome": outcome or "placed",
+                "outcome_note": outcome_note,
                 "back_number": show_bn if show_bn is not None else entry_bn,
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,

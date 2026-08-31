@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import type { SaveStatus } from './useAutosave';
 
@@ -72,6 +72,20 @@ interface DepthShortfall {
   shortfall: { judge_id: string | null; judge_name: string; missing: number[] }[];
 }
 
+/** Equal scores nobody has separated (APHA AM-115.B.2 and the pattern class
+ *  procedures). A different question from a shortfall: that one asks whether
+ *  the card is finished, this one asks which of two horses won. */
+interface TieBlock {
+  code: string;
+  message: string;
+  ties: {
+    judge_id: string | null;
+    judge_name: string;
+    place: number;
+    entry_ids: string[];
+  }[];
+}
+
 export default function PublishBar({
   showId,
   classId,
@@ -88,6 +102,11 @@ export default function PublishBar({
   const [publishing, setPublishing] = useState(false);
   const [confirmGap, setConfirmGap] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [tieBlock, setTieBlock] = useState<TieBlock | null>(null);
+  // Acknowledgements accumulate across rounds. The backend checks ties first,
+  // so saying yes to a tie and then meeting a depth shortfall must not quietly
+  // drop the first answer and re-ask it.
+  const acks = useRef({ incomplete: false, ties: false });
   // The association's own placing-depth rule, reported by the backend rather
   // than guessed at here — APHA wants one through seven under every judge
   // (SC-110.I), and other associations say nothing at all. The local gap check
@@ -96,7 +115,8 @@ export default function PublishBar({
 
   const isLive = publishedAt !== null;
 
-  const doPublish = async (acknowledgeIncomplete = false) => {
+  const doPublish = async (ack: { incomplete?: boolean; ties?: boolean } = {}) => {
+    acks.current = { ...acks.current, ...ack };
     setPublishing(true);
     setPublishError(null);
     setConfirmGap(false);
@@ -109,12 +129,17 @@ export default function PublishBar({
         body: JSON.stringify({
           showId,
           classId,
-          acknowledge_incomplete: acknowledgeIncomplete,
+          acknowledge_incomplete: acks.current.incomplete,
+          acknowledge_ties: acks.current.ties,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         const detail = json.detail;
+        if (detail && typeof detail === 'object' && detail.code === 'TIES_UNRESOLVED') {
+          setTieBlock(detail as TieBlock);
+          return;
+        }
         if (detail && typeof detail === 'object' && detail.code === 'PLACINGS_INCOMPLETE') {
           setDepthShortfall(detail as DepthShortfall);
           return;
@@ -122,6 +147,7 @@ export default function PublishBar({
         throw new Error(typeof detail === 'string' ? detail : 'Failed to post results');
       }
       setDepthShortfall(null);
+      setTieBlock(null);
       onPublished(json.results_published_at);
     } catch (err: any) {
       setPublishError(err.message ?? 'Failed to post results');
@@ -167,7 +193,7 @@ export default function PublishBar({
             View public results →
           </Link>
         ) : (
-          !confirmGap && !depthShortfall && (
+          !confirmGap && !depthShortfall && !tieBlock && (
             <button
               type="button"
               onClick={handlePublishClick}
@@ -181,6 +207,45 @@ export default function PublishBar({
           )
         )}
       </div>
+
+      {tieBlock && (
+        <div
+          className="mt-3 px-3 py-2 rounded text-sm space-y-2"
+          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+        >
+          <p>⚠ {tieBlock.message}</p>
+          <ul className="list-disc pl-5">
+            {tieBlock.ties.map((t) => (
+              <li key={`${t.judge_id ?? 'unattributed'}-${t.place}`}>
+                <span className="font-medium">{t.judge_name}</span> — {t.entry_ids.length}{' '}
+                entries tied for place {t.place}
+              </li>
+            ))}
+          </ul>
+          <p style={{ color: '#a16207' }}>
+            Set the order the judge called on the tied rows. The scores stay exactly
+            as they were entered.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setTieBlock(null)}
+              className="font-semibold hover:underline"
+            >
+              Go back and break the tie
+            </button>
+            <button
+              type="button"
+              onClick={() => void doPublish({ ties: true })}
+              disabled={publishing}
+              className="hover:underline disabled:opacity-50"
+              title="Post the class with a shared place"
+            >
+              {publishing ? 'Posting…' : 'The judge left it tied — post anyway'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {depthShortfall && (
         <div
@@ -200,7 +265,7 @@ export default function PublishBar({
           <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
-              onClick={() => void doPublish(true)}
+              onClick={() => void doPublish({ incomplete: true })}
               disabled={publishing}
               className="font-semibold hover:underline disabled:opacity-50"
             >
@@ -231,7 +296,7 @@ export default function PublishBar({
           </span>
           <button
             type="button"
-            onClick={() => void doPublish(true)}
+            onClick={() => void doPublish({ incomplete: true })}
             className="font-semibold hover:underline"
             style={{ color: '#b45309' }}
           >

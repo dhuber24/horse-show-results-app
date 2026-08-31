@@ -7,6 +7,7 @@ import PublishBar from './PublishBar';
 import JudgeTabs from './JudgeTabs';
 import { useAutosave } from './useAutosave';
 import { buildCards, groupByCard, type ShowJudge } from './judges';
+import { outcomesFor, type ResultOutcome } from '@/lib/result-outcomes';
 
 interface Entry {
   id: string;
@@ -20,10 +21,14 @@ interface Result {
   id: string;
   entry_id: string;
   judge_id: string | null;
-  place: number;
+  place: number | null;
   is_tie: boolean;
   notes: string;
+  outcome?: string;
 }
+
+/** Rail classes have no score, so a declared zero is not on offer here. */
+const OUTCOME_CHOICES = outcomesFor('placement');
 
 interface Class {
   id: string;
@@ -98,6 +103,31 @@ export default function ScribeForm({
       }),
     );
   });
+  // What happened, where a place number cannot say it (migration 121). Kept in
+  // its own map rather than folded into `byCard` so the place map stays a plain
+  // entry_id → place, which the gap check, the touch pad's taken-places set and
+  // the tie count all read directly.
+  const [outcomeByCard, setOutcomeByCard] = useState<
+    Record<string, Record<string, ResultOutcome>>
+  >(() => {
+    const grouped = groupByCard(results);
+    return Object.fromEntries(
+      cards.map((card) => {
+        const existing = Object.fromEntries(
+          (grouped[card.key] ?? []).map((r) => [r.entry_id, r]),
+        );
+        return [
+          card.key,
+          Object.fromEntries(
+            entries.map((e) => [
+              e.id,
+              (existing[e.id]?.outcome ?? 'placed') as ResultOutcome,
+            ]),
+          ),
+        ];
+      }),
+    );
+  });
   const [activeKey, setActiveKey] = useState(cards[0].key);
   const [publishedAt, setPublishedAt] = useState<string | null>(resultsPublishedAt);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -107,6 +137,12 @@ export default function ScribeForm({
   // Memoised: the `?? {}` fallback would otherwise be a fresh object every
   // render, re-running every memo downstream of it on every keystroke.
   const places = useMemo(() => byCard[activeKey] ?? {}, [byCard, activeKey]);
+  const outcomes = useMemo(() => outcomeByCard[activeKey] ?? {}, [outcomeByCard, activeKey]);
+
+  const outcomeOf = useCallback(
+    (entryId: string): ResultOutcome => outcomes[entryId] ?? 'placed',
+    [outcomes],
+  );
 
   const classIndex = classes.findIndex((c) => c.id === classId);
   const prevClass = classIndex > 0 ? classes[classIndex - 1] : null;
@@ -160,17 +196,29 @@ export default function ScribeForm({
     return warnings.length > 0 ? warnings : null;
   }, [cards, byCard]);
 
-  const buildItems = useCallback((card: Record<string, string>) =>
-    activeEntries
-      .filter((entry) => {
-        const p = parseInt(card[entry.id]);
-        return !isNaN(p) && p >= 1;
-      })
-      .map((entry) => {
-        const place = parseInt(card[entry.id]);
-        const shared = activeEntries.filter((e) => parseInt(card[e.id]) === place).length;
-        return { entry_id: entry.id, place, is_tie: shared > 1 };
-      }),
+  const buildItems = useCallback(
+    (card: Record<string, string>, cardOutcomes: Record<string, ResultOutcome>) =>
+      activeEntries
+        .map((entry) => {
+          const outcome = cardOutcomes[entry.id] ?? 'placed';
+          const place = parseInt(card[entry.id]);
+          const placed = !isNaN(place) && place >= 1;
+          // A placed row with no number is a horse the scribe has not reached
+          // yet. Any other outcome is an answer whether or not it has a place —
+          // an Over Fences elimination during a ride-off (AM-111.D) has one, a
+          // disqualification does not.
+          if (outcome === 'placed' && !placed) return null;
+          const shared = placed
+            ? activeEntries.filter((e) => parseInt(card[e.id]) === place).length
+            : 0;
+          return {
+            entry_id: entry.id,
+            place: placed ? place : null,
+            is_tie: outcome === 'placed' && shared > 1,
+            outcome,
+          };
+        })
+        .filter(Boolean),
     [activeEntries]
   );
 
@@ -178,8 +226,12 @@ export default function ScribeForm({
   // reaching for current state: the card being committed is the one that was
   // debounced, which is not necessarily the one now on screen.
   const payload = useMemo(
-    () => JSON.stringify({ judgeId: activeCard.judgeId, results: buildItems(places) }),
-    [activeCard.judgeId, buildItems, places]
+    () =>
+      JSON.stringify({
+        judgeId: activeCard.judgeId,
+        results: buildItems(places, outcomes),
+      }),
+    [activeCard.judgeId, buildItems, places, outcomes]
   );
 
   const save = useCallback(async (snapshot: string) => {
@@ -207,6 +259,17 @@ export default function ScribeForm({
     }));
   };
 
+  const setOutcome = (entryId: string, value: ResultOutcome) => {
+    setOutcomeByCard((prev) => ({
+      ...prev,
+      [activeKey]: { ...prev[activeKey], [entryId]: value },
+    }));
+    // Disqualified, eliminated: there is no placing left to hold. An elimination
+    // the judge still placed is re-typed, which is the rarer case and the one
+    // worth making deliberate.
+    if (value !== 'placed') setPlace(entryId, '');
+  };
+
   /** Commit the open card before showing another — it may hold an unsettled
    *  keystroke, and only one card is held in the autosave payload at a time. */
   const selectCard = async (key: string) => {
@@ -220,6 +283,10 @@ export default function ScribeForm({
     setByCard((prev) => ({
       ...prev,
       [activeKey]: Object.fromEntries(entries.map((e) => [e.id, ''])),
+    }));
+    setOutcomeByCard((prev) => ({
+      ...prev,
+      [activeKey]: Object.fromEntries(entries.map((e) => [e.id, 'placed' as ResultOutcome])),
     }));
     setSelectedIndex(null);
   };
@@ -328,6 +395,7 @@ export default function ScribeForm({
             <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Back #</th>
             <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Exhibitor</th>
             <th className="py-2 pr-4 text-sm font-semibold hidden md:table-cell" style={{ color: '#2c1810' }}>Horse</th>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Result</th>
             <th className="py-2 text-sm font-semibold" style={{ color: '#2c1810' }}>Place</th>
           </tr>
         </thead>
@@ -335,6 +403,7 @@ export default function ScribeForm({
           {activeEntries.map((entry, i) => {
             const tied = isTie(entry.id);
             const isSelected = selectedIndex === i;
+            const outcome = outcomeOf(entry.id);
             return (
               <tr
                 key={entry.id}
@@ -352,6 +421,28 @@ export default function ScribeForm({
                 </td>
                 <td className="py-4 pr-4 text-base" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
                 <td className="py-4 pr-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
+                <td className="py-4 pr-4">
+                  {/* Flat equitation words its disqualification as "should not
+                      be placed" — a state a blank place number cannot express,
+                      because a blank is also every horse not yet reached. */}
+                  <select
+                    value={outcome}
+                    onChange={(e) => setOutcome(entry.id, e.target.value as ResultOutcome)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-h-[44px] border rounded-lg px-2 text-sm"
+                    style={{
+                      borderColor: outcome === 'placed' ? '#d4b896' : '#fca5a5',
+                      backgroundColor: outcome === 'placed' ? '#fffdf9' : '#fef2f2',
+                      color: '#2c1810',
+                    }}
+                  >
+                    {OUTCOME_CHOICES.map((o) => (
+                      <option key={o.value} value={o.value} title={o.help}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 <td className="py-4">
                   <div className="flex items-center gap-2">
                     <input
@@ -365,6 +456,11 @@ export default function ScribeForm({
                       value={places[entry.id] ?? ''}
                       onFocus={() => setSelectedIndex(i)}
                       onChange={(e) => setPlace(entry.id, e.target.value)}
+                      title={
+                        outcome === 'placed'
+                          ? undefined
+                          : 'Still typeable — an elimination during a ride-off is placed last in that group.'
+                      }
                       className="w-20 min-h-[44px] border rounded-lg px-2 text-center text-lg"
                       style={{
                         borderColor: isSelected ? '#8b4513' : '#d4b896',
@@ -390,6 +486,7 @@ export default function ScribeForm({
               <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>{entry.back_number ?? '—'}</td>
               <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>{entry.exhibitorName}</td>
               <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: '#bbb' }}>{entry.horseName}</td>
+              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>—</td>
               <td className="py-4">
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded"

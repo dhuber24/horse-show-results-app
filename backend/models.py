@@ -1027,9 +1027,21 @@ class Result(Base):
     # show. NULL is unattributed — results entered before judges were assigned, and
     # pre-095 rows on a multi-judge show, which the read paths show as one column.
     judge_id = Column(UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="RESTRICT"), nullable=True)
-    place = Column(Integer, nullable=False)
+    # Nullable since migration 121. A disqualified or no-scored entry has no
+    # placing, and forcing one on it was the reason those states could not be
+    # recorded at all.
+    place = Column(Integer, nullable=True)
     raw_score = Column(Numeric(10, 3), nullable=True)
     is_tie = Column(Boolean, default=False)
+    # What happened on this judge's card (migration 121). Per judge rather than
+    # per entry because a card is what a judge hands in, and `place` — the thing
+    # this qualifies — has always lived here. The coarser `Entry.is_disqualified`
+    # stays: it takes an entry out of the class before anybody judges it.
+    outcome = Column(Text, nullable=False, server_default="placed", default="placed")
+    outcome_note = Column(Text, nullable=True)
+    # How the judge broke a tie between equal scores, lowest first. Separate from
+    # raw_score so recording the decision never edits the number the judge called.
+    tiebreak_rank = Column(Integer, nullable=True)
     notes = Column(Text)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -1040,6 +1052,18 @@ class Result(Base):
     # horse the same place, so it must not come back via create_all.
     __table_args__ = (
         CheckConstraint("place > 0"),
+        CheckConstraint(
+            "outcome IN ('placed','disqualified','eliminated','zero_score','no_score')",
+            name="ck_results_outcome",
+        ),
+        CheckConstraint(
+            "outcome <> 'placed' OR place IS NOT NULL",
+            name="ck_results_placed_has_place",
+        ),
+        CheckConstraint(
+            "tiebreak_rank IS NULL OR tiebreak_rank > 0",
+            name="ck_results_tiebreak_rank",
+        ),
     )
 
     class_ = relationship("Class", back_populates="results")

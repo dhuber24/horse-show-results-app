@@ -57,7 +57,12 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const placingsByEntry: Record<string, PlacingRow['placings']> = {};
   for (const r of results) {
     const key = r.judge_id ?? NO_JUDGE;
-    (placingsByEntry[r.entry_id] ??= {})[key] = { place: r.place, is_tie: Boolean(r.is_tie) };
+    (placingsByEntry[r.entry_id] ??= {})[key] = {
+      place: r.place ?? null,
+      is_tie: Boolean(r.is_tie),
+      outcome: r.outcome ?? 'placed',
+      outcome_note: r.outcome_note ?? null,
+    };
   }
 
   // A column per card that actually holds placings. Judges who have not filed

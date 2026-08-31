@@ -17,6 +17,7 @@ from dependencies import (
     require_api_key,
 )
 from models import Class, Entry, Result, ResultAudit, Show, ShowJudge
+from placings import RANKED_OUTCOMES, is_ranked
 from rules import get_rules
 from schemas import (
     AuditOut,
@@ -66,12 +67,30 @@ async def _require_active_show(show_id: UUID, db: AsyncSession):
         raise HTTPException(403, "Show is not active. Placings can only be entered for active shows.")
 
 
+def _ranked(result) -> bool:
+    """Whether this row is in the running on its card.
+
+    Goes through `placings.is_ranked` so the scribe screens, the side pot
+    standings and the publish gate cannot disagree about which outcomes count.
+    Rows written before migration 121 — and the duck-typed rows the tests build —
+    carry no outcome at all and read as `placed`.
+    """
+    return is_ranked(result)
+
+
 def placing_shortfall(results, entry_count: int, judge_ids, required: Optional[int]):
     """Which of the required places each judge's card is still missing.
 
     `required` comes from the association (`rules.required_published_places`) and
     is a floor: a class with four entries can only fill four places, so the depth
-    checked is `min(required, entry_count)`.
+    checked is capped by how many entries that card could actually place.
+
+    That cap is **per card**, not per class. A judge who disqualified two horses
+    has two fewer to place, and another judge on the same panel may have placed
+    them — so a class-wide count would report the strict judge as short of a
+    depth they could not have reached. Rows that carry a place despite a
+    non-placed outcome still fill their slot: an Over Fences elimination during
+    a ride-off (AM-111.D) is a placing.
 
     Cards are the show's **assigned judges**, not the judges who happen to have
     filed — a three-judge panel where one has entered nothing is exactly the case
@@ -84,18 +103,39 @@ def placing_shortfall(results, entry_count: int, judge_ids, required: Optional[i
     """
     if not required or entry_count <= 0:
         return []
-    depth = min(required, entry_count)
     cards = list(judge_ids) or [None]
     shortfall = []
     for card in cards:
-        placed = {
-            r.place for r in results
-            if r.judge_id == card and r.place is not None
-        }
+        rows = [r for r in results if r.judge_id == card]
+        unplaceable = sum(1 for r in rows if not _ranked(r) and r.place is None)
+        depth = min(required, max(entry_count - unplaceable, 0))
+        placed = {r.place for r in rows if r.place is not None}
         missing = [p for p in range(1, depth + 1) if p not in placed]
         if missing:
             shortfall.append({"judge_id": card, "missing": missing})
     return shortfall
+
+
+def unresolved_ties(results):
+    """Places shared by two or more entries on one card that nobody has broken.
+
+    Reads `is_tie`, which `_recompute_places_from_scores` sets only where the
+    scores *and* the judge's tiebreak rank are equal — so a tie the judge has
+    answered has already been resolved into two distinct places by the time this
+    runs, and never appears here.
+    """
+    by_card_place: dict[tuple, list] = {}
+    for r in results:
+        if not r.is_tie or r.place is None:
+            continue
+        by_card_place.setdefault((r.judge_id, r.place), []).append(r)
+    return [
+        {"judge_id": judge_id, "place": place, "entry_ids": [r.entry_id for r in rows]}
+        for (judge_id, place), rows in sorted(
+            by_card_place.items(), key=lambda kv: kv[0][1]
+        )
+        if len(rows) > 1
+    ]
 
 
 async def _validate_judge(show_id: UUID, judge_id: Optional[UUID], db: AsyncSession) -> None:
@@ -124,14 +164,24 @@ def _same_judge(judge_id: Optional[UUID]):
 async def _recompute_places_from_scores(class_: Class, db: AsyncSession) -> None:
     """For pattern/time classes, sort results by raw_score and assign places.
 
-    Pattern: highest raw_score wins. Time: lowest raw_score wins. Equal scores
-    share a place and are flagged is_tie=True. Results without a raw_score sort
-    last with sequential places.
+    Pattern: highest raw_score wins. Time: lowest raw_score wins. Results without
+    a raw_score sort last with sequential places.
 
     **Ranked within each judge's card, not across the class.** Every judge marks
     the same class on their own sheet, so a 71.5 from one judge and a 71.5 from
     another are two firsts, not a tie for first. Pooling them would also make
     each judge's placings depend on how many other judges had filed by then.
+
+    **Only 'placed' rows are ranked** (migration 121). A disqualified or
+    no-scored entry is not in the running, and whatever place it carries is a
+    human's answer rather than a derivation — an Over Fences rider eliminated
+    during a ride-off (AM-111.D) is still placed, last among that group, and the
+    app has no way of knowing a ride-off happened. Those rows are left exactly as
+    the scribe filed them.
+
+    Equal scores share a place unless the judge broke the tie: `tiebreak_rank`
+    joins the score in the ranking key, so two 71.5s ranked 1 and 2 come out as
+    two distinct places with neither score touched.
 
     No-op for placement classes — place stays as the secretary entered it.
     """
@@ -147,53 +197,109 @@ async def _recompute_places_from_scores(class_: Class, db: AsyncSession) -> None
     for r in all_results:
         cards.setdefault(r.judge_id, []).append(r)
 
-    for results in cards.values():
-        if class_.score_type == "pattern":
-            # null last, then descending by score
-            results.sort(
-                key=lambda r: (
-                    r.raw_score is None,
-                    -float(r.raw_score) if r.raw_score is not None else 0.0,
-                )
-            )
-        else:  # time
-            results.sort(
-                key=lambda r: (
-                    r.raw_score is None,
-                    float(r.raw_score) if r.raw_score is not None else 0.0,
-                )
-            )
-
-        # Assign places, sharing a place across equal scores
-        last_score: object = object()  # sentinel — first iteration never matches
-        last_place = 0
-        for idx, r in enumerate(results, start=1):
-            if r.raw_score is None:
-                r.place = idx
-                last_score = object()  # break the tie chain
-                last_place = idx
-                continue
-            score = float(r.raw_score)
-            if score == last_score:
-                r.place = last_place
-            else:
-                r.place = idx
-                last_place = idx
-                last_score = score
-
-        counts = Counter(r.place for r in results)
-        for r in results:
-            r.is_tie = counts[r.place] > 1
+    for card in cards.values():
+        rank_card(class_.score_type, card)
 
     await db.flush()
 
 
-def _validate_score_input(class_: Class, raw_score: Optional[float]) -> None:
+def rank_card(score_type: str, rows) -> None:
+    """Place one judge's card in-place, from the scores on it.
+
+    Pulled out of `_recompute_places_from_scores` so the ranking can be exercised
+    without a session — it is the part with the rules in it, and the rest is a
+    query and a flush.
+
+    Mutates `place` and `is_tie` on the rows it ranks, and clears `is_tie` on the
+    rows it does not. Rows out of the running keep whatever place they came in
+    with, which is the scribe's answer and never a derived one.
+
+    A declared zero ranks — see `placings.RANKED_OUTCOMES`.
+    """
+    # Descending for a pattern score, ascending for a time.
+    sign = -1.0 if score_type == "pattern" else 1.0
+
+    ranked = [r for r in rows if _ranked(r)]
+    for r in rows:
+        if not _ranked(r):
+            r.is_tie = False
+
+    ranked.sort(
+        key=lambda r: (
+            r.raw_score is None,
+            sign * float(r.raw_score) if r.raw_score is not None else 0.0,
+            r.tiebreak_rank is None,
+            r.tiebreak_rank or 0,
+        )
+    )
+
+    # Assign places, sharing a place only where the score *and* the judge's
+    # tiebreak answer are the same. Two equal scores the judge has ranked are
+    # two different keys, so they take two places and neither is flagged.
+    last_key: object = object()  # sentinel — first iteration never matches
+    last_place = 0
+    for idx, r in enumerate(ranked, start=1):
+        if r.raw_score is None:
+            r.place = idx
+            last_key = object()  # break the tie chain
+            last_place = idx
+            continue
+        key = (float(r.raw_score), r.tiebreak_rank)
+        if key == last_key:
+            r.place = last_place
+        else:
+            r.place = idx
+            last_place = idx
+            last_key = key
+
+    counts = Counter(r.place for r in ranked)
+    for r in ranked:
+        r.is_tie = counts[r.place] > 1
+
+
+def _validate_score_input(
+    class_: Class,
+    raw_score: Optional[float],
+    place: Optional[int] = None,
+    outcome: str = "placed",
+) -> None:
+    """What a row must carry to be filed, given what it claims happened.
+
+    Only a `placed` row is held to it. A no-score has no score by definition, and
+    demanding one would make the state unrecordable — which is the whole reason
+    the outcomes exist.
+    """
+    if outcome != "placed":
+        return
     if class_.score_type in ("pattern", "time") and raw_score is None:
         raise HTTPException(
             400,
             f"raw_score is required for {class_.score_type} classes",
         )
+    if class_.score_type == "placement" and place is None:
+        raise HTTPException(400, "place is required unless the entry was not placed")
+
+
+def _normalize_row(class_: Class, data: dict, fallback: int) -> None:
+    """Fill in what the outcome already implies, before the row is written.
+
+    Two things, both of which have to happen before the flush:
+
+    * A **declared zero has a score of zero.** That is what the outcome means, so
+      the row says it rather than leaving a blank the sheet would render as
+      unjudged. It is what makes a zero comparable to the horses that scored,
+      which is the distinction SC-265.E.4-6 draws against a No Score.
+    * A **ranked row on a scored class needs some place to insert with.**
+      `ck_results_placed_has_place` fires at flush, which is before
+      `_recompute_places_from_scores` runs. The placeholder is overwritten by
+      the recompute a moment later and never read.
+    """
+    outcome = data.get("outcome") or "placed"
+    if outcome == "zero_score" and data.get("raw_score") is None:
+        data["raw_score"] = 0.0
+    if class_.score_type != "placement" and outcome in RANKED_OUTCOMES:
+        if data.get("place") is None:
+            data["place"] = fallback
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -231,13 +337,78 @@ async def list_results(
     return result.scalars().all()
 
 
-async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: AsyncSession) -> None:
-    """422 with the per-judge shortfall, where the association names a depth."""
+async def _show_rules(show_id: UUID, db: AsyncSession):
+    """The association rules for this show, or the defaults."""
     show = await db.execute(
         select(Show).options(selectinload(Show.show_type)).where(Show.id == show_id)
     )
     show = show.scalar_one_or_none()
-    rules = get_rules(show.show_type.code if show and show.show_type else None)
+    return get_rules(show.show_type.code if show and show.show_type else None)
+
+
+async def _judge_labels(show_id: UUID, db: AsyncSession):
+    """judge_id -> display name, for naming a card in an error the scribe reads."""
+    assignments = (await db.execute(
+        select(ShowJudge).options(selectinload(ShowJudge.judge)).where(
+            ShowJudge.show_id == show_id
+        )
+    )).scalars().all()
+    names = {j.id: j for j in assignments}
+
+    def label(judge_id):
+        assignment = names.get(judge_id)
+        judge = getattr(assignment, "judge", None) if assignment else None
+        return getattr(judge, "name", None) or "Unattributed card"
+
+    return label
+
+
+async def _raise_for_unresolved_ties(show_id: UUID, class_: Class, db: AsyncSession) -> None:
+    """422 where the association leaves ties to the judge and one is unbroken.
+
+    APHA words it the same way in every scored class: equal scores are separated
+    at the judge's discretion (AM-115.B.2 and the pattern class procedures). The
+    app must not answer it — so this refuses the post, names the entries, and the
+    scribe records the judge's answer in `tiebreak_rank`, leaving both scores as
+    they were called. `acknowledge_ties` posts a shared place anyway, because a
+    class the judge genuinely left tied is not something the app can rule out.
+    """
+    rules = await _show_rules(show_id, db)
+    if not rules.ties_must_be_broken(class_):
+        return
+
+    results = list((await db.execute(
+        select(Result).where(Result.class_id == class_.id)
+    )).scalars().all())
+    ties = unresolved_ties(results)
+    if not ties:
+        return
+
+    label = await _judge_labels(show_id, db)
+    raise HTTPException(
+        422,
+        {
+            "code": "TIES_UNRESOLVED",
+            "message": (
+                "Equal scores are separated at the judge's discretion. Record how "
+                "the judge broke each tie before this class is posted."
+            ),
+            "ties": [
+                {
+                    "judge_id": str(t["judge_id"]) if t["judge_id"] else None,
+                    "judge_name": label(t["judge_id"]),
+                    "place": t["place"],
+                    "entry_ids": [str(e) for e in t["entry_ids"]],
+                }
+                for t in ties
+            ],
+        },
+    )
+
+
+async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: AsyncSession) -> None:
+    """422 with the per-judge shortfall, where the association names a depth."""
+    rules = await _show_rules(show_id, db)
     required = rules.required_published_places(class_)
     if not required:
         return
@@ -258,16 +429,7 @@ async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: Async
     if not shortfall:
         return
 
-    names = {j.id: j for j in (await db.execute(
-        select(ShowJudge).options(selectinload(ShowJudge.judge)).where(
-            ShowJudge.show_id == show_id
-        )
-    )).scalars().all()}
-
-    def label(judge_id):
-        assignment = names.get(judge_id)
-        judge = getattr(assignment, "judge", None) if assignment else None
-        return getattr(judge, "name", None) or "Unattributed card"
+    label = await _judge_labels(show_id, db)
 
     raise HTTPException(
         422,
@@ -314,12 +476,19 @@ async def publish_results(
     class the judge genuinely placed shallow — but it must not be silent, because
     the scribe form's own gap warning only catches *interior* gaps and a card
     that simply stops at third looks finished to it.
+
+    An unbroken tie is refused the same way, under its own flag: a shortfall asks
+    whether the card is finished, a tie asks which of two horses won, and only
+    the judge can answer the second.
     """
     await _require_active_show(show_id, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
 
-    if class_.results_published_at is None and not (body and body.acknowledge_incomplete):
-        await _raise_for_incomplete_placings(show_id, class_, db)
+    if class_.results_published_at is None:
+        if not (body and body.acknowledge_ties):
+            await _raise_for_unresolved_ties(show_id, class_, db)
+        if not (body and body.acknowledge_incomplete):
+            await _raise_for_incomplete_placings(show_id, class_, db)
 
     if class_.results_published_at is None:
         class_.results_published_at = datetime.now(timezone.utc)
@@ -348,15 +517,17 @@ async def create_result(
     if not entry or entry.class_id != class_id:
         raise HTTPException(400, "Entry does not belong to this class")
 
-    _validate_score_input(class_, body.raw_score)
+    _validate_score_input(class_, body.raw_score, body.place, body.outcome)
     await _validate_judge(show_id, body.judge_id, db)
 
     # Placement classes: enforce manual place uniqueness as before.
     # Pattern/time classes: place is derived after insert, skip the check.
+    # A row with no place at all — disqualified, no score — occupies no slot and
+    # so cannot collide with one.
     #
     # Scoped to this judge's card: every judge on the panel awards a 1st, so
     # a class-wide check would reject the second judge's winner.
-    if class_.score_type == "placement":
+    if class_.score_type == "placement" and body.place is not None:
         if not body.is_tie:
             conflict = await db.execute(
                 select(Result).where(
@@ -379,7 +550,9 @@ async def create_result(
             if conflict.scalar_one_or_none():
                 raise HTTPException(409, f"Place {body.place} is already assigned to a non-tie entry.")
 
-    result = Result(class_id=class_id, **body.model_dump())
+    data = body.model_dump()
+    _normalize_row(class_, data, 1)
+    result = Result(class_id=class_id, **data)
     db.add(result)
     try:
         await db.flush()
@@ -420,17 +593,14 @@ async def update_result(
     new_place = updates.get("place", result.place)
     new_is_tie = updates.get("is_tie", result.is_tie)
     new_raw_score = updates.get("raw_score", result.raw_score)
+    new_outcome = updates.get("outcome", result.outcome) or "placed"
 
-    if class_.score_type in ("pattern", "time") and new_raw_score is None:
-        raise HTTPException(
-            400,
-            f"raw_score is required for {class_.score_type} classes",
-        )
+    _validate_score_input(class_, new_raw_score, new_place, new_outcome)
 
     # Placement classes: enforce manual place uniqueness as before, within this
     # result's own card. judge_id is not editable here — moving a placing to a
     # different judge is not a correction, it is a different judge's card.
-    if class_.score_type == "placement" and new_place != old_place:
+    if class_.score_type == "placement" and new_place is not None and new_place != old_place:
         if not new_is_tie:
             conflict = await db.execute(
                 select(Result).where(
@@ -520,13 +690,8 @@ async def bulk_save_results(
         if missing:
             raise HTTPException(400, f"Entry {missing[0]} does not belong to this class")
 
-    if class_.score_type in ("pattern", "time"):
-        for item in body.results:
-            if item.raw_score is None:
-                raise HTTPException(
-                    400,
-                    f"raw_score is required for {class_.score_type} classes",
-                )
+    for item in body.results:
+        _validate_score_input(class_, item.raw_score, item.place, item.outcome)
 
     # Snapshot existing places before deleting so we can audit changes. Scoped
     # to this judge — an unscoped snapshot would read another judge's placings
@@ -553,8 +718,10 @@ async def bulk_save_results(
 
     # Insert all new results
     new_results = []
-    for item in body.results:
-        result = Result(class_id=class_id, judge_id=body.judge_id, **item.model_dump())
+    for idx, item in enumerate(body.results, start=1):
+        data = item.model_dump()
+        _normalize_row(class_, data, idx)
+        result = Result(class_id=class_id, judge_id=body.judge_id, **data)
         db.add(result)
         new_results.append(result)
 

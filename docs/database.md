@@ -186,6 +186,39 @@ CHECK excludes only zero. `DELETE` is for a row typed in error.
 question asked when the drawer does not balance, and seasonal staff accounts get
 removed.
 
+### Five outcomes and a broken tie (migration 121)
+
+`results.place` was NOT NULL. Every row on a card therefore claimed a placing,
+and a disqualification, an elimination, a declared zero and a no score all had
+to be entered as a blank — indistinguishable from a horse the scribe has not
+reached yet.
+
+```sql
+ALTER TABLE results ALTER COLUMN place DROP NOT NULL;
+ALTER TABLE results
+    ADD COLUMN outcome TEXT NOT NULL DEFAULT 'placed',
+    ADD COLUMN outcome_note TEXT,
+    ADD COLUMN tiebreak_rank INTEGER;
+```
+
+`outcome` is one of `placed`, `zero_score`, `no_score`, `disqualified`,
+`eliminated`, with `ck_results_placed_has_place` requiring a place only on
+`placed`. **Only `placed` and `zero_score` rank** — a declared zero is a number
+the sheet compares (SC-265.E.4-6 separates it from a No Score for exactly that
+reason) and belongs below everyone who scored, not off the card. A row that does
+not rank keeps whatever place the scribe gave it rather than having it cleared,
+because AM-111.D leaves a rider eliminated during an Over Fences ride-off in the
+placings and the app cannot see that a ride-off happened.
+
+`tiebreak_rank` is how the judge separated two equal scores, lowest first, kept
+apart from `raw_score` so recording the decision never edits the number the
+judge called. `rank_card` sorts on `(score, tiebreak_rank)`.
+
+**The nullable `place` is the migration's real cost.** Six read paths compared
+or sorted on it and every one raises the first time a judge throws a horse out;
+they all go through `backend/placings.py` now. The `UPDATE` backfills all
+existing rows to `placed`, so no published result or settled standing moved.
+
 ### Placings are per judge (migration 095)
 
 A ranch or breed show routinely runs a **panel**: four APHA judges and two WSCA

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { outcomeLabel, outcomeShort } from '@/lib/result-outcomes';
 
 /**
  * The posted placings for one class, one column per judge.
@@ -99,8 +100,17 @@ export interface PlacingRow {
   back_number: number | null;
   exhibitorName: string;
   horseName: string;
-  /** card key → that judge's placing for this entry. */
-  placings: Record<string, { place: number; is_tie: boolean }>;
+  /** card key → what that judge's card says about this entry. */
+  placings: Record<string, JudgeCell>;
+}
+
+/** One judge's answer for one entry. `place` is null on a card that did not
+ *  rank the entry — see lib/result-outcomes. */
+export interface JudgeCell {
+  place: number | null;
+  is_tie: boolean;
+  outcome?: string;
+  outcome_note?: string | null;
 }
 
 type SortKey = 'consensus' | 'back' | 'exhibitor' | 'horse' | { judge: string };
@@ -128,7 +138,12 @@ export default function PlacingsTable({
   const meanPlace = useMemo(() => {
     const out: Record<string, number> = {};
     for (const r of rows) {
-      const places = Object.values(r.placings).map((p) => p.place);
+      // Only cards that actually placed the entry count towards the mean. A judge
+      // who threw it out did not rank it last, and averaging in a missing card
+      // as anything at all would invent an opinion nobody gave.
+      const places = Object.values(r.placings)
+        .map((p) => p.place)
+        .filter((p): p is number => p != null);
       out[r.id] = places.length
         ? places.reduce((a, b) => a + b, 0) / places.length
         : Number.POSITIVE_INFINITY;
@@ -290,7 +305,7 @@ export default function PlacingsTable({
                         className="py-2 px-3 text-center"
                         style={{ borderLeft: '1px solid #e8ddd0' }}
                       >
-                        {result ? (
+                        {result && result.place != null ? (
                           <span className="inline-flex flex-col items-center">
                             <Ribbon place={result.place} />
                             <span className="text-xs font-semibold" style={{ color: '#8b4513' }}>
@@ -298,7 +313,24 @@ export default function PlacingsTable({
                               {result.is_tie && (
                                 <span className="font-normal" style={{ color: MUTED }}> (T)</span>
                               )}
+                              {outcomeShort(result.outcome) && (
+                                <span className="font-normal" style={{ color: MUTED }}>
+                                  {' '}
+                                  ({outcomeShort(result.outcome)})
+                                </span>
+                              )}
                             </span>
+                          </span>
+                        ) : result ? (
+                          // A card that did not place the entry is not a blank
+                          // cell — a blank reads as "this judge has not filed",
+                          // and this judge filed a decision.
+                          <span
+                            className="inline-block text-xs font-semibold px-2 py-1 rounded"
+                            style={{ backgroundColor: '#f3ede3', color: MUTED }}
+                            title={result.outcome_note || outcomeLabel(result.outcome)}
+                          >
+                            {outcomeShort(result.outcome) || '—'}
                           </span>
                         ) : (
                           <span style={{ color: '#c9bba6' }}>—</span>

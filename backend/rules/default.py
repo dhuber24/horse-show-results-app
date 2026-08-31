@@ -40,6 +40,19 @@ class DefaultRules:
         """
         return None
 
+    def ties_must_be_broken(self, cls) -> bool:
+        """Whether two equal scores may be posted as a shared place.
+
+        False by default: a shared place is a perfectly ordinary result at a show
+        that answers to nobody, and an open jackpot may well pay two thirds.
+
+        Associations that require the judge to break every tie override this.
+        Note what it does *not* mean — the app never breaks the tie itself. It
+        refuses to post one nobody has answered, and the answer is recorded in
+        `results.tiebreak_rank` so neither score is altered.
+        """
+        return False
+
     def calculate_points(self, result, cls):
         """Points awarded for a placing. Default: 1st=10, 2nd=9, ... down to 1."""
         place = getattr(result, "place", None)

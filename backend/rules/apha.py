@@ -187,6 +187,19 @@ class APHARules(DefaultRules):
         """
         return PUBLISHED_PLACES
 
+    def ties_must_be_broken(self, cls) -> bool:
+        """AM-115.B.2 and the pattern class procedures: ties are the judge's call.
+
+        Every scored class in the rule book says the same thing — equal scores are
+        broken at the judge's discretion — so a tie is not a result APHA will take.
+
+        Scored classes only. A `placement` class tie is one the scribe ticked
+        deliberately, recording a decision the judge already made on paper; a
+        `pattern` or `time` tie is one the app *derived* from two equal numbers,
+        and nobody has been asked about it.
+        """
+        return getattr(cls, "score_type", None) in ("pattern", "time")
+
     def validate_entry(self, entry, show, cls, context=None):
         if not self.entry_is_active(entry):
             return []

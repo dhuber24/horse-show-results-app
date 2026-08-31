@@ -7,6 +7,7 @@ import PublishBar from './PublishBar';
 import JudgeTabs from './JudgeTabs';
 import { useAutosave } from './useAutosave';
 import { buildCards, groupByCard, type ShowJudge } from './judges';
+import { RESULT_OUTCOMES, isRanked, type ResultOutcome } from '@/lib/result-outcomes';
 
 type ScoreType = 'pattern' | 'time';
 
@@ -22,9 +23,11 @@ interface Result {
   id: string;
   entry_id: string;
   judge_id: string | null;
-  place: number;
+  place: number | null;
   raw_score: number | null;
   is_tie: boolean;
+  outcome?: string;
+  tiebreak_rank?: number | null;
 }
 
 interface Class {
@@ -59,35 +62,79 @@ const LABELS = {
   },
 } as const;
 
-/** Live-derive placings from entered raw scores. Returns a map of entry_id → place.
- *  Equal scores share a place; entries without a score get no place. */
+/**
+ * One row of the sheet: what the judge called, and what it means.
+ *
+ * `outcome` was a fifth state the app could not hold before migration 121 — a
+ * disqualification, an elimination, a declared zero or a no score all had to be
+ * typed as a blank, which is indistinguishable from a horse the scribe has not
+ * reached yet. `tiebreak` is how the judge separated two equal scores, kept out
+ * of `score` so recording the decision never edits the number they called.
+ */
+interface Cell {
+  score: string;
+  outcome: ResultOutcome;
+  tiebreak: string;
+}
+
+const EMPTY_CELL: Cell = { score: '', outcome: 'placed', tiebreak: '' };
+
+/** Whether the scribe has said anything about this entry yet. */
+function isAnswered(cell: Cell | undefined): boolean {
+  if (!cell) return false;
+  if (cell.outcome !== 'placed') return true;
+  return !Number.isNaN(parseFloat(cell.score));
+}
+
+/** The number this row ranks on. A declared zero is a zero whatever is typed. */
+function rankValue(cell: Cell): number {
+  if (cell.outcome === 'zero_score') return 0;
+  return parseFloat(cell.score);
+}
+
+/**
+ * Live-derive placings, mirroring `rank_card` in routers/results.py.
+ *
+ * Only rows in the running are ranked — a disqualified horse is not last, it is
+ * off the card. Equal scores share a place unless the judge's tiebreak order
+ * separates them, which is the whole point of keeping that number apart from
+ * the score.
+ */
 function derivePlaces(
   scoreType: ScoreType,
-  scores: Record<string, string>,
+  cells: Record<string, Cell>,
 ): { places: Record<string, number>; tied: Set<number> } {
-  const filled = Object.entries(scores)
-    .map(([id, raw]) => ({ id, value: parseFloat(raw) }))
+  const filled = Object.entries(cells)
+    .filter(([, cell]) => isRanked(cell.outcome))
+    .map(([id, cell]) => ({
+      id,
+      value: rankValue(cell),
+      tiebreak: cell.tiebreak === '' ? null : parseInt(cell.tiebreak, 10),
+    }))
     .filter((e) => !Number.isNaN(e.value));
 
-  filled.sort((a, b) =>
-    scoreType === 'pattern' ? b.value - a.value : a.value - b.value,
-  );
+  filled.sort((a, b) => {
+    const primary = scoreType === 'pattern' ? b.value - a.value : a.value - b.value;
+    if (primary !== 0) return primary;
+    // A row the judge ranked comes before one they did not speak to.
+    return (a.tiebreak ?? Infinity) - (b.tiebreak ?? Infinity);
+  });
 
   const places: Record<string, number> = {};
   const tally: Record<number, number> = {};
-  let lastValue: number | null = null;
+  let lastKey: string | null = null;
   let lastPlace = 0;
   filled.forEach((entry, idx) => {
-    if (lastValue !== null && entry.value === lastValue) {
+    const key = `${entry.value}|${entry.tiebreak ?? ''}`;
+    if (lastKey !== null && key === lastKey) {
       places[entry.id] = lastPlace;
     } else {
       places[entry.id] = idx + 1;
       lastPlace = idx + 1;
-      lastValue = entry.value;
+      lastKey = key;
     }
     tally[places[entry.id]] = (tally[places[entry.id]] ?? 0) + 1;
   });
-
   const tied = new Set(
     Object.entries(tally)
       .filter(([, count]) => count > 1)
@@ -128,7 +175,7 @@ export default function ScoredScribeForm({
 
   // One sheet of scores per judge. Each judge marks the same run independently,
   // so these are separate numbers rather than one number to agree on.
-  const [byCard, setByCard] = useState<Record<string, Record<string, string>>>(() => {
+  const [byCard, setByCard] = useState<Record<string, Record<string, Cell>>>(() => {
     const grouped = groupByCard(results);
     return Object.fromEntries(
       cards.map((card) => {
@@ -138,10 +185,18 @@ export default function ScoredScribeForm({
         return [
           card.key,
           Object.fromEntries(
-            entries.map((e) => [
-              e.id,
-              existing[e.id]?.raw_score != null ? String(existing[e.id].raw_score) : '',
-            ]),
+            entries.map((e) => {
+              const filed = existing[e.id];
+              return [
+                e.id,
+                {
+                  score: filed?.raw_score != null ? String(filed.raw_score) : '',
+                  outcome: (filed?.outcome ?? 'placed') as ResultOutcome,
+                  tiebreak:
+                    filed?.tiebreak_rank != null ? String(filed.tiebreak_rank) : '',
+                },
+              ];
+            }),
           ),
         ];
       }),
@@ -155,7 +210,7 @@ export default function ScoredScribeForm({
   const activeCard = cards.find((c) => c.key === activeKey) ?? cards[0];
   // Memoised: see ScribeForm — a fresh `{}` each render would invalidate every
   // downstream memo on every keystroke.
-  const scores = useMemo(() => byCard[activeKey] ?? {}, [byCard, activeKey]);
+  const cells = useMemo(() => byCard[activeKey] ?? {}, [byCard, activeKey]);
 
   const classIndex = classes.findIndex((c) => c.id === classId);
   const prevClass = classIndex > 0 ? classes[classIndex - 1] : null;
@@ -163,43 +218,52 @@ export default function ScoredScribeForm({
     classIndex < classes.length - 1 ? classes[classIndex + 1] : null;
 
   const { places, tied } = useMemo(
-    () => derivePlaces(scoreType, scores),
-    [scoreType, scores],
+    () => derivePlaces(scoreType, cells),
+    [scoreType, cells],
   );
 
   const placedCount = useMemo(
-    () => activeEntries.filter((e) => places[e.id] !== undefined).length,
-    [activeEntries, places],
+    () => activeEntries.filter((e) => isAnswered(cells[e.id])).length,
+    [activeEntries, cells],
   );
 
-  /** Scores filled in on each card, for the tab strip. */
+  /** Rows answered on each card, for the tab strip. A disqualification is an
+   *  answer — the card is finished when every row has one, not when every row
+   *  carries a number. */
   const filledByCard = useMemo(
     () =>
       Object.fromEntries(
         cards.map((card) => [
           card.key,
-          activeEntries.filter(
-            (e) => !Number.isNaN(parseFloat(byCard[card.key]?.[e.id] ?? '')),
-          ).length,
+          activeEntries.filter((e) => isAnswered(byCard[card.key]?.[e.id])).length,
         ]),
       ),
     [cards, byCard, activeEntries],
   );
 
   const buildItems = useCallback(
-    (card: Record<string, string>) => {
+    (card: Record<string, Cell>) => {
       const derived = derivePlaces(scoreType, card);
       return activeEntries
         .map((entry) => {
-          const raw = parseFloat(card[entry.id]);
-          if (Number.isNaN(raw)) return null;
+          const cell = card[entry.id] ?? EMPTY_CELL;
+          const raw = parseFloat(cell.score);
+          const hasScore = !Number.isNaN(raw);
+          // A placed row with nothing typed is a horse the scribe has not
+          // reached yet, not a result. Every other outcome is an answer in its
+          // own right and files with or without a number.
+          if (cell.outcome === 'placed' && !hasScore) return null;
+          const ranked = isRanked(cell.outcome);
+          const place = derived.places[entry.id];
           return {
             entry_id: entry.id,
-            // place is recomputed by the backend for pattern/time classes,
-            // but the API requires a positive integer — send a placeholder.
-            place: derived.places[entry.id] ?? 1,
-            raw_score: raw,
-            is_tie: derived.tied.has(derived.places[entry.id]),
+            // place is recomputed by the backend for pattern/time classes; a
+            // ranked row still needs a positive integer to insert with.
+            place: ranked ? place ?? 1 : null,
+            raw_score: hasScore ? raw : cell.outcome === 'zero_score' ? 0 : null,
+            is_tie: ranked && place !== undefined ? derived.tied.has(place) : false,
+            outcome: cell.outcome,
+            tiebreak_rank: cell.tiebreak === '' ? null : parseInt(cell.tiebreak, 10),
           };
         })
         .filter(Boolean);
@@ -210,8 +274,8 @@ export default function ScoredScribeForm({
   // Carries the judge alongside the scores; `save` reads it back off the
   // snapshot so the sheet that was debounced is the sheet that gets committed.
   const payload = useMemo(
-    () => JSON.stringify({ judgeId: activeCard.judgeId, results: buildItems(scores) }),
-    [activeCard.judgeId, buildItems, scores],
+    () => JSON.stringify({ judgeId: activeCard.judgeId, results: buildItems(cells) }),
+    [activeCard.judgeId, buildItems, cells],
   );
 
   const save = useCallback(async (snapshot: string) => {
@@ -232,12 +296,17 @@ export default function ScoredScribeForm({
     baselineKey: activeKey,
   });
 
-  const setScore = (entryId: string, value: string) => {
+  const setCell = (entryId: string, patch: Partial<Cell>) => {
     setByCard((prev) => ({
       ...prev,
-      [activeKey]: { ...prev[activeKey], [entryId]: value },
+      [activeKey]: {
+        ...prev[activeKey],
+        [entryId]: { ...(prev[activeKey]?.[entryId] ?? EMPTY_CELL), ...patch },
+      },
     }));
   };
+
+  const setScore = (entryId: string, value: string) => setCell(entryId, { score: value });
 
   /** Commit the open sheet before showing another — see ScribeForm.selectCard. */
   const selectCard = async (key: string) => {
@@ -250,7 +319,7 @@ export default function ScoredScribeForm({
   const handleClearAll = () => {
     setByCard((prev) => ({
       ...prev,
-      [activeKey]: Object.fromEntries(entries.map((e) => [e.id, ''])),
+      [activeKey]: Object.fromEntries(entries.map((e) => [e.id, { ...EMPTY_CELL }])),
     }));
     setSelectedIndex(null);
   };
@@ -324,7 +393,7 @@ export default function ScoredScribeForm({
 
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm" style={{ color: '#8b7355' }}>
-          {placedCount} of {activeEntries.length} scored
+          {placedCount} of {activeEntries.length} recorded
           {dqEntries.length > 0 && ` · ${dqEntries.length} DQ`}
         </span>
         {confirmClear ? (
@@ -381,6 +450,9 @@ export default function ScoredScribeForm({
             <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
               {labels.column}
             </th>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
+              Result
+            </th>
             <th className="py-2 text-sm font-semibold" style={{ color: '#2c1810' }}>
               Place
             </th>
@@ -388,9 +460,11 @@ export default function ScoredScribeForm({
         </thead>
         <tbody>
           {activeEntries.map((entry, i) => {
+            const cell = cells[entry.id] ?? EMPTY_CELL;
             const place = places[entry.id];
             const isTied = place !== undefined && tied.has(place);
             const isSelected = selectedIndex === i;
+            const ranked = isRanked(cell.outcome);
             return (
               <tr
                 key={entry.id}
@@ -422,16 +496,51 @@ export default function ScoredScribeForm({
                     step={scoreType === 'time' ? '0.001' : '0.01'}
                     // Suppress the OS keyboard — the docked pad drives entry.
                     inputMode="none"
-                    value={scores[entry.id] ?? ''}
+                    value={cell.score}
                     onFocus={() => setSelectedIndex(i)}
                     onChange={(e) => setScore(entry.id, e.target.value)}
-                    className="w-28 min-h-[44px] border rounded-lg px-2 text-center text-lg"
+                    disabled={cell.outcome !== 'placed'}
+                    title={
+                      cell.outcome !== 'placed'
+                        ? 'This entry was not scored — clear the result to enter a number.'
+                        : undefined
+                    }
+                    className="w-28 min-h-[44px] border rounded-lg px-2 text-center text-lg disabled:opacity-40"
                     style={{
                       borderColor: isSelected ? '#8b4513' : '#d4b896',
                       backgroundColor: '#fffdf9',
                     }}
                     placeholder={labels.placeholder}
                   />
+                </td>
+                <td className="py-4 pr-4">
+                  {/* What happened, where a blank score cannot say. Before
+                      migration 121 a disqualification and a horse the scribe
+                      had not reached yet looked identical on this sheet. */}
+                  <select
+                    value={cell.outcome}
+                    onChange={(e) => {
+                      const outcome = e.target.value as ResultOutcome;
+                      setCell(entry.id, {
+                        outcome,
+                        // A tiebreak only means something on a ranked row.
+                        ...(isRanked(outcome) ? {} : { tiebreak: '' }),
+                      });
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="min-h-[44px] border rounded-lg px-2 text-sm"
+                    style={{
+                      borderColor: cell.outcome === 'placed' ? '#d4b896' : '#fca5a5',
+                      backgroundColor: cell.outcome === 'placed' ? '#fffdf9' : '#fef2f2',
+                      color: '#2c1810',
+                    }}
+                  >
+                    {RESULT_OUTCOMES.map((o) => (
+                      <option key={o.value} value={o.value} title={o.help}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="py-4">
                   <div className="flex items-center gap-2">
@@ -455,6 +564,22 @@ export default function ScoredScribeForm({
                         TIE
                       </span>
                     )}
+                    {/* The judge's answer to a tie, kept apart from the score so
+                        recording it never edits the number they called. Shown
+                        once there is a tie to break, and while one is on file. */}
+                    {ranked && (isTied || cell.tiebreak !== '') && (
+                      <input
+                        type="number"
+                        min={1}
+                        value={cell.tiebreak}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setCell(entry.id, { tiebreak: e.target.value })}
+                        className="w-16 min-h-[44px] border rounded-lg px-2 text-center text-sm"
+                        style={{ borderColor: '#fcd34d', backgroundColor: '#fffdf9' }}
+                        placeholder="1st?"
+                        title="Order the judge called between the tied entries — 1 is the higher of them. Neither score changes."
+                      />
+                    )}
                   </div>
                 </td>
               </tr>
@@ -476,6 +601,9 @@ export default function ScoredScribeForm({
               </td>
               <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: '#bbb' }}>
                 {entry.horseName}
+              </td>
+              <td className="py-4 pr-4" style={{ color: '#bbb' }}>
+                —
               </td>
               <td className="py-4 pr-4" style={{ color: '#bbb' }}>
                 —
@@ -504,7 +632,7 @@ export default function ScoredScribeForm({
             ? `${selectedEntry.back_number ?? '—'} · ${selectedEntry.exhibitorName}`
             : null
         }
-        value={selectedEntry ? scores[selectedEntry.id] ?? '' : ''}
+        value={selectedEntry ? cells[selectedEntry.id]?.score ?? '' : ''}
         onChange={(next) => selectedEntry && setScore(selectedEntry.id, next)}
         onNext={() =>
           setSelectedIndex((i) =>

@@ -2014,49 +2014,69 @@ class GateClassStatusBody(BaseModel):
 
 # ── Results ────────────────────────────────────────────────────────────────────
 
+ResultOutcome = Literal[
+    "placed",
+    "disqualified",
+    "eliminated",
+    "zero_score",
+    "no_score",
+]
+
+
 class ResultCreate(BaseModel):
     entry_id: UUID
-    place: int
+    # Optional since migration 121 — a disqualified or no-scored entry has no
+    # placing. `outcome` is what says which of those a missing place means.
+    place: Optional[int] = None
     raw_score: Optional[float] = None
     is_tie: bool = False
+    outcome: ResultOutcome = "placed"
+    outcome_note: Optional[str] = Field(default=None, max_length=1000)
+    tiebreak_rank: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
     # Which judge's card this came off — a `show_judges.id`, validated against
     # this show. Omitted means unattributed, which is what a show with no judges
     # assigned produces (migration 095).
     judge_id: Optional[UUID] = None
 
-    @field_validator("place")
+    @field_validator("place", "tiebreak_rank")
     @classmethod
-    def place_positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("place must be 1 or greater")
+    def positive(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 1:
+            raise ValueError("must be 1 or greater")
         return v
 
 class ResultUpdate(BaseModel):
     place: Optional[int] = None
     raw_score: Optional[float] = None
     is_tie: Optional[bool] = None
+    outcome: Optional[ResultOutcome] = None
+    outcome_note: Optional[str] = Field(default=None, max_length=1000)
+    tiebreak_rank: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
-    @field_validator("place")
+    @field_validator("place", "tiebreak_rank")
     @classmethod
-    def place_positive(cls, v: Optional[int]) -> Optional[int]:
+    def positive(cls, v: Optional[int]) -> Optional[int]:
         if v is not None and v < 1:
-            raise ValueError("place must be 1 or greater")
+            raise ValueError("must be 1 or greater")
         return v
 
 class ResultBulkItem(BaseModel):
     entry_id: UUID
-    place: int
+    place: Optional[int] = None
     raw_score: Optional[float] = None
     is_tie: bool = False
+    outcome: ResultOutcome = "placed"
+    outcome_note: Optional[str] = Field(default=None, max_length=1000)
+    tiebreak_rank: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
-    @field_validator("place")
+    @field_validator("place", "tiebreak_rank")
     @classmethod
-    def place_positive(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("place must be 1 or greater")
+    def positive(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 1:
+            raise ValueError("must be 1 or greater")
         return v
 
 class ResultBulkSave(BaseModel):
@@ -2075,9 +2095,12 @@ class ResultOut(BaseModel):
     class_id: UUID
     entry_id: UUID
     judge_id: Optional[UUID] = None
-    place: int
+    place: Optional[int] = None
     raw_score: Optional[float] = None
     is_tie: bool
+    outcome: ResultOutcome = "placed"
+    outcome_note: Optional[str] = None
+    tiebreak_rank: Optional[int] = None
     notes: Optional[str]
     created_at: datetime
 
@@ -2096,6 +2119,10 @@ class ClassResultsPublishIn(BaseModel):
     shallow. So it names the gap and lets a human say yes.
     """
     acknowledge_incomplete: bool = False
+    # Separate from the flag above because it is a different question. A
+    # shortfall asks "is the card finished?"; an unbroken tie asks "which of
+    # these two won?", and only the judge can answer it.
+    acknowledge_ties: bool = False
 
 
 class ClassResultsPublishOut(BaseModel):

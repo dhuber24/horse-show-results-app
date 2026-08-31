@@ -35,6 +35,7 @@ from models import (
     SidePotEntry,
     SidePotPayout,
 )
+from placings import is_placed, place_key
 from schemas import (
     SidePotCreate,
     SidePotEntryCreate,
@@ -501,10 +502,18 @@ def _entry_aggregate(
     # than a best-of. Adopting that would silently change payouts on existing
     # pots, so it needs a deliberate call. Best-of matches today's behaviour and
     # is identical to it on the single-judge shows side pots have run on.
+    #
+    # A card that did not place the entry is skipped outright (migration 121):
+    # pot money is settled from placings and scores, and a disqualified or
+    # no-scored run should contribute neither. A class where every card threw the
+    # entry out therefore reads as missing, which is what `all_classes`
+    # eligibility already knows how to handle.
     by_class: dict[UUID, Result] = {}
     for r in entry_results:
+        if not is_placed(r):
+            continue
         current = by_class.get(r.class_id)
-        if current is None or r.place < current.place:
+        if current is None or place_key(r) < place_key(current):
             by_class[r.class_id] = r
     missing = bundled_class_ids - set(by_class.keys())
     is_eligible = (eligibility_rule != "all_classes") or not missing
@@ -608,7 +617,7 @@ async def _compute_standings(
     breakdowns: dict[UUID, list[int]] = {}
     for s in eligible:
         results = by_show_entry.get(s.show_entry_id, [])
-        breakdowns[s.show_entry_id] = [r.place for r in results]
+        breakdowns[s.show_entry_id] = [r.place for r in results if is_placed(r)]
 
     if pot.scoring_method == "sum_placings":
         primary = lambda s: s.aggregate_value  # ascending: lowest sum wins

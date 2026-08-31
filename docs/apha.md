@@ -218,6 +218,65 @@ Two deliberate limits:
   somebody would ride this one. `pattern_notes` holds the judge's reference to
   it ("Green Western Riding Pattern #1"), which is what the office needs.
 
+### Five outcomes, not one boolean
+
+`results.place` was NOT NULL, so every row on a card had to claim a placing and
+there was nowhere to put the states the rule book actually produces. Migration
+121 makes it nullable and adds `results.outcome`:
+
+| Outcome | Means | Ranked? |
+| --- | --- | --- |
+| `placed` | Ranked from the score or the placing typed. | yes |
+| `zero_score` | The judge called a zero. | yes — below everyone who scored |
+| `no_score` | No score at all. Not the same as a zero. | no |
+| `disqualified` | Flat equitation words it *"should not be placed"*. | no |
+| `eliminated` | Off course, fall, over the time allowed. | no |
+
+Three decisions worth keeping in view:
+
+- **A declared zero is a number.** SC-265.E.4-6 separates a 0 from a No Score
+  precisely because the sheet compares the zero, so it ranks last rather than
+  dropping off the card. `placings.RANKED_OUTCOMES` is the one place that split
+  lives; `frontend/lib/result-outcomes.ts` mirrors it.
+- **The outcome decides whether the app ranks the row; a human decides whether
+  it carries a place.** AM-111.D keeps a rider eliminated *during a ride-off* in
+  the placings, last among that group — and the app cannot know a ride-off
+  happened, so `rank_card` leaves a non-ranked row's place exactly as the scribe
+  filed it rather than clearing it.
+- **It is per card, not per entry.** A card is what a judge hands in, and
+  `place` — the thing this qualifies — has always lived on `results`. The
+  coarser `entries.is_disqualified` stays for an entry that is out of the class
+  before anybody judges it.
+
+Everything that read a placing goes through `backend/placings.py` now, because a
+nullable `place` breaks `min(results, key=lambda r: r.place)` the first time a
+judge throws a horse out. Two rules are settled there once: an unplaced card is
+not a candidate for "best of several judges" (a judge who disqualified an entry
+did not rank it last), and a non-ranked outcome earns nothing in side pot
+standings or futurity Hi-Point. Every pre-121 row backfilled to `placed`, so no
+existing standing moved.
+
+### A tie is a question for the judge
+
+AM-115.B.2 and every pattern class procedure say the same thing: equal scores
+are separated at the judge's discretion. The app used to flag two 71.5s
+`is_tie` and post them as a shared place, and the only way to record the judge's
+answer was to edit one of the scores they called.
+
+`results.tiebreak_rank` (migration 121) holds the order the judge gave, lowest
+first. `rank_card` sorts on `(score, tiebreak_rank)`, so two ranked 1 and 2 take
+two places with **neither score touched**; equal scores with no rank on either
+side stay tied. `rules.ties_must_be_broken(cls)` is False by default — a shared
+place is an ordinary result at a show that answers to nobody — and True for APHA
+on `pattern` and `time` classes only. A `placement` tie is one the scribe ticked
+deliberately, recording a decision the judge already made on paper; a scored tie
+is one the app *derived* from two numbers and nobody has been asked about.
+
+`POST .../results/publish` refuses an unbroken tie with `TIES_UNRESOLVED`,
+naming the card and the entries. `acknowledge_ties` posts a shared place anyway,
+under its own flag rather than sharing `acknowledge_incomplete`: a shortfall
+asks whether the card is finished, a tie asks which of two horses won.
+
 ### Membership standing
 
 Membership numbers live in `exhibitor_registrations`, which since migration 117

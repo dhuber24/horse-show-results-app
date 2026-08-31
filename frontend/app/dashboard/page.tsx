@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { outcomeLabel } from '@/lib/result-outcomes';
 
 type EntryRow = {
   entry_id: string;
@@ -22,6 +23,9 @@ type EntryRow = {
   horse_name: string | null;
   place: number | null;
   is_tie: boolean;
+  /** Set only where no card placed the entry — a disqualification, an
+   *  elimination or a no score. Otherwise the placing is the answer. */
+  outcome: string | null;
 };
 
 type ShowGroup = {
@@ -311,6 +315,16 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
               </div>
               <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>place</div>
             </div>
+          ) : outcomeLabel(entry.outcome) ? (
+            // Not "Pending". The judge answered — it just was not a placing, and
+            // telling an exhibitor their disqualified go is still being judged
+            // is the one thing this box must not do.
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded"
+              style={{ backgroundColor: '#fef2f2', color: '#991b1b' }}
+            >
+              {outcomeLabel(entry.outcome)}
+            </span>
           ) : (
             <span
               className="text-xs px-2 py-0.5 rounded"

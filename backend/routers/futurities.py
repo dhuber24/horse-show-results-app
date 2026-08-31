@@ -58,6 +58,7 @@ from models import (
     ShowEntry,
     ShowWaiver,
 )
+from placings import place_key, placed_only
 from schemas import (
     FuturityCreate,
     FuturityDivisionIn,
@@ -1043,14 +1044,19 @@ def _best(results: list[Result], scoring_method: str) -> Optional[Result]:
     across judges rather than a best-of. Changing it is a rules decision, not a
     display fix, so both places behave the same way until someone makes it.
     """
+    # A card that did not place the entry contributes nothing (migration 121).
+    # Hi-Point is settled from placings and scores, and a run that was thrown out
+    # should earn neither — a 65 on a disqualified go is not a 65. Every row
+    # written before 121 backfilled to `placed`, so no existing standing moves.
+    results = placed_only(results)
     if not results:
         return None
     if scoring_method == "sum_scores":
         scored = [r for r in results if r.raw_score is not None]
         if not scored:
             return None
-        return max(scored, key=lambda r: (float(r.raw_score), -r.place))
-    return min(results, key=lambda r: r.place)
+        return max(scored, key=lambda r: (float(r.raw_score), -place_key(r)))
+    return min(results, key=place_key)
 
 
 def _better(a: Result, b: Result, scoring_method: str) -> Result:

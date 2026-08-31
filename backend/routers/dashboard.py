@@ -8,6 +8,7 @@ from typing import Optional
 from database import get_db
 from dependencies import require_authenticated
 from models import Exhibitor, Entry, Class, Show, Horse, Result
+from placings import best_placing, reported_outcome
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -48,7 +49,7 @@ async def get_exhibitor_dashboard(
         # entry may hold one card per judge. The dashboard shows a single number
         # per class, so report the best of them — identical to the old value on
         # the single-judge shows this screen was built for.
-        result_row = min(entry.results, key=lambda r: r.place) if entry.results else None
+        result_row = best_placing(entry.results)
 
         output.append({
             "entry_id": str(entry.id),
@@ -69,6 +70,10 @@ async def get_exhibitor_dashboard(
             "horse_name": horse.name if horse else None,
             "place": result_row.place if result_row else None,
             "is_tie": result_row.is_tie if result_row else False,
+            # What to say when no card placed the entry (migration 121). A blank
+            # where a placing should be reads as "not judged yet"; "No score" is
+            # what actually happened.
+            "outcome": reported_outcome(entry.results),
         })
 
     return {

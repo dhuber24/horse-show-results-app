@@ -2,6 +2,24 @@
 
 ## August 2026
 
+### A Blank Where A Placing Should Be Is Not An Answer
+
+The first half of Phase 3. `results.place` was NOT NULL, so every row on a judge's card had to claim a placing — and a disqualification, an elimination, a declared zero and a no score all had to be typed as a blank, which is the same thing the sheet shows for a horse the scribe has not reached yet.
+
+**Five outcomes, because they report differently.** Migration 121 makes `place` nullable and adds `results.outcome`. Cow work separates a 0 from a No Score (SC-265.E.4-6); flat equitation words its disqualification as *"should not be placed"*; Over Fences has elimination. Three decisions inside that:
+
+- **A declared zero ranks.** It is a number the sheet compares, which is exactly the distinction APHA draws against a No Score, so it sorts below everyone who scored rather than dropping off the card. `placings.RANKED_OUTCOMES` is the one place that split lives and the frontend mirrors it.
+- **The outcome decides whether the app ranks a row; a human decides whether it carries a place.** AM-111.D keeps a rider eliminated *during a ride-off* in the placings, last among that group. The app has no way of knowing a ride-off happened, so `rank_card` leaves a non-ranked row's place exactly as the scribe filed it instead of clearing it.
+- **It lives on the card, not the entry.** A card is what a judge hands in, and `place` — the thing this qualifies — was already there. `entries.is_disqualified` stays for the coarser case: an entry out of the class before anybody judges it.
+
+**The nullable `place` is the load-bearing part.** Six read paths did `min(results, key=lambda r: r.place)` or the equivalent, and every one of them raises the first time a judge throws a horse out. `backend/placings.py` now owns that, and settles two rules once so the screens cannot disagree: an unplaced card is not a candidate for "best of the panel" — a judge who disqualified an entry did not rank it last — and a non-ranked outcome earns nothing in side pot standings or futurity Hi-Point. Every pre-121 row backfilled to `placed`, so no existing standing moved.
+
+**A tie is a question for the judge, and the app was answering it.** Every pattern class in the rule book says equal scores are separated at the judge's discretion (AM-115.B.2). The app flagged two 71.5s `is_tie`, posted them as a shared place, and left the scribe with exactly one way to record the judge's answer: edit one of the scores they called.
+
+`results.tiebreak_rank` holds the order instead, and `rank_card` sorts on `(score, tiebreak_rank)` — so two ranked 1 and 2 take two places with **neither number touched**. `rules.ties_must_be_broken(cls)` is False by default (a shared place is an ordinary result at a show that answers to nobody) and True for APHA on scored classes only: a `placement` tie is one the scribe ticked deliberately, recording what the judge already decided on paper, where a scored tie is one the app derived from two equal numbers and nobody has been asked about.
+
+The publish gate now refuses an unbroken tie with `TIES_UNRESOLVED` under its own acknowledgement flag rather than sharing `acknowledge_incomplete`. Two flags because they are two questions — a shortfall asks whether the card is finished, a tie asks which of two horses won — and `PublishBar` accumulates the answers, since the backend checks ties first and meeting a shortfall afterwards must not silently re-ask the tie.
+
 ### How Many Horses You Brought Is Not A Question About One Entry
 
 The rest of Phase 2's show-running work. Four rules, and the first thing they needed was for `validate_entry` to be able to see something other than the entry in front of it.

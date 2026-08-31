@@ -41,6 +41,7 @@ from models import (
     ShowWaiver,
     ShowWaiverSignature,
 )
+from placings import is_placed, place_key
 from routers.futurities import load_billable_futurities
 
 router = APIRouter(prefix="/my-shows", tags=["My Shows"])
@@ -103,10 +104,14 @@ async def list_my_shows(
         )
         # One row per judge who placed the class (migration 095). This view
         # shows a single placing per entry, so keep the best of them — on the
-        # single-judge shows it was written for, that is the only one.
+        # single-judge shows it was written for, that is the only one. A card
+        # that did not place the entry is not a candidate for "best": a judge
+        # who disqualified it did not rank it last.
         for row in results_result.scalars().all():
+            if not is_placed(row):
+                continue
             best = results_by_entry.get(row.entry_id)
-            if best is None or row.place < best.place:
+            if best is None or place_key(row) < place_key(best):
                 results_by_entry[row.entry_id] = row
 
     shows_by_id: dict[UUID, Show] = {}
