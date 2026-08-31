@@ -56,6 +56,13 @@ AUTOMATIC_FEE_UNITS = (
     "per_horse",
     "per_judge_per_horse",
     "per_judge_per_exhibitor",
+    # APHA SC-125.B, and every breed body's version of it: a fee "per entry per
+    # show (Judge)" that show management collects and forwards. Neither of the
+    # units above bills it -- an exhibitor with one horse in six classes owes six
+    # of these, and `per_judge_per_horse` charges them one. This does not
+    # contradict the paragraph above: `per_entry` is the class-fee vocabulary and
+    # stays out, while this is a levy on top of the class fee (migration 125).
+    "per_judge_per_entry",
 )
 
 
@@ -144,15 +151,22 @@ def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool
     return show.office_charge_cents
 
 
-def charge_multiplier(unit: str, horse_count: int, judge_count: int) -> int:
+def charge_multiplier(
+    unit: str, horse_count: int, judge_count: int, entry_count: int = 0
+) -> int:
     """How many of an automatic fee one exhibitor owes.
 
     The unit names both halves of the multiplication on purpose. "Per judge"
-    alone does not say what it multiplies, and the two readings differ by
-    however many horses somebody brought — three judges at $5 is $15 or $30 —
-    which is the same trap `per_night` / `per_day` exist to close. A unit this
-    does not recognise returns 0 rather than guessing: it is a price-list row,
-    not a charge.
+    alone does not say what it multiplies, and the readings differ by however
+    many horses somebody brought or classes they entered — three judges at $5 is
+    $15, $30 or $90 — which is the same trap `per_night` / `per_day` exist to
+    close. A unit this does not recognise returns 0 rather than guessing: it is a
+    price-list row, not a charge.
+
+    `entry_count` defaults to 0 so a caller that predates `per_judge_per_entry`
+    bills that unit at nothing rather than at a wrong multiple. Under-billing a
+    fee nobody has created yet is recoverable; over-billing every exhibitor at a
+    show is not.
     """
     if unit == "per_exhibitor":
         return 1
@@ -162,6 +176,8 @@ def charge_multiplier(unit: str, horse_count: int, judge_count: int) -> int:
         return judge_count
     if unit == "per_judge_per_horse":
         return judge_count * horse_count
+    if unit == "per_judge_per_entry":
+        return judge_count * entry_count
     return 0
 
 
@@ -170,6 +186,7 @@ def charge_lines(
     horse_count: int,
     judge_count: int,
     has_entries: bool,
+    entry_count: int = 0,
 ) -> tuple[list[dict], int]:
     """Itemize the show's own automatic charges for one exhibitor.
 
@@ -194,7 +211,7 @@ def charge_lines(
     for fee in fees:
         if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
             continue
-        quantity = charge_multiplier(fee.unit, horse_count, judge_count)
+        quantity = charge_multiplier(fee.unit, horse_count, judge_count, entry_count)
         if quantity <= 0:
             continue
         line_total = fee.amount_cents * quantity
@@ -210,6 +227,7 @@ def charge_lines(
                 # against a paper bill in a way "$5.00 x 6" is not.
                 "horse_count": horse_count,
                 "judge_count": judge_count,
+                "entry_count": entry_count,
                 "quantity": quantity,
                 "line_total_cents": line_total,
             }
@@ -421,7 +439,11 @@ def build_bill(
     # loud; defaulting to "this show has no fees" would silently under-bill an
     # entire show, which is not.
     charge_line_list, charge_total = charge_lines(
-        show.fees or [], len(horse_ids), len(show.judges or []), bool(entry_list)
+        show.fees or [],
+        len(horse_ids),
+        len(show.judges or []),
+        bool(entry_list),
+        entry_count=len(entry_list),
     )
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 

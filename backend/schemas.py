@@ -723,9 +723,9 @@ class ClassOut(BaseModel):
 #               `show_entry_reservations` and the only family that may carry an
 #               early rate.
 #   automatic — per_exhibitor / per_horse / per_judge_per_horse /
-#               per_judge_per_exhibitor. Charged to every exhibitor with
-#               entries, derived from what they entered and the size of the
-#               judge panel.
+#               per_judge_per_exhibitor / per_judge_per_entry. Charged to every
+#               exhibitor with entries, derived from their entries, their
+#               distinct horses and the size of the judge panel.
 #   neither   — flat / per_entry / per_class_per_horse / percent_of_entry.
 #               Published price-list text; they bill nobody, because either the
 #               occurrence is not derivable (`flat`) or `classes.entry_fee_cents`
@@ -741,6 +741,9 @@ FeeUnit = Literal[
     'per_horse',
     'per_judge_per_horse',
     'per_judge_per_exhibitor',
+    # APHA SC-125.B's assessment "per entry per show (Judge)" (migration 125).
+    # Distinct from `per_entry`, which is class-fee vocabulary and bills nobody.
+    'per_judge_per_entry',
     'per_class_per_horse',
     'per_night',
     'per_day',
@@ -2603,6 +2606,23 @@ class APHAShowMinimumsOut(BaseModel):
     exempt_reason: Optional[str] = None
 
 
+class APHAResultsWindowOut(BaseModel):
+    """APHA SC-125.A -- how long the office has to file the show's results.
+
+    None until the show's last day: there is nothing to file before then. `band`
+    is `open`, `late` (past ten calendar days, a late fee is assessed) or
+    `delinquent` (past thirty, and the show is listed in the Paint Horse
+    Journal). `days_remaining` goes negative once the deadline passes.
+
+    The app cannot see a postmark, so none of this says the results were not
+    sent -- only that the date has gone by.
+    """
+    due: date
+    delinquent_after: date
+    days_remaining: int
+    band: Literal["open", "late", "delinquent"]
+
+
 class APHAValidationOut(AssociationValidationOut):
     """The APHA readiness read.
 
@@ -2610,6 +2630,12 @@ class APHAValidationOut(AssociationValidationOut):
     APHA assigns one on approval, so the ladder is history from that moment.
     """
     application_window: Optional[APHAApplicationWindowOut] = None
+    # SC-125.A. None until the show's last day.
+    results_window: Optional[APHAResultsWindowOut] = None
+    # SC-125.A and SC-125.D: what a submission consists of and what has to be
+    # kept. Text, because the format is delegated to the APHA Performance
+    # Department and two of the documents are paper the app never holds.
+    results_requirements: list[str] = []
     minimums: Optional[APHAShowMinimumsOut] = None
     # SC-100 / SC-105 requirements for the chosen category that the app cannot
     # check -- regional club sponsorship, per-year caps, clinician approval.

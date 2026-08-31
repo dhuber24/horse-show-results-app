@@ -595,6 +595,80 @@ def horse_calendar_age(horse, show):
     return max(0, show_date.year - foaling.year)
 
 
+# ── SC-125: filing the results ───────────────────────────────────────────────
+#
+# SC-125.A gives the office ten calendar days from the last scheduled day of the
+# show, and puts a show more than thirty days delinquent in the Paint Horse
+# Journal. Both are derivable from `shows.end_date`, which is the whole reason
+# this is a countdown rather than another note.
+RESULTS_DUE_DAYS = 10
+RESULTS_DELINQUENT_DAYS = 30
+
+# What SC-125.A says a submission consists of, and what it does not say.
+#
+# The **format** of the electronic results is explicitly "specified by the APHA
+# Performance Department" — the rule book delegates it rather than defining it.
+# So the Show Results report's layout is not unconfirmed for want of a rule; the
+# rule points somewhere the app cannot read, and the caveat stays until something
+# from the Performance Department replaces it.
+RESULTS_SUBMISSION_REQUIREMENTS = [
+    "Electronic results in the format the APHA Performance Department specifies. "
+    "SC-125.A delegates that format rather than stating it, so nothing generated "
+    "here can claim to match it — check it against what the Performance "
+    "Department asks for.",
+    "The original, signed, final judge's card(s). Paper the judge hands to the "
+    "office; nothing this app generates is that document.",
+    "Judges' score sheets for every scored class, which may be sent "
+    "electronically.",
+    "The completed judges evaluation forms from the show packet. Results are not "
+    "processed without them, and future approvals are denied until they arrive.",
+    "Results not submitted electronically are assessed a special handling fee "
+    "(SC-125.A).",
+    "The show assessment fee, collected per entry per judge and forwarded to APHA "
+    "(SC-125.B). Price it as a `per_judge_per_entry` fee so it reaches the bill.",
+]
+
+# SC-125.D. Note what it asks for that SC-110.J does not: a copy of the show
+# results **as received from APHA**, which is a document APHA produces and the
+# app has no way to hold.
+RESULTS_RETENTION_REQUIREMENTS = [
+    "Keep, for one year from the date of the show: the judge's original signed "
+    "final placing cards, the show entry cards, and a copy of the show results "
+    "**as received from APHA** (SC-125.D, SC-110.J). That last one is APHA's "
+    "document, not this one.",
+    "Corrections may be requested for one year from the date of the show, after "
+    "which none are considered (SC-125.E). It is the owner of record at the time "
+    "the horse was exhibited who has to raise them.",
+]
+
+
+def results_window(show, as_of):
+    """SC-125.A — how long the office has left to file the show's results.
+
+    None until the show's last day. There is nothing to file before then, and a
+    countdown running for eleven months is noise on every screen it appears on —
+    the same reason the SC-090 class-list notice stops once a show has started.
+    """
+    end = getattr(show, "end_date", None)
+    if end is None or as_of is None or as_of < end:
+        return None
+
+    due = end + timedelta(days=RESULTS_DUE_DAYS)
+    delinquent = end + timedelta(days=RESULTS_DELINQUENT_DAYS)
+    if as_of > delinquent:
+        band = "delinquent"
+    elif as_of > due:
+        band = "late"
+    else:
+        band = "open"
+    return {
+        "due": due,
+        "delinquent_after": delinquent,
+        "days_remaining": (due - as_of).days,
+        "band": band,
+    }
+
+
 class APHARules(DefaultRules):
     code = "APHA"
 
@@ -644,6 +718,7 @@ class APHARules(DefaultRules):
             issues.extend(self._check_application_window(show, as_of))
 
         issues.extend(self._check_show_category(show))
+        issues.extend(self._check_results_deadline(show, as_of))
         issues.extend(self._check_class_list(show, classes, as_of))
         issues.extend(self._check_show_minimums(show, classes, context))
         issues.extend(self._check_show_name(show))
@@ -683,6 +758,36 @@ class APHARules(DefaultRules):
             f"{APPLICATION_BAND_NOTES[window['band']]}{caveat}",
         ))
         return issues
+
+    def _check_results_deadline(self, show, as_of):
+        """SC-125.A — ten calendar days from the last scheduled day of the show.
+
+        Only ever a warning, and only after the show has ended. The app cannot
+        see a postmark: what it knows is how many days have passed, which is
+        enough to say the deadline is behind them and not enough to say they
+        missed it. Somebody who posted on day nine is fine and this still shows.
+        """
+        window = results_window(show, as_of)
+        if window is None or window["band"] == "open":
+            return []
+
+        overdue = -window["days_remaining"]
+        if window["band"] == "delinquent":
+            return [self._issue(
+                "warning",
+                "APHA_RESULTS_DELINQUENT",
+                f"Show results were due {window['due']}, {overdue} days ago. Shows "
+                "more than 30 days delinquent are listed in the Paint Horse "
+                "Journal (SC-125.A). If they have already been posted, ignore "
+                "this — the app cannot see a postmark.",
+            )]
+        return [self._issue(
+            "warning",
+            "APHA_RESULTS_OVERDUE",
+            f"Show results were due {window['due']}, {overdue} day"
+            f"{'' if overdue == 1 else 's'} ago, and a late fee is assessed past "
+            "ten calendar days from the last day of the show (SC-125.A).",
+        )]
 
     def _check_show_category(self, show):
         """SC-100 / SC-105 — the show's category, and the panel it may carry.

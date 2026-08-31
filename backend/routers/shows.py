@@ -42,7 +42,14 @@ from schemas import (
 )
 from apha_context import apha_entry_context
 from rules import get_rules
-from rules.apha import application_window, category_requirements, show_minimums
+from rules.apha import (
+    RESULTS_RETENTION_REQUIREMENTS,
+    RESULTS_SUBMISSION_REQUIREMENTS,
+    application_window,
+    category_requirements,
+    results_window,
+    show_minimums,
+)
 import standard_classes
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
@@ -766,6 +773,10 @@ async def apha_validation(
         "application_window": window,
         "minimums": minimums,
         "category_requirements": category_requirements(show),
+        "results_window": results_window(show, today),
+        "results_requirements": (
+            RESULTS_SUBMISSION_REQUIREMENTS + RESULTS_RETENTION_REQUIREMENTS
+        ),
     }
 
 

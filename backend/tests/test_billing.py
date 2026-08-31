@@ -688,3 +688,63 @@ def test_find_fee_returns_the_match_or_none():
     assert billing.find_fee([other, wanted], wanted.id) is wanted
     assert billing.find_fee([other], wanted.id) is None
     assert billing.find_fee([], wanted.id) is None
+
+
+# ── SC-125.B: the assessment collected per entry, per judge ──────────────────
+
+
+def test_a_per_judge_per_entry_charge_counts_class_entries_not_horses():
+    """APHA SC-125.B — "a fee per entry per show (Judge)", which show management
+    collects and forwards for the results to be processed.
+
+    The distinction that made this a new unit: one horse in three classes is one
+    horse and three entries. `per_judge_per_horse` charges that exhibitor a third
+    of what they owe, and nothing downstream could recover the difference.
+    """
+    horse = uuid4()
+    fee = make_fee(
+        code="assessment", label="APHA assessment", unit="per_judge_per_entry", amount_cents=300
+    )
+    entries = [make_entry(horse_id=horse) for _ in range(3)]
+    bill = _charged(fee, entries, judges=2)
+
+    assert bill["charge_total_cents"] == 1800  # 3 entries x 2 judges x $3.00
+    line = bill["charge_lines"][0]
+    assert (line["judge_count"], line["entry_count"], line["quantity"]) == (2, 3, 6)
+
+
+def test_per_judge_per_entry_and_per_judge_per_horse_diverge_on_the_same_bill():
+    """The same fee, panel and horse, priced by the two units. If they could not
+    disagree there would be no reason for the second unit to exist."""
+    horse = uuid4()
+    entries = [make_entry(horse_id=horse) for _ in range(4)]
+
+    per_entry = make_fee(code="a", unit="per_judge_per_entry", amount_cents=300)
+    per_horse = make_fee(code="b", unit="per_judge_per_horse", amount_cents=300)
+
+    assert _charged(per_entry, entries, judges=2)["charge_total_cents"] == 2400
+    assert _charged(per_horse, entries, judges=2)["charge_total_cents"] == 600
+
+
+def test_a_per_judge_per_entry_charge_is_nothing_without_a_panel():
+    """Same rule as the other per-judge units: no judges assigned is zero, not
+    one. Guessing at a panel would bill a number the show never agreed to."""
+    fee = make_fee(code="assessment", unit="per_judge_per_entry", amount_cents=300)
+    assert _charged(fee, [make_entry()], judges=0)["charge_lines"] == []
+
+
+def test_per_judge_per_entry_is_in_the_automatic_family():
+    """Nobody books it and there is nothing to tick, so it bills off the
+    exhibitor's entries — as against `per_entry`, which is class-fee vocabulary
+    and must stay in the family that bills nobody."""
+    assert "per_judge_per_entry" in billing.AUTOMATIC_FEE_UNITS
+    assert "per_entry" not in billing.AUTOMATIC_FEE_UNITS
+
+
+def test_charge_multiplier_defaults_the_entry_count_to_nothing():
+    """A caller written before this unit existed passes three arguments. Billing
+    that unit at zero under-charges a fee nobody has created yet, which is
+    recoverable; multiplying by a stale horse count would over-charge every
+    exhibitor at the show, which is not."""
+    assert billing.charge_multiplier("per_judge_per_entry", 5, 3) == 0
+    assert billing.charge_multiplier("per_judge_per_entry", 5, 3, 4) == 12

@@ -25,8 +25,11 @@ from rules.apha import (
     DIVISIONS,
     APHARules,
     RELATIONSHIP_REQUIRED_DIVISIONS,
+    RESULTS_RETENTION_REQUIREMENTS,
+    RESULTS_SUBMISSION_REQUIREMENTS,
     THREE_YEAR_OLD_DISCIPLINES,
     application_window,
+    results_window,
     category_requirements,
     show_minimums,
     show_name_reservations,
@@ -1182,3 +1185,101 @@ def test_a_withdrawn_entry_is_not_age_checked():
     entry.status = "WITHDRAWN"
 
     assert APHARules().validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding")) == []
+
+
+# ── SC-125: filing the results ───────────────────────────────────────────────
+
+
+def _ended(end=date(2026, 6, 3), **overrides):
+    return make_show(
+        apha_show_number="26-1",
+        start_date=date(2026, 6, 1),
+        end_date=end,
+        judges=make_judges(1),
+        show_category=SINGLE_JUDGE,
+        **overrides,
+    )
+
+
+def test_there_is_no_results_window_before_the_show_ends():
+    """Nothing to file yet, and a countdown running for eleven months is noise
+    on every screen it reaches — the same reason the SC-090 class-list notice
+    stops once a show has started."""
+    assert results_window(_ended(), date(2026, 5, 20)) is None
+    assert results_window(_ended(), date(2026, 6, 2)) is None
+
+
+def test_the_window_opens_on_the_last_day_of_the_show():
+    """SC-125.A counts ten calendar days "from the last scheduled day"."""
+    window = results_window(_ended(), date(2026, 6, 3))
+    assert window["due"] == date(2026, 6, 13)
+    assert window["days_remaining"] == 10
+    assert window["band"] == "open"
+
+
+@pytest.mark.parametrize("as_of,band", [
+    (date(2026, 6, 13), "open"),         # the tenth day is still inside it
+    (date(2026, 6, 14), "late"),
+    (date(2026, 7, 3), "late"),          # thirty days exactly
+    (date(2026, 7, 4), "delinquent"),
+])
+def test_the_results_bands_follow_the_rules_own_days(as_of, band):
+    assert results_window(_ended(), as_of)["band"] == band
+
+
+def test_an_overdue_filing_is_reported_with_the_late_fee():
+    issues = APHARules().validate_show_schedule(
+        _ended(), [make_class()], {"as_of": date(2026, 6, 20)}
+    )
+    overdue = next(i for i in issues if i["code"] == "APHA_RESULTS_OVERDUE")
+    assert overdue["severity"] == "warning"
+    assert "2026-06-13" in overdue["message"]
+    assert "7 days ago" in overdue["message"]
+
+
+def test_a_delinquent_filing_names_the_paint_horse_journal():
+    """SC-125.A: shows more than thirty days delinquent are listed in it."""
+    issues = APHARules().validate_show_schedule(
+        _ended(), [make_class()], {"as_of": date(2026, 8, 1)}
+    )
+    late = next(i for i in issues if i["code"] == "APHA_RESULTS_DELINQUENT")
+    assert "Paint Horse Journal" in late["message"]
+    assert "cannot see a postmark" in late["message"]
+
+
+def test_a_show_inside_the_window_reports_no_results_finding():
+    codes = _codes(APHARules().validate_show_schedule(
+        _ended(), [make_class()], {"as_of": date(2026, 6, 8)}
+    ))
+    assert "APHA_RESULTS_OVERDUE" not in codes
+    assert "APHA_RESULTS_DELINQUENT" not in codes
+
+
+def test_a_show_that_has_not_run_reports_no_results_finding():
+    codes = _codes(APHARules().validate_show_schedule(
+        _ended(), [make_class()], {"as_of": date(2026, 1, 1)}
+    ))
+    assert not [c for c in codes if c.startswith("APHA_RESULTS")]
+
+
+def test_the_submission_requirements_say_the_format_is_delegated():
+    """SC-125.A specifies the electronic results are "in the format specified by
+    the APHA Performance Department" — the rule book points elsewhere rather than
+    defining a layout, so nothing generated here can claim to match it. That is a
+    different statement from "the rule has not been supplied", and the app has to
+    make it rather than quietly implying the format is settled."""
+    text = " ".join(RESULTS_SUBMISSION_REQUIREMENTS)
+    assert "Performance Department" in text
+    assert "original, signed, final judge's card" in text
+    assert "evaluation forms" in text
+    assert "per entry per judge" in text
+
+
+def test_the_retention_requirements_name_apha_s_own_document():
+    """SC-125.D asks for something SC-110.J does not: a copy of the results **as
+    received from APHA**. That is produced after submission and the app can never
+    hold it, so a bundle listing only its own output would look complete while
+    missing one of the three documents the rule names."""
+    text = " ".join(RESULTS_RETENTION_REQUIREMENTS)
+    assert "as received from APHA" in text
+    assert "one year" in text

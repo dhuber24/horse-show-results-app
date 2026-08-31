@@ -185,6 +185,11 @@ finding.
   the days left. Band labels live in `lib/apha.ts` beside the rest of the APHA
   display copy; the band itself is decided in `backend/rules/apha.py`, which
   holds the rule's numbers.
+* Once the show's last day has passed, the **SC-125 results deadline** and what
+  a submission consists of. Gated on that date for the same reason the countdown
+  is: eight lines about filing would otherwise sit on the dashboard for eleven
+  months, teaching people to skip the panel. The panel states that the app cannot
+  see a postmark, so the dates are a calendar rather than an accusation.
 * The show's **category** and whether a clinic runs alongside it, then any
   SC-100/SC-105 conditions the app cannot check, under a **Not checked here**
   heading. Text rather than findings, because an item nobody can ever clear

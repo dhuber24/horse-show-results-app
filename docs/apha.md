@@ -796,13 +796,60 @@ Membership expiry is judged against the show's **end date**, never today — the
 same rule health paperwork and `exhibitor_registrations.expires_at` already
 follow.
 
-### What is still unverified
+### Filing the results (SC-125)
 
-The Show Results report carries the columns the entry export already used plus
-the result. **SC-125 has not been supplied**, so there is no guarantee the layout
-matches what APHA expects to receive — the data is right and the format is not
-confirmed. Guessing at a required format is how an office gets a submission
-rejected after the show has ended, so this is stated rather than assumed away.
+**The format question has an answer, and the answer is that the rule book does
+not hold it.** SC-125.A says show results consist of "electronic results (in the
+format specified by the APHA Performance Department)" — it delegates the layout
+rather than defining it. So the Show Results report's columns are not unconfirmed
+for want of a rule; the rule points somewhere this app cannot read, and the
+caveat stays until something from the Performance Department replaces it. That is
+a different statement from "not supplied", and worth making precisely: no amount
+of further rule-book reading will settle it.
+
+**The deadline is derivable, and is a countdown rather than a note.** Ten
+calendar days from the last scheduled day of the show, and a show more than
+thirty days delinquent is listed in the Paint Horse Journal.
+`results_window()` returns `due`, `delinquent_after`, `days_remaining` and a band
+of `open` / `late` / `delinquent`, and is None until the show's last day — there
+is nothing to file before then, and a countdown running for eleven months is
+noise on every screen it reaches.
+
+**The app cannot see a postmark**, so `APHA_RESULTS_OVERDUE` and
+`APHA_RESULTS_DELINQUENT` say the date has gone by and never that the results
+were not sent. Both say so in their own text, because a warning that reads as an
+accusation on a show that filed on day nine is one the office learns to dismiss.
+
+`RESULTS_SUBMISSION_REQUIREMENTS` carries the rest of SC-125.A as text on the
+panel — the signed cards, the score sheets for every scored class, the judges
+evaluation forms without which results are not processed and future approvals are
+denied, and the special handling fee for anything not sent electronically.
+
+### The assessment fee (SC-125.B)
+
+"Show Management must collect a fee per entry per show (Judge)... and forward to
+the APHA office in order for show results to be processed." The app could not
+bill that: its automatic units multiply by distinct horses or by the exhibitor,
+and one horse in six classes is one horse and six entries. Migration 125 adds
+**`per_judge_per_entry`** to close it, in the automatic family, with an
+`association_assessment` fee template.
+
+Named generically rather than as an APHA column because every breed body levies a
+version of it, and a `show_fees` row the show prices is how this app already
+handles that. `per_entry` stays where it is — that unit is class-fee vocabulary
+and bills nobody, and `classes.entry_fee_cents` is what charges per entry.
+
+### Retention, corrected (SC-125.D)
+
+SC-125.D asks for one thing SC-110.J does not: a copy of the show results **as
+received from APHA**. That is APHA's own document, produced after the results are
+processed, and this app has no way to hold it — so the retention bundle names it
+in its caveats. A bundle listing only its own output would look complete while
+missing one of the three documents the rule requires.
+
+SC-125.E allows one year from the date of the show for a correction and none
+after, which is the same year the records must be kept, and puts the burden of
+spotting an error on the owner of record at the time the horse was exhibited.
 
 ## APHA Entry Export
 

@@ -381,6 +381,16 @@ async def get_retention_archive(
         "The original signed judge's placing cards are paper the judge hands to "
         "the office. Nothing here is that document — Judges' Cards is what the "
         "scribe recorded off them. Keep the paper as well.",
+        # SC-125.D asks for something SC-110.J does not, and it is worth naming
+        # separately: a copy of the results **as APHA sent them back**. That is
+        # APHA's document, produced after submission, and the app has no way to
+        # hold it — so a bundle that listed only its own output would look
+        # complete while missing one of the three things the rule names.
+        "SC-125.D also requires a copy of the show results **as received from "
+        "APHA** — their document, returned after the results are processed, not "
+        "this one. Keep that with the bundle.",
+        "Retention runs one year from the date of the show, and corrections may "
+        "be requested for that same year and no longer (SC-125.D, SC-125.E).",
         "Generated from the show's own data, so re-running it after a correction "
         "produces the corrected record. Print or export a copy at the point you "
         "need to retain one.",

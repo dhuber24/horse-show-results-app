@@ -34,6 +34,11 @@ DEFAULT_FEE_TEMPLATES = [
     {"code": "cross_entry",      "label": "Cross-entry fee",        "unit": "per_entry"},
     {"code": "stall_cleanout",   "label": "Stall cleanout penalty", "unit": "flat"},
     {"code": "drug_test",        "label": "Drug test fee",          "unit": "per_horse"},
+    # The levy a breed body requires show management to collect per entry per
+    # judge and forward with the results -- APHA SC-125.B is one (migration 125).
+    # Named generically because every association has a version of it, and the
+    # show prices its own.
+    {"code": "association_assessment", "label": "Association assessment", "unit": "per_judge_per_entry"},
 ]
 
 

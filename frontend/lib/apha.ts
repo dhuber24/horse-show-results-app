@@ -190,3 +190,28 @@ export type AphaShowMinimums = {
    *  "not required" and "under three judges" are different answers. */
   exempt_reason: string | null;
 };
+
+/**
+ * SC-125.A — how long the office has to file the show's results.
+ *
+ * Null until the show's last day: there is nothing to file before then, and a
+ * countdown running for eleven months is noise on every screen it reaches.
+ * `days_remaining` goes negative once the deadline passes.
+ *
+ * The app cannot see a postmark, so none of this says the results were not
+ * sent — only that the date has gone by.
+ */
+export const RESULTS_BANDS = {
+  open: { label: 'Within the ten-day window', tone: 'ok' },
+  late: { label: 'Past ten days — a late fee is assessed', tone: 'warn' },
+  delinquent: { label: 'Past thirty days — listed in the Paint Horse Journal', tone: 'bad' },
+} as const;
+
+export type ResultsBand = keyof typeof RESULTS_BANDS;
+
+export type AphaResultsWindow = {
+  due: string;
+  delinquent_after: string;
+  days_remaining: number;
+  band: ResultsBand;
+};

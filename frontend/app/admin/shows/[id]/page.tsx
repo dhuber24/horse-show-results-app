@@ -9,7 +9,9 @@ import AphaMinimums from './AphaMinimums';
 import {
   APPLICATION_BANDS,
   APPLICATION_BASIS_LABELS,
+  RESULTS_BANDS,
   AphaApplicationWindow,
+  AphaResultsWindow,
   AphaShowMinimums,
 } from '@/lib/apha';
 
@@ -84,6 +86,8 @@ type AphaValidationData = ValidationResult & {
   application_window: AphaApplicationWindow | null;
   minimums: AphaShowMinimums | null;
   category_requirements: string[];
+  results_window: AphaResultsWindow | null;
+  results_requirements: string[];
 };
 
 async function fetchScribeNames(
@@ -386,6 +390,50 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           )}
 
           {aphaValidation?.minimums && <AphaMinimums minimums={aphaValidation.minimums} />}
+
+          {/* SC-125. Rendered only once the show's last day has passed, which is
+              also when `results_window` starts being non-null: before then there
+              is nothing to file, and eight lines about submission would sit on
+              the dashboard for eleven months teaching people to skip the panel. */}
+          {aphaValidation?.results_window && (
+            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
+              <p className="font-medium" style={{ color: '#2c1810' }}>
+                Filing the results (SC-125)
+              </p>
+              <p>
+                <span className="text-xs" style={{ color: '#8b7355' }}>Due </span>
+                <span className="font-mono">{aphaValidation.results_window.due}</span>
+                <span className="text-xs" style={{ color: '#8b7355' }}>
+                  {' '}·{' '}
+                  {aphaValidation.results_window.days_remaining >= 0
+                    ? `${aphaValidation.results_window.days_remaining} days left`
+                    : `${-aphaValidation.results_window.days_remaining} days ago`}
+                </span>
+              </p>
+              <p
+                className="font-medium"
+                style={{
+                  color:
+                    RESULTS_BANDS[aphaValidation.results_window.band].tone === 'bad'
+                      ? '#b42318'
+                      : RESULTS_BANDS[aphaValidation.results_window.band].tone === 'warn'
+                        ? '#92400e'
+                        : '#2f6b3f',
+                }}
+              >
+                {RESULTS_BANDS[aphaValidation.results_window.band].label}
+              </p>
+              <ul className="space-y-1 list-disc pl-4 pt-1">
+                {aphaValidation.results_requirements.map((note, index) => (
+                  <li key={index}>{note}</li>
+                ))}
+              </ul>
+              <p className="text-xs pt-1" style={{ color: '#8b7355' }}>
+                The app cannot see a postmark. This is the calendar, not a claim
+                that anything is outstanding.
+              </p>
+            </div>
+          )}
 
           {aphaValidation && <ValidationIssues label="APHA readiness" data={aphaValidation} />}
 

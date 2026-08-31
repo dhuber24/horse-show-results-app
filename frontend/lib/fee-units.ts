@@ -16,6 +16,7 @@ export type FeeUnit =
   | 'per_horse'
   | 'per_judge_per_horse'
   | 'per_judge_per_exhibitor'
+  | 'per_judge_per_entry'
   | 'per_class_per_horse'
   | 'per_night'
   | 'per_day'
@@ -42,6 +43,10 @@ export const AUTOMATIC_FEE_UNITS = [
   'per_horse',
   'per_judge_per_horse',
   'per_judge_per_exhibitor',
+  // APHA SC-125.B's assessment, and every breed body's version of it: a fee per
+  // class entry per judge that show management collects and forwards. Not the
+  // same as `per_entry`, which is class-fee vocabulary and bills nobody.
+  'per_judge_per_entry',
 ] as const satisfies readonly FeeUnit[];
 
 export const UNIT_LABEL: Record<FeeUnit, string> = {
@@ -51,6 +56,7 @@ export const UNIT_LABEL: Record<FeeUnit, string> = {
   per_horse: 'per horse',
   per_judge_per_horse: 'per judge, per horse',
   per_judge_per_exhibitor: 'per judge, per exhibitor',
+  per_judge_per_entry: 'per judge, per entry',
   per_class_per_horse: 'per class, per horse',
   per_night: 'per night',
   per_day: 'per day',
@@ -83,6 +89,7 @@ export function chargeMultiplier(
   unit: string,
   horseCount: number,
   judgeCount: number,
+  entryCount = 0,
 ): number {
   switch (unit) {
     case 'per_exhibitor':
@@ -93,6 +100,8 @@ export function chargeMultiplier(
       return judgeCount;
     case 'per_judge_per_horse':
       return judgeCount * horseCount;
+    case 'per_judge_per_entry':
+      return judgeCount * entryCount;
     default:
       return 0;
   }
@@ -101,5 +110,9 @@ export function chargeMultiplier(
 /** Whether this unit's charge scales with the judge panel — which is what makes
  *  a show with no judges assigned yet bill nothing for it. */
 export function usesJudgeCount(unit: string): boolean {
-  return unit === 'per_judge_per_horse' || unit === 'per_judge_per_exhibitor';
+  return (
+    unit === 'per_judge_per_horse' ||
+    unit === 'per_judge_per_exhibitor' ||
+    unit === 'per_judge_per_entry'
+  );
 }
