@@ -45,6 +45,13 @@ from models import (
     ShowJudge,
     ShowType,
 )
+from rules.apha import (
+    OVER_FENCES_SCORE_AVERAGE,
+    OVER_FENCES_SCORE_MAX,
+    SYMBOL_SYSTEM_BANDS,
+    SYMBOL_SYSTEM_DISCIPLINES,
+    symbol_system_guidance,
+)
 from schemas import JudgeCardOut, JudgeCardSave, JudgingSystemOut
 
 systems_router = APIRouter(prefix="/judging-systems", tags=["Judging"])
@@ -160,6 +167,37 @@ async def list_judging_systems(
         )
     rows = await db.execute(query.order_by(JudgingSystem.name))
     return rows.scalars().all()
+
+
+@systems_router.get("/symbol-system", dependencies=[Depends(require_api_key)])
+async def symbol_system_bands(discipline: Optional[str] = None):
+    """APHA SC-215.E.3's traditional symbol system, as score bands.
+
+    Not a `judging_systems` row, and deliberately so: the judge watches the round
+    and picks a number inside a band, so there are no maneuvers to add up and
+    nothing for a card to total. Forcing it into that table would mean inventing
+    a maneuver range for a system that has none. A class scored this way carries
+    no judging system at all, which is what the app already does by default --
+    what was missing was the guidance beside the score box.
+
+    Takes no session: the bands are rule text, held in `rules/apha.py` with the
+    zone notes and the category requirements.
+    """
+    return {
+        "rule_reference": "SC-215.E.3",
+        "score_max": OVER_FENCES_SCORE_MAX,
+        "score_average": OVER_FENCES_SCORE_AVERAGE,
+        "disciplines": sorted(SYMBOL_SYSTEM_DISCIPLINES),
+        "applies": discipline in SYMBOL_SYSTEM_DISCIPLINES if discipline else None,
+        "bands": (
+            symbol_system_guidance(discipline)
+            if discipline
+            else [
+                {"min_score": low, "max_score": high, "description": text}
+                for low, high, text in SYMBOL_SYSTEM_BANDS
+            ]
+        ),
+    }
 
 
 # ── One card ───────────────────────────────────────────────────────────────────

@@ -178,6 +178,22 @@ def make_horse(name="Dusty", **overrides) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def make_exhibitor(name="Pat Rider", **overrides) -> SimpleNamespace:
+    """An exhibitor, as the association rules engines see them.
+
+    `date_of_birth` is None by default because most records carry none, and APHA
+    YP-075 declines to check an age nobody recorded rather than guessing at one.
+    """
+    defaults = dict(
+        id=uuid4(),
+        full_name=name,
+        date_of_birth=None,
+        registrations=[],
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
 def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> SimpleNamespace:
     """A class entry.
 
@@ -194,6 +210,7 @@ def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> Simple
         horse_id = uuid4()
     if cls is ...:
         cls = make_class()
+    exhibitor = overrides.get("exhibitor") or make_exhibitor()
     defaults = dict(
         id=uuid4(),
         class_=cls,
@@ -202,7 +219,12 @@ def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> Simple
         class_id=cls.id if cls is not None else None,
         horse=make_horse(name=horse_name) if horse_name is not None else None,
         horse_id=horse_id,
-        exhibitor_id=uuid4(),
+        # Both doors wire `entry.exhibitor` in memory before validating, so the
+        # rules engine can read it without a lazy load and the fixture has to
+        # carry it too. `exhibitor_id` is taken from the object rather than
+        # invented, so a test that reads either gets the same person.
+        exhibitor=exhibitor,
+        exhibitor_id=exhibitor.id,
         back_number=None,
         # Association validation fields. None is the ordinary case — most shows
         # are not APHA and never name a division.

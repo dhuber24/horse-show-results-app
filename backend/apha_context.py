@@ -22,7 +22,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Class, Discipline, Entry
+from models import Class, Discipline, Division, Entry
 
 
 async def apha_entry_context(show_id: UUID, db: AsyncSession) -> dict:
@@ -36,12 +36,23 @@ async def apha_entry_context(show_id: UUID, db: AsyncSession) -> dict:
     Withdrawn entries are excluded: a scratched horse is not one somebody is
     showing, and counting it would refuse the entry that replaces it.
     """
-    discipline_rows = await db.execute(
-        select(Class.id, Discipline.name)
+    # The bracket rides along on the same query. YP-075 caps a youth exhibitor's
+    # age by the division they entered, and a class bracketed "13 & Under" caps it
+    # tighter still -- but `Class.division` is not eager-loaded at either entry
+    # door, and reading an unloaded relationship inside the rules engine is a
+    # MissingGreenlet in an async request. One extra column here beats an eager
+    # load two routers have to remember.
+    class_rows = await db.execute(
+        select(Class.id, Discipline.name, Division.name)
         .outerjoin(Discipline, Discipline.id == Class.discipline_id)
+        .outerjoin(Division, Division.id == Class.division_id)
         .where(Class.show_id == show_id)
     )
-    disciplines = {class_id: name for class_id, name in discipline_rows.all()}
+    disciplines = {}
+    brackets = {}
+    for class_id, discipline_name, bracket_name in class_rows.all():
+        disciplines[class_id] = discipline_name
+        brackets[class_id] = bracket_name
 
     entry_rows = await db.execute(
         select(
@@ -65,4 +76,8 @@ async def apha_entry_context(show_id: UUID, db: AsyncSession) -> dict:
         for row in entry_rows.all()
     ]
 
-    return {"apha_disciplines": disciplines, "apha_entries": entries}
+    return {
+        "apha_disciplines": disciplines,
+        "apha_brackets": brackets,
+        "apha_entries": entries,
+    }

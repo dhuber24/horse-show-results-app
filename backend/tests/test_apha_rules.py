@@ -27,9 +27,17 @@ from rules.apha import (
     RELATIONSHIP_REQUIRED_DIVISIONS,
     RESULTS_RETENTION_REQUIREMENTS,
     RESULTS_SUBMISSION_REQUIREMENTS,
+    THIRTEEN_AND_UNDER_EXEMPT_ZONES,
     THREE_YEAR_OLD_DISCIPLINES,
+    OVER_FENCES_SCORE_AVERAGE,
+    OVER_FENCES_SCORE_MAX,
     application_window,
+    bracket_age_cap,
+    novice_amateur_category,
+    symbol_system_guidance,
+    horse_calendar_age,
     results_window,
+    youth_age,
     category_requirements,
     show_minimums,
     show_name_reservations,
@@ -38,6 +46,7 @@ from rules.apha import (
 from tests.factories import (
     make_class,
     make_entry,
+    make_exhibitor,
     make_horse,
     make_judges,
     make_show,
@@ -1283,3 +1292,333 @@ def test_the_retention_requirements_name_apha_s_own_document():
     text = " ".join(RESULTS_RETENTION_REQUIREMENTS)
     assert "as received from APHA" in text
     assert "one year" in text
+
+
+# ── YP-075: youth age divisions ──────────────────────────────────────────────
+
+
+def _youth_entry(cls, born, division="YOUTH"):
+    return make_entry(
+        cls=cls,
+        exhibitor=make_exhibitor(date_of_birth=born),
+        apha_division=division,
+        relationship_to_owner="Self",
+    )
+
+
+def _youth_context(cls, bracket=None):
+    return {"apha_brackets": {cls.id: bracket}, "apha_entries": []}
+
+
+@pytest.mark.parametrize("born,expected", [
+    (date(2008, 6, 15), 17),   # turns 18 in the summer, so 17 on 1 January
+    (date(2008, 1, 1), 18),    # the one birthday that has come round
+    (date(2007, 12, 31), 18),
+    (date(2013, 3, 2), 12),
+])
+def test_youth_age_is_taken_on_january_first(born, expected):
+    """YP-075.A: "based on their age as of January 1 of the current year".
+
+    **Not the horse convention.** `horse_calendar_age` subtracts calendar years
+    because every horse has a January 1 birthday; a person does not, and
+    subtracting years would call a June-born seventeen-year-old eighteen and
+    refuse a youth entry the rule allows.
+    """
+    assert youth_age(make_exhibitor(date_of_birth=born), make_show(start_date=date(2026, 6, 1))) == expected
+
+
+def test_youth_age_and_horse_age_disagree_on_the_same_date():
+    """The distinction, as a test, because one helper looks like the other."""
+    born = date(2008, 6, 15)
+    show = make_show(start_date=date(2026, 6, 1))
+    assert youth_age(make_exhibitor(date_of_birth=born), show) == 17
+    assert horse_calendar_age(make_horse(foaling_date=born), show) == 18
+
+
+def test_an_exhibitor_over_eighteen_may_not_enter_youth():
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _youth_entry(cls, date(2007, 5, 1))  # 18 on 1 Jan 2026, 19 by the show
+
+    issues = APHARules().validate_entry(entry, show, cls, _youth_context(cls))
+    assert "APHA_YOUTH_TOO_OLD" not in _codes(issues)
+
+    older = _youth_entry(cls, date(2006, 5, 1))  # 19 on 1 January
+    issue = next(
+        i for i in APHARules().validate_entry(older, show, cls, _youth_context(cls))
+        if i["code"] == "APHA_YOUTH_TOO_OLD"
+    )
+    assert issue["severity"] == "error"
+    assert "18 and under" in issue["message"]
+
+
+@pytest.mark.parametrize("division,cap,too_old", [
+    ("YOUTH", 18, date(2006, 5, 1)),
+    ("NOVICE_YOUTH", 18, date(2006, 5, 1)),
+    ("YOUTH_WALK_TROT_11_18", 18, date(2006, 5, 1)),
+    ("YOUTH_WALK_TROT_5_10", 10, date(2014, 5, 1)),
+])
+def test_each_youth_division_carries_its_own_cap(division, cap, too_old):
+    """Two of the four state their age range in the division value itself, which
+    is stored data rather than anything read off a name."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _youth_entry(cls, too_old, division=division)
+
+    issue = next(
+        i for i in APHARules().validate_entry(entry, show, cls, _youth_context(cls))
+        if i["code"] == "APHA_YOUTH_TOO_OLD"
+    )
+    assert f"{cap} and under" in issue["message"]
+
+
+def test_a_thirteen_and_under_class_tightens_the_cap():
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _youth_entry(cls, date(2011, 5, 1))  # 14 on 1 January 2026
+
+    assert "APHA_YOUTH_TOO_OLD" not in _codes(
+        APHARules().validate_entry(entry, show, cls, _youth_context(cls))
+    )
+    assert "APHA_YOUTH_TOO_OLD" in _codes(
+        APHARules().validate_entry(entry, show, cls, _youth_context(cls, "Youth 13 & Under"))
+    )
+
+
+def test_a_younger_exhibitor_may_compete_up():
+    """YP-075.A.1 — "a 13 and Under exhibitor may choose which division to
+    compete on a per class basis". The cap only ever tightens; a lower bound read
+    off a bracket would refuse exactly what the rule permits."""
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _youth_entry(cls, date(2014, 5, 1))  # 11 on 1 January
+
+    assert "APHA_YOUTH_TOO_OLD" not in _codes(
+        APHARules().validate_entry(entry, show, cls, _youth_context(cls, "Youth 18 & Under"))
+    )
+
+
+def test_an_exhibitor_with_no_date_of_birth_is_not_refused():
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _youth_entry(cls, None)
+    assert "APHA_YOUTH_TOO_OLD" not in _codes(
+        APHARules().validate_entry(entry, show, cls, _youth_context(cls))
+    )
+
+
+def test_a_non_youth_division_has_no_age_cap():
+    cls = make_class()
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = make_entry(
+        cls=cls,
+        exhibitor=make_exhibitor(date_of_birth=date(1980, 5, 1)),
+        apha_division="AMATEUR",
+        relationship_to_owner="Self",
+    )
+    assert "APHA_YOUTH_TOO_OLD" not in _codes(
+        APHARules().validate_entry(entry, show, cls, _youth_context(cls))
+    )
+
+
+@pytest.mark.parametrize("bracket,cap", [
+    ("13 & Under", 13),
+    ("Youth 13 and Under", 13),
+    ("18 & Under", 18),
+    ("Walk-Trot 17 & Under", 17),
+    ("Four Year & Older", None),
+    ("Junior Horse (5 & Younger)", None),
+    ("Open", None),
+    (None, None),
+])
+def test_bracket_age_caps_are_read_only_from_an_under_phrase(bracket, cap):
+    """The horse-age brackets a real schedule uses take other shapes, and the cap
+    is consulted only for an entry already naming a youth division — so a horse
+    bracket could not reach it even if one did parse."""
+    assert bracket_age_cap(bracket) == cap
+
+
+# ── YP-075.A.1/A.2: three classes offered as 13 and Under ────────────────────
+
+
+def _bracketed(name, bracket):
+    return _cls(name, bracket, discipline="Western Pleasure")
+
+
+def _youth_schedule(thirteen_and_under, **show_overrides):
+    classes = [_bracketed("Youth Western Pleasure", "Youth 18 & Under")]
+    classes += [
+        _bracketed(f"Youth class {i}", "Youth 13 & Under") for i in range(thirteen_and_under)
+    ]
+    show = make_show(
+        apha_show_number="26-1", judges=make_judges(1), show_category=SINGLE_JUDGE,
+        **show_overrides,
+    )
+    return APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+
+
+def test_a_youth_show_needs_three_thirteen_and_under_classes():
+    assert "APHA_YOUTH_13_AND_UNDER_SHORT" in _codes(_youth_schedule(2))
+    assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(_youth_schedule(3))
+
+
+@pytest.mark.parametrize("zone", sorted(THIRTEEN_AND_UNDER_EXEMPT_ZONES))
+def test_zones_twelve_to_fourteen_are_exempt(zone):
+    """YP-075.A.1.a and A.2.a — the same zone list the equitation class
+    procedures carry."""
+    assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(_youth_schedule(0, apha_zone=zone))
+
+
+def test_a_show_with_no_youth_division_is_not_asked_for_youth_classes():
+    show = make_show(apha_show_number="26-1", judges=make_judges(1), show_category=SINGLE_JUDGE)
+    classes = [_bracketed("Open Western Pleasure", "Open")]
+    issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
+    assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(issues)
+
+
+def test_the_shortfall_mentions_the_zone_exemption_when_no_zone_is_stated():
+    """A show that never stated its zone may well be exempt, and the finding has
+    to leave that door open rather than reading as a flat failure."""
+    issue = next(i for i in _youth_schedule(1) if i["code"] == "APHA_YOUTH_13_AND_UNDER_SHORT")
+    assert "has not stated its zone" in issue["message"]
+    assert "may not be combined" in issue["message"]
+
+
+# ── AM-250: which events earn Novice Amateur points ──────────────────────────
+
+
+def _novice_amateur_entry(cls):
+    return make_entry(
+        cls=cls,
+        apha_division="NOVICE_AMATEUR",
+        relationship_to_owner="Self",
+        attestations=[SimpleNamespace(kind="novice_eligibility")],
+    )
+
+
+def _na_issues(discipline):
+    cls = make_class()
+    return APHARules().validate_entry(
+        _novice_amateur_entry(cls),
+        make_show(),
+        cls,
+        {"apha_disciplines": {cls.id: discipline}, "apha_entries": []},
+    )
+
+
+@pytest.mark.parametrize("discipline,category", [
+    ("Barrel Racing", "I"),
+    ("Western Riding", "II"),
+    ("Showmanship", "V"),
+    ("Team Roping — Heading", "VI"),
+    ("Western Pleasure", "VII"),
+    ("Western Horsemanship", "IX"),
+    ("Equitation Over Fences", "XVII"),
+    ("Ranch Rail Pleasure", "XXIII"),
+    ("Colas", "XXV"),
+])
+def test_approved_events_map_to_their_category(discipline, category):
+    """AM-250.A. The category is the unit AM-205 decides Novice status in, which
+    is why the map is worth holding rather than a flat approved/not list."""
+    assert novice_amateur_category(discipline) == category
+    assert not [i for i in _na_issues(discipline) if i["code"].startswith("APHA_NOVICE_AMATEUR_EVENT")]
+
+
+@pytest.mark.parametrize("discipline,phrase", [
+    ("Halter", "Halter events"),
+    ("Performance Halter", "Halter events"),
+    ("Longe Line", "Longe Line (All Ages)"),
+    ("In-Hand Trail", "In-Hand Trail (All Ages)"),
+])
+def test_the_events_am250_excludes_outright_are_named(discipline, phrase):
+    """AM-250.A's exception names four, so the finding quotes them rather than
+    saying only "not on the approved list"."""
+    issue = next(
+        i for i in _na_issues(discipline)
+        if i["code"] == "APHA_NOVICE_AMATEUR_EVENT_NOT_APPROVED"
+    )
+    assert phrase in issue["message"]
+    assert issue["severity"] == "warning"
+
+
+def test_an_uncategorized_event_earns_nothing_and_is_still_allowed():
+    """The general case. AM-250 is about points and awards, not eligibility — a
+    Novice Amateur may enter; what they will not do is earn anything for it."""
+    issue = next(
+        i for i in _na_issues("Pole Bending X")  # not a discipline the map knows
+        if i["code"] == "APHA_NOVICE_AMATEUR_EVENT_UNCATEGORIZED"
+    )
+    assert issue["severity"] == "warning"
+    assert "The entry itself is allowed." in issue["message"]
+
+
+def test_nothing_in_am250_ever_refuses_an_entry():
+    """The whole rule is a warning. Refusing would invent a restriction AM-250
+    does not impose, on the strength of a discipline the classifier assigned."""
+    for discipline in ("Halter", "Longe Line", "In-Hand Trail", "Vaquejada"):
+        assert not [i for i in _na_issues(discipline) if i["severity"] == "error"]
+
+
+@pytest.mark.parametrize("retired", ["Working Ranch Horse", "Versatility Ranch Horse"])
+def test_retired_categories_are_not_treated_as_approved(retired):
+    """Categories XV and XXI are marked "class no longer offered" — points were
+    earned in them before 2015 and 2024 respectively. Listing them as currently
+    approved would let a show award Novice Amateur points in a class APHA has
+    retired."""
+    assert novice_amateur_category(retired) is None
+
+
+def test_a_different_division_is_not_checked_against_am250():
+    cls = make_class()
+    entry = make_entry(cls=cls, apha_division="AMATEUR", relationship_to_owner="Self")
+    issues = APHARules().validate_entry(
+        entry, make_show(), cls,
+        {"apha_disciplines": {cls.id: "Longe Line"}, "apha_entries": []},
+    )
+    assert not [i for i in issues if i["code"].startswith("APHA_NOVICE_AMATEUR_EVENT")]
+
+
+def test_no_discipline_map_means_no_am250_finding():
+    """Every non-APHA show, and the same out the SC-185.F caps take."""
+    cls = make_class()
+    issues = APHARules().validate_entry(_novice_amateur_entry(cls), make_show(), cls, {})
+    assert not [i for i in issues if i["code"].startswith("APHA_NOVICE_AMATEUR_EVENT")]
+
+
+# ── SC-215.E.3: the traditional symbol system ────────────────────────────────
+
+
+def test_the_symbol_system_bands_cover_the_rules_own_ranges():
+    bands = symbol_system_guidance("Working Hunter")
+    assert [(b["min_score"], b["max_score"]) for b in bands] == [
+        (90, 100), (80, 89), (70, 79), (60, 69), (50, 59), (30, 49), (10, 29)
+    ]
+
+
+def test_the_bands_deliberately_stop_at_ten():
+    """The rule's own shape, not a gap being papered over: below ten is an
+    elimination rather than a score, and inventing a band for it would put words
+    in APHA's mouth about where that line sits."""
+    lowest = symbol_system_guidance("Working Hunter")[-1]
+    assert lowest["min_score"] == 10
+    assert "avoids elimination" in lowest["description"]
+
+
+def test_seventy_is_average_and_the_scale_tops_at_a_hundred():
+    """SC-215.E.3.2 — "scoring shall be from 0-100 and 70 shall be considered
+    average", whichever system is used."""
+    assert (OVER_FENCES_SCORE_AVERAGE, OVER_FENCES_SCORE_MAX) == (70, 100)
+    average_band = next(
+        b for b in symbol_system_guidance("Working Hunter") if b["min_score"] == 70
+    )
+    assert "average" in average_band["description"]
+
+
+@pytest.mark.parametrize("discipline", [
+    "Equitation Over Fences", "Hunter Under Saddle", "Western Pleasure", None,
+])
+def test_the_symbol_system_is_scoped_to_working_hunter(discipline):
+    """SC-215's section heading was not supplied, so the scope is read from the
+    rule's own words — "style of jumping", "an even hunting pace". Equitation
+    Over Fences is AM-111.F, judges the rider, and is already modeled as a card."""
+    assert symbol_system_guidance(discipline) == []

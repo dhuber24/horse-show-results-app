@@ -108,6 +108,80 @@ registration screen — like `relationship_to_owner`. Both forms show the tickbo
 and disable the button until it is ticked, so neither posts an entry it already
 knows will 422.
 
+### Youth age divisions (YP-075)
+
+"Youth must show in the appropriate age division based on their age as of
+January 1 of the current year."
+
+**`youth_age()` is not `horse_calendar_age()`, and the difference is a year.**
+The horse helper subtracts calendar years because every horse has a January 1
+birthday. A person does not: somebody born in June 2008 is seventeen on 1 January
+2026 and turns eighteen that summer, so subtracting years would call them
+eighteen and refuse a youth entry the rule allows. The two are tested side by
+side on the same date for exactly that reason.
+
+The cap comes from `entries.apha_division`, which is stored data — and two of the
+four youth divisions state their range in the value itself:
+
+| Division | Cap |
+| --- | --- |
+| `YOUTH` | 18 |
+| `NOVICE_YOUTH` | 18 |
+| `YOUTH_WALK_TROT_11_18` | 18 |
+| `YOUTH_WALK_TROT_5_10` | 10 |
+
+A class bracket may tighten it — a Youth entry in a class run as 13 and Under is
+capped at thirteen — but **only ever tightens**. YP-075.A.1 says a 13 and Under
+exhibitor "may choose which division to compete on a per class basis", so a
+twelve-year-old in the 18 and Under class is the rule working, and a lower bound
+read off a bracket would refuse it. The bracket reaches the rules engine through
+`apha_brackets` on the shared context rather than `Class.division`, because that
+relationship is not eager-loaded at either entry door.
+
+An error, like SC-190.A.3.a: nothing at the show makes a nineteen-year-old
+eligible. It declines when there is no date of birth on file.
+
+**Three classes as 13 and Under.** A show offering a youth division must offer at
+least three (YP-075.A.1, A.2), and they may not be combined. That is a warning on
+the readiness panel, waived in **Zones 12, 13 and 14** — the same zone list the
+equitation class procedures carry. A show that has not stated its zone is told so
+in the finding, because it may well be exempt. The "may not be combined" half is
+not checked: combining is something management does on the day and the app holds
+no record of it.
+
+### Which events earn Novice Amateur points (AM-250)
+
+AM-250.A sorts the performance classes into twenty-five categories approved for
+Novice Amateur points and awards. The category is the unit that matters beyond
+this list: **AM-205 decides Novice Amateur status per category**, which is what
+makes the declaration in `entry_attestations` a claim about a category rather
+than about the exhibitor in general.
+
+**Every finding here is a warning, and that is the rule rather than caution.**
+AM-250 is about points and awards, not eligibility — a Novice Amateur may enter
+Longe Line, and what they will not do is earn anything for it. Refusing the entry
+would invent a restriction the rule does not impose, on the strength of a
+discipline the classifier assigned.
+
+Two findings: `APHA_NOVICE_AMATEUR_EVENT_NOT_APPROVED` quotes AM-250.A's own
+exception for the events it names outright — Open or Amateur Halter, Longe Line
+(All Ages), In-Hand Trail (All Ages) — and
+`APHA_NOVICE_AMATEUR_EVENT_UNCATEGORIZED` covers everything simply absent from
+the twenty-five.
+
+**Two categories are deliberately left out of the map.** XV (Working Ranch Horse)
+and XXI (Competitive Trail Horse) both carry "class no longer offered" footnotes,
+for points earned before May 2015 and January 2024. Listing them as currently
+approved would let a show award Novice Amateur points in a class APHA has
+retired, so a class of either name reads as not approved — which is right.
+
+**Timed Team Roping is named by the rule and not by the code.** The classifier's
+plain "Team Roping" cannot be told apart from the Heading and Heeling that
+Category VI *does* approve, so it falls through to the general message rather
+than being quoted at, and a class routed to Heading or Heeling keeps its
+category. Utility Driving (Category IV) has no discipline in the classifier at
+all and is therefore absent.
+
 ### Zones
 
 `shows.apha_zone` (1-14, migration 119). NULL means **not stated**, and nothing
@@ -308,6 +382,33 @@ full sheet with Form & Effectiveness and written comments, and not the
 traditional symbol system AM-111 permits as an alternative (SC-215.E.3, which
 has not been supplied). There is also no admin screen for editing the penalty
 catalog; the seed plus free-text penalties is what carries a show today.
+
+### The traditional symbol system (SC-215.E.3)
+
+"Horses shall be scored either by traditional symbol system or by breed numeric
+standard. In either case, scoring shall be from 0-100 and 70 shall be considered
+average."
+
+The app already had the numeric half — migration 122's judging systems build a
+score from per-fence marks. **The symbol system is not a second card shape.** The
+judge watches the round and picks a number inside a band; there are no maneuvers
+to add up and nothing for a card to total, so forcing it into `judging_systems`
+would mean inventing a maneuver range for a system that has none.
+
+So it is guidance rather than a system: seven score bands held in `rules/apha.py`
+with the zone notes and the category requirements, served by
+`GET /judging-systems/symbol-system` (optionally `?discipline=`). A class scored
+this way carries no judging system at all, which is what the app already does by
+default — what was missing was the guidance beside the score box.
+
+**The bands stop at ten.** That is the rule's own shape, not a gap: below ten is
+an elimination rather than a score, and inventing a band for it would put words
+in APHA's mouth about where that line sits.
+
+**Scoped to Working Hunter.** SC-215's section heading was not supplied, so the
+scope is read from the rule's own words — "manners, way of going and style of
+jumping", "an even hunting pace". Equitation Over Fences is AM-111.F, judges the
+rider rather than the horse, and is already modeled as a card.
 
 ### A tie is a question for the judge
 

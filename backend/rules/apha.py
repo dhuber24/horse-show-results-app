@@ -669,6 +669,220 @@ def results_window(show, as_of):
     }
 
 
+# ── YP-075: youth age divisions ──────────────────────────────────────────────
+#
+# "Youth must show in the appropriate age division based on their age as of
+# January 1 of the current year."
+#
+# The cap comes from the division the entry names, which is stored data rather
+# than inference: `entries.apha_division` already distinguishes YOUTH from
+# NOVICE_YOUTH and the two Walk-Trot bands, and two of those state their own age
+# range in the value.
+YOUTH_DIVISION_MAX_AGE = {
+    "YOUTH": 18,
+    "NOVICE_YOUTH": 18,
+    "YOUTH_WALK_TROT_11_18": 18,
+    "YOUTH_WALK_TROT_5_10": 10,
+}
+
+# YP-075.A.1 and A.2: a show offering a youth division must offer at least three
+# classes as 13 and Under, and those three may not be combined.
+MINIMUM_THIRTEEN_AND_UNDER_CLASSES = 3
+
+# The exception, which is the same zone list SC-185 and the equitation class
+# procedures already carry — see INDIVIDUAL_WORK_ZONES.
+THIRTEEN_AND_UNDER_EXEMPT_ZONES = frozenset({12, 13, 14})
+
+# "13 & Under", "13 and Under", "Youth 13 & Under". Only ever consulted for an
+# entry that already names a youth division, which is what makes it safe: a
+# horse-age bracket could not reach it, and "N & Under" is not a shape the horse
+# brackets use anyway ("Four Year & Older", "Junior Horse (5 & Younger)").
+_AGE_CAP_RE = re.compile(r"\b(\d{1,2})\s*(?:&|and)\s*under\b", re.IGNORECASE)
+
+
+def youth_age(exhibitor, show):
+    """The exhibitor's age on January 1 of the show's year (YP-075.A).
+
+    **Not the horse convention.** `horse_calendar_age` subtracts calendar years
+    because every horse has a January 1 birthday; a person does not, so somebody
+    born in June 2008 is seventeen on 1 January 2026 and turns eighteen that
+    summer. Subtracting years would call them eighteen and refuse a youth entry
+    the rule allows.
+
+    None when no date of birth is on file, which is how the check declines
+    rather than guessing at an age nobody recorded.
+    """
+    born = getattr(exhibitor, "date_of_birth", None)
+    show_date = getattr(show, "start_date", None) or date.today()
+    if born is None:
+        return None
+    # On January 1 the birthday has only come round for somebody born on
+    # January 1; everybody else is still a year younger.
+    had_birthday = (born.month, born.day) == (1, 1)
+    return max(0, show_date.year - born.year - (0 if had_birthday else 1))
+
+
+def bracket_age_cap(bracket_name):
+    """The age cap a class bracket states, or None. "13 & Under" gives 13."""
+    match = _AGE_CAP_RE.search(bracket_name or "")
+    return int(match.group(1)) if match else None
+
+
+def youth_age_cap(division, bracket_name):
+    """The tightest age cap that applies to a youth entry, or None.
+
+    The division supplies the base cap and the bracket may tighten it — a Youth
+    entry in a class run as 13 and Under is capped at thirteen, not eighteen.
+
+    **Only ever tightens.** YP-075.A.1 is explicit that "a 13 and Under exhibitor
+    may choose which division to compete on a per class basis", so a twelve-year-
+    old in the 18 and Under class is exactly what the rule permits, and a lower
+    bound read off a bracket would refuse it.
+    """
+    base = YOUTH_DIVISION_MAX_AGE.get(division)
+    if base is None:
+        return None
+    from_bracket = bracket_age_cap(bracket_name)
+    if from_bracket is None:
+        return base
+    return min(base, from_bracket)
+
+
+# ── AM-250: which events earn Novice Amateur points ──────────────────────────
+#
+# AM-250.A divides the performance classes into twenty-five categories approved
+# for Novice Amateur points and awards. The categories matter beyond this list:
+# AM-205 decides Novice Amateur status **per category**, which is why the
+# declaration `_check_novice_eligibility` records is about a category rather than
+# about the exhibitor in general.
+#
+# Written as `rules/disciplines.py` names things, like every other event list
+# here. Two categories are deliberately absent: XV (Working Ranch Horse, points
+# earned prior to 15 May 2015) and XXI (Competitive Trail Horse, prior to
+# 1 January 2024) are both marked "class no longer offered", so listing them as
+# currently approved would let a show award points in a class APHA has retired.
+# A class of either name therefore reads as not approved, which is right.
+#
+# AM-250.A also names four events not approved at all — Open or Amateur Halter,
+# Longe Line (All Ages), In-Hand Trail (All Ages), and Timed Team Roping.
+NOVICE_AMATEUR_CATEGORIES = {
+    "Barrel Racing": "I",
+    "Goat Tying": "I",
+    "Pole Bending": "I",
+    "Stake Race": "I",
+    "Western Riding": "II",
+    "Jumping": "III",
+    "Working Hunter": "III",
+    "Pleasure Driving": "IV",
+    "Showmanship": "V",
+    "Breakaway Roping": "VI",
+    "Tie-Down Roping": "VI",
+    "Team Roping — Heading": "VI",
+    "Team Roping — Heeling": "VI",
+    "Steer Stopping": "VI",
+    "Western Pleasure": "VII",
+    "Hunter Under Saddle": "VIII",
+    "Western Horsemanship": "IX",
+    "Hunt Seat Equitation": "X",
+    "Trail": "XI",
+    "Team Penning": "XII",
+    "Ranch Sorting": "XII",
+    "Hunter Hack": "XIII",
+    "Reining": "XIV",
+    "Ranch Reining": "XIV",
+    "Cutting": "XVI",
+    "Ranch Cutting": "XVI",
+    "Equitation Over Fences": "XVII",
+    "Mounted Shooting": "XVIII",
+    "Dressage": "XIX",
+    "Ranch Boxing": "XX",
+    "Ranch Riding": "XXII",
+    "Ranch Pleasure": "XXIII",
+    "Ranch Rail Pleasure": "XXIII",
+    "Ranch Trail": "XXIV",
+    "Calas": "XXV",
+    "Colas": "XXV",
+}
+
+# The four AM-250.A names outright, so the finding can quote the rule at them
+# rather than saying only "not on the approved list". Halter is handled by the
+# same substring test `_is_halter` uses, since every halter discipline is one.
+#
+# Timed Team Roping is **not** here. The classifier's plain "Team Roping" cannot
+# be told apart from the Heading and Heeling that Category VI does approve, so it
+# falls through to the general not-approved message rather than being named — and
+# a class actually routed to Heading or Heeling keeps its category.
+NOVICE_AMATEUR_EXCLUDED_DISCIPLINES = {
+    "Longe Line": "Longe Line (All Ages)",
+    "In-Hand Trail": "In-Hand Trail (All Ages)",
+}
+
+
+def novice_amateur_category(discipline):
+    """The AM-250.A category this event earns Novice Amateur points in, or None."""
+    return NOVICE_AMATEUR_CATEGORIES.get(discipline)
+
+
+# ── SC-215.E.3: the traditional symbol system ────────────────────────────────
+#
+# "Horses shall be scored either by traditional symbol system or by breed numeric
+# standard. In either case, scoring shall be from 0-100 and 70 shall be
+# considered average."
+#
+# The app already has the numeric half: migration 122's judging systems build a
+# score from per-fence marks. **The symbol system is not a second card shape.**
+# The judge watches the round and picks a number inside a band; there are no
+# maneuvers to add up and nothing to total. Forcing it into `judging_systems`
+# would mean inventing a maneuver range for a system that has none.
+#
+# So it is guidance — reference text beside the score box — and it lives here
+# with the other rule text the app carries but cannot derive, next to the zone
+# notes and the category requirements. A class scored this way simply carries no
+# judging system, which is what the app already does by default.
+#
+# Scoped to Working Hunter. SC-215's section heading was not supplied, and the
+# rule's own words — "manners, way of going and style of jumping", "an even
+# hunting pace" — describe that class. Equitation Over Fences is AM-111.F and
+# judges the rider, which is a different rule and already modeled.
+OVER_FENCES_SCORE_MAX = 100
+OVER_FENCES_SCORE_AVERAGE = 70
+SYMBOL_SYSTEM_DISCIPLINES = frozenset({"Working Hunter"})
+
+SYMBOL_SYSTEM_BANDS = [
+    (90, 100, "An excellent performer and good mover that jumps the entire course "
+              "with cadence, balance and style."),
+    (80, 89, "A good performer that jumps all fences reasonably well; an excellent "
+             "performer that commits one or two minor faults."),
+    (70, 79, "The average, fair mover that makes no serious faults but lacks the "
+             "style, cadence and balance of the scopier horses; the good performer "
+             "that makes a few minor faults."),
+    (60, 69, "Poor movers that make minor mistakes — cross canter; fair or average "
+             "movers that have one or two poor fences but no major faults or "
+             "disobediences."),
+    (50, 59, "A horse that commits one major fault: refusal, trot, or drops a leg."),
+    (30, 49, "A horse that commits two or more major faults, including front or "
+             "hind knock downs and refusals, or jumps in a manner that otherwise "
+             "endangers the horse and/or rider."),
+    (10, 29, "A horse that avoids elimination but jumps in such an unsafe and "
+             "dangerous manner as to preclude a higher score."),
+]
+
+
+def symbol_system_guidance(discipline):
+    """SC-215.E.3's score bands for a discipline scored that way, or [].
+
+    The bands do not cover 0-9. That is the rule's own shape, not a gap being
+    papered over: below ten is an elimination rather than a score, and inventing
+    a band for it would put words in APHA's mouth about where that line sits.
+    """
+    if discipline not in SYMBOL_SYSTEM_DISCIPLINES:
+        return []
+    return [
+        {"min_score": low, "max_score": high, "description": text}
+        for low, high, text in SYMBOL_SYSTEM_BANDS
+    ]
+
+
 class APHARules(DefaultRules):
     code = "APHA"
 
@@ -718,6 +932,7 @@ class APHARules(DefaultRules):
             issues.extend(self._check_application_window(show, as_of))
 
         issues.extend(self._check_show_category(show))
+        issues.extend(self._check_youth_thirteen_and_under(show, classes))
         issues.extend(self._check_results_deadline(show, as_of))
         issues.extend(self._check_class_list(show, classes, as_of))
         issues.extend(self._check_show_minimums(show, classes, context))
@@ -787,6 +1002,83 @@ class APHARules(DefaultRules):
             f"Show results were due {window['due']}, {overdue} day"
             f"{'' if overdue == 1 else 's'} ago, and a late fee is assessed past "
             "ten calendar days from the last day of the show (SC-125.A).",
+        )]
+
+    def _check_youth_age(self, entry, show, cls, context, division):
+        """YP-075.A — a youth exhibitor shows in the division their age allows.
+
+        The cap is read off the division the entry names, tightened by the class
+        bracket where that states one. An error, for the reason SC-190.A.3.a is:
+        a nineteen-year-old cannot be made eligible by anything at the show, and
+        results filed on the entry are what APHA refuses.
+
+        Only ever an upper bound. YP-075.A.1 says a 13 and Under exhibitor "may
+        choose which division to compete on a per class basis", so a twelve-year-
+        old in the 18 and Under class is the rule working, not a violation.
+        """
+        cap = youth_age_cap(
+            division,
+            (context.get("apha_brackets") or {}).get(getattr(cls, "id", None)),
+        )
+        if cap is None:
+            return []
+
+        exhibitor = getattr(entry, "exhibitor", None)
+        age = youth_age(exhibitor, show)
+        if age is None or age <= cap:
+            return []
+
+        return [self._issue(
+            "error",
+            "APHA_YOUTH_TOO_OLD",
+            f"{getattr(exhibitor, 'full_name', None) or 'This exhibitor'} was {age} "
+            f"on 1 January of the show's year, and "
+            f"{DIVISION_LABELS.get(division, division)} here is limited to {cap} "
+            "and under (APHA YP-075.A).",
+            class_id=getattr(cls, "id", None),
+            exhibitor_id=getattr(exhibitor, "id", None),
+        )]
+
+    def _check_youth_thirteen_and_under(self, show, classes):
+        """YP-075.A.1 and A.2 — three classes offered as 13 and Under.
+
+        Required whether the show runs one youth age division or two, and waived
+        in Zones 12, 13 and 14 — the same zone list the equitation class
+        procedures carry.
+
+        Counts any bracket stating a cap of thirteen rather than only those that
+        also say "Youth", because "13 & Under" is a bracket name a real schedule
+        uses on its own and a horse bracket never takes that shape. The show is
+        treated as offering youth only when a bracket says so, so a schedule with
+        no youth at all is not asked for youth classes.
+
+        The rule also says those three classes may not be combined. Combining is
+        something show management does on the day and the app has no record of
+        it, so that half is not checked.
+        """
+        brackets = [
+            getattr(getattr(cls, "division", None), "name", None) or "" for cls in classes or []
+        ]
+        if not any("youth" in name.lower() for name in brackets):
+            return []
+
+        zone = getattr(show, "apha_zone", None)
+        if zone in THIRTEEN_AND_UNDER_EXEMPT_ZONES:
+            return []
+
+        offered = sum(1 for name in brackets if bracket_age_cap(name) == 13)
+        if offered >= MINIMUM_THIRTEEN_AND_UNDER_CLASSES:
+            return []
+
+        return [self._issue(
+            "warning",
+            "APHA_YOUTH_13_AND_UNDER_SHORT",
+            f"A show offering a youth division must offer at least "
+            f"{MINIMUM_THIRTEEN_AND_UNDER_CLASSES} classes as 13 and Under, and "
+            f"they may not be combined (APHA YP-075.A). {offered} "
+            f"{'is' if offered == 1 else 'are'} on the schedule."
+            + ("" if zone else " Zones 12, 13 and 14 are exempt; this show has not"
+                             " stated its zone."),
         )]
 
     def _check_show_category(self, show):
@@ -1045,7 +1337,9 @@ class APHARules(DefaultRules):
 
         issues.extend(self._check_solid_paint_bred(entry, cls, division))
         issues.extend(self._check_relationship_to_owner(entry, cls, division))
+        issues.extend(self._check_youth_age(entry, show, cls, context, division))
         issues.extend(self._check_novice_eligibility(entry, cls, division))
+        issues.extend(self._check_novice_amateur_event(entry, cls, context, division))
         issues.extend(self._check_walk_trot_shared_horse(entry, cls, context, division))
         return issues
 
@@ -1235,6 +1529,48 @@ class APHARules(DefaultRules):
             "the exhibitor's relationship to the horse's owner.",
             class_id=getattr(cls, "id", None),
         )]
+
+    def _check_novice_amateur_event(self, entry, cls, context, division):
+        """AM-250.A — which events earn Novice Amateur points and awards.
+
+        **A warning, and never an error.** AM-250 is about points and awards, not
+        about eligibility: a Novice Amateur may enter Longe Line, and what they
+        will not do is earn anything for it. Refusing the entry would invent a
+        restriction the rule does not impose, on the strength of a discipline the
+        classifier assigned.
+
+        Silent when the context carries no discipline map — every non-APHA show,
+        and the same out the SC-185.F caps take.
+        """
+        if division != "NOVICE_AMATEUR":
+            return []
+        discipline = self._discipline_of(context, getattr(cls, "id", None))
+        if discipline is None:
+            return []
+
+        halter = "halter" in discipline.lower()
+        named = NOVICE_AMATEUR_EXCLUDED_DISCIPLINES.get(discipline)
+        if halter or named:
+            what = "Halter events" if halter else named
+            return [self._issue(
+                "warning",
+                "APHA_NOVICE_AMATEUR_EVENT_NOT_APPROVED",
+                f"{what} are not approved for Novice Amateurs (APHA AM-250.A), so "
+                "this entry earns no Novice Amateur points or awards. The entry "
+                "itself is allowed.",
+                class_id=getattr(cls, "id", None),
+            )]
+
+        if novice_amateur_category(discipline) is None:
+            return [self._issue(
+                "warning",
+                "APHA_NOVICE_AMATEUR_EVENT_UNCATEGORIZED",
+                f"{discipline} is not one of AM-250.A's approved Novice Amateur "
+                "categories, so this entry earns no Novice Amateur points or "
+                "awards. The entry itself is allowed.",
+                class_id=getattr(cls, "id", None),
+            )]
+        return []
 
     def _check_novice_eligibility(self, entry, cls, division):
         """AM-205, YP-255.A.1 — the Novice divisions need a declaration.
