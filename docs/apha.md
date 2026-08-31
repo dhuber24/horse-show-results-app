@@ -256,6 +256,59 @@ did not rank it last), and a non-ranked outcome earns nothing in side pot
 standings or futurity Hi-Point. Every pre-121 row backfilled to `placed`, so no
 existing standing moved.
 
+### The judge's card
+
+The app took a *total* — the number somebody worked out on paper and keyed in.
+A real card is a base score, a run of maneuver or fence scores, and penalties
+off the top. Migration 122 holds the card and does the sum.
+
+**There is no single card shape**, which is why this is a catalog rather than a
+table with fixed columns. The rules supplied contain three incompatible systems:
+
+| System | Marked | Penalties |
+| --- | --- | --- |
+| Equitation / Horsemanship on the flat | maneuvers −3 to +3, half points | fixed 3 / 5 / 10 |
+| Equitation Over Fences (AM-111.F) | each fence −1.5 to +1.5, 0–100 scale | ~35 named, a third of them ranges |
+| Cow work / Boxing (SC-265.E) | maneuvers −3 to +3 | 1 / 3 / 5, with letter codes |
+
+`judging_systems` declares the scale, `judging_penalties` the catalog, and
+`classes.judging_system_id` says which card a class is marked on — set at
+`/admin/shows/[id]/classes/judging`. A class with none scores exactly as it did
+before, with the scribe typing a total, which is also how every rail class works.
+
+**What is seeded and what is not.** The scales and the penalty *tiers* are in the
+rule text and are seeded. The base score of 70 is the app's default rather than a
+citation, and each system's `notes` says so on screen. AM-111.F's table of
+roughly thirty-five named penalties is **not** loaded — about a third are ranges
+the judge chooses within, and inventing the labels under APHA's name would be
+worse than an empty list. `card_penalties.label` is free text beside the optional
+catalog pointer, so a scribe records what the judge actually called.
+
+**Three structural decisions:**
+
+- **`judge_cards` is keyed on `(class, entry, judge)`, not on a `results` row.**
+  `bulk_save_results` is a delete-all-then-insert-all within one judge's card and
+  the scribe screens autosave on a settle, so anything hanging off `results.id`
+  by foreign key would be destroyed every time somebody typed.
+- **The card does not write `results`.** `save_card` returns `effective_score`
+  and the scribe screen carries it into the ordinary autosave. Two writers over
+  one number, one of which deletes and reinserts, is how a score goes missing.
+- **The computed figure is editable, and the override is audited.** A card the
+  app refuses to add up is a scan with extra steps; a card held next to a
+  separately typed total is two numbers that will disagree. So it computes, and
+  `judge_cards.override_score` lets a human overrule it into `result_audit`.
+
+This is the change that amends CLAUDE.md's *"does not calculate penalties"* line.
+The boundary that has not moved: the app does not judge, does not decide what a
+maneuver is worth, and does not decide which penalty applies.
+
+Still open, and not papered over: `results.raw_score` remains one number per
+entry per judge. What a card gives is the working behind it — not the judge's
+full sheet with Form & Effectiveness and written comments, and not the
+traditional symbol system AM-111 permits as an alternative (SC-215.E.3, which
+has not been supplied). There is also no admin screen for editing the penalty
+catalog; the seed plus free-text penalties is what carries a show today.
+
 ### A tie is a question for the judge
 
 AM-115.B.2 and every pattern class procedure say the same thing: equal scores

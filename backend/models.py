@@ -363,6 +363,12 @@ class Class(Base):
     # with the board exhibitors actually walked, and somebody would ride this one.
     pattern_posted_at = Column(TIMESTAMP(timezone=True), nullable=True)
     pattern_notes = Column(Text, nullable=True)
+    # Which card shape this class is judged on (migration 122). NULL means the
+    # scribe types a total, which is how every class worked before this and how
+    # a rail class still works.
+    judging_system_id = Column(
+        UUID(as_uuid=True), ForeignKey("judging_systems.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -1107,6 +1113,171 @@ class EntryAttestation(Base):
     entry = relationship("Entry", back_populates="attestations")
 
 
+class JudgingSystem(Base):
+    """How a judge's card is marked (migration 122).
+
+    There is no single card shape. Equitation on the flat scores maneuvers -3 to
+    +3 in half points against fixed 3/5/10 penalty tiers; Equitation Over Fences
+    (AM-111.F) scores each fence -1.5 to +1.5 on a 0-100 scale; cow work
+    (SC-265.E) uses 1/3/5 penalties with letter codes. So the scale is declared
+    here and the sheet is built from whichever applies.
+
+    `show_type_id` NULL means generic — usable at any show. It points at
+    `show_types` rather than `associations` for the same reason
+    `association_standard_classes` does: how a class is scored is the breed
+    body's catalog question, not a property of a horse or a person.
+    """
+    __tablename__ = "judging_systems"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_type_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_types.id", ondelete="CASCADE"), nullable=True
+    )
+    code = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    # NULL means the total is the sum of the maneuvers alone.
+    base_score = Column(Numeric(10, 3), nullable=True)
+    maneuver_min = Column(Numeric(10, 3), nullable=False)
+    maneuver_max = Column(Numeric(10, 3), nullable=False)
+    maneuver_step = Column(Numeric(10, 3), nullable=False)
+    unit_label = Column(Text, nullable=False)
+    # NULL means the class decides — a trail pattern has as many obstacles as
+    # the judge built.
+    unit_count = Column(Integer, nullable=True)
+    score_max = Column(Numeric(10, 3), nullable=True)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default="true", default=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    penalties = relationship(
+        "JudgingPenalty",
+        back_populates="system",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="JudgingPenalty.sort_order",
+    )
+
+
+class JudgingPenalty(Base):
+    """One named penalty a system recognises.
+
+    Either a fixed `value`, or a `min_value`/`max_value` range the judge chooses
+    within — about a third of AM-111.F's table is the second kind. The catalog
+    is a convenience rather than the vocabulary: `CardPenalty.label` is free text
+    so a scribe can always record what the judge called.
+    """
+    __tablename__ = "judging_penalties"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    system_id = Column(
+        UUID(as_uuid=True), ForeignKey("judging_systems.id", ondelete="CASCADE"), nullable=False
+    )
+    code = Column(Text, nullable=True)
+    label = Column(Text, nullable=False)
+    value = Column(Numeric(10, 3), nullable=True)
+    min_value = Column(Numeric(10, 3), nullable=True)
+    max_value = Column(Numeric(10, 3), nullable=True)
+    applies_to = Column(Text, nullable=False, server_default="run", default="run")
+    sort_order = Column(Integer, nullable=False, server_default="0", default=0)
+    is_active = Column(Boolean, nullable=False, server_default="true", default=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(value IS NOT NULL AND min_value IS NULL AND max_value IS NULL)"
+            " OR (value IS NULL AND min_value IS NOT NULL AND max_value IS NOT NULL)",
+            name="ck_judging_penalties_shape",
+        ),
+        CheckConstraint(
+            "applies_to IN ('run','maneuver')", name="ck_judging_penalties_applies_to"
+        ),
+    )
+
+    system = relationship("JudgingSystem", back_populates="penalties")
+
+
+class JudgeCard(Base):
+    """One worksheet: this entry, this class, this judge (migration 122).
+
+    **Keyed on (class, entry, judge) rather than on a `results` row.**
+    `bulk_save_results` is a delete-all-then-insert-all within one judge's card
+    and the scribe screens autosave on a settle, so anything hanging off
+    `results.id` by foreign key would be destroyed every time somebody typed.
+
+    The card computes and the result records: `computed_score` comes from
+    `backend/judging.py`, `override_score` is a human disagreeing with the
+    arithmetic, and the effective figure reaches `results.raw_score` through the
+    ordinary save path so `results` keeps exactly one writer.
+    """
+    __tablename__ = "judge_cards"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=False)
+    judge_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="CASCADE"), nullable=True
+    )
+    system_id = Column(
+        UUID(as_uuid=True), ForeignKey("judging_systems.id", ondelete="SET NULL"), nullable=True
+    )
+    computed_score = Column(Numeric(10, 3), nullable=True)
+    override_score = Column(Numeric(10, 3), nullable=True)
+    override_reason = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Uniqueness is (class, entry, judge) and lives in two partial indexes in
+    # migration 122 — NULLs are distinct in a plain unique index, so the
+    # unattributed card would accept duplicates. Same shape as migration 095.
+    system = relationship("JudgingSystem", lazy="selectin")
+    maneuvers = relationship(
+        "CardManeuver",
+        back_populates="card",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="CardManeuver.sequence",
+    )
+    penalties = relationship(
+        "CardPenalty",
+        back_populates="card",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class CardManeuver(Base):
+    __tablename__ = "card_maneuvers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    card_id = Column(UUID(as_uuid=True), ForeignKey("judge_cards.id", ondelete="CASCADE"), nullable=False)
+    sequence = Column(Integer, nullable=False)
+    # NULL is a maneuver the judge has not marked yet, which is not a zero.
+    score = Column(Numeric(10, 3), nullable=True)
+    label = Column(Text, nullable=True)
+
+    __table_args__ = (CheckConstraint("sequence > 0", name="ck_card_maneuvers_sequence"),)
+
+    card = relationship("JudgeCard", back_populates="maneuvers")
+
+
+class CardPenalty(Base):
+    __tablename__ = "card_penalties"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    card_id = Column(UUID(as_uuid=True), ForeignKey("judge_cards.id", ondelete="CASCADE"), nullable=False)
+    # Optional on purpose — a penalty the judge called that nobody has loaded is
+    # still a penalty, and refusing it would send the scribe looking for the
+    # nearest wrong answer.
+    penalty_id = Column(
+        UUID(as_uuid=True), ForeignKey("judging_penalties.id", ondelete="SET NULL"), nullable=True
+    )
+    label = Column(Text, nullable=False)
+    value = Column(Numeric(10, 3), nullable=False)
+    # Which maneuver or fence it happened on. NULL means the run as a whole.
+    sequence = Column(Integer, nullable=True)
+
+    card = relationship("JudgeCard", back_populates="penalties")
+
+
 class ResultAudit(Base):
     __tablename__ = "result_audit"
 
@@ -1115,6 +1286,11 @@ class ResultAudit(Base):
     changed_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     old_place = Column(Integer)
     new_place = Column(Integer)
+    # Score corrections alongside the placing corrections (migration 122). An
+    # override of the card's arithmetic is exactly the kind of editorial
+    # decision this table exists for.
+    old_score = Column(Numeric(10, 3), nullable=True)
+    new_score = Column(Numeric(10, 3), nullable=True)
     changed_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     result = relationship("Result", back_populates="audits")

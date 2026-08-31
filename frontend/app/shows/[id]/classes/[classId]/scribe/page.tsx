@@ -7,9 +7,39 @@ import {
   fetchExhibitor,
   fetchShowJudgesPublic,
 } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import ScribeForm from './ScribeForm';
 import ScoredScribeForm from './ScoredScribeForm';
+
+/**
+ * The card shape this class is judged on, and whatever has been marked on it.
+ *
+ * Both are optional in every sense: a class with no `judging_system_id` scores
+ * the way it always did, with the scribe typing a total. Failures here are
+ * swallowed for the same reason — a catalog that will not load must not take the
+ * scribe screen down with it in the middle of a class.
+ */
+async function loadCards(showId: string, classId: string, systemId: string | null) {
+  if (!systemId) return { system: null, cards: [] };
+  const headers = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
+  try {
+    const [systemsRes, cardsRes] = await Promise.all([
+      fetch(`${API_URL}/judging-systems/`, { headers, cache: 'no-store' }),
+      fetch(`${API_URL}/shows/${showId}/classes/${classId}/cards`, {
+        headers: { ...headers, 'X-User-Role': 'ADMIN' },
+        cache: 'no-store',
+      }),
+    ]);
+    const systems = systemsRes.ok ? await readJsonBody(systemsRes) : [];
+    const cards = cardsRes.ok ? await readJsonBody(cardsRes) : [];
+    return {
+      system: (systems ?? []).find((s: any) => s.id === systemId) ?? null,
+      cards: cards ?? [],
+    };
+  } catch {
+    return { system: null, cards: [] };
+  }
+}
 
 export default async function ScribePage({ params }: { params: Promise<{ id: string; classId: string }> }) {
   const { id, classId } = await params;
@@ -25,6 +55,11 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
   ]);
 
   const cls = classes.find((c: any) => c.id === classId);
+  const { system: judgingSystem, cards } = await loadCards(
+    id,
+    classId,
+    cls?.judging_system_id ?? null,
+  );
 
   const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const enriched = await Promise.all(
@@ -66,6 +101,8 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
           results={results}
           judges={judges}
           resultsPublishedAt={cls.results_published_at ?? null}
+          judgingSystem={judgingSystem}
+          cards={cards}
         />
       ) : (
         <ScribeForm

@@ -8,6 +8,10 @@ import JudgeTabs from './JudgeTabs';
 import { useAutosave } from './useAutosave';
 import { buildCards, groupByCard, type ShowJudge } from './judges';
 import { RESULT_OUTCOMES, isRanked, type ResultOutcome } from '@/lib/result-outcomes';
+import JudgeCardPanel, {
+  type JudgeCard,
+  type JudgingSystem,
+} from './JudgeCardPanel';
 
 type ScoreType = 'pattern' | 'time';
 
@@ -45,6 +49,16 @@ interface Props {
   results: Result[];
   judges: ShowJudge[];
   resultsPublishedAt: string | null;
+  /** The card shape this class is judged on (migration 122). Null means the
+   *  scribe types a total, which is how every class worked before this. */
+  judgingSystem?: JudgingSystem | null;
+  cards?: JudgeCard[];
+}
+
+/** Cards are held per (card, entry) for the same reason scores are: each judge
+ *  marks the same run on their own sheet. */
+function cardKeyFor(cardKey: string, entryId: string) {
+  return `${cardKey}|${entryId}`;
 }
 
 const LABELS = {
@@ -152,6 +166,8 @@ export default function ScoredScribeForm({
   results,
   judges,
   resultsPublishedAt,
+  judgingSystem = null,
+  cards: filedCards = [],
 }: Props) {
   const labels = LABELS[scoreType];
   // Offer the unassigned card only when something is actually filed against it,
@@ -203,6 +219,17 @@ export default function ScoredScribeForm({
     );
   });
   const [activeKey, setActiveKey] = useState(cards[0].key);
+  // Judge cards, keyed the same way the score sheets are. Seeded from what has
+  // been filed so reopening the screen shows the worksheet, not a blank one.
+  const [cardsByEntry, setCardsByEntry] = useState<Record<string, JudgeCard>>(() =>
+    Object.fromEntries(
+      filedCards.map((c) => [
+        cardKeyFor(c.judge_id ?? 'unattributed', c.entry_id),
+        c,
+      ]),
+    ),
+  );
+  const [openCardFor, setOpenCardFor] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(resultsPublishedAt);
   const [confirmClear, setConfirmClear] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -326,6 +353,24 @@ export default function ScoredScribeForm({
 
   const selectedEntry = selectedIndex !== null ? activeEntries[selectedIndex] : null;
 
+  const cardFor = (entryId: string) =>
+    cardsByEntry[cardKeyFor(activeCard.judgeId ?? 'unattributed', entryId)] ?? null;
+
+  /** A saved card's score goes onto the sheet, and the ordinary autosave carries
+   *  it to `results` — the card deliberately does not write there itself. */
+  const acceptCard = (entryId: string, saved: JudgeCard) => {
+    setCardsByEntry((prev) => ({
+      ...prev,
+      [cardKeyFor(activeCard.judgeId ?? 'unattributed', entryId)]: saved,
+    }));
+    setCell(entryId, {
+      score: saved.effective_score == null ? '' : String(saved.effective_score),
+    });
+    setOpenCardFor(null);
+  };
+
+  const openEntry = openCardFor ? activeEntries.find((e) => e.id === openCardFor) : null;
+
   // The pad is docked over the bottom of the page, so the row being scored can
   // end up behind it — especially when "Next horse" walks down the list.
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
@@ -388,8 +433,24 @@ export default function ScoredScribeForm({
       />
 
       <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
-        {labels.helper}
+        {judgingSystem
+          ? `Scored on the ${judgingSystem.name} card. Open a card to mark the ${judgingSystem.unit_label.toLowerCase()}s and penalties; the total comes back onto this sheet.`
+          : labels.helper}
       </p>
+
+      {judgingSystem && openEntry && (
+        <JudgeCardPanel
+          showId={showId}
+          classId={classId}
+          entryId={openEntry.id}
+          judgeId={activeCard.judgeId}
+          subject={`${openEntry.back_number ?? '—'} · ${openEntry.exhibitorName} · ${openEntry.horseName}`}
+          system={judgingSystem}
+          card={cardFor(openEntry.id)}
+          onSaved={(saved) => acceptCard(openEntry.id, saved)}
+          onClose={() => setOpenCardFor(null)}
+        />
+      )}
 
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm" style={{ color: '#8b7355' }}>
@@ -491,6 +552,32 @@ export default function ScoredScribeForm({
                   {entry.horseName}
                 </td>
                 <td className="py-4 pr-4">
+                  {judgingSystem ? (
+                    // The total is the card's output, so it is not typed here.
+                    // Typing it would be a second answer to a question the card
+                    // has already answered, and the two would drift.
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenCardFor(entry.id);
+                      }}
+                      disabled={cell.outcome !== 'placed'}
+                      title={
+                        cell.outcome !== 'placed'
+                          ? 'This entry was not scored — clear the result to mark a card.'
+                          : 'Open this judge’s card'
+                      }
+                      className="w-28 min-h-[44px] border rounded-lg px-2 text-center text-lg disabled:opacity-40"
+                      style={{
+                        borderColor: isSelected ? '#8b4513' : '#d4b896',
+                        backgroundColor: '#fffdf9',
+                        color: cell.score === '' ? '#bbb' : '#2c1810',
+                      }}
+                    >
+                      {cell.score === '' ? 'Card' : cell.score}
+                    </button>
+                  ) : (
                   <input
                     type="number"
                     step={scoreType === 'time' ? '0.001' : '0.01'}
@@ -512,6 +599,7 @@ export default function ScoredScribeForm({
                     }}
                     placeholder={labels.placeholder}
                   />
+                  )}
                 </td>
                 <td className="py-4 pr-4">
                   {/* What happened, where a blank score cannot say. Before
@@ -625,6 +713,9 @@ export default function ScoredScribeForm({
         </tbody>
       </table>
 
+      {/* The pad types a total. With a judging system that number is the card's
+          output, so there is nothing here for it to type. */}
+      {!judgingSystem && (
       <TouchScorePad
         mode={scoreType}
         subject={
@@ -641,6 +732,7 @@ export default function ScoredScribeForm({
         }
         onClose={() => setSelectedIndex(null)}
       />
+      )}
     </div>
   );
 }

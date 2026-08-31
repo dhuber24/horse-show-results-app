@@ -98,6 +98,11 @@ export default async function ShowClassesPage({
       [],
     ),
   ]);
+  // Only pattern and timed classes are marked on a card — a rail class is
+  // placed, not scored, and has nothing for a judge to write on.
+  const scoredCount = (classes as { score_type?: string }[]).filter(
+    (c) => c.score_type === 'pattern' || c.score_type === 'time',
+  ).length;
   const standardLibrary = await fetchStandardLibrary(
     showTypes,
     show.show_type_id,
@@ -131,6 +136,26 @@ export default async function ShowClassesPage({
             style={{ color: '#8b4513' }}
           >
             Sanctioned Classes →
+          </Link>
+        </div>
+      )}
+
+      {scoredCount > 0 && (
+        <div
+          className="rounded border p-3 mb-4 text-sm flex items-center justify-between gap-3 flex-wrap"
+          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
+        >
+          <span>
+            {scoredCount} scored class{scoredCount === 1 ? '' : 'es'} — say which
+            card each is marked on and the scribe records the maneuvers and
+            penalties the judge calls instead of a worked-out total.
+          </span>
+          <Link
+            href={`/admin/shows/${id}/classes/judging`}
+            className="underline whitespace-nowrap"
+            style={{ color: '#8b4513' }}
+          >
+            Judging Cards →
           </Link>
         </div>
       )}

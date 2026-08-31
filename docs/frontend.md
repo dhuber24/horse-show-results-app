@@ -71,7 +71,7 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/shows/[id]/my-bill` | One show's itemized bill for the signed-in exhibitor — class lines with horse names, reservations, office charge, total. Reads `GET /my-shows/` via `loadMyShowBill()` and picks this show out of it, so the number is byte-for-byte the one on My Shows. The headline is the shared `DueAtShow`, the same component Show Details puts above the link down to here |
 | `/shows/[id]` | **Signed out:** event details plus two actions — *Register for this show* and *Contact show staff*. No class schedule; someone deciding whether to enter does not need a wall of class numbers. **Signed in and unable to score:** `ExhibitorShowHub` — `ExhibitorStatusBanner` over tiles, ordered about-me first: Sign Up / My Registration, **What I Owe** (only with a standing at this show, and not gated on registration being open — the bill outlives it), then Class Schedule, Show Details (which now carries the show bill inline), Results, and Message the Show Office. **ADMIN / SCRIBE:** the class list, because for them each row is a link into a scribe screen. The "Read-only — results can only be entered when the show is Active" banner is shown **only** to ADMIN / SCRIBE; an exhibitor or spectator reading the class schedule has no scoring screen to be locked out of |
 | `/shows/[id]/classes/[classId]` | Public class results |
-| `/shows/[id]/classes/[classId]/scribe` | Scribe placing form |
+| `/shows/[id]/classes/[classId]/scribe` | Scribe placing form. A scored class whose `judging_system_id` is set opens a judge's card per entry rather than taking a typed total |
 | `/shows/[id]/contact` | Contact form for the show office. No account needed — but a signed-in sender gets their name and email prefilled, is told the office will see who they are, and has the message stamped with their identity server-side |
 | `/admin/shows/[id]/messages` | Show staff inbox for those messages (read / archive / reply by mailto) |
 | `/shows/[id]/signup` | Exhibitor show sign-up — stalls, shavings, camping, via the shared `ReservationFields`. Required before class registration; forwards on to `/register` when saved. Once signed up, also carries `WaiverSignatures` — the entry blank and releases, read and signed here. The same editor is folded into `/register`, so this route is the door people are pointed at rather than the only way in |
@@ -138,6 +138,7 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/admin/shows/[id]/edit` | **Setup Step 1** — show details plus `ShowStaffPanel`: managers, secretaries, scribes, gate stewards. Who runs the show is set beside its name and dates, not on a screen of its own |
 | `/admin/shows/[id]/staff` | Redirects to `/edit` |
 | `/admin/shows/[id]/classes` | **Setup Step 6** — class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import. Renders inside `StepLayout`; the route is unchanged so per-class deep links still work |
+| `/admin/shows/[id]/classes/judging` | **Judging Cards** — which card each scored class is marked on, and what each card asks the judge for. Its own screen for the same reason Sanctioned Classes is: the wizard builds the schedule a cell at a time, and this is a per-class designation made once the schedule exists. Only `pattern` and `time` classes appear — a rail class is placed, not scored |
 | `/admin/shows/[id]/desk` | **Registration Desk** — one screen, one exhibitor at a time: back number, class entries, side pot buy-ins, paperwork check-in, and their running balance. Second tab is the by-class program listing, where an expanded class can be filled without leaving the screen. Replaces `/entries`, `/check-in`, and `/back-numbers`, which all redirect here |
 | `/admin/shows/[id]/entries` | Redirects to `/desk` |
 | `/admin/shows/[id]/check-in` | Redirects to `/desk` |
@@ -245,6 +246,30 @@ The scribe page at `/shows/[id]/classes/[classId]/scribe` renders one of two for
 - `pattern` or `time` -> `ScoredScribeForm.tsx` - numeric score/time input with placings derived live (highest score for `pattern`, lowest time for `time`).
 
 Both forms save via the same `PUT /api/results` route handler; the backend recomputes derived placings server-side for pattern/time classes, ranking within each judge's card. Both also carry a per-judge card selector — see [Per-Judge Placings](#per-judge-placings).
+
+### The Result Column
+
+Both forms carry a **Result** select per row (migration 121): Placed, Zero score, No score, Disqualified, Eliminated. A blank score used to have to stand for all five, and a blank is also what a horse the scribe has not reached yet looks like.
+
+The vocabulary lives in `frontend/lib/result-outcomes.ts`, mirroring `backend/placings.py` — including which outcomes **rank**. A declared zero does (it is a number the sheet compares); the other three do not. `outcomesFor('placement')` drops Zero score on a rail class, because there is no score there for a zero to be.
+
+When scores tie, a small **tiebreak** input appears on the tied rows. It records the order the judge called and never touches either score — see [the tie gate](#the-publish-gate-asks-two-questions).
+
+### The Judge's Card
+
+When a class carries a `judging_system_id` (set at `/admin/shows/[id]/classes/judging`), `ScoredScribeForm` swaps the score input for a **Card** button and `JudgeCardPanel.tsx` opens: maneuver or fence scores, penalties, the running total, and an override.
+
+Three things about it:
+
+- **It saves explicitly, not on the autosave settle.** A card is a thing somebody finishes and hands in; a 1.5s debounce would fire while the scribe is halfway through adding a penalty they have not typed the value for.
+- **The saved score goes onto the sheet, and the sheet's autosave carries it to `results`.** The card endpoint deliberately does not write `results.raw_score` — two writers over one number, one of which deletes and reinserts a whole card, is how a score goes missing.
+- **`TouchScorePad` is suppressed.** The pad types a total, and with a card that number is the card's output.
+
+The panel's local total mirrors `compute_score` in `backend/judging.py` so the scribe watches a figure move as they type; the server's is authoritative and comes back on save.
+
+### The Publish Gate Asks Two Questions
+
+`PublishBar` handles two separate 422s from the backend, each with its own acknowledgement. `PLACINGS_INCOMPLETE` asks whether the card is finished (APHA SC-110.I); `TIES_UNRESOLVED` asks which of two horses won (AM-115.B.2), and only the judge can answer that one. The acknowledgements accumulate in a ref across rounds — the backend checks ties first, and meeting a shortfall afterwards must not silently re-ask the tie.
 
 ### Finished Classes On The Show Page
 

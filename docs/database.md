@@ -186,6 +186,42 @@ CHECK excludes only zero. `DELETE` is for a row typed in error.
 question asked when the drawer does not balance, and seasonal staff accounts get
 removed.
 
+### New tables: the judge's card (migration 122)
+
+`results.raw_score` held a total — the number somebody worked out on paper and
+keyed in. Five tables hold the paper:
+
+| Table | Holds |
+| --- | --- |
+| `judging_systems` | How a card is marked: base, per-maneuver range and step, what a row is called, any ceiling. |
+| `judging_penalties` | That system's named penalties — a fixed `value`, or a `min_value`/`max_value` range the judge picks within. |
+| `judge_cards` | One worksheet: this entry, this class, this judge. |
+| `card_maneuvers` | The per-maneuver or per-fence scores on it. |
+| `card_penalties` | The penalties applied to it. |
+
+Plus `classes.judging_system_id` (which card a class is marked on, NULL meaning
+the scribe types a total) and `result_audit.old_score` / `new_score`.
+
+**`judge_cards` is keyed on `(class_id, entry_id, judge_id)`, not on a `results`
+row.** Two partial unique indexes, because NULLs are distinct in a plain unique
+index and the unattributed card would otherwise accept duplicates — the same
+shape migration 095 used. The reason it is not a foreign key to `results.id` is
+load-bearing: `bulk_save_results` is a delete-all-then-insert-all within one
+judge's card, and the scribe screens autosave on a 1.5 second settle. Anything
+hanging off `results.id` with `ON DELETE CASCADE` would be destroyed every time
+somebody typed a digit.
+
+`computed_score` is `base + Σ maneuvers − Σ penalties`, clamped to the system's
+`score_max` and never below zero, in `backend/judging.py`. `override_score` is a
+human disagreeing with the arithmetic and writes a `result_audit` row. The card
+does **not** write `results.raw_score` — the scribe screen carries the effective
+score into the ordinary save, so that column keeps exactly one writer.
+
+The seed carries three APHA systems with the scales and penalty tiers the rule
+text states. The base score of 70 is a default, not a citation, and each row's
+`notes` says so. Ids are supplied explicitly for the same reason migration 114's
+are: a table `create_all` reached first has no `DEFAULT` on `id`.
+
 ### Five outcomes and a broken tie (migration 121)
 
 `results.place` was NOT NULL. Every row on a card therefore claimed a placing,

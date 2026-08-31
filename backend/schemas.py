@@ -554,6 +554,9 @@ class ClassUpdate(BaseModel):
     # Which pattern, in the judge’s words (migration 120). The pattern itself is
     # posted physically at the show and is deliberately not stored.
     pattern_notes: Optional[str] = Field(default=None, max_length=2000)
+    # Which card shape this class is judged on (migration 122). Null means the
+    # scribe types a total, which is how a rail class still works.
+    judging_system_id: Optional[UUID] = None
 
 class ClassPatternPost(BaseModel):
     """Recording that a class’s pattern has gone up.
@@ -649,6 +652,9 @@ class ClassOut(BaseModel):
     results_published_at: Optional[datetime] = None
     pattern_posted_at: Optional[datetime] = None
     pattern_notes: Optional[str] = None
+    # Which card shape this class is judged on (migration 122). Null means the
+    # scribe types a total, which is how a rail class still works.
+    judging_system_id: Optional[UUID] = None
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -2108,6 +2114,120 @@ class ResultOut(BaseModel):
         from_attributes = True
 
 
+# ── The judge's card ───────────────────────────────────────────────────────────
+
+class JudgingPenaltyOut(BaseModel):
+    """One named penalty a system recognises.
+
+    Either a fixed `value`, or a `min_value`/`max_value` range the judge chooses
+    within — about a third of AM-111.F's table is the second kind.
+    """
+    id: UUID
+    code: Optional[str] = None
+    label: str
+    value: Optional[float] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    applies_to: str
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class JudgingSystemOut(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    base_score: Optional[float] = None
+    maneuver_min: float
+    maneuver_max: float
+    maneuver_step: float
+    unit_label: str
+    unit_count: Optional[int] = None
+    score_max: Optional[float] = None
+    notes: Optional[str] = None
+    penalties: list[JudgingPenaltyOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class CardManeuverIn(BaseModel):
+    sequence: int = Field(ge=1)
+    # None is a maneuver the judge has not marked, which is not a zero.
+    score: Optional[float] = None
+    label: Optional[str] = Field(default=None, max_length=200)
+
+
+class CardPenaltyIn(BaseModel):
+    # Optional: a penalty the judge called that nobody has loaded is still a
+    # penalty, and refusing it would send the scribe hunting for the nearest
+    # wrong answer.
+    penalty_id: Optional[UUID] = None
+    label: str = Field(min_length=1, max_length=200)
+    value: float
+    sequence: Optional[int] = Field(default=None, ge=1)
+
+
+class JudgeCardSave(BaseModel):
+    """One judge's whole worksheet for one entry.
+
+    Replaces what it owns, like `ResultBulkSave` — the maneuvers and penalties
+    sent are the card, and anything absent has been rubbed out.
+    """
+    judge_id: Optional[UUID] = None
+    system_id: Optional[UUID] = None
+    maneuvers: list[CardManeuverIn] = []
+    penalties: list[CardPenaltyIn] = []
+    # A human disagreeing with the arithmetic. Null clears the override and puts
+    # the computed figure back.
+    override_score: Optional[float] = None
+    override_reason: Optional[str] = Field(default=None, max_length=1000)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+class CardManeuverOut(BaseModel):
+    sequence: int
+    score: Optional[float] = None
+    label: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CardPenaltyOut(BaseModel):
+    penalty_id: Optional[UUID] = None
+    label: str
+    value: float
+    sequence: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JudgeCardOut(BaseModel):
+    id: UUID
+    class_id: UUID
+    entry_id: UUID
+    judge_id: Optional[UUID] = None
+    system_id: Optional[UUID] = None
+    computed_score: Optional[float] = None
+    override_score: Optional[float] = None
+    override_reason: Optional[str] = None
+    notes: Optional[str] = None
+    maneuvers: list[CardManeuverOut] = []
+    penalties: list[CardPenaltyOut] = []
+    # What this card is worth: the override if somebody set one, else the sum.
+    # Computed server-side so the scribe screen and any report read the same
+    # number rather than each doing the arithmetic.
+    effective_score: Optional[float] = None
+    is_overridden: bool = False
+
+    class Config:
+        from_attributes = True
+
+
 # ── Results Publish Gate ───────────────────────────────────────────────────────
 
 class ClassResultsPublishIn(BaseModel):
@@ -2139,6 +2259,9 @@ class AuditOut(BaseModel):
     changed_by: Optional[UUID]
     old_place: Optional[int]
     new_place: Optional[int]
+    # Score corrections since migration 122 — an override of a judge's card.
+    old_score: Optional[float] = None
+    new_score: Optional[float] = None
     changed_at: datetime
 
     class Config:

@@ -2,6 +2,20 @@
 
 ## August 2026
 
+### A Card The App Refuses To Add Up Is A Scan With Extra Steps
+
+The rest of Phase 3. The scribe screens took a *total* — the number somebody worked out on paper and keyed in — and migration 122 holds the paper: a base score, a run of maneuver or fence scores, and the penalties the judge called.
+
+**There is no single card shape**, which is why this is a catalog and not a table with fixed columns. Equitation on the flat scores maneuvers −3 to +3 in half points against fixed 3/5/10 penalty tiers; Equitation Over Fences (AM-111.F) scores each fence −1.5 to +1.5 on a 0–100 scale; cow work (SC-265.E) uses 1/3/5 penalties with letter codes. `judging_systems` declares the scale, `judging_penalties` the catalog, and `classes.judging_system_id` says which card a class is marked on — set at `/admin/shows/[id]/classes/judging`. A class with none scores exactly as it did before.
+
+**This is the change that amends CLAUDE.md's "does not calculate penalties" line, deliberately.** Once the app holds the maneuvers and the penalties it is either computing the number that drives placings, side pot standings and futurity Hi-Point, or it is holding a card beside a separately typed total that will eventually disagree with it. The boundary that has not moved: the app does not judge, does not decide what a maneuver is worth, and does not decide which penalty applies. It adds up what a judge called, and `judge_cards.override_score` lets a human overrule the arithmetic into `result_audit`.
+
+**The card is keyed on `(class, entry, judge)` rather than on a `results` row**, and that is not tidiness. `bulk_save_results` is a delete-all-then-insert-all within one judge's card, and the scribe screens autosave on a 1.5 second settle — anything hanging off `results.id` with a cascade would be destroyed every time somebody typed a digit. For the mirror-image reason the card does **not** write `results.raw_score`: the scribe screen takes the score off the save response and lets the ordinary autosave carry it, so that column keeps exactly one writer.
+
+**What is seeded, and what is not.** The scales and the penalty *tiers* are in the rule text supplied and are seeded. The base score of 70 is the app's default rather than a citation, and each system says so on screen. AM-111.F's table of roughly thirty-five named penalties is **not** loaded: about a third are ranges the judge chooses within, and inventing labels under APHA's name would be worse than an empty list. So `card_penalties.label` is free text beside the optional catalog pointer, and only a penalty that names a catalog row is validated against it — checking a free-typed one would send the scribe looking for the nearest wrong answer.
+
+Two smaller decisions the tests pin down. **An empty card scores nothing, not its base** — returning 70 would put every entry nobody has judged yet into the placings at the same score, though a penalty on its own *is* a marked card. And **a card never goes negative**: far enough below zero is a zero score, which migration 121 made an outcome on the result rather than a negative number on the sheet.
+
 ### A Blank Where A Placing Should Be Is Not An Answer
 
 The first half of Phase 3. `results.place` was NOT NULL, so every row on a judge's card had to claim a placing — and a disqualification, an elimination, a declared zero and a no score all had to be typed as a blank, which is the same thing the sheet shows for a horse the scribe has not reached yet.
