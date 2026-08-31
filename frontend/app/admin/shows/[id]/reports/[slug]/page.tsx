@@ -8,16 +8,13 @@ import ReportActions from '@/components/ReportActions';
 import ReportTable from '@/components/ReportTable';
 
 /**
- * One report, rendered generically.
- *
- * There is no per-report component: the backend sends columns and rows, and this
- * page draws whatever it is given. A report added to
- * `backend/financial_reports.py` is reachable here immediately.
+ * One show report, rendered generically — the same `ReportTable` the financials
+ * reports use, because both registries return the same shape.
  */
 async function loadReport(showId: string, slug: string): Promise<Report | null | 'missing'> {
   const headers = await getAuthHeaders();
   if (!headers) return null;
-  const res = await fetch(`${API_URL}/shows/${showId}/financials/reports/${slug}`, {
+  const res = await fetch(`${API_URL}/shows/${showId}/reports/${slug}`, {
     headers,
     cache: 'no-store',
   });
@@ -26,7 +23,7 @@ async function loadReport(showId: string, slug: string): Promise<Report | null |
   return readJsonBody(res);
 }
 
-export default async function FinancialReportPage({
+export default async function ShowReportPage({
   params,
 }: {
   params: Promise<{ id: string; slug: string }>;
@@ -42,8 +39,7 @@ export default async function FinancialReportPage({
         { label: 'Admin', href: '/admin' },
         { label: 'Shows', href: '/admin/shows' },
         { label: show.name, href: `/admin/shows/${id}` },
-        { label: 'Financials', href: `/admin/shows/${id}/financials` },
-        { label: 'Reports', href: `/admin/shows/${id}/financials/reports` },
+        { label: 'Show Record', href: `/admin/shows/${id}/reports` },
         { label: report ? report.title : 'Report' },
       ]}
     />
@@ -51,7 +47,7 @@ export default async function FinancialReportPage({
 
   if (!report) {
     return (
-      <main className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+      <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
         <div>{crumbs}</div>
         <div
           className="rounded border p-4 text-sm"
@@ -65,7 +61,7 @@ export default async function FinancialReportPage({
   }
 
   return (
-    <main className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+    <main className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
       <div>
         {crumbs}
         <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
@@ -88,7 +84,7 @@ export default async function FinancialReportPage({
 
       <p className="text-sm">
         <Link
-          href={`/admin/shows/${id}/financials/reports`}
+          href={`/admin/shows/${id}/reports`}
           className="underline"
           style={{ color: '#8b4513' }}
         >

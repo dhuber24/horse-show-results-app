@@ -153,60 +153,17 @@ export type ShowFinancials = {
 
 // ── Reports ──────────────────────────────────────────────────────────────────
 
-export type ReportColumn = {
-  key: string;
-  label: string;
-  align: 'left' | 'right';
-  is_money: boolean;
-};
-
-export type ReportDefinition = {
-  slug: string;
-  title: string;
-  description: string;
-};
-
-export type Report = {
-  slug: string;
-  title: string;
-  description: string;
-  show_id: string;
-  show_name: string;
-  generated_at: string;
-  columns: ReportColumn[];
-  rows: Record<string, string | number | null>[];
-  totals: Record<string, string | number | null>;
-  notes: string[];
-};
-
-/** Emoji per report, keyed by slug. Kept on the frontend because it is
- *  presentation — a report added to the backend registry still renders, it just
- *  gets the fallback icon until someone picks one for it. */
-export const REPORT_ICONS: Record<string, string> = {
-  'revenue-summary': '📊',
-  'outstanding-balances': '🧾',
-  registrations: '📋',
-  'payments-received': '💵',
-  'fees-sold': '🏕️',
-  'side-pot-money': '💰',
-};
-
-export function reportIcon(slug: string): string {
-  return REPORT_ICONS[slug] ?? '📄';
-}
-
-/** A cell as text. Money columns arrive as integer cents and are formatted
- *  here so every report renders currency identically. */
-export function formatReportCell(
-  value: string | number | null | undefined,
-  column: ReportColumn,
-): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (column.is_money && typeof value === 'number') {
-    return (value / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-  }
-  return String(value);
-}
+// The report shape moved to `lib/reports.ts` when a second backend registry
+// started producing them — `show_reports.py`, which is not about money. These
+// re-exports keep every existing import working.
+export {
+  REPORT_ICONS,
+  formatReportCell,
+  reportIcon,
+  type Report,
+  type ReportColumn,
+  type ReportDefinition,
+} from './reports';
 
 export function formatReceivedOn(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', {

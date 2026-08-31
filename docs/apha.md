@@ -415,6 +415,76 @@ not the screen.
 
 On import, each picked class is **auto-routed** into a per-show Division (discipline) and Section (bracket). Discipline comes from name-keyword classification in `backend/rules/disciplines.py` — APHA codes don't encode discipline cleanly (e.g. code `R1` alone covers six different disciplines), but APHA class names are clean enough for 100% keyword coverage. Section comes from the catalog's `division` column (which holds the bracket — Amateur/Youth/Novice/Open/etc.). Missing divisions/sections are created on the fly and the (div, sec) membership is registered. The picker shows a "Will create division" column and a routing-summary panel so the secretary can preview before committing.
 
+## What The Office Sends APHA
+
+`GET /shows/{id}/reports` is a registry in the same shape as
+`financial_reports.py`: a slug, a title, a column list and rows of cells, drawn
+by one frontend renderer. Adding a report is a function in
+`backend/show_reports.py` — no route, no component, no migration.
+
+| Report | What it is |
+| --- | --- |
+| Show Results | Every **posted** placing, by class and by judge, with back number, membership number, horse, registration number and class code. |
+| Class Summary | One row per class — entries, cards filed against the panel, pattern posting, posted or draft. |
+| Entry Cards | Every entry taken, withdrawals included and marked. |
+| Judges' Cards | The maneuvers, penalties and totals recorded off each card, and any override. |
+| Compliance Sheet | What is on file per exhibitor and what is outstanding. |
+| Eligibility Declarations | Every Novice declaration, quoted in the words the entrant agreed to. |
+
+The whole show loads once in `routers/show_reports.py` and every report is built
+from that payload without querying, so two reports cannot disagree about the
+same class and the retention bundle cannot disagree with the reports inside it.
+
+Access is the **show-office tier** — ADMIN, or the SHOW_SECRETARY /
+SHOW_MANAGER assigned to this show. A `SCRIBE` writes placings and a
+`GATE_STEWARD` runs the in-gate; neither has business reading an exhibitor's
+membership number off a compliance sheet, which is the line Financials already
+draws.
+
+### Only posted classes are reported as results
+
+Posting a class is what makes its placings official, and a report the office
+forwards to an association must not be the first place a half-typed card counts
+as a result. The number of unposted classes rides on the report as a note, so a
+missing class is never a mystery. Entry Cards deliberately does *not* wait on
+posting — an entry is a document in its own right.
+
+### The retention bundle does not satisfy SC-110.J on its own
+
+SC-110.J asks management to retain the **original signed** judge's placing
+cards, the show results and the entry cards for at least a year.
+`GET /shows/{id}/reports/archive` produces four of those reports on one
+printable page, generated from the show's own data the way the show bill is —
+and says in its own `caveats` that the signed cards are paper the judge hands to
+the office and nothing here is that document. Judges' Cards is what the *scribe*
+recorded, which is a useful record and a different thing.
+
+Generated rather than uploaded, for the show bill's reason: an uploaded archive
+is a second source of truth that goes stale the moment a placing is corrected,
+and worse than none because people trust the copy they printed.
+
+### The compliance sheet is an output, never an input
+
+AM-300.E.4 is explicit that an exhibitor who fails the ownership requirement
+*"will lose any APHA points earned but will maintain placings"*, and everyone
+else's placings are unchanged. So the sheet lists what is missing and nothing
+reads it back — it never recomputes a class. Nothing on it is verified by the
+app either: a membership number is what somebody typed and an attestation is
+what somebody declared. What the office physically inspected is recorded
+separately, in `show_verifications` at the registration desk.
+
+Membership expiry is judged against the show's **end date**, never today — the
+same rule health paperwork and `exhibitor_registrations.expires_at` already
+follow.
+
+### What is still unverified
+
+The Show Results report carries the columns the entry export already used plus
+the result. **SC-125 has not been supplied**, so there is no guarantee the layout
+matches what APHA expects to receive — the data is right and the format is not
+confirmed. Guessing at a required format is how an office gets a submission
+rejected after the show has ended, so this is stated rather than assumed away.
+
 ## APHA Entry Export
 
 Backend endpoint:

@@ -138,6 +138,9 @@ Public spectator screens skip route handlers entirely: they are server component
 | `/admin/shows/[id]/edit` | **Setup Step 1** — show details plus `ShowStaffPanel`: managers, secretaries, scribes, gate stewards. Who runs the show is set beside its name and dates, not on a screen of its own |
 | `/admin/shows/[id]/staff` | Redirects to `/edit` |
 | `/admin/shows/[id]/classes` | **Setup Step 6** — class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import. Renders inside `StepLayout`; the route is unchanged so per-class deep links still work |
+| `/admin/shows/[id]/reports` | **Show Record** — the report registry that is not about money: results, class summary, entry cards, judges' cards, compliance, eligibility declarations. Its own tile rather than a link under Financials, because none of it is money and it is what the office sends an association |
+| `/admin/shows/[id]/reports/[slug]` | One show report, drawn by the shared `ReportTable` |
+| `/admin/shows/[id]/reports/archive` | The **retention bundle** (SC-110.J) — four reports on one printable page, with the caveats stating that the *signed* judge's cards are paper and nothing here is that document |
 | `/admin/shows/[id]/classes/judging` | **Judging Cards** — which card each scored class is marked on, and what each card asks the judge for. Its own screen for the same reason Sanctioned Classes is: the wizard builds the schedule a cell at a time, and this is a per-class designation made once the schedule exists. Only `pattern` and `time` classes appear — a rail class is placed, not scored |
 | `/admin/shows/[id]/desk` | **Registration Desk** — one screen, one exhibitor at a time: back number, class entries, side pot buy-ins, paperwork check-in, and their running balance. Second tab is the by-class program listing, where an expanded class can be filled without leaving the screen. Replaces `/entries`, `/check-in`, and `/back-numbers`, which all redirect here |
 | `/admin/shows/[id]/entries` | Redirects to `/desk` |
@@ -393,6 +396,28 @@ Three pages, one payload. `loadFinancials()` in [financials/loadFinancials.ts](.
 - **Reports are rendered generically.** `formatReportCell` formats any column flagged `is_money` from integer cents, so a report added to the backend registry gets consistent currency formatting with no frontend change. `REPORT_ICONS` is presentation-only and falls back to a default icon for a slug it does not know — an unknown report still renders.
 - **CSV is built from the report already on the page**, so the file and the table cannot be two different snapshots. Money is written as plain decimal dollars with no symbol or separator, because `$1,240.00` arrives in a spreadsheet as text and will not sum.
 - Wide report tables scroll inside their own `overflow-x-auto` container rather than pushing the page sideways.
+
+## Reports
+
+Two backend registries produce reports — `financial_reports.py` (money) and
+`show_reports.py` (the record of the show) — and both return the same shape: a
+slug, a title, a column list, rows of cells, optional totals, notes.
+
+The shape and its helpers live in **`lib/reports.ts`**, not `lib/financials.ts`,
+since half of it is not about money; `lib/financials.ts` re-exports them so
+existing imports keep working. `components/ReportTable.tsx` draws either
+registry's output and `components/ReportActions.tsx` gives it CSV and print.
+
+**There is no per-report component and there must not be one.** A report added
+to either backend registry renders here with no frontend change, which is the
+whole point; a component per report is how the two registries would start to
+disagree about what a money column looks like. New slugs pick up an icon in
+`REPORT_ICONS` and fall back to 📄 until somebody chooses one.
+
+The CSV is built from the report already on the page rather than fetched again,
+so the file and the table can never be two different snapshots. Money is written
+as plain decimal dollars — `$1,240.00` arrives in a spreadsheet as text and will
+not sum.
 
 ## Tests
 

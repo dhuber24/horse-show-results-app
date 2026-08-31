@@ -44,6 +44,16 @@ const tiles = (showId: string) => [
     description: 'Registrations, revenue, outstanding balances, and reports.',
     icon: '💵',
   },
+  // What the office sends the association afterwards. Its own tile rather than
+  // a link under Financials: these reports are the record of what happened —
+  // placings, entries, judges' cards, compliance — and none of them are money.
+  {
+    href: `/admin/shows/${showId}/reports`,
+    title: 'Show Record',
+    description:
+      'Results, entry cards, judges’ cards and the compliance sheet — what the office sends on, plus the one-year retention bundle.',
+    icon: '📁',
+  },
   {
     href: `/admin/shows/${showId}/messages`,
     title: 'Messages',

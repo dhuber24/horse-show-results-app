@@ -2,6 +2,22 @@
 
 ## August 2026
 
+### One Endpoint That Returned An Entry List
+
+Phase 4 — what the office sends the association after the show. That was one CSV of entries, which Phase 0 stopped crashing. It is now a registry: `backend/show_reports.py`, the same shape as `financial_reports.py`, drawn by the renderer the financials reports already used.
+
+**Six reports.** Show Results (every posted placing, by class and by judge, with the identifiers the association asks for), Class Summary, Entry Cards, Judges' Cards, the Compliance Sheet, and Eligibility Declarations. Adding another is a function and nothing else — no route, no component, no migration. The whole show loads once in the router and every report is built from that payload without querying, so two reports cannot disagree about the same class.
+
+**Only posted classes are reported as results.** Posting is what makes a placing official, and a report the office forwards must not be the first place a half-typed card counts as one. The number of unposted classes rides along as a note, so a missing class is never a mystery. Entry Cards is deliberately exempt: an entry is a document in its own right and exists whether or not the class has been judged.
+
+**The retention bundle says what it is not.** SC-110.J asks management to keep the *original signed* judge's placing cards, the show results and the entry cards for a year. `/reports/archive` puts four reports on one printable page — and its caveats state plainly that the signed cards are paper the judge hands to the office, and that Judges' Cards is what the scribe recorded off them. A printout that implied it discharged the rule would be worse than no bundle. Generated rather than uploaded, for the show bill's reason: an uploaded archive goes stale the moment a placing is corrected, and people trust the copy they printed.
+
+**The compliance sheet is an output and never an input.** AM-300.E.4 is explicit — an exhibitor who fails the ownership requirement loses their points and *keeps their placings*, and everyone else's are unchanged. So nothing reads the sheet back into a class. Nothing on it is verified by the app either: a membership number is what somebody typed, an attestation is what somebody declared, and what the office physically inspected lives in `show_verifications`. Membership expiry is judged against the show's end date, never today.
+
+**What is not confirmed.** SC-125 has not been supplied, so the Show Results report carries the right data in a layout nobody has verified against what APHA expects to receive. That is stated on the page and in `docs/apha.md` rather than assumed away — guessing at a required format is how an office gets a submission rejected after the show has ended.
+
+One small piece of tidying came with it: the report shape moved out of `lib/financials.ts` into `lib/reports.ts`, and the table and the CSV/print actions became shared components. Half of what they now draw is not about money, and a second copy of the renderer is exactly the drift the registry pattern exists to avoid.
+
 ### A Card The App Refuses To Add Up Is A Scan With Extra Steps
 
 The rest of Phase 3. The scribe screens took a *total* — the number somebody worked out on paper and keyed in — and migration 122 holds the paper: a base score, a run of maneuver or fence scores, and the penalties the judge called.

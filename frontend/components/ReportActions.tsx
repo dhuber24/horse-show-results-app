@@ -1,9 +1,13 @@
 'use client';
 
-import { type Report } from '@/lib/financials';
+import { type Report } from '@/lib/reports';
 
 /**
- * Download and print for a report.
+ * Download and print for a report, shared by both report registries.
+ *
+ * Lived under the financials report route until `show_reports.py` started
+ * producing the same shape; a second copy would have been the drift the
+ * registry pattern exists to avoid.
  *
  * The CSV is built from the report already on the page rather than fetched
  * again, so the file and the table can never be two different snapshots. Money

@@ -30,6 +30,7 @@ from routers.exhibitor_documents import router as exhibitor_documents_router
 from routers.entries import router as entries_router, coggins_audit_router
 from routers.results import router as results_router
 from routers.judging import router as judging_router, systems_router as judging_systems_router
+from routers.show_reports import router as show_reports_router
 from routers.auth import router as auth_router
 from routers.dashboard import router as dashboard_router
 from routers.backnumbers import router as backnumbers_router
@@ -175,6 +176,7 @@ app.include_router(coggins_audit_router)
 app.include_router(results_router)
 app.include_router(judging_router)
 app.include_router(judging_systems_router)
+app.include_router(show_reports_router)
 app.include_router(backnumbers_router)
 app.include_router(venues_router)
 app.include_router(show_types_router)
