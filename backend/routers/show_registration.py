@@ -70,6 +70,7 @@ from routers.futurities import load_billable_futurities, missing_horse_details
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
+from attestations import build_attestations
 from schemas import EntryOut
 import standard_classes
 
@@ -83,6 +84,9 @@ class ShowRegistrationItem(BaseModel):
     horse_id: UUID
     apha_division: Optional[str] = Field(default=None, max_length=40)
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
+    # Which declarations the exhibitor is making. Names only — the wording lives
+    # in `rules/apha.py` and is copied in server-side.
+    attestations: list[str] = Field(default_factory=list)
 
 
 class ShowRegistrationCreate(BaseModel):
@@ -789,6 +793,10 @@ async def register_for_show(
         entry.class_ = cls
         entry.horse = horse
         entry.exhibitor = exhibitor
+        # Same as the desk path: assigned before validation so the rules engine
+        # sees the declaration on an entry that has not been flushed, and before
+        # commit so the cascade writes it.
+        entry.attestations = await build_attestations(item.attestations, x_user_id, db)
 
         issues = rules.validate_entry(
             entry,

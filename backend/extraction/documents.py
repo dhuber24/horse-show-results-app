@@ -250,7 +250,11 @@ EXTRACTION_SCHEMA: dict[str, Any] = {
         "registration_number": _nullable("string", "Registration number as printed."),
         "sire_name": _nullable("string", "Sire, from a registration certificate."),
         "dam_name": _nullable("string", "Dam, from a registration certificate."),
-        "color": _nullable("string", "Coat color as printed."),
+        # Verbatim, because breed papers print colour and spotting pattern in one
+        # field — "Bay Tobiano" — and the app stores them as two (migration 116).
+        # Splitting them is a decision for the person reviewing the suggestion,
+        # not for the reader.
+        "color": _nullable("string", "Coat color and pattern exactly as printed, e.g. 'Bay Tobiano'."),
         "sex": _nullable("string", "Sex as printed (e.g. Mare, Gelding, Stallion)."),
         "foaling_date": _nullable("string", "Date of birth, YYYY-MM-DD."),
         "breeder": _nullable("string", "Breeder as printed."),

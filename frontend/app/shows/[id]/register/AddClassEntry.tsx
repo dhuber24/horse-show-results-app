@@ -1,7 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
+import {
+  APHA_DIVISIONS,
+  ATTESTATION_REQUIRED_DIVISIONS,
+  NOVICE_ELIGIBILITY_STATEMENT,
+  RELATIONSHIP_OPTION_GROUPS,
+  RELATIONSHIP_REQUIRED_DIVISIONS,
+} from '@/lib/apha';
 import {
   formatMoney,
   healthWarnings,
@@ -75,6 +81,7 @@ export default function AddClassEntry({
   const [horseId, setHorseId] = useState('');
   const [aphaDivision, setAphaDivision] = useState('');
   const [relationship, setRelationship] = useState('');
+  const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -127,6 +134,10 @@ export default function AddClassEntry({
   const selectedHorse = horses.find((h) => h.id === horseId);
   const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
   const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
+  // Novice eligibility is the exhibitor’s own declaration to make (AM-205), and
+  // this is the door where they are the one making it.
+  const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
+  const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
 
   const submit = async () => {
     if (!classId || !horseId) {
@@ -139,6 +150,7 @@ export default function AddClassEntry({
     const entry: Record<string, unknown> = { class_id: classId, horse_id: horseId };
     if (isApha && aphaDivision) entry.apha_division = aphaDivision;
     if (isApha && relationship) entry.relationship_to_owner = relationship;
+    if (needsNoviceDeclaration && noviceDeclared) entry.attestations = ['novice_eligibility'];
 
     try {
       const res = await fetch(`/api/shows/${showId}/register`, {
@@ -275,12 +287,28 @@ export default function AddClassEntry({
               style={{ borderColor: '#d4b896' }}
             >
               <option value="">Relationship to owner…</option>
-              {RELATIONSHIP_OPTIONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+              {RELATIONSHIP_OPTION_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.options.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           )}
         </div>
+      )}
+
+      {needsNoviceDeclaration && (
+        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: '#d4b896', backgroundColor: '#fffdf7' }}>
+          <input
+            type="checkbox"
+            checked={noviceDeclared}
+            onChange={(e) => setNoviceDeclared(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0"
+          />
+          <span style={{ color: '#5a3e2b' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+        </label>
       )}
 
       {spbBlocked && (
@@ -298,13 +326,15 @@ export default function AddClassEntry({
         <button
           type="button"
           onClick={submit}
-          disabled={!classId || !horseId || spbBlocked || saving}
+          disabled={!classId || !horseId || spbBlocked || missingNoviceDeclaration || saving}
           title={
             spbBlocked
               ? 'Solid Paint-Bred horses may not enter Open division classes'
               : !classId || !horseId
                 ? 'Pick a class and a horse first'
-                : undefined
+                : missingNoviceDeclaration
+                  ? 'Tick the eligibility declaration to enter a Novice class'
+                  : undefined
           }
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: '#8b4513' }}

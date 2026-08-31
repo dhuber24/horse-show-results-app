@@ -38,10 +38,88 @@ Rules:
 | Area | Field |
 | --- | --- |
 | Shows | `apha_show_number` |
-| Horses | `is_solid_paint_bred` |
-| Exhibitors | APHA member fields and date of birth |
+| Horses | `is_solid_paint_bred`, `color_id` + `pattern_id` |
+| Exhibitors | `exhibitor_registrations` (number + `expires_at`), `date_of_birth`, legacy APHA columns |
 | Entries | `apha_division`, `relationship_to_owner`, `is_disqualified` |
 | Classes | APHA code through `class_associations` |
+
+### Divisions
+
+`entries.apha_division` is one of nine values (migration 115), defined once in
+`rules/apha.py` as `DIVISIONS` and mirrored by the `APHADivision` Literal in
+`schemas.py`, the CHECK constraint, and `frontend/lib/apha.ts`:
+
+`OPEN`, `SOLID_PAINT_BRED`, `AMATEUR`, `NOVICE_AMATEUR`, `AMATEUR_WALK_TROT`,
+`YOUTH`, `NOVICE_YOUTH`, `YOUTH_WALK_TROT_11_18`, `YOUTH_WALK_TROT_5_10`.
+
+The three Walk-Trot divisions arrived in migration 115; the other six had been
+there since 010. Youth Walk-Trot is **split by age** because APHA runs 11-18
+(YP-109) and 5-10 (YP-110) as separate divisions with separate class lists —
+collapsing them into one would have to be undone the moment either is reported
+on. A show running Walk-Trot could not record those entries at all before 115.
+
+`DIVISION_LABELS` in the same module is how each is written in a message a person
+reads; `.title()` on the stored value produces "Youth Walk Trot 11 18".
+
+### Coat colour and pattern
+
+Migration 116 split `horse_patterns` out of `horse_colors`. Tobiano, Overo,
+Tovero, Sabino and the six Appaloosa patterns sat in the same list as Bay and
+Buckskin, so a horse could be recorded as one or the other and never both — but
+APHA papers say **"Bay Tobiano"**, and the half that got dropped could not be
+reported back. `coatDescription()` in `frontend/lib/horse-coat.ts` is the one
+place the two are joined for display.
+
+### Novice eligibility is declared, not checked
+
+`entry_attestations` (migration 118) records what the entrant declared about an
+entry: the kind, the exact words, who declared it and when.
+
+The Novice divisions are gated on points and prize money — AM-205 decides Novice
+Amateur per category at the time status is applied for, YP-255.A.1 caps Novice
+Youth fence-work earnings at $750 — and the app holds neither and never will.
+The rule book says who does answer for it: *"the responsibility for eligibility
+lies with the exhibitor"*, with the burden of proof on whoever protests. So the
+app makes somebody say it and records that they did.
+
+Three things this deliberately does **not** do:
+
+- **It does not verify.** There is no points database to check against, and
+  pretending otherwise would be worse than asking.
+- **It does not let the caller write the statement.** The wording lives in
+  `ATTESTATION_STATEMENTS` in `rules/apha.py` and is copied into the row by
+  `backend/attestations.py`. A client able to compose the sentence it is
+  attesting to could attest to anything. This is the same rule that stops a
+  paperwork verification naming its own value — with the difference that there
+  is nothing on file to derive a declaration from, so the backend supplies the
+  text rather than reading it.
+- **It does not point at the current wording.** `statement` is a stored copy,
+  because APHA revises its limits and a pointer would silently restate what
+  somebody agreed to two seasons ago. Same reasoning as a signed waiver keeping
+  its own text.
+
+The rows are assigned to `entry.attestations` **before** validation and before
+commit, so the rules engine reads the declaration off an entry that has not been
+written yet and the relationship cascade writes it on save. A check that queried
+the database would reject every new Novice entry.
+
+Missing, it is an **error at both doors** — the desk and the exhibitor's own
+registration screen — like `relationship_to_owner`. Both forms show the tickbox
+and disable the button until it is ticked, so neither posts an entry it already
+knows will 422.
+
+### Membership standing
+
+Membership numbers live in `exhibitor_registrations`, which since migration 117
+also carries `expires_at`. The desk's check-in sheet reports it beside — never
+folded into — the verification status, because they answer different questions:
+`status` is whether anybody inspected the card, `lapsed` is whether the card is
+good. Judged against the show's **end date**, never today, the same rule health
+paperwork follows.
+
+The pre-080 `exhibitors.apha_member_number` / `apha_member_expiry` columns are
+backfilled into the registry by 117 and left in place — some records carry a
+number only there, and the export still falls back to them.
 
 ## APHA Entry Validation
 
@@ -52,7 +130,21 @@ other association's are — `rules.get_rules(show.show_type.code)`, then
 | Rule | Code | What it says |
 | --- | --- | --- |
 | SC-325.A.1 | `APHA_SOLID_PAINT_BRED_OPEN` | A Solid Paint-Bred horse may not enter an Open division class. |
-| — | `APHA_RELATIONSHIP_REQUIRED` | Amateur, Novice Amateur, Youth and Novice Youth entries must state the exhibitor's relationship to the horse's owner. |
+| AM-300.E, YP-015 | `APHA_RELATIONSHIP_REQUIRED` | Every ownership division — Amateur, Novice Amateur, Amateur Walk-Trot, Youth, Novice Youth and both Youth Walk-Trot divisions — must state the exhibitor's relationship to the horse's owner. |
+| AM-205, YP-255.A.1 | `APHA_NOVICE_ELIGIBILITY_REQUIRED` | Novice Amateur and Novice Youth entries must carry an eligibility declaration. |
+| migration 115 | `APHA_DIVISION_UNKNOWN` | The named division is not one of the nine. Caught here rather than left to the CHECK constraint, which surfaces as an IntegrityError naming nothing. |
+
+Every shortfall is reported at once — a bare Novice entry comes back short two
+things, and returning only the first sends somebody round the loop twice.
+
+`RELATIONSHIP_OPTION_GROUPS` in `frontend/lib/apha.ts` is the picker. APHA's
+ownership rule names roughly twenty relationships — in-laws, step-relations,
+aunt, uncle, niece, nephew, legal ward, a family-owned farm, ranch or
+corporation — and the app offered seven, so an exhibitor showing their niece's
+horse had to pick something untrue. "Leased horse" is there because AM-020.A.1
+makes leased horses eligible and this field is the only place an entry can say
+so; it is **not** a lease record, and the term, the lessor and the papers APHA
+holds are not modeled anywhere.
 
 Both fire only when the entry names an `apha_division`. Which division an entry
 belongs in is not derivable from the class — the same class runs for Open,

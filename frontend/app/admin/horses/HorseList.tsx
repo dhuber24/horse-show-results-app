@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { coatDescription } from '@/lib/horse-coat';
 
 interface Horse {
   id: string;
@@ -13,6 +14,7 @@ interface Horse {
   breed_name: string | null;
   breed_names?: string[];
   color_name: string | null;
+  pattern_name: string | null;
   age: number | null;
 }
 
@@ -37,7 +39,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
       const horseBreeds = h.breed_names?.length ? h.breed_names : (h.breed_name ? [h.breed_name] : []);
       if (breedFilter && !horseBreeds.includes(breedFilter)) return false;
       if (q) {
-        const haystack = [h.name, h.barn_name, h.owner_exhibitor_name, h.owner_name, ...horseBreeds, h.color_name]
+        const haystack = [h.name, h.barn_name, h.owner_exhibitor_name, h.owner_name, ...horseBreeds, h.color_name, h.pattern_name]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
@@ -153,7 +155,9 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
                   {(horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name) && (
                     <span>{horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name}</span>
                   )}
-                  {horse.color_name && <span>{horse.color_name}</span>}
+                  {coatDescription(horse.color_name, horse.pattern_name) && (
+                                      <span>{coatDescription(horse.color_name, horse.pattern_name)}</span>
+                                    )}
                   {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
                 </div>
               </div>

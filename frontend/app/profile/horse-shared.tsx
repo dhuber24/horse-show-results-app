@@ -7,6 +7,9 @@
 
 export interface Breed { id: string; name: string; }
 export interface HorseColor { id: string; name: string; }
+// The second axis of a coat, split out of the colour list in migration 116. A
+// Paint is a colour and a pattern — "Bay Tobiano" — and one list held only one.
+export interface HorsePattern { id: string; name: string; }
 
 export type AssociationType = 'breed' | 'club';
 export interface Association { id: string; code: string; name: string; association_type: AssociationType; }
@@ -45,6 +48,7 @@ export interface MyHorse {
   breed_name: string | null;
   breed_names?: string[];
   color_name: string | null;
+  pattern_name: string | null;
   is_solid_paint_bred: boolean;
   owner_exhibitor_id: string | null;
   owner_exhibitor_name?: string | null;

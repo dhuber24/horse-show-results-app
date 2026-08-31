@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
+import { coatDescription } from '@/lib/horse-coat';
 
 interface AdminTrainer {
   id: string;
@@ -47,6 +48,7 @@ interface TrainerHorse {
   age: number | null;
   breed_name: string | null;
   color_name: string | null;
+  pattern_name: string | null;
   is_solid_paint_bred: boolean;
 }
 
@@ -380,7 +382,9 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                           <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
                         )}
                         {horse.breed_name && <span>{horse.breed_name}</span>}
-                        {horse.color_name && <span>{horse.color_name}</span>}
+                        {coatDescription(horse.color_name, horse.pattern_name) && (
+                                                  <span>{coatDescription(horse.color_name, horse.pattern_name)}</span>
+                                                )}
                         {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
                       </div>
                     </div>

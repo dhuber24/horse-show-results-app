@@ -13,14 +13,14 @@ import ShowHistoryPanel from './ShowHistoryPanel';
 import type { MyShow } from '@/lib/my-shows';
 
 interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
-interface Registration { id: string; association_id: string; association_code: string; association_name: string; member_number: string; }
+interface Registration { id: string; association_id: string; association_code: string; association_name: string; member_number: string; expires_at: string | null; }
 interface Document {
   id: string; document_type: string; original_filename: string;
   issue_date: string | null; expiry_date: string | null; association_id: string | null;
 }
 interface TrainerHorse {
   id: string; name: string; sex: string | null; age: number | null; breed_name: string | null;
-  color_name: string | null; is_solid_paint_bred: boolean; owner_exhibitor_name: string | null;
+  color_name: string | null; pattern_name: string | null; is_solid_paint_bred: boolean; owner_exhibitor_name: string | null;
 }
 interface Exhibitor {
   id: string;

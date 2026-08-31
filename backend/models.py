@@ -560,6 +560,24 @@ class HorseColor(Base):
     horses = relationship("Horse", back_populates="color")
 
 
+class HorsePattern(Base):
+    """Spotting patterns — the second axis of a coat, independent of its color.
+
+    Migration 116. Tobiano, Overo, Tovero, Sabino and the six Appaloosa patterns
+    all sat in `horse_colors` beside Bay and Buckskin, so recording that a horse
+    is a Bay Tobiano meant choosing which half to lose. APHA describes the two as
+    separate things and a registration certificate states both.
+    """
+    __tablename__ = "horse_patterns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False, unique=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    horses = relationship("Horse", back_populates="pattern")
+
+
 class Trainer(Base):
     __tablename__ = "trainers"
 
@@ -684,6 +702,9 @@ class Horse(Base):
     sex = Column(Text, CheckConstraint("sex IN ('Mare', 'Gelding', 'Stallion')"), nullable=True)
     breed_id = Column(UUID(as_uuid=True), ForeignKey("breeds.id"), nullable=True)
     color_id = Column(UUID(as_uuid=True), ForeignKey("horse_colors.id"), nullable=True)
+    # Coat pattern, independent of colour (migration 116). A Paint is a colour
+    # AND a pattern — "Bay Tobiano" — and one column could only hold one of them.
+    pattern_id = Column(UUID(as_uuid=True), ForeignKey("horse_patterns.id"), nullable=True)
     is_solid_paint_bred = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -692,6 +713,7 @@ class Horse(Base):
     breed = relationship("Breed", back_populates="horses")
     breeds = relationship("Breed", secondary=horse_breeds, back_populates="registered_horses")
     color = relationship("HorseColor", back_populates="horses")
+    pattern = relationship("HorsePattern", back_populates="horses")
     trainer = relationship("Trainer", back_populates="horses")
     registrations = relationship("HorseRegistration", back_populates="horse", cascade="all, delete")
     documents = relationship("HorseDocument", back_populates="horse", cascade="all, delete")
@@ -801,6 +823,10 @@ class ExhibitorRegistration(Base):
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
     association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
     member_number = Column(Text, nullable=False)
+    # When the membership lapses (migration 117). NULL means unknown, not
+    # current. Judged against the show's end date wherever it is read — never
+    # against today, the same rule health paperwork follows.
+    expires_at = Column(Date, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -947,7 +973,12 @@ class Entry(Base):
             postgresql_where=text("horse_id IS NOT NULL"),
         ),
         CheckConstraint(
-            "apha_division IN ('OPEN','SOLID_PAINT_BRED','AMATEUR','NOVICE_AMATEUR','YOUTH','NOVICE_YOUTH')",
+            # The Walk-Trot divisions (AM-300, YP-109, YP-110) arrived in
+            # migration 115. Youth Walk-Trot is split by age because APHA runs
+            # 11-18 and 5-10 as separate divisions with separate class lists.
+            "apha_division IN ('OPEN','SOLID_PAINT_BRED','AMATEUR','NOVICE_AMATEUR',"
+            "'AMATEUR_WALK_TROT','YOUTH','NOVICE_YOUTH','YOUTH_WALK_TROT_11_18',"
+            "'YOUTH_WALK_TROT_5_10')",
             name="ck_entries_apha_division",
         ),
     )
@@ -955,6 +986,17 @@ class Entry(Base):
     class_ = relationship("Class", back_populates="entries")
     exhibitor = relationship("Exhibitor", back_populates="entries")
     horse = relationship("Horse", back_populates="entries")
+    # `lazy="selectin"` for the same reason `Class.sanctioning` is: every path
+    # that validates an entry reads this, and an unloaded relationship inside an
+    # async request is a MissingGreenlet 500 rather than a missing declaration.
+    # Assigning the list before flush is what lets the rules engine see an
+    # attestation on an entry that has not been written yet.
+    attestations = relationship(
+        "EntryAttestation",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     # One row per judge who placed the class (migration 095), so this is a list.
     # It was uselist=False when a class could only hold one card; leaving it
     # scalar would raise as soon as a second judge handed one in.
@@ -991,6 +1033,41 @@ class Result(Base):
     entry = relationship("Entry", back_populates="results")
     judge = relationship("ShowJudge", lazy="selectin")
     audits = relationship("ResultAudit", back_populates="result", cascade="all, delete")
+
+
+class EntryAttestation(Base):
+    """What the entrant declared about an entry, and when (migration 118).
+
+    Recorded, never verified. APHA's Novice divisions are gated on points and
+    prize money the app does not hold and never will, and the rule book puts the
+    responsibility on the exhibitor (AM-205) with the burden of proof on whoever
+    protests (YP-255.A.1). So the honest thing is to capture the declaration —
+    who made it, when, and the exact words — rather than to pretend to check it.
+
+    `statement` is a stored copy rather than a lookup for the same reason a
+    signed waiver keeps its own text: the wording changes when APHA revises its
+    limits, and a pointer would silently restate what somebody agreed to two
+    seasons ago. It is written by the backend from `rules.apha`, never taken
+    from the client.
+    """
+    __tablename__ = "entry_attestations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_id = Column(UUID(as_uuid=True), ForeignKey("entries.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False)
+    statement = Column(Text, nullable=False)
+    attested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Denormalized snapshot, like coggins_override_audit's, so the row stays
+    # readable after the user record goes.
+    attested_by_name = Column(Text, nullable=True)
+    attested_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('novice_eligibility')", name="ck_entry_attestations_kind"),
+        UniqueConstraint("entry_id", "kind", name="uq_entry_attestations_entry_kind"),
+    )
+
+    entry = relationship("Entry", back_populates="attestations")
 
 
 class ResultAudit(Base):

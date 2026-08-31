@@ -986,6 +986,27 @@ class HorseColorOut(BaseModel):
         from_attributes = True
 
 
+# Patterns are the second axis of a coat and were mixed into the colour list
+# until migration 116. Same shape as a colour on purpose — it is the same kind
+# of curated lookup, and mirroring it keeps one admin screen pattern, not two.
+class HorsePatternCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    sort_order: int = 0
+
+class HorsePatternUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)
+    sort_order: Optional[int] = None
+
+class HorsePatternOut(BaseModel):
+    id: UUID
+    name: str
+    sort_order: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ── Horse Registrations ─────────────────────────────────────────────────────────
 
 class HorseRegistrationCreate(BaseModel):
@@ -1183,6 +1204,7 @@ class HorseCreate(BaseModel):
     breed_id: Optional[UUID] = None
     breed_ids: Optional[list[UUID]] = None
     color_id: Optional[UUID] = None
+    pattern_id: Optional[UUID] = None
     is_solid_paint_bred: bool = False
 
 class HorseWithRegistrationsBase(HorseCreate):
@@ -1219,6 +1241,7 @@ class HorseUpdate(BaseModel):
     breed_id: Optional[UUID] = None
     breed_ids: Optional[list[UUID]] = None
     color_id: Optional[UUID] = None
+    pattern_id: Optional[UUID] = None
     is_solid_paint_bred: Optional[bool] = None
 
 def _horse_out_data(v) -> dict:
@@ -1232,6 +1255,10 @@ def _horse_out_data(v) -> dict:
     breed_ids = [b.id for b in breeds]
     breed_names = [b.name for b in breeds]
     color = getattr(v, 'color', None)
+    # Guarded the way breed is, and unlike color: nothing forces a caller to
+    # eager-load this, and an unloaded relationship read inside an async request
+    # is a MissingGreenlet 500 rather than a missing name.
+    pattern = None if 'pattern' in unloaded else getattr(v, 'pattern', None)
     owner_exhibitor = getattr(v, 'owner_exhibitor', None)
     trainer = getattr(v, 'trainer', None)
     data = {
@@ -1255,6 +1282,8 @@ def _horse_out_data(v) -> dict:
         'breed_names': breed_names,
         'color_id': v.color_id,
         'color_name': color.name if color else None,
+        'pattern_id': getattr(v, 'pattern_id', None),
+        'pattern_name': pattern.name if pattern else None,
         'is_solid_paint_bred': getattr(v, 'is_solid_paint_bred', False),
         'created_at': v.created_at,
     }
@@ -1283,6 +1312,8 @@ class HorseOut(BaseModel):
     breed_names: list[str] = Field(default_factory=list)
     color_id: Optional[UUID] = None
     color_name: Optional[str] = None
+    pattern_id: Optional[UUID] = None
+    pattern_name: Optional[str] = None
     is_solid_paint_bred: bool = False
     age: Optional[int] = None
     created_at: datetime
@@ -1390,6 +1421,8 @@ class HorseRiderCreate(BaseModel):
 class ExhibitorRegistrationCreate(BaseModel):
     association_id: UUID
     member_number: str = Field(min_length=1, max_length=50)
+    # Migration 117. NULL means unknown, not current — see the column comment.
+    expires_at: Optional[date] = None
 
 class ExhibitorRegistrationOut(BaseModel):
     id: UUID
@@ -1398,6 +1431,7 @@ class ExhibitorRegistrationOut(BaseModel):
     association_name: str
     association_type: Optional[AssociationType] = None
     member_number: str
+    expires_at: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1466,19 +1500,53 @@ class ExhibitorOut(BaseModel):
 
 # ── Entries ────────────────────────────────────────────────────────────────────
 
+# Named once rather than spelled out per schema. It was written twice, and both
+# copies were missing the three Walk-Trot divisions — which is what two copies of
+# an enum are for.  Mirrors the CHECK on `entries.apha_division` (migration 115)
+# and `DIVISIONS` in `rules/apha.py`.
+APHADivision = Literal[
+    "OPEN",
+    "SOLID_PAINT_BRED",
+    "AMATEUR",
+    "NOVICE_AMATEUR",
+    "AMATEUR_WALK_TROT",
+    "YOUTH",
+    "NOVICE_YOUTH",
+    "YOUTH_WALK_TROT_11_18",
+    "YOUTH_WALK_TROT_5_10",
+]
+
+
+# The caller names the declaration it is making and nothing else. The wording
+# lives in `rules/apha.py` and is copied into the row by the router, so a client
+# cannot compose the sentence it is attesting to — the same reason a paperwork
+# verification never accepts its own value.
+AttestationKind = Literal["novice_eligibility"]
+
+
+class EntryAttestationOut(BaseModel):
+    kind: str
+    statement: str
+    attested_by_name: Optional[str] = None
+    attested_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class EntryCreate(BaseModel):
     exhibitor_id: UUID
     horse_id: UUID
     back_number: Optional[int] = None
     status: Literal["ENTERED", "WITHDRAWN"] = "ENTERED"
-    apha_division: Optional[Literal["OPEN", "SOLID_PAINT_BRED", "AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"]] = None
+    apha_division: Optional[APHADivision] = None
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
+    attestations: list[AttestationKind] = Field(default_factory=list)
     is_disqualified: bool = False
 
 class EntryUpdate(BaseModel):
     back_number: Optional[int] = None
     status: Optional[Literal["ENTERED", "WITHDRAWN"]] = None
-    apha_division: Optional[Literal["OPEN", "SOLID_PAINT_BRED", "AMATEUR", "NOVICE_AMATEUR", "YOUTH", "NOVICE_YOUTH"]] = None
+    apha_division: Optional[APHADivision] = None
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     is_disqualified: Optional[bool] = None
 
@@ -1491,6 +1559,7 @@ class EntryOut(BaseModel):
     status: str
     apha_division: Optional[str] = None
     relationship_to_owner: Optional[str] = None
+    attestations: list[EntryAttestationOut] = Field(default_factory=list)
     is_disqualified: bool = False
     gate_order: Optional[int] = None
     gate_checked_in: bool = False

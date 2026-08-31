@@ -21,6 +21,7 @@ import {
   AssociationType,
   Breed,
   HorseColor,
+  HorsePattern,
   MyHorse,
   PendingReg,
   SearchMatch,
@@ -87,7 +88,7 @@ const emptyForm = {
   name: '', barn_name: '',
   trainer_id: '', trainer_name: '', trainer_first_name: '', trainer_last_name: '',
   trainer_email: '', sex: '', sire_name: '', dam_name: '', foaling_date: '',
-  breed_ids: [] as string[], color_id: '', is_solid_paint_bred: false,
+  breed_ids: [] as string[], color_id: '', pattern_id: '', is_solid_paint_bred: false,
 };
 const emptyOwner = { mode: 'self' as OwnerMode, firstName: '', lastName: '', email: '' };
 const emptyNewReg = { association_id: '', association_type: null as AssociationType | null, registration_number: '' };
@@ -137,6 +138,7 @@ export default function AddHorseWizard({
 }: Props) {
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [colors, setColors] = useState<HorseColor[]>([]);
+  const [patterns, setPatterns] = useState<HorsePattern[]>([]);
   const [associations, setAssociations] = useState<Association[]>([]);
 
   const [stepIndex, setStepIndex] = useState(0);
@@ -183,6 +185,7 @@ export default function AddHorseWizard({
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
     fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
+    fetch('/api/horse-patterns').then((r) => r.json()).then(setPatterns).catch(() => {});
     fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
@@ -515,6 +518,7 @@ export default function AddHorseWizard({
     if (form.dam_name.trim()) body.dam_name = form.dam_name.trim();
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     if (form.color_id) body.color_id = form.color_id;
+    if (form.pattern_id) body.pattern_id = form.pattern_id;
 
     const res = await fetch(`/api/exhibitors/${exhibitorId}/created-horses`, {
       method: 'POST',
@@ -741,6 +745,16 @@ export default function AddHorseWizard({
                 <option value="">- Not specified -</option>
                 {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+            </div>
+            <div>
+              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
+              <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }}>
+                <option value="">- Not specified -</option>
+                {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                A Paint has both — the papers say something like &ldquo;Bay Tobiano&rdquo;.
+              </p>
             </div>
             <div className="flex items-center gap-2 col-span-full">
               <input type="checkbox" id="spb_new" checked={form.is_solid_paint_bred} onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))} className="h-4 w-4" />
@@ -1037,6 +1051,7 @@ export default function AddHorseWizard({
             <ReviewRow label="Dam" value={form.dam_name.trim()} skipped={!form.dam_name.trim()} />
             <ReviewRow label="Breeds" value={breedLabel} skipped={!breedLabel} />
             <ReviewRow label="Color" value={colors.find((c) => c.id === form.color_id)?.name} skipped={!form.color_id} />
+            <ReviewRow label="Pattern" value={patterns.find((p) => p.id === form.pattern_id)?.name} skipped={!form.pattern_id} />
             <ReviewRow label="SPB" value={form.is_solid_paint_bred ? 'Yes' : 'No'} />
             {owner.mode === 'self' && (
               <ReviewRow label="Trainer" value={trainerLabel} skipped={!trainerLabel} />

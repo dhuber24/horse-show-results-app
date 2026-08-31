@@ -470,6 +470,7 @@ _horse_options = [
     selectinload(Horse.breed),
     selectinload(Horse.breeds),
     selectinload(Horse.color),
+    selectinload(Horse.pattern),
     selectinload(Horse.owner_exhibitor),
     selectinload(Horse.trainer),
 ]
@@ -1610,6 +1611,7 @@ def _exhibitor_reg_out(reg: ExhibitorRegistration) -> ExhibitorRegistrationOut:
         association_name=reg.association.name,
         association_type=reg.association.association_type,
         member_number=reg.member_number,
+        expires_at=reg.expires_at,
     )
 
 async def _check_exhibitor_access(exhibitor_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession):
@@ -1643,6 +1645,7 @@ async def add_exhibitor_registration(
         exhibitor_id=exhibitor_id,
         association_id=body.association_id,
         member_number=body.member_number.strip(),
+        expires_at=body.expires_at,
     )
     db.add(reg)
     try:

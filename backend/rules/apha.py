@@ -18,16 +18,75 @@ from typing import Any
 from .default import DefaultRules
 
 
+# Every APHA division an entry may be made in. Mirrors the CHECK constraint on
+# `entries.apha_division` (migration 115) — the database is what enforces it;
+# this list is what the rules can reason about.
+DIVISIONS = (
+    "OPEN",
+    "SOLID_PAINT_BRED",
+    "AMATEUR",
+    "NOVICE_AMATEUR",
+    "AMATEUR_WALK_TROT",
+    "YOUTH",
+    "NOVICE_YOUTH",
+    "YOUTH_WALK_TROT_11_18",
+    "YOUTH_WALK_TROT_5_10",
+)
+
+# How each division is written when it appears in a message somebody reads.
+# `.title()` on the stored value produces "Youth Walk Trot 11 18", which is not
+# what the class list or the rule book calls it.
+DIVISION_LABELS = {
+    "OPEN": "Open",
+    "SOLID_PAINT_BRED": "Solid Paint-Bred",
+    "AMATEUR": "Amateur",
+    "NOVICE_AMATEUR": "Novice Amateur",
+    "AMATEUR_WALK_TROT": "Amateur Walk-Trot",
+    "YOUTH": "Youth",
+    "NOVICE_YOUTH": "Novice Youth",
+    "YOUTH_WALK_TROT_11_18": "Youth Walk-Trot 11-18",
+    "YOUTH_WALK_TROT_5_10": "Youth Walk-Trot 5-10",
+}
+
 # Divisions whose eligibility turns on who owns the horse, so the entry has to
 # say how the exhibitor is related to that owner. Open and Solid Paint-Bred are
 # absent on purpose: eligibility there is a property of the horse's registry,
 # and nobody's relationship to the owner changes it.
+#
+# The Walk-Trot divisions are in because AM-300.E places the same ownership
+# condition on Amateur Walk-Trot as AM-020 does on Amateur, and YP-015 does the
+# same for youth.
 RELATIONSHIP_REQUIRED_DIVISIONS = frozenset({
     "AMATEUR",
     "NOVICE_AMATEUR",
+    "AMATEUR_WALK_TROT",
     "YOUTH",
     "NOVICE_YOUTH",
+    "YOUTH_WALK_TROT_11_18",
+    "YOUTH_WALK_TROT_5_10",
 })
+
+# Divisions gated on points and prize money — facts the app does not hold and
+# never will. AM-205 decides Novice Amateur per category at the time status is
+# applied for; YP-255.A.1 caps Novice Youth fence-work earnings at $750. Both
+# say the same thing about who answers for it, which is why this is a declaration
+# rather than a check.
+ATTESTATION_REQUIRED_DIVISIONS = frozenset({
+    "NOVICE_AMATEUR",
+    "NOVICE_YOUTH",
+})
+
+# The exact words somebody agrees to. Written into `entry_attestations.statement`
+# by the router so the row keeps the wording that was actually shown — APHA
+# revises its limits, and a stored pointer would restate two-season-old consent.
+# `frontend/lib/apha.ts` carries the display copy; keep the two in step.
+ATTESTATION_STATEMENTS = {
+    "novice_eligibility": (
+        "I declare that this exhibitor is within APHA's point and earnings limits "
+        "for this Novice division as of January 1 of the current show year. "
+        "Eligibility is the exhibitor's responsibility (APHA AM-205, YP-255.A.1)."
+    ),
+}
 
 
 class APHARules(DefaultRules):
@@ -44,9 +103,21 @@ class APHARules(DefaultRules):
             # Amateur and Youth — so there is nothing here to check against.
             return []
 
+        if division not in DIVISIONS:
+            # Caught here rather than left to the CHECK constraint, which would
+            # surface as an IntegrityError on commit — a 409 naming nothing, from
+            # a request whose other entries may already be valid.
+            return [self._issue(
+                "error",
+                "APHA_DIVISION_UNKNOWN",
+                f"{division} is not an APHA division.",
+                class_id=getattr(cls, "id", None),
+            )]
+
         issues: list[dict[str, Any]] = []
         issues.extend(self._check_solid_paint_bred(entry, cls, division))
         issues.extend(self._check_relationship_to_owner(entry, cls, division))
+        issues.extend(self._check_novice_eligibility(entry, cls, division))
         return issues
 
     def _check_solid_paint_bred(self, entry, cls, division):
@@ -86,7 +157,36 @@ class APHARules(DefaultRules):
         return [self._issue(
             "error",
             "APHA_RELATIONSHIP_REQUIRED",
-            f"{division.replace('_', ' ').title()} division entries must state the "
-            "exhibitor's relationship to the horse's owner.",
+            f"{DIVISION_LABELS.get(division, division)} division entries must state "
+            "the exhibitor's relationship to the horse's owner.",
+            class_id=getattr(cls, "id", None),
+        )]
+
+    def _check_novice_eligibility(self, entry, cls, division):
+        """AM-205, YP-255.A.1 — the Novice divisions need a declaration.
+
+        Not a check. Novice eligibility turns on points and prize money the app
+        does not hold, and the rule book is explicit that the responsibility is
+        the exhibitor's and the burden of proof belongs to whoever protests. What
+        the app can do is make somebody say it and record that they did.
+
+        Read off the entry's own `attestations` collection rather than the
+        database, so an entry assembled in memory validates before it is flushed
+        — the same reason `relationship_to_owner` is read off the entry.
+        """
+        if division not in ATTESTATION_REQUIRED_DIVISIONS:
+            return []
+        kinds = {
+            getattr(a, "kind", None)
+            for a in (getattr(entry, "attestations", None) or [])
+        }
+        if "novice_eligibility" in kinds:
+            return []
+        return [self._issue(
+            "error",
+            "APHA_NOVICE_ELIGIBILITY_REQUIRED",
+            f"{DIVISION_LABELS.get(division, division)} entries need a declaration "
+            "that the exhibitor is within APHA's point and earnings limits for the "
+            "division.",
             class_id=getattr(cls, "id", None),
         )]

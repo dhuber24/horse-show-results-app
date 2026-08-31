@@ -24,6 +24,7 @@ from routers.trainers import router as trainers_router
 from routers.trainer_documents import router as trainer_documents_router
 from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
+from routers.horse_patterns import router as horse_patterns_router
 from routers.horse_documents import router as horse_documents_router, documents_router
 from routers.exhibitor_documents import router as exhibitor_documents_router
 from routers.entries import router as entries_router, coggins_audit_router
@@ -163,6 +164,7 @@ app.include_router(trainers_router)
 app.include_router(trainer_documents_router)
 app.include_router(breeds_router)
 app.include_router(horse_colors_router)
+app.include_router(horse_patterns_router)
 app.include_router(horse_documents_router)
 app.include_router(documents_router)
 app.include_router(exhibitor_documents_router)

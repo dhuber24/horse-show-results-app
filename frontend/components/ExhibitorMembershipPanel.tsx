@@ -9,6 +9,8 @@ interface Registration {
   association_code: string;
   association_name: string;
   member_number: string;
+  /** When it lapses. null means unknown, not current (migration 117). */
+  expires_at: string | null;
 }
 
 interface Certificate {

@@ -168,6 +168,10 @@ def make_entry(cls=..., horse_name="Dusty", horse_id=..., **overrides) -> Simple
         status="ENTERED",
         apha_division=None,
         relationship_to_owner=None,
+        # Declarations made about this entry (migration 118). Empty by default,
+        # and present at all so a rule reading it behaves like it does against a
+        # real Entry, whose relationship is `lazy="selectin"` and never absent.
+        attestations=[],
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

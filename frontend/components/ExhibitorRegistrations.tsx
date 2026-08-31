@@ -9,6 +9,8 @@ interface Registration {
   association_code: string;
   association_name: string;
   member_number: string;
+  /** When it lapses. null means unknown, not current (migration 117). */
+  expires_at: string | null;
 }
 interface Certificate {
   id: string;
@@ -62,7 +64,7 @@ export default function ExhibitorRegistrations({
 }: Props) {
   const [regs, setRegs] = useState<Registration[]>(initialRegistrations ?? []);
   const [associations, setAssociations] = useState<Association[]>([]);
-  const [newReg, setNewReg] = useState({ association_id: '', member_number: '' });
+  const [newReg, setNewReg] = useState({ association_id: '', member_number: '', expires_at: '' });
   const [saving, setSaving] = useState(false);
   const [confirmDeleteRegId, setConfirmDeleteRegId] = useState<string | null>(null);
   const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
@@ -96,13 +98,17 @@ export default function ExhibitorRegistrations({
     const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ association_id: newReg.association_id, member_number: newReg.member_number.trim() }),
+      body: JSON.stringify({
+        association_id: newReg.association_id,
+        member_number: newReg.member_number.trim(),
+        expires_at: newReg.expires_at || null,
+      }),
     });
     setSaving(false);
     if (res.ok) {
       const created = await res.json();
       setRegs((prev) => [...prev, created]);
-      setNewReg({ association_id: '', member_number: '' });
+      setNewReg({ association_id: '', member_number: '', expires_at: '' });
     } else {
       const err = await res.json().catch(() => ({}));
       setError(err.detail ?? 'Failed to save membership ID.');
@@ -307,6 +313,15 @@ export default function ExhibitorRegistrations({
             <input value={newReg.member_number}
               onChange={(e) => setNewReg((p) => ({ ...p, member_number: e.target.value }))}
               placeholder="Membership ID"
+              className="w-full border rounded px-3 py-2 text-sm" />
+          </div>
+          {/* Optional, and worth asking for: the show office checks membership
+              standing at the desk, and a number with no expiry beside it can
+              only be reported as unknown. */}
+          <div className="min-w-[140px]">
+            <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Expires (optional)</label>
+            <input type="date" value={newReg.expires_at}
+              onChange={(e) => setNewReg((p) => ({ ...p, expires_at: e.target.value }))}
               className="w-full border rounded px-3 py-2 text-sm" />
           </div>
           <button onClick={handleAddReg} disabled={saving}

@@ -287,12 +287,26 @@ def _build_check(
     current_value: Optional[str],
     verification: Optional[ShowVerification],
     association=None,
+    expires_at=None,
+    as_of=None,
 ) -> dict:
     """One line on the check-in sheet.
 
     `not_on_file` wins over everything: with nothing on the profile there is no
     value to hold the paper against, even if the office signed something off
     before the exhibitor cleared the field.
+
+    `expires_at` is reported beside `status`, never folded into it. They answer
+    different questions — `status` is about the *inspection* ("has anybody here
+    looked at this?") and `lapsed` is about the *document* ("is it still good?")
+    — and a current card nobody has checked is a different situation from a
+    lapsed one the office is holding. This is the same split health paperwork
+    already makes between a derived standing and an attested one.
+
+    Judged against `as_of`, which callers pass as the show's end date. Never
+    today: a membership that lapses on the Saturday of a three-day show is
+    precisely what the desk needs to chase, and comparing against today calls it
+    current right up until it is too late.
     """
     if current_value is None:
         status = "not_on_file"
@@ -307,6 +321,10 @@ def _build_check(
         "kind": kind,
         "status": status,
         "current_value": current_value,
+        "expires_at": expires_at,
+        # None rather than False when there is no date: "we do not know" and
+        # "it is current" must not render the same way.
+        "lapsed": None if (expires_at is None or as_of is None) else expires_at < as_of,
         "association_id": association.id if association else None,
         "association_code": association.code if association else None,
         "association_name": association.name if association else None,
@@ -384,6 +402,8 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
             )
             memberships.append(record(key, _build_check(
                 "exhibitor_membership", reg.member_number, by_key.get(key), reg.association,
+                expires_at=reg.expires_at,
+                as_of=show.end_date,
             )))
 
         horses_out = []

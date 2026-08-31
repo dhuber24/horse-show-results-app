@@ -204,6 +204,21 @@ export async function fetchHorseColor(id: string) {
   return res.json();
 }
 
+// Coat patterns are the second axis of a coat and lived in the colour list until
+// migration 116 — a Paint is a colour AND a pattern, and one list could only
+// hold one of them.
+export async function fetchHorsePatterns() {
+  const res = await fetch(`${API_URL}/horse-patterns/`);
+  if (!res.ok) throw new Error('Failed to fetch horse patterns');
+  return res.json();
+}
+
+export async function fetchHorsePattern(id: string) {
+  const res = await fetch(`${API_URL}/horse-patterns/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch horse pattern');
+  return res.json();
+}
+
 export async function fetchExhibitorByUser(userId: string) {
   const res = await fetch(`${API_URL}/exhibitors/by-user/${userId}`);
   if (res.status === 404) return null;

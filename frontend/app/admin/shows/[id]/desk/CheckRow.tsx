@@ -11,6 +11,15 @@ export interface VerificationCheck {
   kind: VerificationKind;
   status: VerificationStatus;
   current_value: string | null;
+  /** When the membership lapses, where one is recorded (migration 117). */
+  expires_at: string | null;
+  /**
+   * Whether it has lapsed by the last day of the show — null when there is no
+   * expiry on file, because "we don't know" and "it's current" are different
+   * answers. Reported beside `status`, never folded into it: `status` is about
+   * whether anybody inspected the card, this is about whether the card is good.
+   */
+  lapsed: boolean | null;
   association_id: string | null;
   association_code: string | null;
   association_name: string | null;
@@ -47,6 +56,14 @@ const MISSING_HINT: Record<VerificationKind, string> = {
 function formatWhen(iso: string) {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+/** A date-only value (an expiry), read as a plain day rather than an instant. */
+function formatDay(isoDate: string) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
   });
 }
 
@@ -103,6 +120,26 @@ export default function CheckRow({
         {check.status === 'not_on_file' && (
           <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
             {MISSING_HINT[check.kind]}
+          </p>
+        )}
+
+        {/* Whether the card is still good is a separate question from whether
+            anybody has looked at it, so it reads as its own line. Judged against
+            the last day of the show, not today — a card that lapses on the
+            Saturday is exactly what the desk is here to catch. */}
+        {check.lapsed === true && (
+          <p className="text-xs mt-0.5 font-medium" style={{ color: '#b91c1c' }} suppressHydrationWarning>
+            Lapsed {formatDay(check.expires_at!)} — before the show ends.
+          </p>
+        )}
+        {check.lapsed === false && check.expires_at && (
+          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }} suppressHydrationWarning>
+            Current through {formatDay(check.expires_at)}.
+          </p>
+        )}
+        {check.kind === 'exhibitor_membership' && check.current_value && !check.expires_at && (
+          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+            No expiry on file — standing unknown.
           </p>
         )}
       </div>

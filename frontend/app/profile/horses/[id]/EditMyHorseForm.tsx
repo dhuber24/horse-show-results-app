@@ -13,6 +13,7 @@ import HorseDocuments, {
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
+interface HorsePattern { id: string; name: string; }
 interface Association { id: string; code: string; name: string; association_type: AssociationType; }
 interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type: AssociationType; registration_number: string; }
 interface Rider { exhibitor_id: string; full_name: string; }
@@ -37,6 +38,7 @@ interface Horse {
   breed_ids?: string[];
   breed_names?: string[];
   color_id: string | null;
+  pattern_id: string | null;
   is_solid_paint_bred: boolean;
   age: number | null;
 }
@@ -143,6 +145,7 @@ export default function EditMyHorseForm({
     foaling_date: horse.foaling_date ?? '',
     breed_ids: horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []),
     color_id: horse.color_id ?? '',
+    pattern_id: horse.pattern_id ?? '',
     is_solid_paint_bred: horse.is_solid_paint_bred,
   });
   const [saving, setSaving] = useState(false);
@@ -155,6 +158,7 @@ export default function EditMyHorseForm({
 
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [colors, setColors] = useState<HorseColor[]>([]);
+  const [patterns, setPatterns] = useState<HorsePattern[]>([]);
   const [associations, setAssociations] = useState<Association[]>([]);
   const [exhibitorNames, setExhibitorNames] = useState<ExhibitorName[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>(initialRegs);
@@ -175,6 +179,7 @@ export default function EditMyHorseForm({
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
     fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
+    fetch('/api/horse-patterns').then((r) => r.json()).then(setPatterns).catch(() => {});
     fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
     fetch('/api/exhibitors/names').then((r) => r.json()).then(setExhibitorNames).catch(() => {});
     fetch(`/api/horses/${horse.id}/riders`).then((r) => r.json()).then(setRiders).catch(() => {});
@@ -228,6 +233,7 @@ export default function EditMyHorseForm({
         foaling_date: form.foaling_date || null,
         breed_ids: form.breed_ids,
         color_id: form.color_id || null,
+        pattern_id: form.pattern_id || null,
         is_solid_paint_bred: form.is_solid_paint_bred,
       }),
     });
@@ -447,6 +453,14 @@ export default function EditMyHorseForm({
                   {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
+                <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+                  <option value="">- Not specified -</option>
+                  {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <p className="text-xs mt-1" style={{ color: '#a89070' }}>A Paint has both — the papers say something like &ldquo;Bay Tobiano&rdquo;.</p>
+              </div>
               <div className="flex items-center gap-2 sm:col-span-2">
                 <input
                   type="checkbox"
@@ -477,6 +491,7 @@ export default function EditMyHorseForm({
               value={form.breed_ids.map((id) => breeds.find((b) => b.id === id)?.name).filter(Boolean).join(', ')}
             />
             <ReadOnlyField label="Color" value={colors.find((c) => c.id === form.color_id)?.name} />
+            <ReadOnlyField label="Pattern" value={patterns.find((p) => p.id === form.pattern_id)?.name} />
             {form.is_solid_paint_bred && (
               <div className="sm:col-span-2">
                 <dd className="text-xs px-1.5 py-0.5 rounded inline-block font-semibold" style={OWNER_BADGE}>

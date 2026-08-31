@@ -8,6 +8,7 @@ import AssociationSelect, { AssociationTypeBadge, AssociationType } from '@/comp
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
+interface HorsePattern { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
 interface Association { id: string; code: string; name: string; association_type: AssociationType; }
 interface Trainer { id: string; name: string; }
@@ -17,13 +18,14 @@ interface PendingRider { exhibitor_id: string; full_name: string; }
 interface Props {
   breeds: Breed[];
   colors: HorseColor[];
+  patterns: HorsePattern[];
   exhibitors: Exhibitor[];
   associations: Association[];
   trainers: Trainer[];
 }
 
 
-export default function NewHorseForm({ breeds, colors, exhibitors, associations, trainers }: Props) {
+export default function NewHorseForm({ breeds, colors, patterns, exhibitors, associations, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: '',
@@ -40,6 +42,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
     foaling_date: '',
     breed_ids: [] as string[],
     color_id: '',
+    pattern_id: '',
     is_solid_paint_bred: false,
   });
   const [pendingRegs, setPendingRegs] = useState<PendingReg[]>([]);
@@ -126,6 +129,7 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
     if (form.foaling_date) body.foaling_date = form.foaling_date;
     body.breed_ids = form.breed_ids;
     if (form.color_id) body.color_id = form.color_id;
+    if (form.pattern_id) body.pattern_id = form.pattern_id;
 
     const res = await fetch('/api/horses', {
       method: 'POST',
@@ -261,6 +265,13 @@ export default function NewHorseForm({ breeds, colors, exhibitors, associations,
             <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
               <option value="">- Not specified -</option>
               {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
+            <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+              <option value="">- Not specified -</option>
+              {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2 sm:col-span-2">

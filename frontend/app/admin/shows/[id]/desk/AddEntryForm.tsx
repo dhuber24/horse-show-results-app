@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { COLORS } from './types';
 import type { Desk, DeskClass, DeskExhibitor, ProfileHorse } from './types';
 import { formatMoney } from '@/lib/financials';
-import { APHA_DIVISIONS, RELATIONSHIP_OPTIONS, RELATIONSHIP_REQUIRED_DIVISIONS } from '@/lib/apha';
+import {
+  APHA_DIVISIONS,
+  ATTESTATION_REQUIRED_DIVISIONS,
+  NOVICE_ELIGIBILITY_STATEMENT,
+  RELATIONSHIP_OPTION_GROUPS,
+  RELATIONSHIP_REQUIRED_DIVISIONS,
+} from '@/lib/apha';
 
 /**
  * Adding one class entry, from either end.
@@ -48,6 +54,7 @@ export default function AddEntryForm({
   const [horseId, setHorseId] = useState('');
   const [aphaDivision, setAphaDivision] = useState('');
   const [relationship, setRelationship] = useState('');
+  const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [horses, setHorses] = useState<ProfileHorse[]>([]);
   const [horsesLoading, setHorsesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -135,6 +142,11 @@ export default function AddEntryForm({
   const selectedHorse = horses.find((h) => h.id === horseId);
   const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
   const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
+  // The Novice divisions turn on points and earnings the app does not hold, so
+  // the entry carries a declaration instead of a check. The backend enforces it;
+  // blocking here keeps the desk from posting an entry it knows will 422.
+  const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
+  const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
 
   const submit = async () => {
     if (!classId || !exhibitorId || !horseId) {
@@ -153,6 +165,7 @@ export default function AddEntryForm({
     };
     if (isApha && aphaDivision) body.apha_division = aphaDivision;
     if (isApha && relationship) body.relationship_to_owner = relationship;
+    if (needsNoviceDeclaration && noviceDeclared) body.attestations = ['novice_eligibility'];
 
     const res = await fetch('/api/entries', {
       method: 'POST',
@@ -285,12 +298,28 @@ export default function AddEntryForm({
               style={{ borderColor: COLORS.border }}
             >
               <option value="">Relationship to owner…</option>
-              {RELATIONSHIP_OPTIONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+              {RELATIONSHIP_OPTION_GROUPS.map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.options.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           )}
         </div>
+      )}
+
+      {needsNoviceDeclaration && (
+        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: '#d4b896', backgroundColor: '#fffdf7' }}>
+          <input
+            type="checkbox"
+            checked={noviceDeclared}
+            onChange={(e) => setNoviceDeclared(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0"
+          />
+          <span style={{ color: '#5a3e2b' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+        </label>
       )}
 
       {spbBlocked && (
@@ -304,13 +333,15 @@ export default function AddEntryForm({
       <button
         type="button"
         onClick={submit}
-        disabled={!classId || !exhibitorId || !horseId || spbBlocked || saving}
+        disabled={!classId || !exhibitorId || !horseId || spbBlocked || missingNoviceDeclaration || saving}
         title={
           spbBlocked
             ? 'Solid Paint-Bred horses may not enter Open division classes'
             : !classId || !exhibitorId || !horseId
               ? 'Pick an exhibitor and a horse first'
-              : undefined
+              : missingNoviceDeclaration
+                ? 'Novice entries need the eligibility declaration ticked'
+                : undefined
         }
         className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
         style={{ backgroundColor: COLORS.dark, color: COLORS.onDark }}

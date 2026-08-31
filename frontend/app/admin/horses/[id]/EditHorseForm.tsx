@@ -11,6 +11,7 @@ import SectionHeader from '@/components/SectionHeader';
 
 interface Breed { id: string; name: string; }
 interface HorseColor { id: string; name: string; }
+interface HorsePattern { id: string; name: string; }
 interface Exhibitor { id: string; full_name: string; }
 interface Association { id: string; code: string; name: string; association_type: AssociationType; }
 interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type: AssociationType; registration_number: string; }
@@ -34,6 +35,7 @@ interface Horse {
   breed_id: string | null;
   breed_ids?: string[];
   color_id: string | null;
+  pattern_id: string | null;
   is_solid_paint_bred: boolean;
   age: number | null;
 }
@@ -42,6 +44,7 @@ interface Props {
   horse: Horse;
   breeds: Breed[];
   colors: HorseColor[];
+  patterns: HorsePattern[];
   exhibitors: Exhibitor[];
   associations: Association[];
   registrations: Registration[];
@@ -50,7 +53,7 @@ interface Props {
 
 
 
-export default function EditHorseForm({ horse, breeds, colors, exhibitors, associations, registrations: initialRegs, trainers }: Props) {
+export default function EditHorseForm({ horse, breeds, colors, patterns, exhibitors, associations, registrations: initialRegs, trainers }: Props) {
   const router = useRouter();
   const [form, setForm] = useState({
     name: horse.name,
@@ -67,6 +70,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, assoc
     foaling_date: horse.foaling_date ?? '',
     breed_ids: horse.breed_ids ?? (horse.breed_id ? [horse.breed_id] : []),
     color_id: horse.color_id ?? '',
+    pattern_id: horse.pattern_id ?? '',
     is_solid_paint_bred: horse.is_solid_paint_bred,
   });
   const [saving, setSaving] = useState(false);
@@ -122,6 +126,7 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, assoc
       foaling_date: form.foaling_date || null,
       breed_ids: form.breed_ids,
       color_id: form.color_id || null,
+      pattern_id: form.pattern_id || null,
       is_solid_paint_bred: form.is_solid_paint_bred,
     };
 
@@ -317,6 +322,13 @@ export default function EditHorseForm({ horse, breeds, colors, exhibitors, assoc
                 <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
                   <option value="">- Not specified -</option>
                   {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
+                <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
+                  <option value="">- Not specified -</option>
+                  {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
             </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { coatDescription } from '@/lib/horse-coat';
 
 interface TrainerHorse {
   id: string;
@@ -10,6 +11,7 @@ interface TrainerHorse {
   age: number | null;
   breed_name: string | null;
   color_name: string | null;
+  pattern_name: string | null;
   is_solid_paint_bred: boolean;
 }
 
@@ -65,7 +67,9 @@ export default function TrainerHorsesPanel({ horses: initialHorses }: { horses: 
               <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: '#8b7355' }}>
                 {horse.owner_exhibitor_name && <span>Owner: {horse.owner_exhibitor_name}</span>}
                 {horse.breed_name && <span>{horse.breed_name}</span>}
-                {horse.color_name && <span>{horse.color_name}</span>}
+                {coatDescription(horse.color_name, horse.pattern_name) && (
+                                  <span>{coatDescription(horse.color_name, horse.pattern_name)}</span>
+                                )}
                 {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
               </div>
             </div>

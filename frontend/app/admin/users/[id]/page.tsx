@@ -9,6 +9,7 @@ import SecurityQuestionPanel from './SecurityQuestionPanel';
 import DeleteUserButton from './DeleteUserButton';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import AdminTrainerDetail from '@/app/admin/trainers/[id]/AdminTrainerDetail';
+import { coatDescription } from '@/lib/horse-coat';
 
 async function getUser(id: string, headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/users/${id}`, { headers, cache: 'no-store' });
@@ -164,7 +165,9 @@ export default async function UserDetailPage({
                     </div>
                     <div className="text-xs mt-0.5 flex gap-x-2" style={{ color: '#8b7355' }}>
                       {horse.breed_name && <span>{horse.breed_name}</span>}
-                      {horse.color_name && <span>{horse.color_name}</span>}
+                      {coatDescription(horse.color_name, horse.pattern_name) && (
+                                              <span>{coatDescription(horse.color_name, horse.pattern_name)}</span>
+                                            )}
                       {horse.age !== null && horse.age !== undefined && <span>Age: {horse.age}</span>}
                     </div>
                   </div>

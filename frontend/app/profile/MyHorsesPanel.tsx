@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import ApprovalLinkCallout from '@/components/ApprovalLinkCallout';
 import HorseAccessRequestsPanel from '@/components/HorseAccessRequestsPanel';
 import HorseTransferControl from './HorseTransferControl';
+import { coatDescription } from '@/lib/horse-coat';
 import {
   Association,
   HorseDocumentBrief,
@@ -184,6 +185,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             h.dam_name,
             h.breed_names?.join(' ') ?? h.breed_name,
             h.color_name,
+            h.pattern_name,
             h.trainer_name,
             ...(h.registrations ?? []).flatMap((r) => [r.association_code, r.registration_number]),
           ];
@@ -448,7 +450,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 ? { backgroundColor: '#dcfce7', color: '#166534' }
                 : { backgroundColor: '#e0e7ff', color: '#3730a3' };
             const breedLabel = horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name;
-            const spec = [breedLabel, horse.color_name, horse.age !== null && horse.age !== undefined ? `${horse.age} yr` : null]
+            const spec = [breedLabel, coatDescription(horse.color_name, horse.pattern_name), horse.age !== null && horse.age !== undefined ? `${horse.age} yr` : null]
               .filter(Boolean) as string[];
             const ownerLabel = isOwner ? null : (horse.owner_exhibitor_name || horse.owner_name);
             const flags = readinessFlags(horse, isOwner);

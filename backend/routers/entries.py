@@ -20,6 +20,7 @@ from models import (
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
+from attestations import build_attestations
 import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/entries", tags=["Entries"])
@@ -176,10 +177,17 @@ async def create_entry(
         if existing_exhibitor_entry.scalar_one_or_none():
             raise HTTPException(409, "This exhibitor is already entered in this class.")
 
-    entry = Entry(class_id=class_id, **body.model_dump())
+    payload = body.model_dump()
+    attestation_kinds = payload.pop("attestations", [])
+    entry = Entry(class_id=class_id, **payload)
     entry.class_ = class_
     entry.horse = horse
     entry.exhibitor = exhibitor
+    # Assigned before validation so the rules engine can read a declaration off
+    # an entry that has not been flushed yet, and before commit so the cascade
+    # writes them. The statement text comes from the rules module, never from the
+    # request — a caller able to compose it could attest to anything it liked.
+    entry.attestations = await build_attestations(attestation_kinds, x_user_id, db)
     rules = get_rules(show.show_type.code if show.show_type else None)
     issues = rules.validate_entry(
         entry,

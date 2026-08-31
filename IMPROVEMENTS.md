@@ -2,6 +2,28 @@
 
 ## August 2026
 
+### Walk-Trot Is A Division, And A Paint Is A Colour And A Pattern
+
+Phase 1 of the APHA work: the app's lists were shorter than APHA's, so exhibitors were being forced into answers that were wrong.
+
+**`entries.apha_division` was missing three whole divisions.** The CHECK constraint had permitted six values since migration 010, and Amateur Walk-Trot (AM-300) plus both Youth Walk-Trot divisions — 11-18 (YP-109) and 5-10 (YP-110) — were not among them. Those are not edge cases; most APHA shows run them, and each has its own class list, eligibility and year-end awards. Migration 115 adds all three, and has to drop **two** constraints to do it: 010 created the column with an inline CHECK that Postgres auto-named, then 016 added a second, explicitly-named one saying almost the same thing. Restating only the named one would have left the 010 constraint quietly rejecting every new value, so the migration finds them by what they check rather than by a name nobody wrote down. Youth Walk-Trot stays split by age because APHA runs them as separate divisions; collapsing them would have to be undone the first time either is reported on.
+
+The list was also written out **three times** — `EntryCreate`, `EntryUpdate`, and the constraint — and both schema copies were missing the same three values. It is `DIVISIONS` in `rules/apha.py` and one `APHADivision` Literal now, with a test asserting they agree.
+
+**The ownership relationship picker offered seven options against APHA's twenty.** AM-300.E names in-laws, step-relations, aunt, uncle, niece, nephew, legal ward, and a solely- or family-owned corporation, ranch or farm. An exhibitor showing their niece's horse had to pick something untrue, which is worse than a blank because the entry then reads as answered. Grouped rather than flat, since twenty-five options in one ungrouped select is a scroll and not a choice. "Leased horse" is in there too — AM-020.A.1 makes leased horses eligible and this field was the only place an entry could say so — but it is not a lease *record*, and the term, lessor and papers APHA holds are still unmodeled.
+
+**Migration 116: a coat pattern is not a coat colour.** Tobiano, Overo, Tovero and Sabino sat in `horse_colors` next to Bay and Buckskin, along with six Appaloosa patterns. Those are two independent axes and APHA says so outright — the rule book describes the spotting patterns in one place and lists its recognized colours in another, and a certificate reads **"Bay Tobiano"**. One column meant whoever entered the horse dropped half of what the papers said, and the half they dropped could not be reported back. The move is by name so nothing is invented: the Appaloosa rows are copied out of `horse_colors` with whatever names are actually stored (they contain an en dash), and the backfill joins on name — 7 patterns seeded, 6 copied, 2 horses moved, 10 rows then removed from the colour list. `coatDescription()` is the one place the two are rejoined for display.
+
+**Migration 117: a membership number without its expiry is half a fact.** `exhibitor_registrations` has been the registry every affiliation reads from since 080 and never held when the membership runs out, so the desk could show a secretary an APHA number and nothing about whether it was still good. The expiry is reported **beside** the verification status, never folded into it — `status` is whether anybody inspected the card, `lapsed` is whether the card is good, and a current card nobody checked is a different situation from a lapsed one the office is holding. Judged against the show's end date, never today, for the same reason health paperwork is. NULL reads as "standing unknown", not green. The pre-080 APHA columns on `exhibitors` are backfilled in and left alone: dropping the sole home of somebody's membership number is data loss, not a migration.
+
+**Migration 118: Novice eligibility is declared, not checked.** The Novice divisions are gated on points and prize money — AM-205 decides Novice Amateur per category at the time status is applied for, YP-255.A.1 caps Novice Youth fence-work earnings at $750 — and the app holds neither and never will. The rule book is explicit about who does answer for it: *the responsibility for eligibility lies with the exhibitor*, and *the burden of proof lies with the person who protests*. So `entry_attestations` records the declaration — who made it, when, and the exact words — and verifies nothing.
+
+Three things it deliberately does not do. It does not let the caller write the statement: the wording lives in `rules/apha.py` and is copied in by `backend/attestations.py`, because a client able to compose the sentence it is attesting to could attest to anything — the paperwork-verification rule applied to a fact with nothing on file to derive it from. It does not point at the current wording: `statement` is a stored copy, since APHA revises its limits and a pointer would silently restate two-season-old consent. And it does not query: the rows are assigned to `entry.attestations` before flush, so the rules engine sees the declaration on an entry that has not been written — a database check would reject every new Novice entry.
+
+Missing, it is an error at both doors, like `relationship_to_owner`, and both forms disable the button until the box is ticked so neither posts an entry it knows will 422. A bare Novice entry now comes back short **two** things at once rather than one at a time.
+
+The remaining Phase 1 item is deriving the youth age division, which needs YP-075 and is deferred.
+
 ### APHA Rules Existed Everywhere Except In The Rules Engine
 
 Reading the 2026 APHA rule book against the app turned up four things wrong at once, all of them quiet.
