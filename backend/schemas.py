@@ -227,6 +227,12 @@ class ShowOut(BaseModel):
     office_charge_cents: int = 0
     office_charge_basis: str = "per_back_number"
     shavings_ban_outside: bool = False
+    # Which show bill the Show Bill button opens (migration 127). Serialized in
+    # `routers/shows._serialize` as well as declared here -- that function builds
+    # the payload by hand, so a column named in only one of the two reads back as
+    # this default whatever is stored, and the screen that loads it would then
+    # report every show as using the generated bill.
+    showbill_source: str = "generated"
     requires_coggins: bool = True
     requires_health_certificate: bool = False
     health_certificate_valid_days: int = 30
@@ -243,6 +249,52 @@ class ShowOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Show Documents / Show Bill Source ──────────────────────────────────────────
+
+class ShowDocumentOut(BaseModel):
+    """Metadata for a file the show uploaded. Never the bytes.
+
+    The bytes come from the download endpoint, which is the only reader that
+    asks for `file_data` -- see the note on the `ShowDocument` model about why
+    there is no relationship from `Show` to it.
+    """
+    id: UUID
+    document_type: str
+    original_filename: str
+    mime_type: str
+    file_size: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ShowbillOut(BaseModel):
+    """What the Show Bill button will actually open.
+
+    Two fields rather than one because the choice and the file are two separate
+    facts. `source` is what the show asked for; `effective_source` is what a
+    reader will get. They can only disagree by way of a document deleted outside
+    the endpoint that resets the column, but a page that trusted `source` alone
+    would render an empty frame in that case, and an empty frame is the one
+    outcome a show bill must never be.
+    """
+    source: Literal["generated", "uploaded"]
+    effective_source: Literal["generated", "uploaded"]
+    document: Optional[ShowDocumentOut] = None
+
+
+class ShowbillSourceUpdate(BaseModel):
+    """Kept out of `ShowUpdate` on purpose.
+
+    Setting it to 'uploaded' is only valid while a SHOWBILL document is on
+    record, and that is a check about another table -- so it belongs beside the
+    upload endpoint rather than in the general show PATCH, where the show edit
+    form would also be posting it back on every unrelated save.
+    """
+    source: Literal["generated", "uploaded"]
 
 
 # ── Sanctioned Associations ────────────────────────────────────────────────────
@@ -3316,6 +3368,10 @@ class FinancialAccountOut(BaseModel):
     # but the office reads them differently from a completed sign-up.
     signed_up: bool = False
     registered_at: Optional[datetime] = None
+    #: Set means the registration was cancelled. The account outlives it: the
+    #: bill drops to nothing while the payments stay, which is a credit the
+    #: office has to go and refund.
+    cancelled_at: Optional[datetime] = None
     entry_count: int = 0
     horse_count: int = 0
     bill: BillOut
@@ -3543,6 +3599,11 @@ class ShowDeskExhibitorOut(BaseModel):
     # asks about it at the counter.
     preferred_back_number: Optional[int] = None
     signed_up: bool = False
+    # Set means the registration was called off (migration 126) — by the
+    # exhibitor outside the two-week notice window, or by the office inside it.
+    # They stay on the desk because their payments do, and a cancelled
+    # exhibitor nobody can find is a cancelled exhibitor nobody can refund.
+    cancelled_at: Optional[datetime] = None
     entries: list[ShowDeskEntryOut] = Field(default_factory=list)
     side_pot_ids: list[UUID] = Field(default_factory=list)
     # The same check rows the standalone check-in sheet renders, from the same
@@ -3593,6 +3654,7 @@ class ShowDeskRosterRow(BaseModel):
     exhibitor_name: str
     back_number: Optional[int] = None
     signed_up: bool = False
+    cancelled_at: Optional[datetime] = None
 
 
 # ── Association class-code imports ──────────────────────────────────────────

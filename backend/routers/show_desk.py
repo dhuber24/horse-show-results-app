@@ -36,16 +36,23 @@ excluded, as they are on Financials: the desk carries every exhibitor's balance.
 """
 from __future__ import annotations
 
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from cancellations import (
+    CancellationBlocked,
+    cancel_registration,
+    is_on_roster,
+)
 from database import get_db
-from dependencies import require_admin_or_show_admin
+from dependencies import require_admin_or_show_admin, safe_uuid
 from models import (
     Class,
     Entry,
@@ -195,6 +202,11 @@ async def get_desk(
             # and an overridden one is visible.
             "preferred_back_number": account["preferred_back_number"],
             "signed_up": account["signed_up"],
+            # Set means this registration was called off. Kept on the roster
+            # rather than filtered out of it: the office still has their
+            # payments to settle, and a cancelled exhibitor who vanishes from
+            # the desk is one nobody can refund.
+            "cancelled_at": account["cancelled_at"],
             "entries": entries_by_exhibitor.get(exhibitor_id, []),
             "side_pot_ids": pot_ids_by_show_entry.get(account["show_entry_id"], []),
             "memberships": paperwork["memberships"] if paperwork else [],
@@ -336,7 +348,72 @@ async def add_exhibitor_to_roster(
         "exhibitor_id": show_entry.exhibitor_id,
         "exhibitor_name": exhibitor.full_name,
         "back_number": show_entry.back_number,
-        "signed_up": show_entry.registered_at is not None,
+        "signed_up": is_on_roster(show_entry),
+    }
+
+
+class ShowDeskCancelRegistration(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/exhibitors/{exhibitor_id}/cancel")
+async def cancel_registration_from_desk(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    body: ShowDeskCancelRegistration = ShowDeskCancelRegistration(),
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take an exhibitor out of the show when they cannot do it themselves.
+
+    The other half of `DELETE /shows/{id}/register/signup`. An exhibitor may
+    cancel their own registration up to a fortnight before the show; inside
+    that window the office does it here, and the office is not on a clock —
+    someone whose truck breaks down on the Friday still has to come off the
+    stall chart.
+
+    Runs the same `cancel_registration` the exhibitor's own door runs, so the
+    two cannot disagree about what a cancellation leaves behind. Distinct from
+    `DELETE /exhibitors/{id}` below, which is the undo for adding the wrong
+    person and refuses the moment anything hangs off the row: this one is for a
+    registration that was real.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+
+    result = await db.execute(
+        select(ShowEntry)
+        .options(
+            selectinload(ShowEntry.reservations),
+            selectinload(ShowEntry.side_pot_entries),
+        )
+        .where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id)
+    )
+    show_entry = result.scalar_one_or_none()
+    if not show_entry:
+        raise HTTPException(404, "That exhibitor is not on this show's roster")
+    if show_entry.cancelled_at is not None:
+        raise HTTPException(409, "This registration has already been cancelled.")
+
+    try:
+        await cancel_registration(
+            show_entry, show_id, safe_uuid(x_user_id), body.reason, db
+        )
+    except CancellationBlocked as blocked:
+        raise HTTPException(409, {"code": blocked.code, "message": blocked.message}) from None
+
+    return {
+        "cancelled": True,
+        "exhibitor_id": str(exhibitor_id),
+        # The registration is off but the account is not: whatever they paid is
+        # still sitting against a bill that is now nothing, and the desk needs
+        # to be told to go and refund it.
+        "note": (
+            "Classes, stalls, side pots and futurity entries have been removed. "
+            "Any payments recorded stay on their account — refund them with a "
+            "negative payment on the Financials screen."
+        ),
     }
 
 

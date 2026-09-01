@@ -117,5 +117,9 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
       return counts.futurityCount === 0
         ? 'No futurity on this show. Skip unless you run one.'
         : `${counts.futurityCount} futurit${counts.futurityCount === 1 ? 'y' : 'ies'} set up.`;
+    case 'showbill':
+      return counts.showbillReady
+        ? 'Check the show bill, or upload your own in place of it.'
+        : 'The generated show bill has no classes on it yet.';
   }
 }

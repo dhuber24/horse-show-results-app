@@ -1,17 +1,30 @@
 """Exhibitor self-registration for a published show.
 
-Registration is two steps, in order:
+Registration is three steps, in order:
 
-1. **Sign up for the show** (`/signup`). Creates the `show_entries` row — the
+1. **Complete your profile** (`/profile-status`, read-only here; the fields are
+   edited through `PATCH /exhibitors/{id}` as they always were). Contact
+   details, date of birth, an emergency contact, and one horse. Enforced by
+   `PUT /signup`, which is the first write in the flow — see
+   `exhibitor_profile.py` for what blocks and what only prompts. The office
+   used to reach a stall chart before it had the exhibitor's telephone number,
+   and nobody goes back afterwards to fill that in.
+
+2. **Sign up for the show** (`/signup`). Creates the `show_entries` row — the
    show-level record that carries the back number — and captures what the show
    office needs to run the grounds: stalls, bags of shavings, camping. Those
    are quantities against the show's own `show_fees` catalog, so the exhibitor
    only ever sees what the secretary configured, at the secretary's prices.
 
-2. **Enter classes** (`POST /`). Requires a completed sign-up: an exhibitor
+3. **Enter classes** (`POST /`). Requires a completed sign-up: an exhibitor
    whose `show_entries.registered_at` is NULL is turned away with a 409 rather
    than silently having a shell row created for them. That ordering is the
    point — the office wants stall counts *before* it has a ring full of horses.
+
+**Cancelling** (`DELETE /signup`) undoes the lot, and only up to a fortnight
+before the show — inside that window `cancellations.may_self_cancel` is False
+and the exhibitor is sent to the show office, which cancels from the desk. The
+row is marked, not deleted; see migration 126.
 
 Each class entry creates one `entries` row per (class, horse) pair and runs the
 same association validation as the secretary entry path.
@@ -40,6 +53,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from cancellations import (
+    CancellationBlocked,
+    cancel_registration,
+    cancellation_window,
+    is_on_roster,
+    may_self_cancel,
+)
+from exhibitor_profile import missing_blocking, profile_checklist
 from billing import (
     build_bill,
     early_rate_is_open,
@@ -52,6 +73,7 @@ from billing import (
 from database import get_db
 from dependencies import INTERNAL_API_KEY, require_authenticated, safe_uuid
 from models import (
+    Association,
     Class,
     ClassAssociation,
     Entry,
@@ -238,7 +260,12 @@ def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> li
 
 
 def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
-    if show_entry is None or show_entry.registered_at is None:
+    # A cancelled registration is not a sign-up. Every screen keys off this
+    # being null to decide whether the exhibitor is in the show, so reading
+    # `registered_at` alone would leave somebody who cancelled looking entered
+    # right up to the gate. `cancellations.is_on_roster` is the one place that
+    # rule is written.
+    if not is_on_roster(show_entry):
         return None
     return {
         "show_entry_id": str(show_entry.id),
@@ -259,6 +286,88 @@ def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
             if r.quantity > 0
         ],
     }
+
+
+async def _show_associations(show: Show, db: AsyncSession) -> list[tuple]:
+    """The bodies this show runs under, as `(association_id, code)` pairs.
+
+    The breed body it is approved by and every club sanctioning it — the same
+    two questions Show Details answers under "Approved by" and "Clubs". Read
+    against `associations` rather than `show_types`, because a membership
+    number is a property of the person and that is where those live (there is
+    deliberately no `associations` row for OPEN, so an Open show with no clubs
+    returns an empty list and the membership prompt is dropped entirely).
+    """
+    pairs: list[tuple] = []
+    if show.show_type and show.show_type.code and show.show_type.code != "OPEN":
+        breed = await db.execute(
+            select(Association.id, Association.code).where(
+                Association.code == show.show_type.code
+            )
+        )
+        pairs.extend(breed.all())
+    club_ids = [row.association_id for row in (show.sanctioning or [])]
+    if club_ids:
+        clubs = await db.execute(
+            select(Association.id, Association.code).where(Association.id.in_(club_ids))
+        )
+        pairs.extend(clubs.all())
+    seen: set = set()
+    return [(aid, code) for aid, code in pairs if not (aid in seen or seen.add(aid))]
+
+
+async def _profile_status(show: Show, exhibitor: Exhibitor, db: AsyncSession) -> dict:
+    """Step one of registration, as data.
+
+    Assembled here rather than on each screen so the checklist the exhibitor
+    reads and the list `PUT /signup` refuses on are the same list — a form that
+    says "you're done" over an endpoint that says otherwise is the disagreement
+    this is shaped to prevent.
+    """
+    horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
+    checklist = profile_checklist(
+        exhibitor,
+        horse_count=len(horse_ids),
+        associations=await _show_associations(show, db),
+        registered_association_ids={r.association_id for r in (exhibitor.registrations or [])},
+    )
+    missing = missing_blocking(checklist)
+    return {
+        "complete": not missing,
+        "missing": missing,
+        "checklist": checklist,
+        # The values the inline form on the registration screen edits. Sent
+        # back so that screen does not need a second round trip to
+        # /exhibitors/{id} just to prefill the boxes it is about to gate on.
+        "exhibitor": {
+            "id": str(exhibitor.id),
+            "full_name": exhibitor.full_name,
+            "date_of_birth": exhibitor.date_of_birth,
+            "phone": exhibitor.phone,
+            "address": exhibitor.address,
+            "city": exhibitor.city,
+            "state": exhibitor.state,
+            "zip": exhibitor.zip,
+            "emergency_contact_name": exhibitor.emergency_contact_name,
+            "emergency_contact_phone": exhibitor.emergency_contact_phone,
+            "parent_guardian_name": exhibitor.parent_guardian_name,
+            "parent_guardian_phone": exhibitor.parent_guardian_phone,
+        },
+    }
+
+
+def _profile_incomplete(missing: list[str]) -> HTTPException:
+    return HTTPException(
+        409,
+        {
+            "code": "PROFILE_INCOMPLETE",
+            "message": (
+                "Finish your profile before signing up for this show. Still "
+                "needed: " + ", ".join(missing).lower() + "."
+            ),
+            "missing": missing,
+        },
+    )
 
 
 def _aqha_class_code(show: Show, class_: Class) -> str | None:
@@ -305,6 +414,25 @@ class ShowSignupBody(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=1000)
 
 
+@router.get("/profile-status")
+async def get_profile_status(
+    show_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Step one: is this exhibitor's profile good enough to enter this show?
+
+    A read of the exhibitor's own record against the show's affiliations.
+    Nothing here writes, and nothing here is a fact about the show — it is on
+    this router because it is the first step of *this* flow, and because which
+    memberships are worth prompting for depends on which bodies the show runs
+    under.
+    """
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
+    return await _profile_status(show, exhibitor, db)
+
+
 @router.get("/signup")
 async def get_signup(
     show_id: UUID,
@@ -335,6 +463,14 @@ async def get_signup(
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "fee_options": _fee_options_out(fees, show_entry),
         "signup": _signup_out(show_entry),
+        # Step one, so the screen can lock this half rather than offering a
+        # form the save is going to refuse.
+        "profile": await _profile_status(show, exhibitor, db),
+        # What the cancel control says and whether it is the exhibitor's to
+        # press. Always sent, even before sign-up, because it costs nothing and
+        # a screen that only learns the rule after signing up cannot warn
+        # anybody about the deadline in advance.
+        "cancellation": cancellation_window(show.start_date),
     }
 
 
@@ -366,6 +502,17 @@ async def save_signup(
     show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
 
+    # Step one, and this is the first write in the flow — so this is where it
+    # is enforced. Refused rather than flagged: unlike health paperwork, every
+    # item on the blocking list is something only this caller holds and can
+    # type in a minute, and nobody at the desk can produce their date of birth
+    # for them. See `exhibitor_profile.py` for what blocks and what prompts.
+    missing = missing_blocking(
+        (await _profile_status(show, exhibitor, db))["checklist"]
+    )
+    if missing:
+        raise _profile_incomplete(missing)
+
     if body.arrival_date and body.departure_date and body.departure_date < body.arrival_date:
         raise HTTPException(400, "Departure date cannot be before the arrival date")
 
@@ -387,6 +534,11 @@ async def save_signup(
         await db.flush()
 
     show_entry.registered_at = show_entry.registered_at or func.now()
+    # Signing up again is the way back in after a cancellation — the same call,
+    # the same row, so a back number and any payment history survive it.
+    show_entry.cancelled_at = None
+    show_entry.cancelled_by_user_id = None
+    show_entry.cancellation_reason = None
     show_entry.arrival_date = body.arrival_date
     show_entry.departure_date = body.departure_date
     show_entry.registration_notes = body.notes
@@ -429,6 +581,79 @@ async def save_signup(
         "signup": _signup_out(show_entry),
         "reservation_total_cents": reservation_total,
     }
+
+
+class CancelSignupBody(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.delete("/signup")
+async def cancel_signup(
+    show_id: UUID,
+    body: CancelSignupBody = CancelSignupBody(),
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel your own registration, up to a fortnight before the show.
+
+    Inside the notice window this returns `CANCELLATION_WINDOW_CLOSED` and the
+    exhibitor telephones the office, which cancels from the desk. The cut-off
+    is not caution about mis-clicks — it is that by two weeks out the stall
+    chart is drawn, the entries are in the program and somebody has to decide
+    what happens to the money, and none of those are decisions the person
+    leaving gets to make on their own.
+
+    Not a DELETE of the row. See `cancellations.cancel_registration` for what
+    goes and what stays, and migration 126 for why the row survives.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    user_uuid = safe_uuid(x_user_id)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(user_uuid, db)
+
+    show_entry = await db.execute(
+        select(ShowEntry)
+        .options(
+            selectinload(ShowEntry.reservations),
+            selectinload(ShowEntry.side_pot_entries),
+        )
+        .where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor.id)
+    )
+    show_entry = show_entry.scalar_one_or_none()
+    if not is_on_roster(show_entry):
+        raise HTTPException(404, "You are not registered for this show")
+
+    if not may_self_cancel(show.start_date):
+        window = cancellation_window(show.start_date)
+        raise HTTPException(
+            409,
+            {
+                "code": "CANCELLATION_WINDOW_CLOSED",
+                "message": (
+                    f"This show starts in {window['days_until_show']} days. "
+                    f"Inside {window['notice_days']} days the show office has "
+                    "to cancel a registration — message them and they will "
+                    "take it off."
+                ),
+                "cancellation": {
+                    "notice_days": window["notice_days"],
+                    "deadline": window["deadline"].isoformat()
+                    if window["deadline"]
+                    else None,
+                    "days_until_show": window["days_until_show"],
+                },
+            },
+        )
+
+    try:
+        await cancel_registration(show_entry, show_id, user_uuid, body.reason, db)
+    except CancellationBlocked as blocked:
+        raise HTTPException(409, {"code": blocked.code, "message": blocked.message}) from None
+
+    return {"cancelled": True, "show_id": str(show_id)}
 
 
 # ── Back number ──────────────────────────────────────────────
@@ -486,7 +711,7 @@ async def request_back_number(
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
 
     show_entry = await _load_show_entry(show.id, exhibitor.id, db)
-    if show_entry is None or show_entry.registered_at is None:
+    if not is_on_roster(show_entry):
         raise HTTPException(
             409,
             {
@@ -594,6 +819,12 @@ async def preview_registration(
         # exhibitor to sign-up first rather than letting them fill in a class
         # picker the POST would reject.
         "signup": _signup_out(show_entry),
+        # Step one. The screen locks the stalls half on this, the same way it
+        # locks the classes half on `signup` — and `PUT /signup` refuses on the
+        # identical list, so the lock and the refusal cannot disagree.
+        "profile": await _profile_status(show, exhibitor, db),
+        # Whether cancelling is still the exhibitor's to do, and by when.
+        "cancellation": cancellation_window(show.start_date),
         "show": {
             "id": str(show.id),
             "name": show.name,
@@ -730,7 +961,7 @@ async def register_for_show(
     # office has no stall/shavings/camping numbers for this exhibitor, so we
     # refuse rather than quietly creating the shell row this used to create.
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
-    if show_entry is None or show_entry.registered_at is None:
+    if not is_on_roster(show_entry):
         raise HTTPException(
             409,
             {
@@ -1135,7 +1366,7 @@ async def enroll_in_futurity(
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     # Same rule as class self-registration: sign-up is what creates the roster
     # row a back number, a pot entry and now a futurity entry all hang off.
-    if show_entry is None or show_entry.registered_at is None:
+    if not is_on_roster(show_entry):
         raise HTTPException(409, "SHOW_SIGNUP_REQUIRED")
 
     futurity = await _load_futurity_for_show(show_id, body.futurity_id, db)

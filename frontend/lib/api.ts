@@ -61,6 +61,41 @@ export async function fetchShowFeesPublic(showId: string) {
   return res.json();
 }
 
+/** What the Show Bill button opens: the document the app generates from this
+ *  show's own records, or a file the show uploaded (migration 127).
+ *
+ *  Falls back to the generated bill on any failure rather than throwing. Every
+ *  show has a generated bill, none has ever been without one, and a lookup about
+ *  *which* document to draw must not be able to take the document down with it.
+ *  Read `effective_source`, never `source` — see `ShowbillOut` in schemas.py. */
+export async function fetchShowbill(showId: string): Promise<{
+  source: 'generated' | 'uploaded';
+  effective_source: 'generated' | 'uploaded';
+  document: {
+    id: string;
+    document_type: string;
+    original_filename: string;
+    mime_type: string;
+    file_size: number;
+    created_at: string;
+  } | null;
+}> {
+  const fallback = {
+    source: 'generated' as const,
+    effective_source: 'generated' as const,
+    document: null,
+  };
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/showbill-document`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return fallback;
+    return await res.json();
+  } catch {
+    return fallback;
+  }
+}
+
 /** The show's futurities as published programme — classes, entry categories,
  *  deadline and Hi-Point divisions. No entries: this is the programme, not the
  *  roster. 404s on a DRAFT show, which reads here as "no futurities". */

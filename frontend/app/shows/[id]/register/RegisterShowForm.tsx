@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
 import AddClassEntry from './AddClassEntry';
+import ProfileStep from './ProfileStep';
+import CancelRegistration from './CancelRegistration';
 import FuturityEntry, { type ExhibitorFuturity } from './FuturityEntry';
 import RegistrationSection from './RegistrationSection';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
@@ -16,26 +18,36 @@ import { formatMoney, healthWarnings, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
 
 /**
- * Everything an exhibitor signs up for at one show, on one screen.
+ * Everything an exhibitor signs up for at one show, on one screen, in order.
  *
- * Two foldable halves. **Classes & back number** is the counter flow — what you
- * are entered in, the number you want to ride under, one form to enter the next
- * class, and the horses whose paperwork the office will chase. **Stalls,
- * shavings & camping** is what used to be a separate `/signup` page you were
- * redirected through before you were allowed to pick a class.
+ * Three foldable steps, each one locked until the step above it is done, and
+ * the order is the point:
  *
- * They were split because they are two backend calls. That is not a distinction
- * an exhibitor should have to care about: somebody entering a show is doing one
- * thing, and being bounced between two screens to finish it is how people end
- * up signed up with no classes, or with six stalls and no idea what they cost.
- * Both halves are here, both fold — the whole thing open at once is a very long
- * page on the phone most people fill this in on — and the bill underneath
- * counts all of it.
+ * 1. **Your profile.** Contact details, an emergency contact and a horse. The
+ *    office used to reach a stall chart before it had somebody's telephone
+ *    number, and nobody goes back afterwards to fill that in.
+ * 2. **Stalls, shavings & camping.** The show needs its grounds counts before
+ *    it has a ring full of horses.
+ * 3. **Classes & back number.** What you are entered in, the number you want to
+ *    ride under, one form to enter the next class, and the horses whose
+ *    paperwork the office will chase.
  *
- * The sign-up rule is still real: class entries and back numbers both 409
- * without a completed sign-up, so until then the classes half stays shut and
- * says which section to fill in first. `/shows/[id]/signup` survives as the
- * door people are sent to, and renders the same `ReservationFields`.
+ * Steps 2 and 3 were once two separate screens, because they are two backend
+ * calls. That is not a distinction an exhibitor should have to care about:
+ * somebody entering a show is doing one thing, and being bounced between
+ * screens to finish it is how people end up signed up with no classes, or with
+ * six stalls and no idea what they cost. All three fold — the whole thing open
+ * at once is a very long page on the phone most people fill this in on — and
+ * the bill underneath counts all of it.
+ *
+ * **Every lock is a rule the backend enforces, not a rule this screen invents.**
+ * `PUT /signup` refuses on the same profile checklist step one renders, and
+ * class entries and back numbers both 409 without a completed sign-up. The lock
+ * exists so nobody fills in a form that is going to be turned away, never as
+ * the thing doing the turning away.
+ *
+ * `/shows/[id]/signup` survives as the door people are sent to, and renders the
+ * same `ReservationFields`.
  *
  * Every figure comes from `billing.build_bill` on the backend. Nothing here is
  * summed in the browser — see the money Sharp Edge in Claude.md.
@@ -144,15 +156,17 @@ export default function RegisterShowForm({
   signupData: SignupData | null;
 }) {
   const router = useRouter();
-  const { show, exhibitor, classes, horses, existing_entries, bill } = preview;
+  const { show, exhibitor, classes, horses, existing_entries, bill, profile } = preview;
   const signedUp = preview.signup !== null;
+  const profileComplete = profile.complete;
 
-  // Whichever half still needs doing is the one that opens. A first-time
-  // registrant lands on stalls, because that is the half that unlocks the
-  // other; everyone after that lands on their classes, which is what they came
-  // back for.
-  const [openClasses, setOpenClasses] = useState(signedUp);
-  const [openStalls, setOpenStalls] = useState(!signedUp);
+  // Whichever step still needs doing is the one that opens. A first-time
+  // registrant lands on their profile, because that is what unlocks everything
+  // below it; somebody coming back lands on their classes, which is what they
+  // returned for.
+  const [openProfile, setOpenProfile] = useState(!profileComplete);
+  const [openStalls, setOpenStalls] = useState(profileComplete && !signedUp);
+  const [openClasses, setOpenClasses] = useState(profileComplete && signedUp);
 
   const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
   const [withdrawingEntryId, setWithdrawingEntryId] = useState<string | null>(null);
@@ -210,6 +224,18 @@ export default function RegisterShowForm({
     return parts.join(' · ');
   })();
 
+  const profileSummary = (() => {
+    if (profileComplete) {
+      const optional = profile.checklist.filter((i) => !i.blocking && !i.complete);
+      return optional.length > 0
+        ? `Ready — ${optional.length} optional item${optional.length === 1 ? '' : 's'} outstanding`
+        : 'Ready';
+    }
+    return `${profile.missing.length} thing${
+      profile.missing.length === 1 ? '' : 's'
+    } still needed: ${profile.missing.join(', ').toLowerCase()}`;
+  })();
+
   const stallsSummary = (() => {
     if (!signupData) return 'Stalls, shavings and camping';
     const { total_cents, parts } = reservationSummary(signupData);
@@ -228,10 +254,63 @@ export default function RegisterShowForm({
         className="mt-4 rounded-lg border p-3 text-sm"
         style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
       >
-        {signedUp
-          ? 'Everything you sign up for at this show is on this screen. Open a section to change it — you can keep changing until the show starts. Fees are informational; the show office collects payment at the show.'
-          : 'Start with stalls, shavings and camping: that tells the office you’re coming and opens up class entries. Fees are informational — the show office collects payment at the show.'}
+        {/* Says what to do next rather than describing the screen. Three
+            states because there are three steps, and somebody halfway through
+            needs to be told which one they are on, not read a paragraph about
+            all of them. */}
+        {!profileComplete
+          ? 'Start with your profile — the show office needs your details before it can take your entry. Stalls and classes open up once it’s done.'
+          : !signedUp
+            ? 'Next: stalls, shavings and camping. That tells the office you’re coming and opens up class entries. Fees are informational — the show office collects payment at the show.'
+            : 'Everything you sign up for at this show is on this screen. Open a section to change it — you can keep changing until the show starts. Fees are informational; the show office collects payment at the show.'}
       </div>
+
+      <RegistrationSection
+        title="Your profile"
+        icon="👤"
+        summary={profileSummary}
+        isOpen={openProfile}
+        onToggle={() => setOpenProfile((v) => !v)}
+      >
+        <ProfileStep profile={profile} horseCount={horses.length} />
+      </RegistrationSection>
+
+      <RegistrationSection
+        title="Stalls, shavings & camping"
+        icon="🏠"
+        summary={stallsSummary}
+        isOpen={openStalls}
+        onToggle={() => setOpenStalls((v) => !v)}
+        locked={!profileComplete}
+        lockedReason="Finish your profile above first — the show office needs your details before it can hold a stall for you"
+      >
+        {signupData ? (
+          <ReservationFields
+            showId={showId}
+            data={signupData}
+            submitLabel={signedUp ? 'Save changes' : 'Sign up for this show'}
+            totalHint="Class fees are counted separately, in the total below."
+            // Already on the right screen, so refresh in place — and open the
+            // classes step, which this save is what unlocks.
+            onSaved={() => {
+              setOpenStalls(false);
+              setOpenClasses(true);
+              router.refresh();
+            }}
+          />
+        ) : (
+          <p className="text-sm" style={{ color: '#8b7355' }}>
+            Stall, shavings and camping options could not be loaded for this show.{' '}
+            <Link
+              href={`/shows/${showId}/signup`}
+              className="font-medium hover:underline"
+              style={{ color: '#8b4513' }}
+            >
+              Try the sign-up page →
+            </Link>
+          </p>
+        )}
+      </RegistrationSection>
 
       <RegistrationSection
         title="Classes & back number"
@@ -240,7 +319,7 @@ export default function RegisterShowForm({
         isOpen={openClasses}
         onToggle={() => setOpenClasses((v) => !v)}
         locked={!signedUp}
-        lockedReason="Sign up below first — the office needs your stall numbers before you can enter classes"
+        lockedReason="Reserve your stalls, shavings and camping above first — the office needs those numbers before you can enter classes"
       >
         {/* First inside on purpose: people who ride the same number every year
             come here to claim it, and burying it under the class table would
@@ -385,40 +464,6 @@ export default function RegisterShowForm({
         )}
       </RegistrationSection>
 
-      <RegistrationSection
-        title="Stalls, shavings & camping"
-        icon="🏠"
-        summary={stallsSummary}
-        isOpen={openStalls}
-        onToggle={() => setOpenStalls((v) => !v)}
-      >
-        {signupData ? (
-          <ReservationFields
-            showId={showId}
-            data={signupData}
-            submitLabel={signedUp ? 'Save changes' : 'Sign up for this show'}
-            totalHint="Class fees are counted separately, in the total below."
-            // Already on the right screen, so refresh in place — and open the
-            // classes half, which this save is what unlocks.
-            onSaved={() => {
-              setOpenClasses(true);
-              router.refresh();
-            }}
-          />
-        ) : (
-          <p className="text-sm" style={{ color: '#8b7355' }}>
-            Stall, shavings and camping options could not be loaded for this show.{' '}
-            <Link
-              href={`/shows/${showId}/signup`}
-              className="font-medium hover:underline"
-              style={{ color: '#8b4513' }}
-            >
-              Try the sign-up page →
-            </Link>
-          </p>
-        )}
-      </RegistrationSection>
-
       {/* Outside the collapsible sections on purpose: a futurity is a separate
           program with its own deadline, and folding it away would hide the one
           thing on this screen that expires. Renders nothing when the show runs
@@ -458,6 +503,18 @@ export default function RegisterShowForm({
           </Link>
         </div>
       </section>
+
+      {/* Last on the page and only once there is something to cancel. Under
+          the bill on purpose: the figure somebody is looking at when they
+          decide to withdraw is what they would owe, and the confirm step says
+          what happens to anything already paid. */}
+      {signedUp && (
+        <CancelRegistration
+          showId={showId}
+          window={preview.cancellation}
+          entryCount={entered.length}
+        />
+      )}
     </div>
   );
 }

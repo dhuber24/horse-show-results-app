@@ -1,11 +1,17 @@
 /**
  * The show bill — the prize list an exhibitor reads to decide whether to enter.
  *
- * Generated from the show's own records rather than uploaded as a PDF, so it
- * cannot fall out of date with the schedule it describes: a secretary who adds
- * a class or moves a fee has already updated this. That is the whole argument
- * for building it instead of adding a file upload — a stale PDF that disagrees
- * with the app is worse than no PDF, because people trust the one they printed.
+ * Generated from the show's own records, so it cannot fall out of date with the
+ * schedule it describes: a secretary who adds a class or moves a fee has already
+ * updated this. That is why it is the default, and why it is the only bill this
+ * component draws — a stale PDF that disagrees with the app is worse than no
+ * PDF, because people trust the one they printed.
+ *
+ * A show may nonetheless supply its own bill (Setup step 8, migration 127), and
+ * `UploadedShowbill` renders that. The two do not merge: Show Details prints
+ * this one under its own heading whichever the show chose, because it is drawn
+ * from the fee list the app actually charges from and an uploaded PDF must not
+ * be able to hide it.
  *
  * Two callers, one document. `/shows/[id]/showbill` renders it whole, with the
  * masthead and the print stylesheet, because that route exists to be printed.
@@ -18,7 +24,7 @@
  * directly above them. Everything below that is what the bill adds.
  */
 
-import { unitLabel } from '@/lib/fee-units';
+import { groupFees, unitLabel } from '@/lib/fee-units';
 
 export type ShowbillClassRow = {
   class_number: string;
@@ -46,6 +52,55 @@ type Fee = {
   early_amount_cents: number | null;
   early_deadline: string | null;
 };
+
+/** One heading, its "what these amounts mean" line, and the rows under it. */
+function FeeGroup({
+  heading,
+  note,
+  children,
+}: {
+  heading: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="showbill-section">
+      <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>{heading}</h3>
+      <p className="text-xs mb-1" style={{ color: '#8b7355' }}>{note}</p>
+      <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>{children}</div>
+    </div>
+  );
+}
+
+function FeeRow({
+  label,
+  unitText,
+  amountCents,
+  notes,
+  early,
+}: {
+  label: string;
+  unitText: string;
+  amountCents: number;
+  notes?: string | null;
+  early?: string | null;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
+      <div style={{ color: '#2c1810' }}>
+        {label}
+        <span className="text-xs" style={{ color: '#8b7355' }}> ({unitText})</span>
+        {notes && <div className="text-xs" style={{ color: '#8b7355' }}>{notes}</div>}
+        {early && (
+          <div className="text-xs font-medium" style={{ color: '#15803d' }}>{early}</div>
+        )}
+      </div>
+      <div className="font-medium whitespace-nowrap" style={{ color: '#2c1810' }}>
+        {formatMoney(amountCents)}
+      </div>
+    </div>
+  );
+}
 
 function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -317,53 +372,62 @@ export default function ShowbillDocument({
         )}
       </Section>
 
+      {/* Grouped rather than listed, because a flat column of amounts with a
+          parenthetical unit after each cannot be read as "what will this
+          weekend cost me". The groups are the families `billing.py` bills by,
+          so the heading over an amount is also the answer to whether it is
+          something you order or something that simply arrives on the bill. See
+          FEE_GROUPS in lib/fee-units.ts. */}
       <Section title="Fees">
-        <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+        <div className="space-y-4">
+          {/* Its own group of one: the office charge lives on the show row
+              rather than in `show_fees`, and it is the charge every exhibitor
+              pays whatever else they do. */}
           {show.office_charge_cents > 0 && (
-            <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
-              <div style={{ color: '#2c1810' }}>
-                Office charge
-                <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {' '}({show.office_charge_basis === 'per_horse'
-                    ? 'per horse'
-                    : 'per back number'})
-                </span>
-              </div>
-              <div className="font-medium whitespace-nowrap" style={{ color: '#2c1810' }}>
-                {formatMoney(show.office_charge_cents)}
-              </div>
-            </div>
+            <FeeGroup
+              heading="Show office"
+              note="Charged once to every exhibitor at this show."
+            >
+              <FeeRow
+                label="Office charge"
+                unitText={
+                  show.office_charge_basis === 'per_horse' ? 'per horse' : 'per back number'
+                }
+                amountCents={show.office_charge_cents}
+              />
+            </FeeGroup>
           )}
-          {fees.map((fee) => (
-            <div key={fee.id} className="flex items-baseline justify-between gap-3 py-2 text-sm">
-              <div style={{ color: '#2c1810' }}>
-                {fee.label}
-                <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {' '}({unitLabel(fee.unit)})
-                </span>
-                {fee.notes && (
-                  <div className="text-xs" style={{ color: '#8b7355' }}>{fee.notes}</div>
-                )}
-                {fee.early_amount_cents != null && fee.early_deadline != null && (
-                  <div className="text-xs font-medium" style={{ color: '#15803d' }}>
-                    {formatMoney(fee.early_amount_cents)} if reserved by{' '}
-                    {formatShortDate(fee.early_deadline)}
-                  </div>
-                )}
-              </div>
-              <div className="font-medium whitespace-nowrap" style={{ color: '#2c1810' }}>
-                {formatMoney(fee.amount_cents)}
-              </div>
-            </div>
+
+          {groupFees(fees).map((group) => (
+            <FeeGroup key={group.key} heading={group.heading} note={group.note}>
+              {group.fees.map((fee) => (
+                <FeeRow
+                  key={fee.id}
+                  label={fee.label}
+                  unitText={unitLabel(fee.unit)}
+                  amountCents={fee.amount_cents}
+                  notes={fee.notes}
+                  early={
+                    fee.early_amount_cents != null && fee.early_deadline != null
+                      ? `${formatMoney(fee.early_amount_cents)} if reserved by ${formatShortDate(
+                          fee.early_deadline,
+                        )}`
+                      : null
+                  }
+                />
+              ))}
+            </FeeGroup>
           ))}
+
           {fees.length === 0 && show.office_charge_cents === 0 && (
-            <p className="text-sm py-2" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: '#8b7355' }}>
               No stall, shavings or camping fees have been published for this show.
             </p>
           )}
         </div>
         <p className="text-xs mt-3" style={{ color: '#8b7355' }}>
-          The show office collects payment at the show — this app does not take payment.
+          Class entry fees are listed with the classes above. The show office collects payment at
+          the show — this app does not take payment.
         </p>
       </Section>
 

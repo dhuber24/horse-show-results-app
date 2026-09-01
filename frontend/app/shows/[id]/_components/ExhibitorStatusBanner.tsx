@@ -34,6 +34,36 @@ export default function ExhibitorStatusBanner({
   const classesLabel = `${entryCount} class${entryCount === 1 ? '' : 'es'}`;
   const unsigned = standing?.waivers_outstanding ?? 0;
 
+  if (standing?.cancelled_at) {
+    return (
+      <div
+        className="mb-4 px-4 py-3 rounded border"
+        style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}
+      >
+        <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+          Your registration for this show was cancelled
+        </p>
+        <p className="text-xs mt-1" style={{ color: '#92400e' }}>
+          Your classes, stalls and camping have been released. Anything you had already paid stays
+          on your account for the show office to refund.
+        </p>
+        {registrationOpen && (
+          <div className="mt-2">
+            {/* Signing up again is the same call on the same row, so a back
+                number and any payment history survive it. */}
+            <Link
+              href={`/shows/${showId}/register`}
+              className="text-sm font-medium px-3 py-1.5 rounded text-white inline-block"
+              style={{ backgroundColor: '#8b4513' }}
+            >
+              Register again →
+            </Link>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (standing?.signed_up) {
     return (
       <div
@@ -116,7 +146,7 @@ export default function ExhibitorStatusBanner({
         {registrationOpen && (
           <div className="mt-2">
             <Link
-              href={`/shows/${showId}/signup`}
+              href={`/shows/${showId}/register`}
               className="text-sm font-medium px-3 py-1.5 rounded text-white inline-block"
               style={{ backgroundColor: '#8b4513' }}
             >
@@ -135,14 +165,15 @@ export default function ExhibitorStatusBanner({
         style={{ backgroundColor: '#f0e8d8', borderColor: '#d4b896' }}
       >
         <div className="text-sm" style={{ color: '#5d4a37' }}>
-          Registration is open. Sign up for the show — stalls, shavings and camping — then pick
-          your classes.
+          Registration is open. Fill in your profile, reserve stalls, shavings and camping, then
+          pick your classes.
         </div>
-        {/* Sign-up is the single entry point: it is required before classes,
-            and it forwards anyone already signed up straight to the class
-            picker rather than making them re-enter the same numbers. */}
+        {/* `/register` is the single entry point, and it is the whole flow in
+            order — profile, then grounds, then classes — each step locked
+            until the one above it is done. It opens on whichever step they
+            still have to do, so coming back does not mean starting again. */}
         <Link
-          href={`/shows/${showId}/signup`}
+          href={`/shows/${showId}/register`}
           className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
           style={{ backgroundColor: '#8b4513' }}
         >

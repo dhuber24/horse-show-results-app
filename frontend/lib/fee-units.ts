@@ -116,3 +116,87 @@ export function usesJudgeCount(unit: string): boolean {
     unit === 'per_judge_per_entry'
   );
 }
+
+/**
+ * How a published fee schedule is grouped for someone reading it.
+ *
+ * A flat list of a show's fees is a column of amounts with a parenthetical unit
+ * after each, and working out what a weekend costs from it means knowing that
+ * `per_bag` is something you order, `per_judge_per_horse` is something that
+ * happens to you, and `flat` is neither. The groups say that out loud, and they
+ * are the families `billing.py` already bills by — reserved, automatic, and
+ * everything else — split once more where the exhibitor's decision differs
+ * (stalls and bedding are ordered by the stall; camping is ordered by the
+ * night, day or spot).
+ *
+ * `note` is what the group's amounts *mean*, not a description of the group.
+ * "You choose how many at sign-up" is the sentence that tells somebody whether
+ * the number beside it is theirs to control.
+ */
+export const FEE_GROUPS: {
+  key: string;
+  heading: string;
+  note: string;
+  units: FeeUnit[];
+}[] = [
+  {
+    key: 'stalls',
+    heading: 'Stalls & bedding',
+    note: 'You choose how many when you sign up.',
+    units: ['per_stall', 'per_bag'],
+  },
+  {
+    // The three ways a venue prices the same camping spot, under one heading —
+    // same reasoning as the sign-up picker (migrations 108, 111). A
+    // $60-for-the-weekend hook-up filed away from the nightly rate is one
+    // nobody finds.
+    key: 'camping',
+    heading: 'Camping & hook-ups',
+    note: 'You choose how many when you sign up.',
+    units: ['per_night', 'per_day', 'per_show'],
+  },
+  {
+    key: 'automatic',
+    heading: 'Added to every entry',
+    note: 'Charged automatically once you enter a class — nothing to book.',
+    units: [
+      'per_exhibitor',
+      'per_horse',
+      'per_judge_per_horse',
+      'per_judge_per_exhibitor',
+      'per_judge_per_entry',
+    ],
+  },
+  {
+    // The units in no billing family. Printed because the show published them
+    // and somebody at the desk will charge them; labelled honestly because the
+    // app does not, and a price list that reads like a bill is worse than one
+    // that admits what it is. See the `build_bill` Sharp Edge in Claude.md.
+    key: 'other',
+    heading: 'Other charges',
+    note: 'Published prices. The show office applies these case by case.',
+    units: ['flat', 'per_entry', 'per_class_per_horse', 'percent_of_entry'],
+  },
+];
+
+/**
+ * Sort a show's fee rows into `FEE_GROUPS`, dropping the groups it has nothing
+ * in. A unit that belongs to no group falls into "Other charges" rather than
+ * disappearing — a fee the show published and this list has never heard of is
+ * still a fee somebody is going to be asked for.
+ */
+export function groupFees<T extends { unit: string }>(
+  fees: T[],
+): { key: string; heading: string; note: string; fees: T[] }[] {
+  const claimed = new Set(FEE_GROUPS.flatMap((g) => g.units as readonly string[]));
+  return FEE_GROUPS.map((group) => ({
+    key: group.key,
+    heading: group.heading,
+    note: group.note,
+    fees: fees.filter(
+      (fee) =>
+        (group.units as readonly string[]).includes(fee.unit) ||
+        (group.key === 'other' && !claimed.has(fee.unit)),
+    ),
+  })).filter((group) => group.fees.length > 0);
+}

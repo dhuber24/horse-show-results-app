@@ -1,5 +1,61 @@
 # Codebase Improvements
 
+## September 2026
+
+### The Show Bill Somebody Already Had Printed
+
+The app has always drawn the show bill from the show's own records — judges, classes, fees, policies — and that was a deliberate refusal, written down as such: an uploaded PDF is a second source of truth that goes stale the moment a secretary adds a class, and worse than no PDF because people trust the copy they printed.
+
+The refusal did not work. A club's show bill is a designed document — sponsor logos, the club's own wording, the entry blank on the back, an award list this app has no table for — and it goes to the printer well before anything is keyed in here. Refusing the upload never made those shows use the generated bill. It made them e-mail a PDF this app never saw, which is the same staleness with none of the visibility.
+
+So **Setup Step 8** asks which bill the show publishes, and the generated one stays the default and the recommendation. What changed is that the hazard is now re-homed rather than dismissed:
+
+**The choice and the file are two separate facts.** `shows.showbill_source` may only read `uploaded` while a `SHOWBILL` row exists in the new `show_documents` table (migration 127) — enforced in the router, because a CHECK cannot see another table. `PUT /shows/{id}/showbill-source` 422s the mismatch; `DELETE` of the document resets the column in the same transaction, since "delete the file, then remember to change the setting" is not a sequence to hand somebody mid-setup. Every read returns `effective_source` beside `source` and every renderer uses the former, because the one thing a show bill must never be is blank.
+
+**Uploading is not publishing.** They are two presses on two endpoints, so a manager comparing their club's PDF against the generated bill can put it on file and look at it without every exhibitor's Show Bill button changing underneath them mid-comparison.
+
+**An uploaded bill hides nothing.** Show Details prints the generated document under its own heading — *Classes, judges and fees as entered in this app* — whichever bill the show chose, and the class schedule stays one link away. That document is drawn from the fee list `GET /shows/{id}/fees/public` charges from, which is the whole reason that endpoint exists; hiding it behind a PDF would leave an exhibitor no way to check what they will actually be billed. A show picks what the *button* shows. It does not get to make the live schedule unreachable.
+
+**There is no staleness check, and faking one would be worse than none.** Saying "this PDF predates the schedule" needs the upload date compared against the last change to `classes`, `show_fees` and `show_judges`, and not one of the three carries an `updated_at`. So `UploadedShowbill` stamps the upload date on the page, says in as many words that classes and fees may have changed, and links out to the live schedule — an honest "check this yourself" rather than a reassurance the data cannot support.
+
+### The Way Out Of A Show
+
+An exhibitor who was not coming had no way to say so. `withdraw_entry` drops one class at a time, and the desk's `remove_exhibitor_from_roster` refuses outright the moment `registered_at` is set — so the only exit from a completed sign-up was to drop every class by hand and leave a stall booked against a show the horse would never reach. The office found out when the trailer did not.
+
+**The rule is two weeks.** An exhibitor cancels their own registration up to a fortnight before the show; inside that window the show office does it from the desk. That cut-off is not caution about mis-clicks: by two weeks out the stall chart is drawn, the entries are in the program, and what happens to money already taken is a decision somebody has to make — and it is not the person leaving. The office's own door has no window at all, because a truck that breaks down on the Friday still has to come off the stall chart.
+
+**Marked, never deleted** (migration 126). `show_entries` cascades to `show_payments`, so deleting the row to cancel a registration would erase money that moved — the same rule that already makes a refund a negative payment row rather than an edit to the original. The class entries, reservations, futurity enrollments and side pot buy-ins go; the row, its back number and its payments stay. What is left is a bill of nothing against whatever was paid, which reads as a **credit** on the office's own screen and is exactly the prompt to refund it. Refused once a placing or a settled-pot payout exists: at that point the exhibitor did not cancel, they competed.
+
+**Both doors run one implementation.** `cancellations.cancel_registration` is called by the exhibitor's `DELETE /register/signup` and the desk's `POST /desk/exhibitors/{id}/cancel`. The *permission* differs between them; what a cancellation leaves behind must not.
+
+The quiet half of this is `is_on_roster`. Being registered used to be one condition, and cancelling marks the row rather than clearing the sign-up — so every screen that asked "is `registered_at` set?" would have gone on showing a cancelled exhibitor as entered, right up to the gate. `registered_at IS NOT NULL AND cancelled_at IS NULL` is now written in exactly one place, and the desk, Financials, `show_office`, My Shows and the registration screen all read it.
+
+### The Office Reached A Stall Chart Before It Had A Phone Number
+
+Registration was two steps — stalls, then classes. It is now three, and the new one is first: **your profile**. Contact details, date of birth, an emergency contact, and one horse.
+
+Every one of those was already a column on `exhibitors`, editable at `/profile`, and reliably empty. Nobody fills in an address on a screen they visited to change their password; they fill it in when something is asking for it in order to let them do the thing they came to do. So the ask moved into the flow, and `PUT /signup` — the first write in the whole sequence — refuses with `PROFILE_INCOMPLETE` naming what is short.
+
+**What blocks and what only prompts follows the health-paperwork rule**: refuse only what nobody at the desk can produce for you. A missing Coggins can be produced and a membership bought at the counter, so both are warnings. Nobody at the counter can produce somebody else's date of birth — and the youth divisions are decided by it (YP-075), so a missing one is found out at the gate instead. **Association memberships are therefore advisory**, prominently asked for and never refused over, and the row is omitted entirely at a show with no breed or club affiliation to hold one against. An item that can never be ticked is one people learn to scroll past, and the panel loses them for the items that matter.
+
+The checklist lives in `backend/exhibitor_profile.py` and is served three ways — its own endpoint, and riding on `preview` and `signup` — so the list the screen renders and the list the endpoint refuses on are the same object. The fields are edited **in place** on the registration screen, posting to the same `PATCH /exhibitors/{id}` the profile page uses. Bouncing somebody to another route mid-registration on a phone is how people lose their place and never come back; horses and memberships stay as links, because adding a horse runs the document-extraction wizard and a second copy of that is a second copy to keep in step.
+
+**The locks are not the enforcement.** Each step on `/shows/[id]/register` is shut until the one above it is done and says which section to fill in first, but both conditions 409 from the router regardless. The lock exists so nobody fills in a form that is going to be turned away — a screen that is the only thing stopping a bad write is one an API client walks straight past.
+
+### A Column Of Amounts Is Not A Price List
+
+The show bill's fee schedule was every `show_fees` row in a flat list with its unit in parentheses. Read like that, a bag of shavings you order, a per-judge assessment that simply arrives on your bill, and a stall-cleanout penalty the app never charges anybody are indistinguishable — they are all "$25 (per …)", and telling them apart requires knowing the billing families in `billing.py`, which an exhibitor has no way of knowing and no reason to learn.
+
+The schedule is now grouped, and the groups **are** those families — reserved, automatic, and neither — split once more where the exhibitor's decision differs: stalls and bedding are ordered by the stall, camping by the night, day or spot. Each heading carries a line saying what its amounts mean ("You choose how many when you sign up", "Charged automatically once you enter a class", "Published prices — the show office applies these case by case"), which is the sentence that answers whether the number beside it is yours to control.
+
+`FEE_GROUPS` and `groupFees` live in `frontend/lib/fee-units.ts` beside the unit vocabulary they are derived from. A unit in no group falls into **Other charges** rather than vanishing: a fee the show published and this list has never heard of is still one somebody will be asked for at the desk.
+
+### Show Details Was Public And Unreachable
+
+`/shows/[id]/details` has always worked without an account — every fetcher behind it is anonymous. Nothing on the signed-out show page linked to it, which came to the same thing: a stranger deciding whether to enter got the dates, the venue, and two buttons, while the judges, the class schedule and the entire fee schedule sat one URL away that nobody had told them about.
+
+It is now the first thing on that page, above Register and Contact, because it is what somebody reads in order to decide whether to press Register at all. This does not reopen the class list on `/shows/[id]` itself — that page is a menu of things to do, and Show Details is one of them.
+
 ## August 2026
 
 ### One Endpoint That Returned An Entry List

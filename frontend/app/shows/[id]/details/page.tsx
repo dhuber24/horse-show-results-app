@@ -4,10 +4,12 @@ import {
   fetchClasses,
   fetchShowJudgesPublic,
   fetchShowFeesPublic,
+  fetchShowbill,
 } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import ShowbillDocument, { type ShowbillClassRow } from '../_components/ShowbillDocument';
+import UploadedShowbill from '../_components/UploadedShowbill';
 
 /**
  * The show, described.
@@ -53,12 +55,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, back, allClasses, judges, fees] = await Promise.all([
+  const [show, back, allClasses, judges, fees, showbill] = await Promise.all([
     fetchShow(id),
     showHubBack(id),
     fetchClasses(id),
     fetchShowJudgesPublic(id),
     fetchShowFeesPublic(id),
+    fetchShowbill(id),
   ]);
 
   const clubs: { association_id: string; code: string; name: string; per_class_fee_cents: number }[] =
@@ -137,10 +140,33 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
       </div>
 
       <h2 className="text-lg font-semibold mt-6 mb-3" style={{ color: '#2c1810' }}>Show Bill</h2>
+      {showbill.effective_source === 'uploaded' && showbill.document && (
+        <div className="mb-6">
+          <UploadedShowbill
+            showId={id}
+            showName={show.name}
+            document={showbill.document}
+            embedded
+          />
+        </div>
+      )}
+
+      {/* The generated document stays on this page whichever bill the show
+          chose. It is drawn from the classes, judges and fees actually on file
+          — the same fee list `GET /shows/{id}/fees/public` charges from — so
+          hiding it behind an uploaded PDF would leave an exhibitor no way to
+          check what they will really be billed. A second heading rather than a
+          silent replacement: the two can disagree, and the reader has to be
+          able to see which is which. */}
+      {showbill.effective_source === 'uploaded' && showbill.document && (
+        <h3 className="text-base font-semibold mb-2" style={{ color: '#2c1810' }}>
+          Classes, judges and fees as entered in this app
+        </h3>
+      )}
       <ShowbillDocument show={show} classes={classes} judges={judges} fees={fees} embedded />
 
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
-        {/* The same document with a masthead and a print stylesheet on it.
+        {/* The show's chosen bill with a masthead and a print stylesheet on it.
             Worth its own route even though the content is above: a program
             people carry round the grounds on paper is the point of it. */}
         <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: '#8b4513' }}>

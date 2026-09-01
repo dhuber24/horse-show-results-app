@@ -34,13 +34,13 @@ Codex note: when changing show visibility, scribe access, or result entry behavi
 
 ## Show Setup Wizard
 
-Show creation runs through a seven-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`, class count, futurity count). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
+Show creation runs through an eight-step wizard. Each step is a separate route and is skippable — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, sanctioning count, lodging-fee codes, class-fee codes / `office_charge_cents`, class count, futurity count, and whether the published show bill is a bill yet). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
 
 The hub and every step page read those counts from one helper, `setup/_lib/fetchStepCounts.ts`, so the stepper on a step page and the checklist on the hub cannot disagree about what is done.
 
 Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; Step 1's staff roster is where any further assignment happens.
 
-**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit`, Step 6 is `/admin/shows/[id]/classes` and Step 7 is `/admin/shows/[id]/futurities`, because all three are deep-linked from elsewhere and were screens before the wizard reached them. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below). A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all seven.
+**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit`, Step 6 is `/admin/shows/[id]/classes` and Step 7 is `/admin/shows/[id]/futurities`, because all three are deep-linked from elsewhere and were screens before the wizard reached them. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below). A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all eight.
 
 | Step | Route | What it does |
 | --- | --- | --- |
@@ -51,10 +51,55 @@ Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Ma
 | 5. Show Fees | `/admin/shows/[id]/setup/fees` | `office_charge_cents` + `office_charge_basis` (`per_back_number` vs `per_horse`) on the show row, plus two structured slots in `show_fees` with codes `standard_class` / `jackpot` — both `per_entry`, so both are published price-list text and neither bills (what an entry is charged comes from `classes.entry_fee_cents`, and a side pot's buy-in from the pot itself, over only the classes bundled into it). Each slot now says so on the screen, plus **Other fees** — any number of the show's own named charges, each priced per exhibitor, per horse, per judge per horse, or per judge per exhibitor (migration 112). Those are the only fee units besides the office charge that actually bill, via `billing.charge_lines`; they are matched by *unit* rather than by code, because a manager names them, and they are charged automatically to everyone who has entered a class rather than booked like a stall. The same editor (`components/ShowChargesEditor.tsx`) is what `/admin/shows/[id]/fees/entry` renders. Sanctioning per-class fees are editable here and link back to Step 3 for which clubs, and forward to Step 6's Sanctioned Classes for which classes each one approves — the amount alone does not say whether it charges anybody, so each club row also reports how many classes are marked approved. A **futurity slot used to sit here and does not any more** (migration 107): one amount cannot say that the same class costs $75, $100 or $150 depending on the entrant's category. The step links on to Step 7 instead, and offers to delete a leftover `futurity` fee row — a show carrying both bills its futurity entrants twice. |
 | 6. Classes | `/admin/shows/[id]/classes` | Build the class schedule — the OPEN three-step class wizard documented below, or the per-association importers. Longest job in setting a show up, which is exactly why it is a step in the flow rather than an errand to remember from the dashboard. Route unchanged, so per-class deep links still work. A show carrying club sanctioning also gets a banner here linking to **Sanctioned Classes** (`/admin/shows/[id]/classes/sanctioning`, migration 113), where staff tick which classes each club approves — a club sanctions a list of classes, not the schedule, and its per-class fee is charged on those and nowhere else. Its own screen rather than a panel in the wizard, because the wizard is OPEN-only and an NSBA- or WSCA-sanctioned show is just as likely to be an AQHA or APHA show carrying the overlay. |
 | 7. Futurities | `/admin/shows/[id]/futurities` | Optional; most shows run none. **+ Add futurity** captures the whole published entry form — deadline (to the minute), late fee, office fee by membership, the entry categories and what qualifies for each, an optional club membership for sale, which classes belong to the programme, the award / rules / refund notices, and the release entrants sign. After Classes on purpose: a futurity is defined by which classes belong to it, and there is nothing to pick from until the schedule exists. Route unchanged, so the dashboard tile still reaches it. |
+| 8. Show Bill | `/admin/shows/[id]/setup/showbill` | Which show bill exhibitors see. **The show bill this app builds** is the default — drawn from the judges, classes, fees and policies the seven steps before it set, so it updates itself when any of them change. **Our own show bill, uploaded** publishes a PDF or image the show supplies instead (migration 127). Uploading and publishing are two separate presses: a manager comparing their club's PDF against the generated bill can put it on file and look at it without every exhibitor's Show Bill button changing underneath them. The radio for the uploaded bill is disabled until a file exists (`PUT /shows/{id}/showbill-source` 422s the same case anyway), and removing the file puts the show back on the generated bill in the same transaction. Last in the flow because the show bill is what every step before it adds up to. |
 
 Sanctioning associations are distinct from breed `show_types` — see `docs/database.md`. The breed `show_type` is set once on the show row at creation and drives breed-specific rules; sanctioning is a per-show overlay that adds points eligibility (and an optional per-class fee) without changing the show's primary type.
 
 That per-class fee is charged **only on the classes the club actually approves** (`class_sanctioning`, migration 113), designated in Step 6's Sanctioned Classes screen. Enrolling a club in Step 3 and pricing it in Step 5 charges nobody until that is done — which is deliberate, and both screens say so. A dual-sanctioned class carries both clubs' fees.
+
+### The Show Bill: Generated Or Uploaded
+
+The app has always drawn the show bill from the show's own records —
+`/shows/[id]/showbill`, and the same document embedded on Show Details — and
+that remains the default and the recommendation. A generated bill cannot fall
+out of date with the schedule it describes: a secretary who adds a class or
+moves a fee has already updated it.
+
+Step 8 adds the other option (migration 127). The reason is not laziness on the
+show's part. A club's show bill is usually a designed document — sponsor logos,
+the club's own wording, the entry blank on the back, an award list this app has
+no table for — laid out and sent to the printer well before anything is keyed in
+here. Refusing the upload never made those shows use the generated bill; it made
+them e-mail a PDF this app never saw.
+
+Three rules keep the hazard visible rather than dismissing it:
+
+- **The choice and the file are two separate facts.** `shows.showbill_source`
+  may only read `uploaded` while a `SHOWBILL` row exists in `show_documents`.
+  `PUT /shows/{id}/showbill-source` 422s the mismatch and
+  `DELETE /shows/{id}/showbill-document` resets the column in the same
+  transaction — "delete the file, then remember to change the setting" is not a
+  sequence to hand somebody mid-setup. Readers still resolve rather than trust:
+  `GET` returns `effective_source` beside `source` and every renderer uses the
+  former, because the one thing a show bill must never be is blank.
+- **An uploaded bill hides nothing.** Show Details prints the generated document
+  under its own heading whichever bill the show chose. That document is drawn
+  from the fee list `GET /shows/{id}/fees/public` charges from, so hiding it
+  behind an uploaded PDF would leave an exhibitor with no way to check what they
+  will actually be billed. A show chooses what the *button* shows; it does not
+  get to make the live schedule unreachable.
+- **There is no staleness check, and faking one would be worse than none.**
+  Saying "this PDF predates the current schedule" needs the upload date compared
+  against the last change to `classes`, `show_fees` and `show_judges`, and none
+  of the three carries an `updated_at`. `UploadedShowbill` stamps the upload date
+  on the page instead, says in as many words that classes and fees may have
+  changed, and links out to the live schedule.
+
+Roles: the same show-office tier as the rest of setup — `ADMIN`, or the
+`SHOW_SECRETARY` / `SHOW_MANAGER` assigned to that show. Reading the bill and
+downloading the file are **public**, like the generated bill and like
+`/shows/[id]/schedule`: a show bill is the prize list a stranger reads to decide
+whether to enter.
 
 ### Paperwork Requirements Are Not A Setup Step
 
@@ -250,12 +295,47 @@ Someone browsing shows before they have signed up sees a different `/shows/[id]`
 
 ## Exhibitor Self-Registration
 
-Exhibitors register themselves for a show that is `PUBLISHED`, in **two steps, in order**:
+Exhibitors register themselves for a show that is `PUBLISHED`, in **three steps, in order**, all three on `/shows/[id]/register`:
 
-1. **Show sign-up** at `/shows/[id]/signup` — creates the `show_entries` row and captures what the show office needs to run the grounds: stalls, bags of shavings, camping nights. This is the CTA on the show detail page; anyone already signed up is forwarded on to step 2 rather than re-entering their numbers.
-2. **Class registration** at `/shows/[id]/register` — enter one class at a time, on the show office's own entry form.
+1. **Your profile** — contact details, date of birth, an emergency contact, and one horse. The office used to reach a stall chart before it had somebody's telephone number, and nobody goes back afterwards to fill that in.
+2. **Stalls, shavings & camping** — creates the `show_entries` row and captures what the show office needs to run the grounds: stalls, bags of shavings, camping nights.
+3. **Classes & back number** — enter one class at a time, on the show office's own entry form.
 
-Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_REQUIRED` when `show_entries.registered_at` is NULL, and the registration screen renders a "sign up first" card instead of a class picker rather than letting someone fill one in and be turned away on submit. The ordering is the point — the office wants stall counts before it has a ring full of horses.
+Each step is locked until the one above it is done, and **every lock is a rule the backend already enforces**:
+
+- `PUT /shows/{id}/register/signup` returns `409 PROFILE_INCOMPLETE` with the missing items named, so step 2 cannot be completed over a short profile.
+- `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_REQUIRED` when the caller is not on the roster, so step 3 cannot be completed over an unfinished step 2.
+
+The screen locks the section rather than doing the refusing, so nobody fills in a form that is going to be turned away. The ordering is the point twice over: the office wants the person's details before it holds a stall for them, and stall counts before it has a ring full of horses.
+
+### Step One: The Profile
+
+`backend/exhibitor_profile.py` holds the checklist, and **what blocks versus what only prompts is deliberate** — the same reasoning as health paperwork, which flags rather than refuses.
+
+| Item | Blocks? | Why |
+| --- | --- | --- |
+| Name, date of birth, phone, mailing address, emergency contact | Yes | Facts only the exhibitor holds, typed in a minute, and a show office with none of them has nothing to work with. The date of birth is on the list because the youth divisions are decided by it (YP-075) and a missing one is found out at the gate. |
+| At least one horse | Yes | You enter classes on a horse from your profile. |
+| Association memberships | **No** | A membership number is a claim the desk verifies against a card (`show_verifications`), and one can be bought at the counter. Prompted prominently, never refused over. The row is **omitted entirely** when the show has no breed or club affiliation — an item that can never be ticked is one people learn to scroll past. |
+
+`GET /shows/{id}/register/profile-status` returns the checklist on its own; it also rides on `GET /register/preview` and `GET /register/signup`, so a screen never has to ask twice. The personal fields are edited **in place** by `ProfileStep`, posting to the same `PATCH /api/exhibitors/{id}` the profile screen uses — one writer. Horses and memberships are links, because adding a horse runs the document-extraction wizard and rebuilding it here would be a second version to keep in step.
+
+`/shows/[id]/signup` enforces step one too, for anyone arriving by that URL directly.
+
+### Cancelling A Registration
+
+An exhibitor may call off their own registration **up to a fortnight before the show**. Inside that window the show office does it, from the desk.
+
+- `DELETE /shows/{id}/register/signup` — the exhibitor's own door. Returns `409 CANCELLATION_WINDOW_CLOSED`, carrying the deadline and the days remaining, once the show is within `CANCELLATION_NOTICE_DAYS` (14) of starting. The screen shows the office's contact link instead of a disabled button — a greyed-out control with a tooltip is how somebody ends up ringing round to find out whether they are still entered.
+- `POST /shows/{id}/desk/exhibitors/{exhibitor_id}/cancel` — the office's. No window: someone whose truck breaks down on the Friday still has to come off the stall chart. Distinct from `DELETE /desk/exhibitors/{id}`, which is the undo for adding the wrong person and refuses the moment anything hangs off the row.
+
+Both run `cancellations.cancel_registration`, so they cannot disagree about what a cancellation leaves behind:
+
+- **Goes:** class entries, stall/shavings/camping reservations, futurity enrollments, side pot buy-ins. All four are things the show would otherwise still be holding for somebody who is not coming, and all four are priced.
+- **Stays:** the `show_entries` row, its back number, and every `show_payments` row on it. Deleting the row would cascade the payments away — the same reason a refund is a negative payment row rather than an edit to the original. What is left is a bill of nothing against whatever was paid, which reads as a **credit** on the office's own screen and is exactly the prompt to refund it.
+- **Refused** once a placing or a settled-pot payout exists (`RESULTS_RECORDED` / `SIDE_POT_SETTLED`). At that point the exhibitor did not cancel, they competed.
+
+On the roster is `registered_at IS NOT NULL AND cancelled_at IS NULL` — `cancellations.is_on_roster`, written once because every reader that asked only about `registered_at` would go on showing a cancelled exhibitor as entered. **Signing up again is the way back in**: the same `PUT /signup` on the same row, so a back number and any payment history survive it.
 
 ### Show Sign-Up
 
@@ -268,16 +348,19 @@ Step 2 requires step 1. `POST /shows/{id}/register/` returns `409 SHOW_SIGNUP_RE
 
 ### Class Registration
 
-**One screen for the whole registration.** `/shows/[id]/register` carries both halves of what an exhibitor signs up for, in two collapsible sections (`RegistrationSection`) over the running bill:
+**One screen for the whole registration.** `/shows/[id]/register` carries all three steps, in collapsible sections (`RegistrationSection`) over the running bill, with the cancel control below it:
 
 | Section | Holds | Backed by |
 | --- | --- | --- |
-| Classes & back number | Back-number request, entered-class table with inline-confirm removal, the one-class-at-a-time entry form, and the horses whose health records are outstanding | `GET/POST /shows/{id}/register`, `PUT .../register/back-number` |
+| Your profile | The checklist, the personal-details form, links to horses and memberships | `GET /shows/{id}/register/preview` → `profile`, `PATCH /exhibitors/{id}` |
 | Stalls, shavings & camping | `ReservationFields` — the fee groups, arrival/departure dates, notes to the office | `GET/PUT /shows/{id}/register/signup` |
+| Classes & back number | Back-number request, entered-class table with inline-confirm removal, the one-class-at-a-time entry form, and the horses whose health records are outstanding | `GET/POST /shows/{id}/register`, `PUT .../register/back-number` |
 
-The two were separate screens with a redirect between them, because they are separate backend calls. That is not a distinction an exhibitor should have to care about — somebody entering a show is doing one job, and bouncing them between screens to finish it is how people end up signed up with no classes. They fold because all of it open at once is a very long page on a phone; collapsed, each header's summary line is the only thing saying what you have, so it carries the class count, the back number, the outstanding-records count, and the reserved quantities with their total.
+Steps 2 and 3 were separate screens with a redirect between them, because they are separate backend calls. That is not a distinction an exhibitor should have to care about — somebody entering a show is doing one job, and bouncing them between screens to finish it is how people end up signed up with no classes. They fold because all of it open at once is a very long page on a phone; collapsed, each header's summary line is the only thing saying where you are, so it carries what is still missing from the profile, the reserved quantities with their total, and the class count with the back number.
 
-**The sign-up rule is still enforced, just visible.** Class entries and back numbers both 409 without a completed sign-up, so the classes section will not open until then and its header says which section to fill in first. `/shows/[id]/signup` remains as its own route — the show hub's Sign Up tile, the status banner and the My Shows card all point at it — and renders the same `ReservationFields`, so the two cannot disagree about a price or a quantity.
+The screen **opens on whichever step still needs doing**, so coming back does not mean starting again.
+
+**The locks are visible rules, not the enforcement.** The backend refuses on the same two conditions (`PROFILE_INCOMPLETE`, `SHOW_SIGNUP_REQUIRED`), and each locked header says which section to fill in first — "you can't do this yet" without a destination is the kind of message people read as a fault. `/shows/[id]/signup` remains as its own route (the status banner's stall link and the My Shows card point at it, and it is where releases are signed) and renders the same `ReservationFields` and the same `ProfileStep`, so the two cannot disagree about a price, a quantity, or whether a profile is finished.
 
 **The class half is the desk's entry form with the exhibitor pinned to themselves.** `AddClassEntry` in `frontend/app/shows/[id]/register/` mirrors `admin/shows/[id]/desk/AddEntryForm`: what you are entered in as a table, and below it one class picker, one horse picker, and **Enter class**. It replaced a list of every class in the show with a horse select on each row and a single Submit at the bottom — a shape that hid the four classes someone had chosen under the thirty-six they had not, and reported the first clash only after the whole batch was sent.
 

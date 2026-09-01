@@ -19,6 +19,19 @@ export type MyShowStanding = {
    *  entry by hand — the office has no stall numbers, so it does not count. */
   signed_up: boolean;
   registered_at: string | null;
+  /** Set when the registration was called off — by the exhibitor outside the
+   *  two-week notice window, or by the show office inside it. `signed_up` is
+   *  already false for one of these; this is what lets a screen say so rather
+   *  than reading as never having registered. */
+  cancelled_at: string | null;
+  /** Whether cancelling is still the exhibitor's own to do, and by when. Null
+   *  for a caller with no standing at the show. */
+  cancellation: {
+    notice_days: number;
+    deadline: string | null;
+    self_service: boolean;
+    days_until_show: number | null;
+  } | null;
   back_number: number | null;
   entry_count: number;
   arrival_date: string | null;

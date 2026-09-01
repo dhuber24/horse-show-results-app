@@ -26,3 +26,26 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   });
   return NextResponse.json(json, { status });
 }
+
+/**
+ * Cancel this show registration.
+ *
+ * Refused by the backend inside the two-week notice window, with
+ * `CANCELLATION_WINDOW_CLOSED` and the deadline on it — the status is passed
+ * through untouched so the screen can print the office's answer rather than a
+ * generic failure.
+ */
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
+  const { showId } = await params;
+  const headers = await getAuthHeaders();
+  if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // A cancellation reason is optional, and a DELETE with no body is normal.
+  const body = await request.json().catch(() => ({}));
+  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/register/signup`, {
+    method: 'DELETE',
+    headers,
+    body: JSON.stringify(body ?? {}),
+  });
+  return NextResponse.json(json, { status });
+}

@@ -108,6 +108,11 @@ def _serialize(show: Show) -> dict:
         "office_charge_cents": show.office_charge_cents,
         "office_charge_basis": show.office_charge_basis,
         "shavings_ban_outside": show.shavings_ban_outside,
+        # Which show bill the Show Bill button opens (migration 127). Named here
+        # as well as on ShowOut because this function builds the payload by hand
+        # -- the `apha_zone` note above is what happens when a column is in only
+        # one of the two.
+        "showbill_source": show.showbill_source,
         # Which health papers this show requires (migration 097). Serialized
         # here rather than left to ShowOut's defaults: this function builds the
         # payload by hand, so a column missing from it reads back as the schema

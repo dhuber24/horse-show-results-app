@@ -3,12 +3,19 @@ import Link from 'next/link';
 /**
  * What a visitor with no account sees when they open a show.
  *
- * The class schedule is deliberately absent. Someone browsing shows is
- * deciding whether to enter, and a wall of class numbers is not that decision —
- * the two things they can actually do are register and ask a question. The
- * shavings policy is absent for the same reason: it matters once you're
- * packing the trailer, so it lives on the sign-up screen where the bags are
- * ordered, not in the details a stranger reads to pick a show.
+ * The class schedule is deliberately absent *from this page*. Someone browsing
+ * shows is deciding whether to enter, and a wall of class numbers is not that
+ * decision — what they can act on here is register, read the show up, or ask a
+ * question. The shavings policy is absent for the same reason: it matters once
+ * you're packing the trailer, so it lives on the sign-up screen where the bags
+ * are ordered.
+ *
+ * **Show Details is offered to everyone, account or not.** What a show is, who
+ * is judging it, what runs when and what it costs are the questions somebody
+ * asks *before* deciding to enter, so putting the answer behind a registration
+ * hides it at exactly the moment it is useful. `/shows/[id]/details` was
+ * already public — every fetcher behind it is anonymous — but nothing on this
+ * page linked to it, which came to the same thing.
  *
  * This is the *browsing* path only. `/shows/[id]/live`, `/schedule` and
  * `/results` stay open to everyone, because those are the at-the-rail screens
@@ -36,10 +43,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function VisitorShowView({ showId, show }: { showId: string; show: any }) {
   const registrationOpen = show.status === 'PUBLISHED';
-  // Land them back on this show's sign-up once they have an account, rather
-  // than on the home page having forgotten why they signed up.
-  const registerHref = `/register?next=${encodeURIComponent(`/shows/${showId}/signup`)}`;
-  const signInHref = `/login?next=${encodeURIComponent(`/shows/${showId}/signup`)}`;
+  // Land them back on this show's registration once they have an account,
+  // rather than on the home page having forgotten why they signed up. The
+  // show's `/register` is the whole flow in order — profile, then stalls, then
+  // classes — which is where a brand new account has to start.
+  const registerHref = `/register?next=${encodeURIComponent(`/shows/${showId}/register`)}`;
+  const signInHref = `/login?next=${encodeURIComponent(`/shows/${showId}/register`)}`;
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -89,7 +98,23 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Ahead of the register/contact pair on purpose: the fee schedule, the
+          judges and the class list are what somebody reads in order to decide
+          whether to press Register at all. */}
+      <Link
+        href={`/shows/${showId}/details`}
+        className="mt-6 block rounded-lg border p-4 transition hover:bg-amber-50"
+        style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
+      >
+        <div className="font-semibold" style={{ color: '#2c1810' }}>
+          Show details &amp; show bill →
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          Judges, the class schedule, and the full fee schedule. No account needed.
+        </div>
+      </Link>
+
+      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
         {registrationOpen ? (
           <Link
             href={registerHref}

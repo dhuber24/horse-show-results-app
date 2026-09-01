@@ -60,6 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
 
+from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import (
@@ -155,7 +156,7 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
             continue
         roster.exhibitors[show_entry.exhibitor_id] = show_entry.exhibitor
         roster.back_numbers[show_entry.exhibitor_id] = show_entry.back_number
-        roster.signed_up[show_entry.exhibitor_id] = show_entry.registered_at is not None
+        roster.signed_up[show_entry.exhibitor_id] = is_on_roster(show_entry)
 
     entry_result = await db.execute(
         select(Entry)

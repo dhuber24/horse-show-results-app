@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from billing import build_bill
+from cancellations import cancellation_window, is_on_roster
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
 from models import (
@@ -155,6 +156,7 @@ async def list_my_shows(
                 "venue": show.venue_rel.name if show.venue_rel else None,
                 "back_number": signup.back_number if signup else None,
                 "registered_at": signup.registered_at if signup else None,
+                "cancelled_at": signup.cancelled_at if signup else None,
                 "arrival_date": signup.arrival_date if signup else None,
                 "departure_date": signup.departure_date if signup else None,
                 "notes": signup.registration_notes if signup else None,
@@ -253,6 +255,8 @@ async def my_standing_at_show(
         "show_id": str(show_id),
         "signed_up": False,
         "registered_at": None,
+        "cancelled_at": None,
+        "cancellation": None,
         "back_number": None,
         "entry_count": 0,
         "arrival_date": None,
@@ -274,6 +278,13 @@ async def my_standing_at_show(
     )
     show_entry = show_entry_result.scalar_one_or_none()
 
+    # Just the dates: the cancellation window is counted back from the show's
+    # first day, and a banner that cannot name the deadline can only say
+    # "contact the office", which is the message this feature exists to stop
+    # being the only one available.
+    show_result = await db.execute(select(Show).where(Show.id == show_id))
+    show = show_result.scalar_one_or_none()
+
     count_result = await db.execute(
         select(func.count())
         .select_from(Entry)
@@ -286,9 +297,15 @@ async def my_standing_at_show(
         # A `show_entries` row with a NULL `registered_at` is the shell a
         # secretary creates while adding a late entry by hand — the office has
         # no stall or shavings numbers for this person, so they have not signed
-        # up and the screen should still ask them to.
-        "signed_up": bool(show_entry and show_entry.registered_at is not None),
+        # up and the screen should still ask them to. A row with `cancelled_at`
+        # set is a registration that was called off, which is equally not a
+        # sign-up; `is_on_roster` holds both halves of that rule.
+        "signed_up": is_on_roster(show_entry),
         "registered_at": show_entry.registered_at if show_entry else None,
+        "cancelled_at": show_entry.cancelled_at if show_entry else None,
+        # So the status banner can name the deadline rather than only saying
+        # "contact the office" once it has passed.
+        "cancellation": cancellation_window(show.start_date) if show else None,
         "back_number": show_entry.back_number if show_entry else None,
         "entry_count": count_result.scalar_one(),
         # Required waivers with no signature by either route. Counted here

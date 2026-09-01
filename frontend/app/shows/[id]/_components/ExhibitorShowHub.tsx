@@ -72,10 +72,15 @@ export default function ExhibitorShowHub({
             primary: true,
           }
         : {
-            href: `/shows/${showId}/signup`,
+            // The whole flow in order, on one screen — profile, then stalls,
+            // then classes. `/signup` is still a real page and still where
+            // releases are signed, but sending a first-time exhibitor there
+            // starts them at step two.
+            href: `/shows/${showId}/register`,
             icon: '✍️',
             title: 'Sign Up',
-            description: 'Reserve stalls, shavings and camping, then pick your classes.',
+            description:
+              'Fill in your profile, reserve stalls, shavings and camping, then pick your classes.',
             primary: true,
           },
     );
@@ -112,6 +117,10 @@ export default function ExhibitorShowHub({
   // Details already carries. Two tiles, two clicks, one answer. The bill now
   // renders below the facts on Show Details, and the printable copy is a link
   // at the foot of it — print is a real errand, but it is not a menu item.
+  // Always offered, registered or not. What a show is, who is judging it, what
+  // runs when and what it costs are the questions somebody asks *before*
+  // deciding to enter, so gating them behind a registration would hide the
+  // page at exactly the moment it is useful.
   tiles.push({
     href: `/shows/${showId}/details`,
     icon: 'ℹ️',

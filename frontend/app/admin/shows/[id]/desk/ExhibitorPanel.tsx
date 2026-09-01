@@ -103,6 +103,8 @@ export default function ExhibitorPanel({
   const [backNumber, setBackNumber] = useState(exhibitor.back_number?.toString() ?? '');
   const [addingHorse, setAddingHorse] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   // The entry form owns the exhibitor's horse list. Adding a horse further down
   // this panel has to make it reappear in the picker above, and bumping this
   // remounts the form so it refetches — the horse is added precisely because
@@ -284,6 +286,24 @@ export default function ExhibitorPanel({
     setEditingContact(true);
   };
 
+  const cancelRegistration = async () => {
+    const ok = await run(
+      'cancel-registration',
+      () =>
+        fetch(`/api/shows/${showId}/desk/exhibitors/${exhibitor.exhibitor_id}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: cancelReason.trim() || null }),
+        }),
+      'Could not cancel that registration.',
+    );
+    if (ok) {
+      setConfirmCancel(false);
+      setCancelReason('');
+      onChanged();
+    }
+  };
+
   const removeFromRoster = async () => {
     const ok = await run(
       'remove-roster',
@@ -309,9 +329,11 @@ export default function ExhibitorPanel({
               {exhibitor.exhibitor_name}
             </h2>
             <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-              {exhibitor.signed_up
-                ? 'Signed themselves up for this show.'
-                : 'Added at the desk — has not completed show sign-up.'}
+              {exhibitor.cancelled_at
+                ? 'Registration cancelled — kept here for their account.'
+                : exhibitor.signed_up
+                  ? 'Signed themselves up for this show.'
+                  : 'Added at the desk — has not completed show sign-up.'}
             </p>
           </div>
           <div className="flex items-end gap-2">
@@ -899,6 +921,69 @@ export default function ExhibitorPanel({
           </button>
         )}
       </Section>
+
+      {/* The office's half of the two-week rule: an exhibitor may cancel their
+          own registration up to a fortnight before the show, and inside that
+          window this is the only door. Distinct from "Take off the roster"
+          below, which is the undo for adding the wrong person — this one is
+          for a registration that was real, and it keeps the row so the
+          payments on it survive. */}
+      {exhibitor.signed_up && !exhibitor.cancelled_at && exhibitor.show_entry_id && (
+        <div className="text-sm">
+          {confirmCancel ? (
+            <div
+              className="rounded-lg border p-3 space-y-2"
+              style={{ borderColor: '#fecaca', backgroundColor: '#fef2f2' }}
+            >
+              <p style={{ color: '#991b1b' }}>
+                Cancel {exhibitor.exhibitor_name}&rsquo;s registration? This drops their{' '}
+                {exhibitor.entries.length} class
+                {exhibitor.entries.length === 1 ? '' : 'es'}, their stalls, shavings and camping,
+                and any side pot or futurity entries. Payments already recorded stay on their
+                account — refund those with a negative payment on Financials.
+              </p>
+              <input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                maxLength={500}
+                placeholder="Reason (optional)"
+                aria-label="Cancellation reason"
+                className="w-full border rounded px-2 py-1.5 text-sm"
+                style={{ borderColor: COLORS.border, backgroundColor: '#ffffff', color: COLORS.text }}
+              />
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={cancelRegistration}
+                  disabled={busy.has('cancel-registration')}
+                  className="text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
+                  style={{ backgroundColor: '#b42318', color: '#ffffff' }}
+                >
+                  {busy.has('cancel-registration') ? 'Cancelling…' : 'Yes, cancel registration'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmCancel(false)}
+                  className="text-sm hover:underline"
+                  style={{ color: COLORS.muted }}
+                >
+                  Keep it
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmCancel(true)}
+              className="text-xs hover:underline"
+              style={{ color: COLORS.muted }}
+              title="They are not coming. Drops their classes, stalls and pots; their payments stay for you to refund."
+            >
+              Cancel this registration
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Only ever an undo for adding the wrong person: the backend refuses
           once entries, pots, reservations, or payments exist. */}

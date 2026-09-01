@@ -7,7 +7,8 @@ export type WizardStepKey =
   | 'lodging'
   | 'fees'
   | 'classes'
-  | 'futurities';
+  | 'futurities'
+  | 'showbill';
 
 export type StepDef = {
   key: WizardStepKey;

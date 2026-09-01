@@ -90,6 +90,8 @@ Current migration files:
 | `078_default_ring_backfill.sql` | Every class gets a ring: creates a "Ring 1" for shows that have ring-less classes and no rings, then assigns every ring-less class its show's first ring. Class-creation endpoints now apply the same default; the gate enforces one in-progress class per ring. `classes.ring_id` stays nullable at the schema level. |
 | `079_horse_pedigree.sql` | Add nullable free-text `horses.sire_name` and `horses.dam_name` so the class schedule and admin entry list can carry the owner/sire/dam columns a printed show program prints. |
 | `080_associations_registry.sql` | **Concept split: affiliation vs show configuration.** New `associations` registry (`code`, `name`, `association_type` = `breed` or `club`, `is_active`). `show_types` had been doing two unrelated jobs — "what kind of show is this?" and "which body is this horse/person registered with?" — which forced club bodies (NSBA, WSCA) to masquerade as show types, and duplicated them again in `sanctioned_associations`. Every table storing a membership/registration number repoints from `show_types` to `associations`: `horse_registrations`, `exhibitor_registrations`, `trainer_registrations`, `exhibitor_documents`, `show_secretary_certifications` (all `show_type_id` -> `association_id`, unique constraints renamed to match). `sanctioned_associations` is folded in and dropped: `show_sanctioning.sanctioned_association_id` -> `association_id` referencing `associations`, same for `sanctioned_association_requests.approved_association_id`. NSBA/WSCA are deleted from `show_types` — they are clubs, not show types, so an NSBA-approved show is now an OPEN (or breed) show carrying NSBA club sanctioning. There is deliberately no `associations` row for OPEN: "Open" is the absence of a breed association, not a body anyone holds a membership with. |
+| `127_show_bill_source.sql` | Add `shows.showbill_source` (`generated` default / `uploaded`) and a new `show_documents` table (`SHOWBILL` only for now, one per show). The app has always generated the show bill from the show's own classes, judges and fees, and that stays the default and the recommendation — a generated bill cannot fall out of date with the schedule it describes. What this adds is the option a club with an already-printed, designed show bill was going to use anyway; refusing it never made those shows use the generated bill, it made them e-mail a PDF this app never saw. **The choice and the file are separate facts**: `showbill_source` may only read `uploaded` while a SHOWBILL row exists, enforced in `routers/show_documents.py` because a CHECK cannot see another table, and `DELETE` of the document resets the column in the same transaction. Reads return `effective_source` beside `source` so a renderer can never be handed an empty frame. **An uploaded bill hides nothing** — Show Details goes on printing the generated document under its own heading, because that is the fee list `GET /shows/{id}/fees/public` charges from. No staleness check: it would need `updated_at` on classes, fees and judges, and none of them has one, so the upload date is stamped on the page instead. |
+| `126_show_entry_cancellation.sql` | Add `show_entries.cancelled_at`, `cancelled_by_user_id` and `cancellation_reason`. An exhibitor who was not coming had no way to say so: `withdraw_entry` drops one class at a time and the desk's `remove_exhibitor_from_roster` refuses outright once `registered_at` is set, so the only exit from a completed sign-up was to drop every class by hand and leave a stall booked against a show the horse would never reach. **Marked, not deleted** — `show_entries` cascades to `show_payments`, so deleting the row to cancel a registration would take a recorded payment with it, which is the same reason a refund is a negative payment row rather than an edit to the original. The row survives; its class entries, reservations, futurity enrollments and side pot buy-ins do not, leaving a bill of nothing against whatever was paid — a credit, which is exactly the prompt the office needs to refund it. On the roster becomes `registered_at IS NOT NULL AND cancelled_at IS NULL`, written once in `cancellations.is_on_roster` because every reader that asked only about `registered_at` would go on showing a cancelled exhibitor as entered. The **two-week rule** — the exhibitor may cancel up to 14 days out, the office any time — lives in the router and not in a CHECK, because a constraint cannot see who the caller is. |
 | `125_per_judge_per_entry_fee_unit.sql` | Add `per_judge_per_entry` to the `show_fees.unit` CHECK and restate the column COMMENT. APHA SC-125.B makes show management collect "a fee per entry per show (Judge)" and forward it before results are processed, and no existing unit bills it: the automatic units multiply by distinct horses or by the exhibitor, and **one horse in six classes is one horse and six entries**, so `per_judge_per_horse` charges a sixth of what is owed. `per_entry` exists and had to stay where it is — that unit is the class-fee vocabulary and bills nobody, because `classes.entry_fee_cents` is what charges per entry; this is a levy on top of the class fee. Named for both halves of the multiplication for the reason migration 112 split `per_judge` in two: `build_bill` multiplies rate × quantity and never reads the unit, so a unit that was wrong where it was chosen is not recoverable downstream. Not association-specific — every breed body levies a version, and `show_fees` priced by the show is how this app already handles that. |
 | `124_show_categories.sql` | New `show_categories` lookup plus `shows.show_category_id` and `shows.offers_clinic`. APHA SC-100 and SC-105 name four kinds of approved show — Single-Judge, Two-Judge, Paint-O-Rama, Zone Show — and each carries its own judge limit. A table rather than a CHECK or a dict in Python, keyed on `show_types` the way `judging_systems` is: which categories exist is the breed body's taxonomy, another association's would be different values of the same idea, and it has to render as a picker in show setup anyway. **`judge_limit_basis` is the load-bearing column.** SC-100.A and SC-105.C.1 limit judges *"in the arena at any given time"* — concurrency, which the app does not model at all — while SC-105.D.2 and SC-105.E.2 bound the **total**. Storing which kind of limit a category carries is what lets a finding say which claim it is making instead of asserting a rule the data cannot support. `offers_clinic` is one boolean because it changes a check: SC-105.C.3 exempts a two-judge show offered with a clinic from the SC-095 minimums. Deliberately absent: the per-year caps, the Regional Club sponsorship requirement, and SC-105.B's ten-judge combination ceiling — all facts about APHA's calendar or club registry, reported as text instead. |
 | `123_show_entry_deadline.sql` | Add nullable `shows.entry_deadline`. APHA SC-090.C measures the approval-application deadline against "the show or contest entry deadline or show date, **whichever comes first**", and the app held only the show date — so the only deadline it could compute was the *later* of the two, telling a manager they had 95 days to apply when entries closed in 60 and the true answer was "a late penalty fee applies". That is the unsafe direction on a deadline, which is why one nullable column beats a caveat. **Records only.** It does not close self-registration and it does not fire the `post_entry` fee; both are decisions about money and access that belong to whoever makes them deliberately, and wiring either to a column added for a date calculation would silently change what a show charges. The column carries a `COMMENT` saying so. |
@@ -154,6 +156,57 @@ docker run --rm postgres:16-alpine psql "$PSQL_URL" -v ON_ERROR_STOP=1 -c "<SQL 
 If a manual migration file is applied outside the runner, also insert its filename into `_migrations`.
 
 ## Recent Schema Updates
+
+### New table: `show_documents` + `shows.showbill_source` (migration 127)
+
+Which show bill the Show Bill button opens: the one the app generates from this
+show's own classes, judges, fees and policies, or a file the show uploaded.
+
+`shows.showbill_source` is `generated` (the default, and every show before this)
+or `uploaded`. `show_documents` holds the file, shaped after `horse_documents`
+and `trainer_documents`: `id`, `show_id` (CASCADE), `document_type`
+(`SHOWBILL` only for now), `original_filename`, `file_data` BYTEA, `mime_type`,
+`file_size`, `uploaded_by_user_id` (SET NULL), `created_at`. Unique on
+`(show_id, document_type)` — the upload endpoint replaces rather than appends,
+because a show bill has no history worth keeping here and two rows would leave
+every reader picking one.
+
+**The generated bill is still the default and still the recommendation.** It
+cannot fall out of date with the schedule it describes: a secretary who adds a
+class or moves a fee has already updated it. The upload exists because refusing
+it never made a club with a designed, already-printed show bill use the
+generated one — it made them e-mail a PDF this app never saw.
+
+**The choice and the file are two separate facts.** `showbill_source` may only
+read `uploaded` while a SHOWBILL row exists. That is enforced in
+`routers/show_documents.py`, not in a CHECK, because a constraint cannot see
+another table: `PUT /shows/{id}/showbill-source` 422s the mismatch and
+`DELETE /shows/{id}/showbill-document` resets the column in the same
+transaction. Every read returns `effective_source` beside `source` and every
+renderer reads the former, because the one thing a show bill must never be is
+blank.
+
+**Uploading is not publishing.** `POST` puts the file on record and leaves the
+source alone, so a manager can compare their club's PDF against the generated
+bill without every exhibitor's Show Bill button changing underneath them.
+
+**An uploaded bill hides nothing.** Show Details prints the generated document
+under its own heading whichever bill the show chose, because that is the fee
+list `GET /shows/{id}/fees/public` charges from, and the class schedule stays
+one link away.
+
+**No staleness check, deliberately.** Telling a reader "this PDF predates the
+schedule" would mean comparing the upload date against the last change to
+`classes`, `show_fees` and `show_judges`, and none of the three carries an
+`updated_at`. The upload date is stamped on the page instead, beside a line
+saying classes and fees may have changed since.
+
+There is **no relationship from `Show` to `ShowDocument`**. `_serialize` builds
+the show payload by hand for every row of the show list; a `lazy="selectin"`
+relationship would pull a multi-megabyte BYTEA into memory per show, and a lazy
+one would be `MissingGreenlet` inside an async request. Metadata reads select
+the columns they want by name; the download endpoint is the only reader that
+asks for `file_data`.
 
 ### New table: `show_payments` (migration 096)
 

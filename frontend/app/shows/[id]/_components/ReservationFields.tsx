@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 
+import type { CancellationWindow, ProfileStatus } from '../register/types';
+
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
  * of show sign-up apart from the page it sits on.
@@ -61,6 +63,11 @@ export type SignupData = {
     notes: string | null;
     reservations: { show_fee_id: string; quantity: number }[];
   } | null;
+  /** Step one of registration. `PUT /signup` refuses while this is incomplete,
+   *  so any screen rendering these fields has to check it first rather than
+   *  offering a form the save will turn away. */
+  profile?: ProfileStatus;
+  cancellation?: CancellationWindow;
 };
 
 /** Grouping for the picker. Units are what the secretary configured on the fee,

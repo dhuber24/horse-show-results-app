@@ -17,6 +17,11 @@ type FeeRow = {
   unit: string;
 };
 
+/** Only the resolved half of `ShowbillOut` is needed here — whether the step is
+ *  done turns on what a reader would actually get, not on what the show asked
+ *  for. */
+type ShowbillState = { effective_source: 'generated' | 'uploaded' };
+
 async function getJson<T>(url: string, fallback: T): Promise<T> {
   const headers = await getAuthHeaders();
   if (!headers) return fallback;
@@ -29,7 +34,7 @@ export async function fetchStepCounts(
   showId: string,
   officeChargeCents: number,
 ): Promise<WizardStepsInput> {
-  const [judges, sanctioning, fees, classes, futurities] = await Promise.all([
+  const [judges, sanctioning, fees, classes, futurities, showbill] = await Promise.all([
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
       `${API_URL}/shows/${showId}/sanctioning/`,
@@ -38,6 +43,9 @@ export async function fetchStepCounts(
     getJson<FeeRow[]>(`${API_URL}/shows/${showId}/fees/`, []),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/classes/`, []),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/futurities/`, []),
+    getJson<ShowbillState>(`${API_URL}/shows/${showId}/showbill-document`, {
+      effective_source: 'generated',
+    }),
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
@@ -56,5 +64,10 @@ export async function fetchStepCounts(
     feesCount: feesDone ? 1 : 0,
     classCount: classes.length,
     futurityCount: futurities.length,
+    // An uploaded bill is a bill on its own; a generated one is only a bill once
+    // there is a schedule on it. Every show defaults to the generated option, so
+    // marking the step done on arrival would make the tick mean nothing.
+    showbillReady:
+      showbill.effective_source === 'uploaded' || classes.length > 0,
   };
 }

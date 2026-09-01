@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from billing import build_account, side_pot_money, summarize_accounts
+from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from financial_reports import build_report, list_reports
@@ -198,8 +199,13 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             "preferred_back_number": (
                 show_entry.preferred_back_number if show_entry else None
             ),
-            "signed_up": bool(show_entry and show_entry.registered_at is not None),
+            "signed_up": is_on_roster(show_entry),
             "registered_at": show_entry.registered_at if show_entry else None,
+            # Set means the registration was called off (migration 126). The
+            # account survives it, because the payments do — a cancelled
+            # exhibitor who had already paid reads here as a credit, which is
+            # the whole reason the row is marked rather than deleted.
+            "cancelled_at": show_entry.cancelled_at if show_entry else None,
             "entry_count": len(exhibitor_entries),
             "horse_count": len(horses_by_exhibitor.get(exhibitor_id, set())),
             "payments": [

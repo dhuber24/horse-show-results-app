@@ -171,6 +171,14 @@ class Show(Base):
     office_charge_cents = Column(Integer, nullable=False, server_default="0")
     office_charge_basis = Column(Text, nullable=False, server_default="per_back_number")
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
+    # Which show bill `/shows/{id}/showbill` renders (migration 127): the one the
+    # app generates from this show's own classes, judges and fees, or a file the
+    # show uploaded. Only ever 'uploaded' while a SHOWBILL row exists in
+    # `show_documents` -- the pair is enforced in the router, because a CHECK
+    # cannot see another table, and deleting the document resets this column in
+    # the same transaction. A button pointing at a file nobody uploaded is the
+    # one failure this column could introduce.
+    showbill_source = Column(Text, nullable=False, server_default="generated")
     # Which health papers this show requires (migration 097). Coggins is
     # universal; a CVI follows from crossing a state line and vaccinations from
     # the venue, so those two are off unless the show says otherwise. The
@@ -221,6 +229,43 @@ class ShowAffiliation(Base):
 
     show = relationship("Show", back_populates="affiliations")
     show_type = relationship("ShowType", lazy="selectin")
+
+
+class ShowDocument(Base):
+    """A file the show uploaded about itself -- today, its own show bill.
+
+    Shaped after `horse_documents` and `trainer_documents`: bytes in the row,
+    MIME sniffed from the magic bytes rather than trusted from the client, and
+    the uploader recorded.
+
+    **There is deliberately no relationship from `Show` to here.** `_serialize`
+    builds the show payload by hand for every row of the show list, so a
+    `lazy="selectin"` relationship would pull a multi-megabyte BYTEA column into
+    memory for every show on the browse screen, and a lazy one would be
+    MissingGreenlet inside an async request. Readers that only need the metadata
+    select the columns they want by name; the download endpoint is the one place
+    that asks for `file_data`.
+    """
+
+    __tablename__ = "show_documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    document_type = Column(
+        Text,
+        CheckConstraint("document_type IN ('SHOWBILL')"),
+        nullable=False,
+    )
+    original_filename = Column(Text, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "document_type", name="show_documents_show_type_uniq"),
+    )
 
 
 class Ring(Base):
@@ -1567,6 +1612,16 @@ class ShowEntry(Base):
     # this is a shell row a secretary created while adding an entry by hand —
     # the exhibitor has not signed up and cannot self-register for classes.
     registered_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # The registration was called off (migration 126). Marked rather than
+    # deleted because this row cascades to `show_payments`, and a cancellation
+    # must not be able to erase money that moved. On the roster is
+    # `registered_at IS NOT NULL AND cancelled_at IS NULL` -- read it through
+    # `is_on_roster()` rather than spelling it out again.
+    cancelled_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    cancelled_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancellation_reason = Column(Text, nullable=True)
     arrival_date = Column(Date, nullable=True)
     departure_date = Column(Date, nullable=True)
     registration_notes = Column(Text, nullable=True)

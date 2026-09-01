@@ -61,11 +61,68 @@ export type Signup = {
   reservations: { show_fee_id: string; quantity: number }[];
 };
 
+/** One line of the step-one checklist, straight from `exhibitor_profile.py`.
+ *  `blocking` false is a prompt the exhibitor may ignore — currently only the
+ *  association memberships, which the desk verifies against a card anyway. */
+export type ProfileChecklistItem = {
+  key: string;
+  label: string;
+  complete: boolean;
+  blocking: boolean;
+  hint: string;
+};
+
+/**
+ * Step one of registration.
+ *
+ * `complete` is the backend's own answer and the same one `PUT /signup`
+ * refuses on — never recomputed here, so the lock on the screen and the
+ * refusal from the endpoint cannot drift apart.
+ */
+export type ProfileStatus = {
+  complete: boolean;
+  missing: string[];
+  checklist: ProfileChecklistItem[];
+  exhibitor: {
+    id: string;
+    full_name: string;
+    date_of_birth: string | null;
+    phone: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+    emergency_contact_name: string | null;
+    emergency_contact_phone: string | null;
+    parent_guardian_name: string | null;
+    parent_guardian_phone: string | null;
+  };
+};
+
+/**
+ * Whether cancelling is still the exhibitor's own to do.
+ *
+ * `self_service` is the only field that decides anything; the rest is so the
+ * screen can say *why* without recomputing the two-week rule and drifting from
+ * `cancellations.py`.
+ */
+export type CancellationWindow = {
+  notice_days: number;
+  /** The last day the exhibitor may cancel themselves, `YYYY-MM-DD`. */
+  deadline: string | null;
+  self_service: boolean;
+  days_until_show: number | null;
+};
+
 export type PreviewData = {
   /** Null until the exhibitor completes show sign-up. The POST rejects class
    *  entries without it, so the form refuses to render the picker rather than
    *  letting someone fill it in and be turned away on submit. */
   signup: Signup | null;
+  /** Step one. The stalls half is locked on this the same way the classes half
+   *  is locked on `signup`. */
+  profile: ProfileStatus;
+  cancellation: CancellationWindow;
   show: {
     id: string;
     name: string;

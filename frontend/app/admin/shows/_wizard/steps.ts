@@ -15,6 +15,11 @@ export type WizardStepsInput = {
    *  *while* the show is, and because the alternative was a single "futurity
    *  fee" box in Step 5 that could not describe one. */
   futurityCount: number;
+  /** Whether the show's bill is a bill yet — the generated one has classes on
+   *  it, or the show uploaded its own file. Not "has the manager visited this
+   *  step": every show has a generated bill by default, so a step that went
+   *  green on arrival would say nothing. */
+  showbillReady: boolean;
 };
 
 export function buildSteps({
@@ -25,6 +30,7 @@ export function buildSteps({
   feesCount,
   classCount,
   futurityCount,
+  showbillReady,
 }: WizardStepsInput): StepDef[] {
   return [
     {
@@ -75,6 +81,16 @@ export function buildSteps({
       label: '7. Futurities',
       href: `/admin/shows/${showId}/futurities`,
       done: futurityCount > 0,
+    },
+    // Last, because the show bill is what every step before it adds up to — the
+    // judges, the clubs, the fees and the class schedule, on one sheet. This is
+    // where the manager either checks that sheet or hands over the one their
+    // club already had printed.
+    {
+      key: 'showbill',
+      label: '8. Show Bill',
+      href: `/admin/shows/${showId}/setup/showbill`,
+      done: showbillReady,
     },
     // Paperwork is deliberately not a step. What a show requires of an exhibitor
     // — health documents, the entry blank, the release — is answered during
