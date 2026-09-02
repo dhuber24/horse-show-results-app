@@ -19,8 +19,23 @@ export type PreviewClass = {
    *  horses in them. Everything else is once per exhibitor. */
   score_type: string;
   entry_fee_cents: number;
+  /** Which APHA divisions this class is actually run for, read off its bracket
+   *  by `divisions_for_bracket`. **Null means the class does not say**, and
+   *  every division stays on offer — not "no division fits". Only ever sent at
+   *  an APHA show. */
+  apha_divisions: string[] | null;
   sanctioning_codes: string[];
   sanction_cents: number;
+};
+
+/** Something the show's association would ask about this horse's papers that
+ *  is not on file. A warning with a destination, never a gate — refusing the
+ *  entry would not register the horse, and whether the papers describe this
+ *  animal is a question only the desk can answer. */
+export type HorseRegistrationFlag = {
+  code: string;
+  association_code: string;
+  message: string;
 };
 
 export type HealthCheck = {
@@ -44,6 +59,22 @@ export type PreviewHorse = {
   is_solid_paint_bred: boolean;
   /** Advisory, never a gate — see `healthWarnings`. */
   health?: HealthCheck[];
+  /** Association codes this horse holds papers with, for display. */
+  registrations?: string[];
+  /** What the show's own associations would ask for and cannot find. */
+  registration_flags?: HorseRegistrationFlag[];
+  /** How this exhibitor is entitled to show this horse (APHA AM-300.E,
+   *  YP-015), copied onto every entry — never picked per class. "Self" is
+   *  derived from `owns_horse`; anything else was answered once on the horses
+   *  step. Null means it still needs asking, which only happens for a horse
+   *  somebody else owns. */
+  relationship_to_owner?: string | null;
+  /** The exhibitor is the horse's recorded owner, so the relationship answers
+   *  itself and the screen states it instead of offering a picker. */
+  owns_horse?: boolean;
+  /** Who owns it, when that is not the exhibitor — names the person the
+   *  relationship is being asked about. */
+  owner_name?: string | null;
 };
 
 export type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
@@ -58,6 +89,10 @@ export type Signup = {
   arrival_date: string | null;
   departure_date: string | null;
   notes: string | null;
+  /** Stabling requests — "put me next to the Smith barn". Apart from `notes`
+   *  because the office reads every one of these at once while drawing the
+   *  stall chart. */
+  stall_request: string | null;
   reservations: { show_fee_id: string; quantity: number }[];
 };
 
@@ -66,6 +101,10 @@ export type Signup = {
  *  association memberships, which the desk verifies against a card anyway. */
 export type ProfileChecklistItem = {
   key: string;
+  /** Which wizard step asks for this — `details` (the person) or `horses`.
+   *  The split is the backend's, so a step cannot go green over an item the
+   *  backend is still refusing on. */
+  step: 'details' | 'horses';
   label: string;
   complete: boolean;
   blocking: boolean;

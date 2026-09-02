@@ -318,6 +318,12 @@ The screen locks the section rather than doing the refusing, so nobody fills in 
 | At least one horse | Yes | You enter classes on a horse from your profile. |
 | Association memberships | **No** | A membership number is a claim the desk verifies against a card (`show_verifications`), and one can be bought at the counter. Prompted prominently, never refused over. The row is **omitted entirely** when the show has no breed or club affiliation — an item that can never be ticked is one people learn to scroll past. |
 
+Step two asks three things about each horse that have no business on a form about the person:
+
+- **Are its papers what this show runs under?** `backend/horse_eligibility.py` compares the horse's `horse_registrations` against the show's own associations and warns about the gap. Never a gate — refusing the entry would not register the horse, a number can be typed in from the phone in somebody's hand, and whether the papers describe *this* animal is a question only the desk can answer. Rendered as one line however many bodies are short: a dual-sanctioned show produces a flag per association, and three boxes saying nearly the same thing about the same horse is how people learn to scroll past the panel.
+- **How is this exhibitor entitled to show it?** Usually not a question at all: `horse_eligibility.effective_relationship` reads **Self** off `horses.owner_exhibitor_id`, which covers almost every entry ever made, and the step states it rather than offering a picker. The picker appears only for a horse somebody else owns, where no record anywhere says whether that owner is your mother, your aunt or your neighbour. That answer goes to `PUT /shows/{id}/register/horses/{horse_id}/relationship` and is copied onto every entry. The entry form used to ask this per class, from a list of twenty-five relationships.
+- **Will its health paperwork carry it through the show?** The same derivation the office reads, shown to the exhibitor with time to act on it.
+
 `GET /shows/{id}/register/profile-status` returns the checklist on its own; it also rides on `GET /register/preview` and `GET /register/signup`, so a screen never has to ask twice. The personal fields are edited **in place** by `ProfileStep`, posting to the same `PATCH /api/exhibitors/{id}` the profile screen uses — one writer. Horses and memberships are links, because adding a horse runs the document-extraction wizard and rebuilding it here would be a second version to keep in step.
 
 `/shows/[id]/signup` enforces step one too, for anyone arriving by that URL directly.
@@ -348,19 +354,23 @@ On the roster is `registered_at IS NOT NULL AND cancelled_at IS NULL` — `cance
 
 ### Class Registration
 
-**One screen for the whole registration.** `/shows/[id]/register` carries all three steps, in collapsible sections (`RegistrationSection`) over the running bill, with the cancel control below it:
+**One screen for the whole registration.** `/shows/[id]/register` carries all five steps, as collapsible boxes (`RegistrationSection`) under a stepper (`RegistrationStepper`) and over the running bill, with the cancel control below it:
 
-| Section | Holds | Backed by |
+| Step | Holds | Backed by |
 | --- | --- | --- |
-| Your profile | The checklist, the personal-details form, links to horses and memberships | `GET /shows/{id}/register/preview` → `profile`, `PATCH /exhibitors/{id}` |
-| Stalls, shavings & camping | `ReservationFields` — the fee groups, arrival/departure dates, notes to the office | `GET/PUT /shows/{id}/register/signup` |
-| Classes & back number | Back-number request, entered-class table with inline-confirm removal, the one-class-at-a-time entry form, and the horses whose health records are outstanding | `GET/POST /shows/{id}/register`, `PUT .../register/back-number` |
+| 1. Your details | The `details` half of the checklist, the personal-details form, the membership link | `GET /shows/{id}/register/preview` → `profile`, `PATCH /exhibitors/{id}` |
+| 2. Your horses | Each horse with its registration warnings, its health warnings, and its relationship-to-owner picker | `preview` → `horses`, `PUT .../register/horses/{id}/relationship` |
+| 3. Stalls, shavings & camping | `ReservationFields` — the fee groups, the stabling request, arrival/departure dates, notes to the office | `GET/PUT /shows/{id}/register/signup` |
+| 4. Classes & back number | Back-number request, entered-class table with inline-confirm removal, the one-class-at-a-time entry form (**a class picker and a horse picker, and nothing else**), and the horses whose health records are outstanding | `GET/POST /shows/{id}/register`, `PUT .../register/back-number` |
+| 5. Futurities | Horse, category, membership and **Enter futurity** — only at a show that runs one | `GET/POST /shows/{id}/register/futurities` |
 
-Steps 2 and 3 were separate screens with a redirect between them, because they are separate backend calls. That is not a distinction an exhibitor should have to care about — somebody entering a show is doing one job, and bouncing them between screens to finish it is how people end up signed up with no classes. They fold because all of it open at once is a very long page on a phone; collapsed, each header's summary line is the only thing saying where you are, so it carries what is still missing from the profile, the reserved quantities with their total, and the class count with the back number.
+Steps 3 and 4 were separate screens with a redirect between them, because they are separate backend calls. That is not a distinction an exhibitor should have to care about — somebody entering a show is doing one job, and bouncing them between screens to finish it is how people end up signed up with no classes. They fold because all of it open at once is a very long page on a phone; collapsed, each header's summary line is the only thing saying where you are, so it carries what is still missing from the details, the horses without papers, the reserved quantities with their total, the class count with the back number, and the futurity deadline.
 
-The screen **opens on whichever step still needs doing**, so coming back does not mean starting again.
+The screen **opens on whichever step still needs doing**, so coming back does not mean starting again. **Each step's own save is its Next** where there is something to save — a Next that did not save would advance past boxes nobody had written down — and the classes step carries a *Finish later from My Shows* link beside Back, because classes are the one step somebody legitimately leaves half done and comes back to when the Saturday schedule is out.
 
 **The locks are visible rules, not the enforcement.** The backend refuses on the same two conditions (`PROFILE_INCOMPLETE`, `SHOW_SIGNUP_REQUIRED`), and each locked header says which section to fill in first — "you can't do this yet" without a destination is the kind of message people read as a fault. `/shows/[id]/signup` remains as its own route (the status banner's stall link and the My Shows card point at it, and it is where releases are signed) and renders the same `ReservationFields` and the same `ProfileStep`, so the two cannot disagree about a price, a quantity, or whether a profile is finished.
+
+**The futurity step is the decision, not the programme.** The card carries the deadline, the categories with their per-class rates, the office fee and any late fee — the prices attached to the buttons beside them — and links to the Futurities section of the show bill for the awards, the rules, the category definitions and the refund policy. Reprinting all of that here pushed the four controls somebody came to the screen to use below several screens of text they had already read. Entering adds a line to the bill below, from `billing.futurity_lines`, so a $150-per-class futurity against $0 class rows never reads as a double charge.
 
 **The class half is the desk's entry form with the exhibitor pinned to themselves.** `AddClassEntry` in `frontend/app/shows/[id]/register/` mirrors `admin/shows/[id]/desk/AddEntryForm`: what you are entered in as a table, and below it one class picker, one horse picker, and **Enter class**. It replaced a list of every class in the show with a horse select on each row and a single Submit at the bottom — a shape that hid the four classes someone had chosen under the thirty-six they had not, and reported the first clash only after the whole batch was sent.
 

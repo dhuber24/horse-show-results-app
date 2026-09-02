@@ -50,6 +50,111 @@ DIVISION_LABELS = {
     "YOUTH_WALK_TROT_5_10": "Youth Walk-Trot 5-10",
 }
 
+# ── Which divisions a class is actually run for ──────────────────────────────
+#
+# The division picker on the entry form offered all nine on every class, so a
+# class the show had already named "56 - Youth WT Showmanship 5-10" could be
+# entered as Amateur. That is not a class the show is running, and nothing
+# downstream would have caught it: `apha_division` is stored data, and the
+# checks that read it — the youth age cap, the ownership relationship, the
+# Novice declaration — all take the entry at its word about which division it
+# is in.
+#
+# So the class narrows the list. A bracket that names a division is the show
+# telling us which one, and the whole reason `divisions` (discipline) and
+# `sections` (bracket) exist as separate columns is that the bracket is where
+# that name goes.
+#
+# Every bracket that matches resolves to **exactly one** division, which is why
+# the exhibitor is never asked: picking the class is the whole answer. A bracket
+# that says nothing (an "Unassigned", or an age band such as "Yearling", or an
+# empty string) returns None, and None means *the class does not say*. The entry
+# is then filed with no division at all, exactly as every entry was before the
+# picker existed, and `validate_entry` returns early on it by design.
+#
+# **None is never turned into a guess.** "Yearling Stallions" is almost always an
+# Open halter class, and filing it as OPEN would be right most of the time and
+# would refuse a Solid Paint-Bred horse (SC-325.A.1) the rest of it: an entry the
+# show meant to take, turned away over a division nobody chose.
+#
+# Ordered longest-pattern-first: "Novice Youth" has to be tested before "Youth"
+# and "Amateur Walk-Trot" before both "Amateur" and the walk-trot bands, or a
+# substring match files the narrower bracket under the wider division.
+_BRACKET_DIVISION_PATTERNS = (
+    # Walk-Trot / Walk-Jog first: every one of them also contains its parent
+    # division's name.
+    (r"youth\s*(?:w[/\-\s]?t|walk[\s\-/]*(?:trot|jog))",
+     ("YOUTH_WALK_TROT_5_10", "YOUTH_WALK_TROT_11_18")),
+    (r"am(?:ateur)?\s*(?:w[/\-\s]?t|walk[\s\-/]*(?:trot|jog))", ("AMATEUR_WALK_TROT",)),
+    (r"\bnovice\s+youth\b", ("NOVICE_YOUTH",)),
+    (r"\bnovice\s+am(?:ateur)?\b", ("NOVICE_AMATEUR",)),
+    (r"\bsolid\b|\bspb\b", ("SOLID_PAINT_BRED",)),
+    # Plain "Youth" and plain "Amateur" resolve to exactly one division, not to
+    # a pair with their Novice variants. A Novice division is not a choice made
+    # *inside* an Amateur class: a show that offers one runs it as its own class,
+    # bracketed "Novice Amateur" or "Novice Youth", which the two patterns above
+    # already catch. An exhibitor holding Novice status at a show that offers no
+    # Novice class shows in Amateur, and that entry is an Amateur entry.
+    (r"\byouth\b", ("YOUTH",)),
+    (r"\bam(?:ateur)?\b", ("AMATEUR",)),
+    (r"\bopen\b", ("OPEN",)),
+)
+
+# The two Youth Walk-Trot bands are told apart by the age the bracket states,
+# not by the words "walk-trot" — YP-075 splits them at ten.
+_WALK_TROT_AGE_SPLIT = 10
+
+
+def divisions_for_bracket(bracket_name, class_name=None):
+    """Which APHA division this class is run for, or None if it does not say.
+
+    Returns a tuple because a bracket could in principle be ambiguous; in
+    practice every pattern here resolves to one, which is what lets the entry
+    form drop the division picker altogether. Picking the class is the answer.
+
+    None is not "no division": it is *this class does not say*, and the entry is
+    filed without one rather than with a guess. A show running one Western
+    Pleasure open to Open, Amateur and Youth alike puts nothing in the bracket,
+    and there is no answer to invent for it.
+
+    The class name is consulted as well as the bracket because a show that
+    files everything under one "Unassigned" bracket still writes "Youth
+    Showmanship" on the class itself. The bracket is checked first: it is the
+    column that exists for this, and where the two disagree the show's own
+    bracketing is the more deliberate of the two.
+    """
+    for text in (bracket_name, class_name):
+        haystack = (text or "").strip().lower()
+        if not haystack:
+            continue
+        for pattern, divisions in _BRACKET_DIVISION_PATTERNS:
+            if not re.search(pattern, haystack):
+                continue
+            if set(divisions) == {"YOUTH_WALK_TROT_5_10", "YOUTH_WALK_TROT_11_18"}:
+                # "Youth WT 5-10" and "Youth W/T 11-18" both say walk-trot; the
+                # number is the only thing separating them.
+                cap = bracket_age_cap(haystack) or _stated_upper_age(haystack)
+                if cap is not None:
+                    return (
+                        ("YOUTH_WALK_TROT_5_10",)
+                        if cap <= _WALK_TROT_AGE_SPLIT
+                        else ("YOUTH_WALK_TROT_11_18",)
+                    )
+            return divisions
+    return None
+
+
+# "Ages 5-10", "11-18", "5 - 10". The upper half of a stated range, which is
+# what tells the two Walk-Trot bands apart when the bracket does not phrase its
+# limit as "N & Under".
+_AGE_RANGE_RE = re.compile(r"\b(\d{1,2})\s*(?:-|\u2013|\u2014|to)\s*(\d{1,2})\b")
+
+
+def _stated_upper_age(text):
+    match = _AGE_RANGE_RE.search(text or "")
+    return int(match.group(2)) if match else None
+
+
 # Divisions whose eligibility turns on who owns the horse, so the entry has to
 # say how the exhibitor is related to that owner. Open and Solid Paint-Bred are
 # absent on purpose: eligibility there is a property of the horse's registry,
@@ -67,6 +172,53 @@ RELATIONSHIP_REQUIRED_DIVISIONS = frozenset({
     "YOUTH_WALK_TROT_11_18",
     "YOUTH_WALK_TROT_5_10",
 })
+
+# How an exhibitor may be entitled to show a horse they do not own (AM-300.E,
+# and YP-015 for youth). Mirrors `RELATIONSHIP_OPTION_GROUPS` in
+# `frontend/lib/apha.ts`, which is what offers them; this list is what checks
+# one that arrives.
+#
+# Checked rather than taken as free text for the same reason a paperwork
+# verification never takes its value from the client: the relationship goes onto
+# an entry APHA reads, and "my mum's friend" there is a relationship nobody can
+# report against.
+#
+# "Leased horse" is on the list because AM-020.A.1 makes leased horses eligible
+# and the entry is the only place that can say so. It is not a lease *record* --
+# the term, the lessor and the papers APHA holds are modelled nowhere.
+RELATIONSHIP_OPTIONS = (
+    "Self",
+    "Leased horse",
+    "Spouse",
+    "Mother",
+    "Father",
+    "Son",
+    "Daughter",
+    "Brother",
+    "Sister",
+    "Grandparent",
+    "Grandchild",
+    "Stepparent",
+    "Stepchild",
+    "Stepbrother",
+    "Stepsister",
+    "Half-brother",
+    "Half-sister",
+    "Step-grandparent",
+    "Father-in-law",
+    "Mother-in-law",
+    "Brother-in-law",
+    "Sister-in-law",
+    "Son-in-law",
+    "Daughter-in-law",
+    "Aunt",
+    "Uncle",
+    "Niece",
+    "Nephew",
+    "Legal ward",
+    "Family-owned farm or ranch",
+    "Family-owned corporation",
+)
 
 # Divisions gated on points and prize money — facts the app does not hold and
 # never will. AM-205 decides Novice Amateur per category at the time status is

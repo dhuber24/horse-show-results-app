@@ -207,6 +207,13 @@ async def get_desk(
             # payments to settle, and a cancelled exhibitor who vanishes from
             # the desk is one nobody can refund.
             "cancelled_at": account["cancelled_at"],
+            # Stabling requests, so whoever draws the stall chart can read them
+            # off the roster instead of opening each registration. Kept apart
+            # from the general notes because the two are read at different
+            # moments -- see migration 128.
+            "stall_request": account["stall_request"],
+            "arrival_date": account["arrival_date"],
+            "departure_date": account["departure_date"],
             "entries": entries_by_exhibitor.get(exhibitor_id, []),
             "side_pot_ids": pot_ids_by_show_entry.get(account["show_entry_id"], []),
             "memberships": paperwork["memberships"] if paperwork else [],

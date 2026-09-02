@@ -2,6 +2,53 @@
 
 ## September 2026
 
+### Registration Became A Wizard, And Two Questions Stopped Being Asked Twice
+
+Registration was three collapsible sections on one screen. It is now five, under a stepper, with Back and Next on each — the exhibitor's answer to the wizard a show manager already gets while setting a show up.
+
+**One route rather than five, and that is the deliberate half.** The setup wizard puts each step on its own URL, which suits a manager building a show over a fortnight from a desk. An exhibitor enters a show in a single sitting, on a phone, watching a bill; five routes would put a page load between every answer and hide the running total behind all of them. So the steps are boxes on one page, all of them stay reachable, and the bill sits under the lot.
+
+**The profile split into the person and the horses**, because three questions attach to a horse and none of them belongs on a form about the person: whether its papers suit the body running this show, how the exhibitor is entitled to show it, and whether its health records will carry it through the weekend. `exhibitor_profile.py` now tags every checklist row with the step that asks for it, on the backend, so a step cannot go green over an item `PUT /signup` is still refusing on.
+
+**Two things stopped being asked per class.**
+
+`entries.relationship_to_owner` was a select of twenty-five relationships on the class entry form. Somebody entering eight classes on their own horse answered "Self" eight times and could answer differently on the eighth — a data error nothing would have caught, on a field APHA reads (AM-300.E, YP-015).
+
+**Most of the time it is not a question at all.** `horses.owner_exhibitor_id` already says who owns the horse, so `horse_eligibility.effective_relationship` derives **Self** and the screen states it. What is left is the case the app genuinely cannot work out — a horse somebody *else* owns, where no record anywhere says whether that owner is your mother, your aunt or your neighbour. `exhibitors` holds contact details and a guardian's name, not a family tree, and inferring it from `parent_guardian_name` matching `owner_name` would be a guess at identity from free text and then a guess at which parent, on a field APHA reads as a statement of eligibility. That case is asked once, on the horses step, stored on `exhibitor_horses.relationship_to_owner` (migration 128), and copied onto every entry — on the link row rather than on `horses`, because two people may show the same horse and their relationships to its owner are different answers.
+
+**The APHA division picker is gone entirely.** It offered all nine divisions on every class, so a class the show had already named "56 - Youth WT Showmanship Ages 5-10" could be entered as **Amateur**. `rules.apha.divisions_for_bracket` reads the division out of the class's bracket — the column that exists for exactly that — and **every bracket it matches resolves to one division**, so there is nothing to choose. The correction that made that possible: a plain "Amateur" bracket is *not* paired with Novice Amateur. A Novice division is not a sub-choice inside an Amateur class; a show that offers one runs it as its own class, which is why MNSPHC's schedule has class 59 "Novice Amateur Showmanship" sitting beside class 60 "Amateur Showmanship".
+
+**A bracket that says nothing files no division at all**, which is what every entry did before the picker existed. It is never turned into a guess: "Yearling Stallions" is almost always an Open halter class, and filing it as OPEN would be right most of the time and would refuse a Solid Paint-Bred horse (SC-325.A.1) the rest of it — an entry the show meant to take, turned away over a division nobody chose. The desk keeps its picker, because staff overriding is the reason it has one, and `create_entry` fills a blank from the class the same way so both doors store the same thing.
+
+What is left on the exhibitor's entry form is a class picker and a horse picker.
+
+**Required fields are marked in the field.** The asterisk is on the label and in the placeholder, not in a list above the form; pressing *Save & continue* with one empty outlines exactly those boxes, says how many are outstanding, and moves focus to the first. The button is never disabled — a disabled button with nothing pointing at the reason is the same dead end read a different way.
+
+### Two Things The Show Could Not Say, And One The Exhibitor Could Not
+
+Migration 128 adds three columns, each closing a gap somebody was working around on paper.
+
+**`show_fees.min_quantity`** — a show that bans outside shavings is telling exhibitors to buy bedding here, and "buy some" with no number is a stall bedded with two bags where the show wanted four. The picker starts at the floor and will not go under it.
+
+It is a **requirement, checked against the whole booking**, not a range check on the lines that were sent. That distinction is the entire feature: a line left out of the request is the easiest way to book none of something, so a per-line check would have let "at least four bags" be satisfied by sending no bags at all. `save_signup` walks every reservable fee carrying a floor and refuses a sign-up that does not reach it, so zero and silence are both refused. A show that takes day-haul entries and does not want to charge them for bedding leaves the minimum unset.
+
+A limitation worth stating: the MNSPHC bill reads "Minimum 2 bags **per stall**", and this is a flat minimum per exhibitor. A floor that scales with another reserved line would mean one `show_fees` row referring to another, which is a relationship the table does not have and `build_bill` could not price.
+
+**`show_entries.stall_request`** — "put me next to my trainer Bob Smith". It was going in the general notes box beside "arriving late Friday", and the two are read at different moments by different people: whoever draws the stall chart wants every request together and nothing else. Its own box on the sign-up form, its own panel on the desk.
+
+**`exhibitor_horses.relationship_to_owner`** — above.
+
+### The Futurity Programme Moved To The Show Bill
+
+The futurity card on the registration screen reprinted everything the show typed into futurity setup: the awards, the rules its classes run under, how the categories work, the refund policy. All of it is already published, in full and as written, in the Futurities section of `ShowbillDocument` — which `/shows/[id]/showbill` has always drawn and which `/shows/[id]/details` simply never passed through. That was the actual omission.
+
+So Show Details now prints the programme, and the registration step keeps only what you cannot choose without: the deadline, the categories with their per-class rates, the office fee, and any late fee that applies. Those are prices attached to the buttons beside them, not background reading. A single link goes to the rest, which keeps one copy of those words rather than two that can disagree.
+
+Futurities also became a step of its own rather than a card hanging below the wizard — a futurity is a separate programme with its own deadline and its own money, and the bill under the wizard counts it. Entering one has always added a line through `billing.futurity_lines`; it now does so from a box that looks like the other four.
+
+**Ticking "I already hold a club membership" shuts off the membership picker.** It changes nothing about the office fee: `is_member` selects between the member and non-member office fees, `membership_option_id` sells a card, and somebody joining on the day legitimately pays both — which is what the paper form charges them. The tick only stops offering to sell a card to somebody who has just said they hold one.
+
+
 ### The Show Bill Somebody Already Had Printed
 
 The app has always drawn the show bill from the show's own records — judges, classes, fees, policies — and that was a deliberate refusal, written down as such: an uploaded PDF is a second source of truth that goes stale the moment a secretary adds a class, and worse than no PDF because people trust the copy they printed.

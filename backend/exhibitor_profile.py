@@ -23,8 +23,21 @@ The advisory membership item is omitted entirely when the show has no breed or
 club affiliation to hold one against -- an Open show with no clubs is not
 waiting on anybody's card, and an item that can never be ticked is one people
 learn to scroll past.
+
+Every row carries a `step`, because the registration wizard asks these in two
+sittings rather than one: `details` is the person, `horses` is the animals they
+brought. The split is what the screens render against, and it is here rather
+than in the frontend so a step cannot go green over an item the backend is
+still refusing on -- `missing_blocking` reads the same rows either way.
 """
 from typing import Iterable, Optional
+
+#: The wizard steps these rows are asked across, in order. `details` is the
+#: exhibitor themselves; `horses` is what they are bringing. A caller that does
+#: not care about the split can ignore the field entirely -- nothing about
+#: blocking depends on it.
+STEP_DETAILS = "details"
+STEP_HORSES = "horses"
 
 
 def _blank(value) -> bool:
@@ -65,6 +78,7 @@ def profile_checklist(
     items: list[dict] = [
         {
             "key": "full_name",
+            "step": STEP_DETAILS,
             "label": "Your name",
             "complete": not _blank(exhibitor.full_name),
             "blocking": True,
@@ -72,6 +86,7 @@ def profile_checklist(
         },
         {
             "key": "date_of_birth",
+            "step": STEP_DETAILS,
             "label": "Date of birth",
             "complete": exhibitor.date_of_birth is not None,
             "blocking": True,
@@ -82,6 +97,7 @@ def profile_checklist(
         },
         {
             "key": "phone",
+            "step": STEP_DETAILS,
             "label": "Phone number",
             "complete": not _blank(exhibitor.phone),
             "blocking": True,
@@ -89,6 +105,7 @@ def profile_checklist(
         },
         {
             "key": "address",
+            "step": STEP_DETAILS,
             "label": "Mailing address",
             "complete": not address_missing,
             "blocking": True,
@@ -100,6 +117,7 @@ def profile_checklist(
         },
         {
             "key": "emergency_contact",
+            "step": STEP_DETAILS,
             "label": "Emergency contact",
             "complete": not emergency_missing,
             "blocking": True,
@@ -114,6 +132,7 @@ def profile_checklist(
         },
         {
             "key": "horses",
+            "step": STEP_HORSES,
             "label": "At least one horse",
             "complete": horse_count > 0,
             "blocking": True,
@@ -128,6 +147,11 @@ def profile_checklist(
         items.append(
             {
                 "key": "memberships",
+                # The exhibitor's own card, so it is asked alongside their
+                # details rather than with the horses. A *horse's* registration
+                # with the same association is a different fact and is checked
+                # on the horses step.
+                "step": STEP_DETAILS,
                 "label": "Association memberships",
                 "complete": not outstanding,
                 # Never blocking. See the module docstring: the desk verifies a
@@ -144,10 +168,23 @@ def profile_checklist(
     return items
 
 
-def missing_blocking(checklist: Iterable[dict]) -> list[str]:
-    """The labels of the blocking items that are not done."""
-    return [i["label"] for i in checklist if i["blocking"] and not i["complete"]]
+def missing_blocking(checklist: Iterable[dict], step: Optional[str] = None) -> list[str]:
+    """The labels of the blocking items that are not done.
+
+    `step` narrows to one wizard step, which is what lets the screen say "you
+    still owe a phone number" on step one without also complaining about a
+    horse two steps away. Unnarrowed it is the whole list, and that is what
+    `PUT /signup` refuses on -- finishing one step is not finishing the
+    profile.
+    """
+    return [
+        i["label"]
+        for i in checklist
+        if i["blocking"]
+        and not i["complete"]
+        and (step is None or i.get("step") == step)
+    ]
 
 
-def profile_complete(checklist: Iterable[dict]) -> bool:
-    return not missing_blocking(checklist)
+def profile_complete(checklist: Iterable[dict], step: Optional[str] = None) -> bool:
+    return not missing_blocking(checklist, step)

@@ -206,6 +206,13 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             # exhibitor who had already paid reads here as a credit, which is
             # the whole reason the row is marked rather than deleted.
             "cancelled_at": show_entry.cancelled_at if show_entry else None,
+            # What they asked for when it comes to stabling (migration 128).
+            # Carried here so the desk can list every request at once while the
+            # stall chart is being drawn -- which is the whole reason it is a
+            # column of its own rather than a sentence inside the general notes.
+            "stall_request": show_entry.stall_request if show_entry else None,
+            "arrival_date": show_entry.arrival_date if show_entry else None,
+            "departure_date": show_entry.departure_date if show_entry else None,
             "entry_count": len(exhibitor_entries),
             "horse_count": len(horses_by_exhibitor.get(exhibitor_id, set())),
             "payments": [

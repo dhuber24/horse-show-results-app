@@ -410,6 +410,34 @@ export default function ExhibitorPanel({
           </Link>
         </div>
 
+        {/* What they asked for on the grounds, quoted verbatim. Read while the
+            stall chart is being drawn, which is why it is a field of its own
+            and not a sentence inside the general registration notes — the
+            requests have to be findable together, and nothing here is a
+            promise the app is making on the office's behalf. */}
+        {(exhibitor.stall_request || exhibitor.arrival_date || exhibitor.departure_date) && (
+          <div
+            className="mt-3 rounded border px-3 py-2 text-sm"
+            style={{ borderColor: COLORS.borderSoft, backgroundColor: COLORS.surfaceSoft }}
+          >
+            {exhibitor.stall_request && (
+              <p style={{ color: COLORS.text }}>
+                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.muted }}>
+                  Stabling request
+                </span>
+                <span className="block whitespace-pre-wrap">{exhibitor.stall_request}</span>
+              </p>
+            )}
+            {(exhibitor.arrival_date || exhibitor.departure_date) && (
+              <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
+                {exhibitor.arrival_date ? `Arriving ${exhibitor.arrival_date}` : 'Arrival not stated'}
+                {' · '}
+                {exhibitor.departure_date ? `leaving ${exhibitor.departure_date}` : 'departure not stated'}
+              </p>
+            )}
+          </div>
+        )}
+
         {alerts.length > 0 && (
           <div className="mt-3 rounded px-3 py-2 text-sm" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
             {alerts.map((c, i) => (

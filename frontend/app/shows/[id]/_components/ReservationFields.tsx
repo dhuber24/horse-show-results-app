@@ -38,6 +38,13 @@ export type FeeOption = {
   early_deadline: string | null;
   /** Whether a booking made today would still get the early rate. */
   early_rate_open: boolean;
+  /** The fewest of this line the show will take once you book any of it
+   *  (migration 128) — a show that bans outside shavings and needs four bags a
+   *  stall sets it here. 0 means no floor, which is every show that has not
+   *  said otherwise. The picker starts at this number and will not go under
+   *  it; `PUT /signup` refuses the same way, so the control is a courtesy
+   *  rather than the rule. */
+  min_quantity: number;
   notes: string | null;
 };
 
@@ -61,6 +68,10 @@ export type SignupData = {
     arrival_date: string | null;
     departure_date: string | null;
     notes: string | null;
+    /** Stabling requests — kept apart from `notes` because the office reads
+     *  every one of these at once while drawing the stall chart, and reads
+     *  "arriving late Friday" at the gate. */
+    stall_request: string | null;
     reservations: { show_fee_id: string; quantity: number }[];
   } | null;
   /** Step one of registration. `PUT /signup` refuses while this is incomplete,
@@ -224,13 +235,27 @@ export default function ReservationFields({
 
   const [quantities, setQuantities] = useState<Record<string, number>>(() => {
     const seed: Record<string, number> = {};
-    for (const fee of fee_options) seed[fee.id] = 0;
-    for (const r of signup?.reservations ?? []) seed[r.show_fee_id] = r.quantity;
+    // A line the show requires starts at the number it requires. Starting at
+    // zero and refusing three is the same information delivered after the
+    // exhibitor has already decided — and at a show that bans outside
+    // shavings, "some bedding" with no number is a stall bedded with two bags
+    // where the show wanted four.
+    for (const fee of fee_options) seed[fee.id] = fee.min_quantity || 0;
+    // What they actually booked wins over the floor — but never falls under it.
+    // A show can set a minimum after people have signed up, and somebody who
+    // booked two bags in April would otherwise open a form that refuses to save
+    // and says nothing about why. Raised here, in the box, where they can see
+    // the number change.
+    for (const r of signup?.reservations ?? []) {
+      const fee = fee_options.find((f) => f.id === r.show_fee_id);
+      seed[r.show_fee_id] = Math.max(fee?.min_quantity || 0, r.quantity);
+    }
     return seed;
   });
   const [arrival, setArrival] = useState(signup?.arrival_date ?? '');
   const [departure, setDeparture] = useState(signup?.departure_date ?? '');
   const [notes, setNotes] = useState(signup?.notes ?? '');
+  const [stallRequest, setStallRequest] = useState(signup?.stall_request ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -248,8 +273,18 @@ export default function ReservationFields({
     0,
   );
 
-  const setQuantity = (feeId: string, value: number) => {
-    setQuantities((prev) => ({ ...prev, [feeId]: Math.max(0, Math.min(999, value)) }));
+  /**
+   * `floor` is the show's minimum, and zero is not below it — it *is* below it.
+   *
+   * There is no "none" for a line the show requires. A show sets a minimum
+   * because it will not have horses bedded on less, and an exhibitor who could
+   * answer nought has been handed the same escape the minimum exists to close.
+   * `PUT /signup` checks the whole booking against every floor, so a line left
+   * out entirely is refused the same way a line set to two is.
+   */
+  const setQuantity = (feeId: string, value: number, floor = 0) => {
+    const clamped = Math.max(0, Math.min(999, value));
+    setQuantities((prev) => ({ ...prev, [feeId]: Math.max(floor, clamped) }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -271,6 +306,7 @@ export default function ReservationFields({
           arrival_date: arrival || null,
           departure_date: departure || null,
           notes: notes.trim() || null,
+          stall_request: stallRequest.trim() || null,
         }),
       });
       const json = await res.json();
@@ -359,6 +395,8 @@ export default function ReservationFields({
                 {group.fees.map((fee) => {
                   const qty = quantities[fee.id] ?? 0;
                   const noun = UNIT_NOUN[fee.unit] ?? 'item';
+                  const floor = fee.min_quantity || 0;
+                  const atFloor = floor > 0 && qty <= floor;
                   return (
                     <li
                       key={fee.id}
@@ -380,15 +418,30 @@ export default function ReservationFields({
                           {fee.notes && <> · {fee.notes}</>}
                         </div>
                         <EarlyRateNote fee={fee} noun={noun} />
+                        {floor > 0 && (
+                          <div className="text-xs mt-0.5 font-medium" style={{ color: '#92400e' }}>
+                            Required — this show will not take an entry with fewer than {floor}{' '}
+                            {noun}
+                            {floor === 1 ? '' : 's'}.
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={() => setQuantity(fee.id, qty - 1)}
-                          disabled={qty === 0}
+                          onClick={() => setQuantity(fee.id, qty - 1, floor)}
+                          disabled={qty === 0 || atFloor}
                           className="w-8 h-8 rounded border text-lg leading-none disabled:opacity-40"
                           style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
-                          title={qty === 0 ? `No ${noun}s reserved` : `One fewer ${noun}`}
+                          title={
+                            atFloor
+                              ? `This show requires at least ${floor} ${noun}${
+                                  floor === 1 ? '' : 's'
+                                }`
+                              : qty === 0
+                                ? `No ${noun}s reserved`
+                                : `One fewer ${noun}`
+                          }
                           aria-label={`One fewer ${fee.label}`}
                         >
                           −
@@ -398,14 +451,24 @@ export default function ReservationFields({
                           min={0}
                           max={999}
                           value={qty}
-                          onChange={(e) => setQuantity(fee.id, Number(e.target.value) || 0)}
+                          // Snapped back up to the floor on blur rather than
+                          // as they type: clamping mid-keystroke makes "1" on
+                          // the way to "12" jump to the minimum and the second
+                          // digit land somewhere nobody meant.
+                          onChange={(e) =>
+                            setQuantities((prev) => ({
+                              ...prev,
+                              [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
+                            }))
+                          }
+                          onBlur={() => setQuantity(fee.id, qty, floor)}
                           className="w-16 border rounded px-2 py-1.5 text-sm text-center"
                           style={{ borderColor: '#d4b896' }}
                           aria-label={`Number of ${noun}s — ${fee.label}`}
                         />
                         <button
                           type="button"
-                          onClick={() => setQuantity(fee.id, qty + 1)}
+                          onClick={() => setQuantity(fee.id, qty + 1, floor)}
                           className="w-8 h-8 rounded border text-lg leading-none"
                           style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
                           aria-label={`One more ${fee.label}`}
@@ -424,6 +487,7 @@ export default function ReservationFields({
                           {noun}
                           {qty === 1 ? '' : 's'}
                         </span>
+
                       </div>
                     </li>
                   );
@@ -433,6 +497,36 @@ export default function ReservationFields({
           ))}
         </div>
       )}
+
+      {/* Stabling requests get their own box, above the general notes.
+          "Put me next to Bob Smith" and "arriving late Friday" were one field,
+          and they are read at different moments by different people: whoever
+          draws the stall chart wants every request together and nothing else,
+          and reading them out of a column of arrival plans is how a request
+          gets missed. */}
+      <section
+        className="mt-4 rounded-lg border p-4"
+        style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      >
+        <h3 className="font-semibold" style={{ color: '#2c1810' }}>Stabling requests</h3>
+        <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
+          Who you would like to be stalled near, and anything else about where you go on the
+          grounds. The office reads these while drawing the stall chart — it will do what it can,
+          but nothing here is a promise.
+        </p>
+        <label className="text-xs block" style={{ color: '#8b7355' }}>
+          <span className="sr-only">Stabling requests</span>
+          <textarea
+            value={stallRequest}
+            onChange={(e) => setStallRequest(e.target.value)}
+            rows={2}
+            maxLength={1000}
+            placeholder="e.g. please stall me next to my trainer Bob Smith / Willow Creek barn"
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: '#d4b896' }}
+          />
+        </label>
+      </section>
 
       <section
         className="mt-4 rounded-lg border p-4"
@@ -471,7 +565,7 @@ export default function ReservationFields({
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
             maxLength={1000}
-            placeholder="e.g. stalling with Smith barn, arriving late Friday"
+            placeholder="e.g. arriving late Friday, hauling in with two others"
             className="mt-1 w-full border rounded px-3 py-2 text-sm"
             style={{ borderColor: '#d4b896' }}
           />

@@ -4,11 +4,15 @@ import {
   fetchClasses,
   fetchShowJudgesPublic,
   fetchShowFeesPublic,
+  fetchShowFuturitiesPublic,
   fetchShowbill,
 } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
-import ShowbillDocument, { type ShowbillClassRow } from '../_components/ShowbillDocument';
+import ShowbillDocument, {
+  type ShowbillClassRow,
+  type ShowbillFuturity,
+} from '../_components/ShowbillDocument';
 import UploadedShowbill from '../_components/UploadedShowbill';
 
 /**
@@ -55,13 +59,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, back, allClasses, judges, fees, showbill] = await Promise.all([
+  // Futurities belong here rather than on the registration screen. The
+  // programme — the awards, the rules its classes run under, how the categories
+  // work, the refund policy — is what somebody reads to decide whether to
+  // enter, and it was being reprinted in full above the four controls they came
+  // to the registration screen to use. `/shows/[id]/showbill` has drawn this
+  // section all along; the omission was that this page never passed it through.
+  const [show, back, allClasses, judges, fees, showbill, futurities] = await Promise.all([
     fetchShow(id),
     showHubBack(id),
     fetchClasses(id),
     fetchShowJudgesPublic(id),
     fetchShowFeesPublic(id),
     fetchShowbill(id),
+    fetchShowFuturitiesPublic(id),
   ]);
 
   const clubs: { association_id: string; code: string; name: string; per_class_fee_cents: number }[] =
@@ -163,7 +174,14 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           Classes, judges and fees as entered in this app
         </h3>
       )}
-      <ShowbillDocument show={show} classes={classes} judges={judges} fees={fees} embedded />
+      <ShowbillDocument
+        show={show}
+        classes={classes}
+        judges={judges}
+        fees={fees}
+        futurities={futurities as ShowbillFuturity[]}
+        embedded
+      />
 
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
         {/* The show's chosen bill with a masthead and a print stylesheet on it.

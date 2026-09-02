@@ -875,6 +875,14 @@ class ExhibitorHorse(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
     horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    # How this exhibitor is entitled to show this horse -- APHA AM-300.E and
+    # YP-015 (migration 128). A fact about the person and the horse, not about
+    # the class, so it is answered once here and copied onto every entry rather
+    # than picked from a list of twenty-five on each one.
+    #
+    # Here rather than on `horses` because two people may show the same horse
+    # and their relationships to its owner are different answers.
+    relationship_to_owner = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("exhibitor_id", "horse_id"),)
@@ -1551,6 +1559,14 @@ class ShowFee(Base):
     # directly — see RESERVABLE_FEE_UNITS for what an early rate can apply to.
     early_amount_cents = Column(Integer, nullable=True)
     early_deadline = Column(Date, nullable=True)
+    # The floor under a reservable line (migration 128). A show that bans
+    # outside shavings is telling exhibitors to buy bedding here, and "buy some"
+    # with no number is a stall bedded with two bags at a show that wanted four.
+    # 0 -- the default, and every row before this -- means no floor. Only
+    # meaningful on a reservable unit, the same rule that governs where an early
+    # rate may be set, and enforced in the router for the same reason: the unit
+    # families live in billing.py rather than in the schema.
+    min_quantity = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="fees")
@@ -1625,6 +1641,11 @@ class ShowEntry(Base):
     arrival_date = Column(Date, nullable=True)
     departure_date = Column(Date, nullable=True)
     registration_notes = Column(Text, nullable=True)
+    # Stabling requests -- "put me next to the Smith barn" (migration 128).
+    # Apart from `registration_notes` because the office reads the two at
+    # different moments: every stall request at once, while the chart is being
+    # drawn, against "arriving late Friday" at the gate.
+    stall_request = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (

@@ -120,9 +120,20 @@ function formatShortDate(dateStr: string): string {
   });
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  id,
+  children,
+}: {
+  title: string;
+  /** An anchor, for the places that link straight to one section — the
+   *  registration screen's futurity step points here rather than reprinting
+   *  the whole programme beside its own controls. */
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="showbill-section mt-6 first:mt-0">
+    <section id={id} className="showbill-section mt-6 first:mt-0 scroll-mt-4">
       <h2
         className="text-sm font-bold uppercase tracking-wider pb-1 mb-3 border-b"
         style={{ color: '#8b4513', borderColor: '#d4b896' }}
@@ -432,7 +443,7 @@ export default function ShowbillDocument({
       </Section>
 
       {futurities.length > 0 && (
-        <Section title="Futurities">
+        <Section title="Futurities" id="futurities">
           {futurities.map((futurity) => (
             <div key={futurity.id} className="showbill-section mb-4 last:mb-0">
               <h3 className="font-semibold text-sm" style={{ color: '#2c1810' }}>

@@ -19,6 +19,8 @@ interface ShowFee {
   notes: string | null;
   sort_order: number;
   early_amount_cents: number | null;
+  /** The show's minimum for this line, 0 when there is none. */
+  min_quantity?: number;
   early_deadline: string | null;
   /** How many exhibitors have booked a quantity against this row. */
   reserved_count?: number;
@@ -70,7 +72,20 @@ type Draft = {
   unit: Unit;
   early: string;
   earlyDeadline: string;
+  /** The fewest an exhibitor may reserve once they reserve any (migration
+   *  128), as typed. Blank and "0" both mean no floor. */
+  minQuantity: string;
 };
+
+/** The floor as a number the backend will take. Anything that is not a whole
+ *  number above zero means "no minimum" — a show that has not answered the
+ *  question must not end up with one. Cleared outright on a non-reservable
+ *  unit, the same way the early rate is: there is no quantity for it to bound. */
+function minQuantityOf(draft: Draft): number {
+  if (!RESERVABLE_UNITS.has(draft.unit)) return 0;
+  const n = Number.parseInt(draft.minQuantity, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
+}
 
 function draftFromFee(f: ShowFee): Draft {
   return {
@@ -79,6 +94,7 @@ function draftFromFee(f: ShowFee): Draft {
     unit: f.unit,
     early: f.early_amount_cents != null ? dollarsFromCents(f.early_amount_cents) : '',
     earlyDeadline: f.early_deadline ?? '',
+    minQuantity: f.min_quantity ? String(f.min_quantity) : '',
   };
 }
 
@@ -121,6 +137,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     unit: 'per_stall' as Unit,
     early: '',
     earlyDeadline: '',
+    minQuantity: '',
   });
   const [showAddForm, setShowAddForm] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -158,7 +175,13 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     const res = await fetch(`/api/shows/${showId}/fees/${fee.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: draft.label, amount_cents: cents, unit: draft.unit, ...early }),
+      body: JSON.stringify({
+        label: draft.label,
+        amount_cents: cents,
+        unit: draft.unit,
+        min_quantity: minQuantityOf(draft),
+        ...early,
+      }),
     });
     setBusyId(null);
     if (res.ok) {
@@ -196,6 +219,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
         unit: newRow.unit,
         early: newRow.early,
         earlyDeadline: newRow.earlyDeadline,
+        minQuantity: newRow.minQuantity,
       },
       cents,
     );
@@ -206,7 +230,22 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     const res = await fetch(`/api/shows/${showId}/fees`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, label: newRow.label.trim(), amount_cents: cents, unit: newRow.unit, sort_order: fees.length, ...early }),
+      body: JSON.stringify({
+        code,
+        label: newRow.label.trim(),
+        amount_cents: cents,
+        unit: newRow.unit,
+        sort_order: fees.length,
+        min_quantity: minQuantityOf({
+          label: newRow.label,
+          amount: newRow.amount,
+          unit: newRow.unit,
+          early: newRow.early,
+          earlyDeadline: newRow.earlyDeadline,
+          minQuantity: newRow.minQuantity,
+        }),
+        ...early,
+      }),
     });
     setAdding(false);
     if (res.ok) {
@@ -214,7 +253,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
       const merged = [...fees, created];
       setFees(merged);
       setDrafts((prev) => ({ ...prev, [created.id]: draftFromFee(created) }));
-      setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '' });
+      setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '', minQuantity: '' });
       setShowAddForm(false);
       router.refresh();
     } else {
@@ -274,7 +313,8 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                 draft.label !== fee.label ||
                 draft.unit !== fee.unit ||
                 'error' in early ||
-                earlyChanged);
+                earlyChanged ||
+                minQuantityOf(draft) !== (fee.min_quantity ?? 0));
             return (
               <li key={fee.id} className="py-2">
               <div className="flex items-center flex-wrap gap-2">
@@ -380,6 +420,25 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                   {'error' in early && (
                     <span className="text-xs text-red-600">{early.error}</span>
                   )}
+                  {/* Beside the early rate because they are the same kind of
+                      thing: both only mean something on a line an exhibitor
+                      books a quantity of, and the backend refuses both
+                      anywhere else. */}
+                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                    · minimum
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    placeholder="none"
+                    value={draft.minQuantity}
+                    onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, minQuantity: e.target.value } }))}
+                    className="w-20 border rounded px-2 py-1 text-sm"
+                    style={{ borderColor: '#d4b896' }}
+                    aria-label={`Minimum quantity for ${fee.label}`}
+                    title="The fewest an exhibitor may reserve once they reserve any of this line. Blank means no minimum."
+                  />
                 </div>
               )}
               </li>
@@ -428,7 +487,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
               {adding ? 'Adding…' : 'Add'}
             </button>
             <button
-              onClick={() => { setShowAddForm(false); setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '' }); }}
+              onClick={() => { setShowAddForm(false); setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '', minQuantity: '' }); }}
               className="text-xs hover:underline"
               style={{ color: '#8b7355' }}
             >

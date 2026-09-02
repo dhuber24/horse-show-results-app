@@ -817,6 +817,10 @@ class ShowFeeCreate(BaseModel):
     # early rate above the standard rate — see routers/show_fees.py.
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
+    # The fewest of this line an exhibitor may reserve once they reserve any
+    # (migration 128). Only meaningful on a reservable unit, which the router
+    # checks -- the unit families live in billing.py, not in the schema.
+    min_quantity: int = Field(default=0, ge=0, le=999)
 
 
 class ShowFeeUpdate(BaseModel):
@@ -828,6 +832,7 @@ class ShowFeeUpdate(BaseModel):
     sort_order: Optional[int] = None
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
+    min_quantity: Optional[int] = Field(default=None, ge=0, le=999)
 
 
 class ShowFeeOut(BaseModel):
@@ -841,6 +846,7 @@ class ShowFeeOut(BaseModel):
     sort_order: int
     early_amount_cents: Optional[int] = None
     early_deadline: Optional[date] = None
+    min_quantity: int = 0
     created_at: datetime
     # How many exhibitors have booked a quantity against this row. Filled in by
     # the staff list endpoint only; it stays 0 on the public price list, which
@@ -3604,6 +3610,13 @@ class ShowDeskExhibitorOut(BaseModel):
     # They stay on the desk because their payments do, and a cancelled
     # exhibitor nobody can find is a cancelled exhibitor nobody can refund.
     cancelled_at: Optional[datetime] = None
+    # What the exhibitor asked for when it comes to stabling -- "put me next to
+    # the Smith barn" (migration 128). Its own field rather than a sentence
+    # inside the general registration notes, because whoever draws the stall
+    # chart reads every one of these together and nothing else.
+    stall_request: Optional[str] = None
+    arrival_date: Optional[date] = None
+    departure_date: Optional[date] = None
     entries: list[ShowDeskEntryOut] = Field(default_factory=list)
     side_pot_ids: list[UUID] = Field(default_factory=list)
     # The same check rows the standalone check-in sheet renders, from the same

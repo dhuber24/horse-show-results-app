@@ -132,6 +132,13 @@ export interface DeskExhibitor {
    *  stay on the roster because their payments do, and a cancelled exhibitor
    *  nobody can find on the desk is one nobody can refund. */
   cancelled_at: string | null;
+  /** What they asked for when it comes to stabling — "put me next to the Smith
+   *  barn" (migration 128). Its own field rather than a sentence inside the
+   *  general notes, because whoever draws the stall chart reads every one of
+   *  these together and nothing else. */
+  stall_request: string | null;
+  arrival_date: string | null;
+  departure_date: string | null;
   entries: DeskEntry[];
   side_pot_ids: string[];
   memberships: VerificationCheck[];

@@ -61,6 +61,12 @@ from cancellations import (
     may_self_cancel,
 )
 from exhibitor_profile import missing_blocking, profile_checklist
+from horse_eligibility import (
+    effective_relationship,
+    horse_registration_flags,
+    owns_horse,
+    registration_codes,
+)
 from billing import (
     build_bill,
     early_rate_is_open,
@@ -83,6 +89,7 @@ from models import (
     FuturityClass,
     FuturityEntry,
     Horse,
+    HorseRegistration,
     Result,
     Show,
     ShowEntry,
@@ -93,6 +100,7 @@ from routers.futurities import load_billable_futurities, missing_horse_details
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
+from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
 from schemas import EntryOut
@@ -253,6 +261,11 @@ def _fee_options_out(fees: list[ShowFee], show_entry: Optional[ShowEntry]) -> li
             "early_amount_cents": f.early_amount_cents,
             "early_deadline": f.early_deadline,
             "early_rate_open": early_rate_is_open(f),
+            # The fewest of this line the exhibitor may book once they book any
+            # (migration 128). Sent so the picker can start at the floor and
+            # refuse to go under it, rather than letting somebody type 2 into a
+            # show that requires 4 and find out on save.
+            "min_quantity": f.min_quantity or 0,
             "notes": f.notes,
         }
         for f in fees
@@ -277,6 +290,10 @@ def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
         "arrival_date": show_entry.arrival_date,
         "departure_date": show_entry.departure_date,
         "notes": show_entry.registration_notes,
+        # Stabling requests, apart from the general notes: the office reads
+        # every one of these at once while drawing the stall chart, and reads
+        # "arriving late Friday" at the gate.
+        "stall_request": show_entry.stall_request,
         "reservations": [
             {
                 "show_fee_id": str(r.show_fee_id),
@@ -412,6 +429,7 @@ class ShowSignupBody(BaseModel):
     arrival_date: Optional[date] = None
     departure_date: Optional[date] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
+    stall_request: Optional[str] = Field(default=None, max_length=1000)
 
 
 @router.get("/profile-status")
@@ -521,6 +539,32 @@ async def save_signup(
         if item.show_fee_id not in fees_by_id:
             raise HTTPException(400, "One or more selected options are not offered by this show")
 
+    # A floor on a line the show requires (migration 128), checked against the
+    # whole booking rather than line by line. A range check on the lines that
+    # were sent cannot see the one that was left out, and leaving it out is the
+    # easiest way to book none of something -- so "at least four bags" would
+    # have been satisfied by sending no bags at all.
+    #
+    # Zero is not an escape hatch. A show sets this because it will not have
+    # horses bedded on less, which is a statement about everybody who signs up;
+    # a show that takes day-haul entries and does not want to charge them for
+    # bedding leaves the minimum unset and says so in the fee's notes.
+    requested = {item.show_fee_id: item.quantity for item in body.reservations}
+    for fee in fees_by_id.values():
+        floor = fee.min_quantity or 0
+        if floor and requested.get(fee.id, 0) < floor:
+            raise HTTPException(
+                422,
+                {
+                    "code": "BELOW_MINIMUM_QUANTITY",
+                    "message": (
+                        f"This show requires at least {floor} of {fee.label}."
+                    ),
+                    "show_fee_id": str(fee.id),
+                    "min_quantity": floor,
+                },
+            )
+
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     if show_entry is None:
         show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor.id)
@@ -542,6 +586,7 @@ async def save_signup(
     show_entry.arrival_date = body.arrival_date
     show_entry.departure_date = body.departure_date
     show_entry.registration_notes = body.notes
+    show_entry.stall_request = body.stall_request
 
     wanted = {
         item.show_fee_id: item.quantity for item in body.reservations if item.quantity > 0
@@ -654,6 +699,75 @@ async def cancel_signup(
         raise HTTPException(409, {"code": blocked.code, "message": blocked.message}) from None
 
     return {"cancelled": True, "show_id": str(show_id)}
+
+
+# ── How this exhibitor may show this horse ────────────────────────────────────
+#
+# APHA's ownership rule (AM-300.E, YP-015) needs the exhibitor's relationship to
+# the horse's owner on every Amateur and Youth entry. It was asked on the entry
+# form, per class, from a list of twenty-five -- so entering eight classes on
+# your own horse meant answering "Self" eight times, and answering it
+# differently on the eighth was a data error nothing would catch.
+#
+# It is a fact about the person and the horse, not about the class. Asked once
+# on the wizard's horses step and copied onto every entry from there.
+
+class HorseRelationshipBody(BaseModel):
+    relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.put("/horses/{horse_id}/relationship")
+async def set_horse_relationship(
+    show_id: UUID,
+    horse_id: UUID,
+    body: HorseRelationshipBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record how the caller is entitled to show one of their own horses.
+
+    Scoped to the caller's own profile, not to the show -- the show is only in
+    the path because this is where the question gets asked, the same way the
+    profile checklist is served from this router. The value it writes is read
+    back by every entry the caller makes, at this show and any other.
+
+    The horse must already be on their profile. That is what makes upserting
+    the `exhibitor_horses` row safe: a horse reaches a profile either through
+    that table or through `horses.created_by_exhibitor_id`, and creating the
+    link row for the second kind asserts nothing that was not already true.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+    await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    if horse_id not in await _exhibitor_horse_ids(exhibitor.id, db):
+        raise HTTPException(404, "That horse is not on your profile.")
+
+    value = (body.relationship_to_owner or "").strip() or None
+    if value is not None and value not in RELATIONSHIP_OPTIONS:
+        # Checked against the same list the picker offers, for the reason a
+        # paperwork verification never takes its value from the client: the
+        # relationship goes onto an entry APHA reads, and free text there is a
+        # relationship nobody can report against.
+        raise HTTPException(422, "That is not one of the recognised relationships.")
+
+    result = await db.execute(
+        select(ExhibitorHorse).where(
+            ExhibitorHorse.exhibitor_id == exhibitor.id,
+            ExhibitorHorse.horse_id == horse_id,
+        )
+    )
+    link = result.scalar_one_or_none()
+    if link is None:
+        link = ExhibitorHorse(exhibitor_id=exhibitor.id, horse_id=horse_id)
+        db.add(link)
+    link.relationship_to_owner = value
+    await db.commit()
+
+    return {"horse_id": str(horse_id), "relationship_to_owner": value}
 
 
 # ── Back number ──────────────────────────────────────────────
@@ -772,11 +886,21 @@ async def preview_registration(
     """
     show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
+    is_apha = bool(show.show_type and show.show_type.code == "APHA")
+    # The bodies this show runs under. The same list the membership checklist
+    # is built from, so the exhibitor's card and the horse's papers are judged
+    # against one set of associations rather than two that can drift apart.
+    show_associations = await _show_associations(show, db)
 
     classes_result = await db.execute(
         select(Class)
         .options(
-            selectinload(Class.associations).selectinload(ClassAssociation.show_type)
+            selectinload(Class.associations).selectinload(ClassAssociation.show_type),
+            # The bracket, which is what says which APHA divisions this class is
+            # actually run for. Eager-loaded because the payload below reads it
+            # per class, and a lazy relationship in an async request is a
+            # MissingGreenlet rather than a slow query.
+            selectinload(Class.division),
         )
         .where(Class.show_id == show_id, Class.status != "CLOSED")
         .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
@@ -792,12 +916,40 @@ async def preview_registration(
     # office so the two can never disagree about a horse — same documents, same
     # requirements, same deadline.
     health_by_horse_id: dict[UUID, list[dict]] = {}
+    registrations_by_horse: dict[UUID, list] = {}
+    relationship_by_horse: dict[UUID, Optional[str]] = {}
     if horse_ids:
         horses_result = await db.execute(
             select(Horse).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
         )
         horses = horses_result.scalars().all()
         health_by_horse_id = await health_by_horse(list(horse_ids), show, db)
+
+        # Which associations each horse holds papers with. One query for every
+        # horse rather than a relationship read per horse, and it feeds two
+        # things at once: what the picker prints beside a horse, and the
+        # warnings `horse_registration_flags` derives from the gap between that
+        # and what the show runs under.
+        reg_rows = await db.execute(
+            select(HorseRegistration)
+            .options(selectinload(HorseRegistration.association))
+            .where(HorseRegistration.horse_id.in_(horse_ids))
+        )
+        for row in reg_rows.scalars().all():
+            registrations_by_horse.setdefault(row.horse_id, []).append(row)
+
+        # How this exhibitor is entitled to show each horse (migration 128).
+        # Answered once on the horses step and copied onto every entry, so the
+        # class form never asks -- see `_relationship_for_horse`.
+        link_rows = await db.execute(
+            select(ExhibitorHorse.horse_id, ExhibitorHorse.relationship_to_owner).where(
+                ExhibitorHorse.exhibitor_id == exhibitor.id,
+                ExhibitorHorse.horse_id.in_(horse_ids),
+            )
+        )
+        relationship_by_horse = {
+            horse_id: relationship for horse_id, relationship in link_rows.all()
+        }
 
     # `class_` and `horse` come along because `build_bill` reads both. The
     # screen's entered-class table *is* the bill's class lines, so the fee shown
@@ -851,6 +1003,18 @@ async def preview_registration(
                 # once per exhibitor and the POST enforces that.
                 "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
+                # Which APHA divisions this class is actually run for, read off
+                # its bracket. None means the class does not say, and every
+                # division stays on offer -- see `divisions_for_bracket`, which
+                # narrows and never assigns. Only sent at an APHA show, because
+                # nowhere else asks the question.
+                "apha_divisions": (
+                    divisions_for_bracket(
+                        c.division.name if c.division else None, c.class_name
+                    )
+                    if is_apha
+                    else None
+                ),
                 # Which clubs sanction this class, and what that adds to the
                 # entry — not every class at a sanctioned show carries a
                 # sanction fee (migration 113).
@@ -874,6 +1038,42 @@ async def preview_registration(
                 # the desk's entry form applies, so the two forms refuse the
                 # same combination rather than one of them finding out later.
                 "is_solid_paint_bred": h.is_solid_paint_bred,
+                # What this horse is registered with, and what the show would
+                # ask for that is not there. Warnings only: refusing the entry
+                # would not register the horse, a number can be typed in from
+                # the phone in somebody's hand, and whether the papers describe
+                # this animal is a question only the desk can answer. Same
+                # reasoning as health paperwork -- see `horse_eligibility.py`.
+                "registrations": registration_codes(
+                    registrations_by_horse.get(h.id, [])
+                ),
+                "registration_flags": horse_registration_flags(
+                    h,
+                    show_associations,
+                    {
+                        r.association_id
+                        for r in registrations_by_horse.get(h.id, [])
+                    },
+                ),
+                # How this exhibitor is entitled to show this horse. Derived
+                # from ownership wherever it can be -- somebody showing their
+                # own horse is "Self" and there is nothing to ask -- and only
+                # stored for a horse somebody else owns, where no record
+                # anywhere says how the two are related.
+                "relationship_to_owner": effective_relationship(
+                    h, exhibitor.id, relationship_by_horse.get(h.id)
+                ),
+                # True when the answer came from the horse's own record rather
+                # than from an answer somebody typed. The screen states it
+                # instead of offering a picker.
+                "owns_horse": owns_horse(h, exhibitor.id),
+                # Who the relationship is being asked *about*, so the question
+                # names a person rather than "this horse's owner". Only the
+                # free-text column: the owning exhibitor's own name would mean
+                # a join to serve a label, and a horse whose owner has an
+                # account is one the exhibitor was given access to by that
+                # person, who they can therefore name themselves.
+                "owner_name": h.owner_name,
                 # `file_snapshot` is the desk's staleness bookkeeping and
                 # means nothing to an exhibitor. The staff endpoints drop it via
                 # their response_model; this one has none, so it is dropped here.
@@ -982,6 +1182,25 @@ async def register_for_show(
     )
     horses_by_id = {h.id: h for h in horses_result.scalars().all()}
 
+    # How this exhibitor is entitled to show each horse. Derived from ownership
+    # where it can be -- almost every entry ever made is somebody showing their
+    # own horse, and `horses.owner_exhibitor_id` already says so -- and read
+    # from `exhibitor_horses` where it cannot, which is only a horse somebody
+    # else owns. The entry form used to ask this per class from a list of
+    # twenty-five, so entering eight classes on your own horse meant answering
+    # "Self" eight times and could produce a different answer on the eighth.
+    # A value on the request still wins, because the show office's own entry
+    # form legitimately types one in for a walk-up.
+    relationship_rows = await db.execute(
+        select(ExhibitorHorse.horse_id, ExhibitorHorse.relationship_to_owner).where(
+            ExhibitorHorse.exhibitor_id == exhibitor.id,
+            ExhibitorHorse.horse_id.in_(requested_horse_ids),
+        )
+    )
+    relationship_by_horse = {
+        horse_id: relationship for horse_id, relationship in relationship_rows.all()
+    }
+
     rules = get_rules(show.show_type.code if show.show_type else None)
 
     # APHA's horse caps and its Walk-Trot shared-horse rule are about the
@@ -1038,7 +1257,12 @@ async def register_for_show(
             # rule, silently skipping validation.
             status="ENTERED",
             apha_division=item.apha_division,
-            relationship_to_owner=item.relationship_to_owner,
+            relationship_to_owner=(
+                item.relationship_to_owner
+                or effective_relationship(
+                    horse, exhibitor.id, relationship_by_horse.get(item.horse_id)
+                )
+            ),
         )
         # Wire relationships so validate_entry can read them without lazy loads.
         entry.class_ = cls

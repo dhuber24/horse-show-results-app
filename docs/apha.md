@@ -779,18 +779,65 @@ other association's are — `rules.get_rules(show.show_type.code)`, then
 Every shortfall is reported at once — a bare Novice entry comes back short two
 things, and returning only the first sends somebody round the loop twice.
 
-`RELATIONSHIP_OPTION_GROUPS` in `frontend/lib/apha.ts` is the picker. APHA's
-ownership rule names roughly twenty relationships — in-laws, step-relations,
-aunt, uncle, niece, nephew, legal ward, a family-owned farm, ranch or
-corporation — and the app offered seven, so an exhibitor showing their niece's
-horse had to pick something untrue. "Leased horse" is there because AM-020.A.1
-makes leased horses eligible and this field is the only place an entry can say
-so; it is **not** a lease record, and the term, the lessor and the papers APHA
-holds are not modeled anywhere.
+`RELATIONSHIP_OPTION_GROUPS` in `frontend/lib/apha.ts` is the picker and
+`RELATIONSHIP_OPTIONS` in `backend/rules/apha.py` is what checks a value that
+arrives. APHA's ownership rule names roughly twenty relationships — in-laws,
+step-relations, aunt, uncle, niece, nephew, legal ward, a family-owned farm,
+ranch or corporation — and the app offered seven, so an exhibitor showing their
+niece's horse had to pick something untrue. "Leased horse" is there because
+AM-020.A.1 makes leased horses eligible and this field is the only place an
+entry can say so; it is **not** a lease record, and the term, the lessor and the
+papers APHA holds are not modeled anywhere.
+
+**The exhibitor is asked once, per horse, not once per class.** Migration 128
+moved the answer to `exhibitor_horses.relationship_to_owner`, written from the
+registration wizard's horses step, and `POST /shows/{id}/register` copies it onto
+every entry. Asking it per class from a list of twenty-five meant somebody
+entering eight classes on their own horse answered "Self" eight times and could
+answer differently on the eighth — a data error nothing would have caught. A
+value on the request still wins, because the office's own entry form
+legitimately types one in for a walk-up.
 
 Both fire only when the entry names an `apha_division`. Which division an entry
-belongs in is not derivable from the class — the same class runs for Open,
-Amateur and Youth — so an entry that names none is not checked.
+belongs in is not derivable from the class *in general* — the same class runs
+for Open, Amateur and Youth — so an entry that names none is not checked.
+
+### Which divisions a class is run for (`divisions_for_bracket`)
+
+The picker offered all nine on every class, so a class the show had already
+named "56 - Youth WT Showmanship Ages 5-10" could be entered as Amateur. That is
+not a class the show is running, and nothing downstream would have caught it:
+`apha_division` is stored data, and the checks above take the entry at its word.
+
+`divisions_for_bracket(bracket_name, class_name=None)` reads the division out of
+the class's bracket — the column that exists for exactly this — falling back to
+the class name, since a show that files everything under "Unassigned" still
+writes "Youth Showmanship" on the class. Patterns are ordered longest-first so
+"Novice Youth" is tested before "Youth" and "Amateur Walk-Trot" before both its
+parents; the two Youth Walk-Trot bands are told apart by the age the bracket
+states, split at ten by YP-075.
+
+**Every bracket that matches resolves to exactly one division**, which is what
+lets the exhibitor's entry form drop the picker altogether: pick a class, pick a
+horse, press the button. A plain "Youth" or "Amateur" bracket is *not* paired
+with its Novice variant — a Novice division is not a choice made inside an
+Amateur class. A show that offers one runs it as its own class, bracketed
+"Novice Amateur" or "Novice Youth" (MNSPHC's schedule has class 59 "Novice
+Amateur Showmanship" beside class 60 "Amateur Showmanship"), and an exhibitor
+holding Novice status at a show offering no Novice class shows in Amateur.
+
+**A bracket that says nothing files no division at all.** `None` means *the class
+does not say*, and the entry goes in without one — which is what every entry did
+before the picker existed, and what `validate_entry` returns early on by design.
+It is never turned into a guess: "Yearling Stallions" is almost always an Open
+halter class, and filing it as OPEN would be right most of the time and would
+refuse a Solid Paint-Bred horse (SC-325.A.1) the rest of it — an entry the show
+meant to take, turned away over a division nobody chose.
+
+The exhibitor's form states the division it derived, so somebody can see what is
+being filed for them, and shows nothing where the class is silent. **The desk
+keeps its picker**, because staff overriding is the reason it has one; `create_entry`
+fills a blank from the class the same way, so both doors store the same thing.
 
 **These were inline in `routers/entries.py` until they were moved here, and that
 was a live hole.** The desk endpoint enforced them by hand; the exhibitor's own

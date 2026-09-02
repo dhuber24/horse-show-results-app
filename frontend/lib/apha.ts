@@ -13,6 +13,15 @@ export const APHA_DIVISIONS = [
 ] as const;
 
 /**
+ * How a division reads on screen. `.title()` on the stored value gives "Youth
+ * Walk Trot 11 18", which is not what the class list or the rule book calls it.
+ * Mirrors `DIVISION_LABELS` in `backend/rules/apha.py`.
+ */
+export function divisionLabel(value: string): string {
+  return APHA_DIVISIONS.find((d) => d.value === value)?.label ?? value;
+}
+
+/**
  * How the exhibitor is entitled to show this horse.
  *
  * APHA's ownership rule (AM-300.E, and YP-015 for youth) names roughly twenty

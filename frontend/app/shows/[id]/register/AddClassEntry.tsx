@@ -1,12 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
-  APHA_DIVISIONS,
   ATTESTATION_REQUIRED_DIVISIONS,
   NOVICE_ELIGIBILITY_STATEMENT,
-  RELATIONSHIP_OPTION_GROUPS,
   RELATIONSHIP_REQUIRED_DIVISIONS,
+  divisionLabel,
 } from '@/lib/apha';
 import {
   formatMoney,
@@ -36,6 +36,26 @@ import {
  * It posts to the exhibitor's own endpoint, not the staff one. Same form, same
  * rules, different door: `POST /shows/{id}/register` derives the exhibitor from
  * the session, so this cannot be pointed at anybody else.
+ *
+ * **Two questions it no longer asks. Pick a class, pick a horse, press the
+ * button — that is the whole form.**
+ *
+ * There was an APHA division picker offering all nine divisions on every class,
+ * so a class the show had already named "56 - Youth WT Showmanship 5-10" could
+ * be entered as Amateur. That is not a class the show runs, and nothing
+ * downstream would have caught it: `apha_division` is stored data and every
+ * rule that reads it takes the entry at its word. It is gone entirely, because
+ * **the class already answers it** — `divisions_for_bracket` reads the division
+ * off the bracket, which is the column that exists for exactly that, and every
+ * bracket it matches resolves to one division. A class whose bracket says
+ * nothing is filed with no division, which is what every entry did before the
+ * picker existed and what `validate_entry` handles by design.
+ *
+ * The relationship to the horse's owner is answered once, per horse, on the
+ * wizard's horses step — and usually not even there, since somebody showing
+ * their own horse is "Self" and the horse's record already says so. Asking it
+ * per class from a list of twenty-five meant entering eight classes on one
+ * horse produced the same answer eight times, or a different one on the eighth.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -79,8 +99,6 @@ export default function AddClassEntry({
 }) {
   const [classId, setClassId] = useState('');
   const [horseId, setHorseId] = useState('');
-  const [aphaDivision, setAphaDivision] = useState('');
-  const [relationship, setRelationship] = useState('');
   const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,9 +149,21 @@ export default function AddClassEntry({
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [selectableClasses]);
 
+  // The division comes off the class, never off a picker. `apha_divisions` is
+  // what `divisions_for_bracket` read out of the class's bracket, and every
+  // bracket it matches resolves to one — so there is nothing to choose. Empty
+  // means the class does not say, and the entry is filed without a division,
+  // exactly as every entry was before the picker existed.
+  const aphaDivision = (isApha && activeClass?.apha_divisions?.[0]) || '';
+
   const selectedHorse = horses.find((h) => h.id === horseId);
   const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
+
   const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
+  // Answered on the horses step. Missing is a prompt with a destination, never
+  // a block: the backend takes the entry either way and the office chases it,
+  // the same way it chases a membership card.
+  const missingRelationship = needsRelationship && !selectedHorse?.relationship_to_owner;
   // Novice eligibility is the exhibitor’s own declaration to make (AM-205), and
   // this is the door where they are the one making it.
   const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
@@ -149,7 +179,8 @@ export default function AddClassEntry({
 
     const entry: Record<string, unknown> = { class_id: classId, horse_id: horseId };
     if (isApha && aphaDivision) entry.apha_division = aphaDivision;
-    if (isApha && relationship) entry.relationship_to_owner = relationship;
+    // `relationship_to_owner` is deliberately not sent. The backend reads it
+    // off `exhibitor_horses`, which is where the horses step wrote it.
     if (needsNoviceDeclaration && noviceDeclared) entry.attestations = ['novice_eligibility'];
 
     try {
@@ -264,39 +295,33 @@ export default function AddClassEntry({
         </p>
       )}
 
-      {isApha && (
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={aphaDivision}
-            onChange={(e) => setAphaDivision(e.target.value)}
-            aria-label="APHA division"
-            className="flex-1 min-w-[160px] border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
-          >
-            <option value="">APHA division — not specified</option>
-            {APHA_DIVISIONS.map((d) => (
-              <option key={d.value} value={d.value}>{d.label}</option>
-            ))}
-          </select>
-          {needsRelationship && (
-            <select
-              value={relationship}
-              onChange={(e) => setRelationship(e.target.value)}
-              aria-label="Relationship to owner"
-              className="flex-1 min-w-[160px] border rounded px-3 py-2 text-sm"
-              style={{ borderColor: '#d4b896' }}
-            >
-              <option value="">Relationship to owner…</option>
-              {RELATIONSHIP_OPTION_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.options.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          )}
-        </div>
+      {/* Stated, not asked. It goes on the entry and is reported to APHA, so
+          the exhibitor should be able to see what is being filed for them —
+          but it follows from the class they just picked, and a control with
+          one correct answer is not a question. */}
+      {isApha && activeClass && aphaDivision && (
+        <p className="text-xs" style={{ color: '#5d4a37' }}>
+          Division: <strong>{divisionLabel(aphaDivision)}</strong>
+          <span style={{ color: '#8b7355' }}>
+            {' '}— from this class&apos;s bracket.
+          </span>
+        </p>
+      )}
+
+      {/* A prompt with a destination, never a block — the entry goes in either
+          way and the office chases it, the same as a membership card. */}
+      {missingRelationship && selectedHorse && (
+        <p
+          className="text-xs rounded border p-2"
+          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}
+        >
+          APHA asks how you are related to {selectedHorse.name}&apos;s owner on{' '}
+          {divisionLabel(aphaDivision)} entries (AM-300.E, YP-015). Set it once on{' '}
+          <Link href="#registration-horses" className="font-medium underline" style={{ color: '#8b4513' }}>
+            your horses
+          </Link>{' '}
+          and it carries onto every class.
+        </p>
       )}
 
       {needsNoviceDeclaration && (

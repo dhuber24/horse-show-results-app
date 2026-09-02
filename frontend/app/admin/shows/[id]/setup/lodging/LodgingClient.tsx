@@ -12,6 +12,9 @@ export type FeeRow = {
   notes: string | null;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** The fewest an exhibitor may reserve once they reserve any (migration
+   *  128). 0 means no floor, which is every show that has not said otherwise. */
+  min_quantity?: number;
   /** How many exhibitors have already booked this line. Staff endpoint only. */
   reserved_count?: number;
 };
@@ -41,6 +44,8 @@ type SlotState = {
    *  pair rather than storing a discount that would never fire. */
   earlyDollars: string;
   earlyDeadline: string;
+  /** The show's minimum, as typed. Blank and "0" both mean no floor. */
+  minQuantity: string;
 };
 
 type UnitChoice = {
@@ -138,6 +143,14 @@ function unitChoice(slot: Slot, unit: string): UnitChoice {
   return slot.units.find((u) => u.value === unit) ?? slot.units[0];
 }
 
+/** The floor as a number the backend will take. Blank, zero and anything that
+ *  is not a whole number all mean "no minimum" — a show that has not answered
+ *  the question must not end up with one. */
+function minQuantityOf(slot: SlotState): number {
+  const n = Number.parseInt(slot.minQuantity, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
+}
+
 /** Whether this screen is able to speak for the row's current unit. False when
  *  the secretary priced it on the full boarding schedule as something these
  *  slots don't offer — `flat` camping, say. Rewriting that to the slot default
@@ -210,6 +223,7 @@ export default function LodgingClient({
         earlyDollars:
           fee?.early_amount_cents != null ? centsToDollars(fee.early_amount_cents) : '',
         earlyDeadline: fee?.early_deadline ?? '',
+        minQuantity: fee?.min_quantity ? String(fee.min_quantity) : '',
       };
     }
     return base;
@@ -280,6 +294,7 @@ export default function LodgingClient({
                 ? { unit: slot.unit }
                 : {}),
               ...(slot.feeCode !== s.code ? { code: s.code } : {}),
+              min_quantity: minQuantityOf(slot),
               ...early,
             }),
           });
@@ -298,6 +313,7 @@ export default function LodgingClient({
               unit: slot.unit,
               amount_cents: cents,
               notes: slot.notes.trim() || null,
+              min_quantity: minQuantityOf(slot),
               ...early,
             }),
           });
@@ -478,6 +494,37 @@ export default function LodgingClient({
                   />
                 </label>
               </div>
+              {/* The floor an exhibitor cannot book under. It belongs beside
+                  the shavings ban most of all: banning outside shavings tells
+                  the exhibitor to buy bedding here, and "buy some" with no
+                  number is a stall bedded with two bags where the show wanted
+                  four. Offered on every slot, because a venue that requires two
+                  stalls a rig is not a stranger case than one requiring four
+                  bags. */}
+              <label className="block sm:max-w-xs">
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  Minimum per exhibitor{' '}
+                  <span style={{ color: '#a08a6e' }}>(optional)</span>
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={slot.minQuantity}
+                  onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                  placeholder="no minimum"
+                  aria-label={`${s.title} — minimum quantity`}
+                />
+                <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                  <strong>Required of everyone who signs up</strong>, not just of people who order
+                  some — that is the point of it, and it is why a sign-up with none of this line is
+                  refused. Leave blank if you take day-haul entries who should not be charged for
+                  it.
+                </span>
+              </label>
+
               {s.code === 'shavings' && (
                 <label
                   className="flex items-start gap-2 text-sm ml-1"

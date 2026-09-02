@@ -91,6 +91,25 @@ def _assert_early_rate_valid(
         )
 
 
+def _assert_min_quantity_valid(*, unit: str, min_quantity: int | None) -> None:
+    """A floor only means something on a line somebody books a quantity of.
+
+    Same rule as the early rate above it, for the same reason: an automatic
+    charge has no quantity for a minimum to bound, and one set on a `flat` or
+    `per_entry` row would sit in the catalog reading like a requirement while
+    nothing anywhere consulted it.
+    """
+    if not min_quantity:
+        return
+    if unit not in RESERVABLE_FEE_UNITS:
+        raise HTTPException(
+            422,
+            "A minimum quantity only applies to fees exhibitors reserve a "
+            "quantity of at sign-up (per stall, per bag, per night, per day, "
+            "per show).",
+        )
+
+
 async def _reserved_counts(fee_ids: list[UUID], db: AsyncSession) -> dict[UUID, int]:
     """How many exhibitors have booked a quantity against each of these fees.
 
@@ -178,6 +197,7 @@ async def create_show_fee(
         early_amount_cents=body.early_amount_cents,
         early_deadline=body.early_deadline,
     )
+    _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
     fee = ShowFee(show_id=show_id, **body.model_dump())
     db.add(fee)
     await db.commit()
@@ -242,6 +262,10 @@ async def update_show_fee(
         amount_cents=updates.get("amount_cents", fee.amount_cents),
         early_amount_cents=updates.get("early_amount_cents", fee.early_amount_cents),
         early_deadline=updates.get("early_deadline", fee.early_deadline),
+    )
+    _assert_min_quantity_valid(
+        unit=updates.get("unit", fee.unit),
+        min_quantity=updates.get("min_quantity", fee.min_quantity),
     )
     # A booked quantity has no meaning apart from the unit it was booked under.
     # `build_bill` multiplies rate x quantity and never reads the unit, so

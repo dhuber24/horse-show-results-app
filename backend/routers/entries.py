@@ -14,12 +14,15 @@ from models import (
     CogginsOverrideAudit,
     Entry,
     Exhibitor,
+    ExhibitorHorse,
     Horse,
     Show,
 )
+from horse_eligibility import effective_relationship
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
+from rules.apha import divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
 import standard_classes
@@ -30,7 +33,14 @@ router = APIRouter(prefix="/shows/{show_id}/classes/{class_id}/entries", tags=["
 async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession):
     result = await db.execute(
         select(Class)
-        .options(selectinload(Class.associations).selectinload(ClassAssociation.show_type))
+        .options(
+            selectinload(Class.associations).selectinload(ClassAssociation.show_type),
+            # The bracket, which is what says which APHA division this class is
+            # run for. Eager-loaded because `create_entry` reads it to fill a
+            # division the desk left blank, and a lazy relationship in an async
+            # request is a MissingGreenlet rather than a slow query.
+            selectinload(Class.division),
+        )
         .where(Class.id == class_id)
     )
     class_ = result.scalar_one_or_none()
@@ -185,6 +195,36 @@ async def create_entry(
 
     payload = body.model_dump()
     attestation_kinds = payload.pop("attestations", [])
+    # How the exhibitor is entitled to show this horse (AM-300.E, YP-015),
+    # filled in rather than asked for again. Derived from ownership where it can
+    # be and read off `exhibitor_horses` where it cannot -- the same two sources
+    # the exhibitor's own registration uses, because a relationship that only
+    # one of the two doors fills in is a compliance sheet that disagrees with
+    # itself depending on who keyed the entry. Anything the desk actually typed
+    # wins over both.
+    # Which APHA division this class is run for, filled in when the desk did not
+    # say. The exhibitor's own form no longer asks at all -- the class answers it
+    # -- so a desk entry left blank would otherwise be the only entry at the show
+    # with no division on it, and the compliance sheet would report a gap that
+    # depends on who keyed it. Anything the desk actually chose still wins:
+    # this is the staff door, and an override is the reason it has a picker.
+    if not payload.get("apha_division"):
+        named = divisions_for_bracket(
+            class_.division.name if class_.division else None, class_.class_name
+        )
+        if named and len(named) == 1:
+            payload["apha_division"] = named[0]
+
+    if not payload.get("relationship_to_owner"):
+        link = await db.execute(
+            select(ExhibitorHorse.relationship_to_owner).where(
+                ExhibitorHorse.exhibitor_id == body.exhibitor_id,
+                ExhibitorHorse.horse_id == body.horse_id,
+            )
+        )
+        payload["relationship_to_owner"] = effective_relationship(
+            horse, body.exhibitor_id, link.scalar_one_or_none()
+        )
     entry = Entry(class_id=class_id, **payload)
     entry.class_ = class_
     entry.horse = horse

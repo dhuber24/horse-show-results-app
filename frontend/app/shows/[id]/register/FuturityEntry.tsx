@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -13,12 +14,18 @@ import { useState } from 'react';
  * class list above; this records which program the horse is in and at what
  * rate, which is what the office cannot derive.
  *
- * It is also the entry form. Everything the show typed into the futurity setup
- * — the deadline to the minute, the awards, the rules its classes run under,
- * how the categories work, the refund policy, the release — is printed here,
- * because this screen is where somebody agrees to it. A paper form that stated
- * all of that and an app that quietly took the money would not be the same
- * transaction.
+ * **The programme is on the show bill; the decision is here.** This card used
+ * to reprint everything the show typed into futurity setup — the awards, the
+ * rules the classes run under, how the categories work, the refund policy —
+ * which pushed the four things somebody actually does on this screen below
+ * several screens of text they had already read. All of it is published, in
+ * full and as written, in the Futurities section of the show bill, and the
+ * link below goes straight to it.
+ *
+ * What stays is what you cannot choose without: the deadline, the categories
+ * with their per-class rates, the office fee, and any late fee that now
+ * applies. Those are prices attached to the buttons beside them, not
+ * background reading.
  */
 
 export type FuturityTier = {
@@ -117,37 +124,45 @@ export default function FuturityEntry({
 }) {
   if (futurities.length === 0) return null;
 
+  // No heading of its own: this is a step of the registration wizard now, and
+  // the collapsible box around it carries the title, the step number and the
+  // summary line.
   return (
-    <section className="mt-6">
-      <h3 className="text-sm font-semibold mb-2" style={{ color: '#2c1810' }}>
-        Futurities
-      </h3>
-      <div className="space-y-3">
-        {futurities.map((futurity) => (
-          <FuturityCard
-            key={futurity.id}
-            showId={showId}
-            futurity={futurity}
-            horses={horses}
-            signedUp={signedUp}
-          />
-        ))}
-      </div>
-    </section>
+    <div className="space-y-3">
+      {futurities.map((futurity) => (
+        <FuturityCard
+          key={futurity.id}
+          showId={showId}
+          futurity={futurity}
+          horses={horses}
+          signedUp={signedUp}
+        />
+      ))}
+    </div>
   );
 }
 
-function Notice({ label, body }: { label: string; body: string }) {
-  return (
-    <div className="mt-2">
-      <p className="text-xs font-semibold" style={{ color: '#2c1810' }}>
-        {label}
-      </p>
-      <p className="text-xs whitespace-pre-wrap" style={{ color: '#8b7355' }}>
-        {body}
-      </p>
-    </div>
-  );
+/**
+ * What the futurity step's header says while it is shut.
+ *
+ * Collapsed, this line is the only thing on screen saying whether the
+ * exhibitor is in a futurity — and a futurity is the one part of registration
+ * that expires, so it also has to carry the deadline.
+ */
+export function futuritySummary(futurities: ExhibitorFuturity[]): string {
+  const entered = futurities.reduce((n, f) => n + f.my_entries.length, 0);
+  const parts: string[] = [
+    entered === 0
+      ? `${futurities.length} futurit${futurities.length === 1 ? 'y' : 'ies'} at this show — none entered`
+      : `${entered} horse${entered === 1 ? '' : 's'} entered`,
+  ];
+  const open = futurities.filter((f) => !f.is_past_deadline && f.entry_deadline);
+  if (entered === 0 && open.length === 1) {
+    parts.push(`entries close ${deadlineText(open[0])}`);
+  } else if (futurities.every((f) => f.is_past_deadline)) {
+    parts.push('past the entry deadline');
+  }
+  return parts.join(' · ');
 }
 
 function FuturityCard({
@@ -252,9 +267,6 @@ function FuturityCard({
         </p>
       )}
 
-      {futurity.award_notice && <Notice label="Awards" body={futurity.award_notice} />}
-      {futurity.rules_notice && <Notice label="Rules" body={futurity.rules_notice} />}
-
       {futurity.is_past_deadline && futurity.late_fee_cents > 0 && (
         <p className="text-xs mt-1" style={{ color: '#92400e' }}>
           Entries are past the deadline — a {money(futurity.late_fee_cents)} late fee
@@ -340,10 +352,6 @@ function FuturityCard({
         </p>
       ) : (
         <>
-          {futurity.entry_instructions && (
-            <Notice label="Before you choose" body={futurity.entry_instructions} />
-          )}
-
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="block">
               <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
@@ -400,10 +408,27 @@ function FuturityCard({
                 <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
                   Join the club (optional)
                 </span>
+                {/* Shut off for somebody who has just said they already hold a
+                    card — there is nothing to sell them, and a membership
+                    charge appearing on the bill of a member is the kind of
+                    line that gets disputed at the desk.
+
+                    This is not the office fee. `is_member` picks between the
+                    member and non-member office fees and this sells a card;
+                    somebody joining on the day legitimately pays the
+                    non-member office fee *and* the membership, which is what
+                    the paper form charges them. Wiring the two together would
+                    quietly discount every new member — see Claude.md. */}
                 <select
-                  value={membershipId}
+                  value={isMember ? '' : membershipId}
                   onChange={(e) => setMembershipId(e.target.value)}
-                  className="border rounded px-2 py-1.5 text-sm"
+                  disabled={isMember}
+                  title={
+                    isMember
+                      ? 'You have said you already hold a membership, so there is nothing to buy'
+                      : undefined
+                  }
+                  className="border rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ borderColor: '#d4b896' }}
                 >
                   <option value="">— no thanks —</option>
@@ -424,7 +449,13 @@ function FuturityCard({
               <input
                 type="checkbox"
                 checked={isMember}
-                onChange={(e) => setIsMember(e.target.checked)}
+                onChange={(e) => {
+                  setIsMember(e.target.checked);
+                  // Ticked, the picker is shut off — so anything already
+                  // chosen in it has to go, or the request would still carry a
+                  // membership the screen has stopped showing.
+                  if (e.target.checked) setMembershipId('');
+                }}
               />
               I already hold a club membership
             </label>
@@ -448,21 +479,20 @@ function FuturityCard({
         </>
       )}
 
-      {futurity.fee_tiers.some((t) => t.description) && (
-        <ul className="mt-2 text-xs space-y-0.5" style={{ color: '#8b7355' }}>
-          {futurity.fee_tiers
-            .filter((t) => t.description)
-            .map((t) => (
-              <li key={t.id}>
-                <strong>{t.name}</strong> — {t.description}
-              </li>
-            ))}
-        </ul>
-      )}
-
-      {futurity.refund_policy && (
-        <Notice label="Refunds" body={futurity.refund_policy} />
-      )}
+      {/* Where the programme lives. Kept as one line rather than reprinted,
+          because the awards, the rules, the category definitions and the refund
+          policy are all published in full on the show bill — and reprinting
+          them here buried the four controls somebody came to this screen to
+          use. */}
+      <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+        <Link
+          href={`/shows/${showId}/details#futurities`}
+          className="font-medium hover:underline"
+          style={{ color: '#8b4513' }}
+        >
+          Full futurity programme — awards, rules, categories and refunds →
+        </Link>
+      </p>
     </div>
   );
 }
