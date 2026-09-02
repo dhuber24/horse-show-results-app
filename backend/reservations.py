@@ -43,6 +43,18 @@ from uuid import UUID
 BEDDING_UNITS = frozenset({"per_bag"})
 STALL_UNITS = frozenset({"per_stall"})
 
+# The units a floor may be set on at all.
+#
+# Narrower than `RESERVABLE_FEE_UNITS`, and the missing ones are the camping
+# family (`per_night` / `per_day` / `per_show`). A minimum here is a *policy*
+# -- "we will not have horses bedded on less than this", "every rig takes a
+# stall" -- and no show has ever required everybody who enters to also camp.
+# Offering the control there put a box on the setup screen whose own
+# explanation ("required of everyone who signs up") was nonsense against the
+# line it sat under, and a stray value in it would have refused sign-ups for
+# not booking a camping spot.
+REQUIRABLE_FEE_UNITS = BEDDING_UNITS | STALL_UNITS
+
 
 def _quantity(requested: Mapping[UUID, int], fee_id: UUID) -> int:
     """A line that was left out is a line booked at nought.
@@ -72,7 +84,14 @@ def required_quantity(fee, *, show, stalls: int) -> int:
     `stalls` is what the booking under consideration reserves, not what the
     exhibitor reserved last time -- somebody dropping to no stalls at all is
     dropping the bedding requirement with it, in the same save.
+
+    Read here as well as guarded on the way in, because the column is older
+    than the guard: a stray minimum on a camping line, set before this rule
+    existed, would otherwise go on refusing sign-ups from a box no screen
+    offers any more.
     """
+    if fee.unit not in REQUIRABLE_FEE_UNITS:
+        return 0
     floor = fee.min_quantity or 0
     if (
         fee.unit in BEDDING_UNITS

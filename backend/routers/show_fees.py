@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from uuid import UUID
 
 from billing import RESERVABLE_FEE_UNITS
+from reservations import REQUIRABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import Show, ShowEntryReservation, ShowFee
@@ -92,21 +93,22 @@ def _assert_early_rate_valid(
 
 
 def _assert_min_quantity_valid(*, unit: str, min_quantity: int | None) -> None:
-    """A floor only means something on a line somebody books a quantity of.
+    """A floor only means something on a line the show can require of everybody.
 
-    Same rule as the early rate above it, for the same reason: an automatic
-    charge has no quantity for a minimum to bound, and one set on a `flat` or
-    `per_entry` row would sit in the catalog reading like a requirement while
-    nothing anywhere consulted it.
+    Narrower than the early-rate guard above it, which takes any reservable
+    unit. A minimum is a *policy* -- "we will not have horses bedded on less
+    than this", "every rig takes a stall" -- and nothing about camping is like
+    that: no show requires everyone who enters to also book a spot. Setting one
+    there would refuse a sign-up for not camping. See `REQUIRABLE_FEE_UNITS`.
     """
     if not min_quantity:
         return
-    if unit not in RESERVABLE_FEE_UNITS:
+    if unit not in REQUIRABLE_FEE_UNITS:
         raise HTTPException(
             422,
-            "A minimum quantity only applies to fees exhibitors reserve a "
-            "quantity of at sign-up (per stall, per bag, per night, per day, "
-            "per show).",
+            "A minimum quantity only applies to stalls and bedding — the lines "
+            "a show can require of everybody. Camping is booked by whoever "
+            "wants it.",
         )
 
 

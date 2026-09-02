@@ -130,6 +130,32 @@ def test_the_ban_does_not_put_a_floor_on_anything_but_bedding():
     ) is None
 
 
+
+def test_camping_takes_no_minimum_at_all():
+    """A minimum is a policy the show imposes on everybody -- "every rig takes a
+    stall", "we will not have horses bedded on less than this". Nothing about
+    camping is like that: no show requires an exhibitor to book a spot in order
+    to be allowed to enter. The setup screen no longer offers the box, and this
+    is what stops a value left in it by an older version from going on refusing
+    sign-ups from a control nothing renders."""
+    camping = _fee("per_night", min_quantity=2, label="Camping")
+
+    assert required_quantity(camping, show=_show(), stalls=1) == 0
+    assert minimum_shortfall([camping], show=_show(), requested={}) is None
+
+
+@pytest.mark.parametrize("unit", ["per_night", "per_day", "per_show"])
+def test_no_camping_unit_can_be_required(unit):
+    """All three are how one venue prices the same spot (migrations 108, 111),
+    so a rule that caught only one of them would be a hole shaped like a
+    pricing choice."""
+    assert required_quantity(_fee(unit, min_quantity=3), show=_show(), stalls=2) == 0
+
+
+@pytest.mark.parametrize("unit", ["per_stall", "per_bag"])
+def test_stalls_and_bedding_still_can_be(unit):
+    assert required_quantity(_fee(unit, min_quantity=3), show=_show(), stalls=2) == 3
+
 # -- Classes you qualify into ------------------------------------------------
 
 @pytest.mark.parametrize(

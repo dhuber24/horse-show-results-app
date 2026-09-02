@@ -72,6 +72,15 @@ type Slot = {
    *  manager is free to change. */
   createLabel: string;
   units: readonly UnitChoice[];
+  /** Whether this line is one the show can require of everybody.
+   *
+   *  Stalls and bedding are: "every rig takes a stall", "we will not have
+   *  horses bedded on less than this". Camping is not — nobody makes an
+   *  exhibitor book a spot to be allowed to enter, so the box asked a question
+   *  with no sensible answer and its own explanation ("required of everyone
+   *  who signs up") read as nonsense under it. `POST/PATCH /shows/{id}/fees`
+   *  refuses a minimum on a camping unit for the same reason. */
+  requirable: boolean;
   notesPlaceholder: string;
 };
 
@@ -84,6 +93,7 @@ const SLOTS: readonly Slot[] = [
     units: [
       { value: 'per_stall', choice: 'Per stall', noun: 'stall', placeholder: 'e.g. 75.00' },
     ],
+    requirable: true,
     notesPlaceholder: '',
   },
   {
@@ -92,6 +102,7 @@ const SLOTS: readonly Slot[] = [
     title: 'Shavings',
     createLabel: 'Shavings (per bag)',
     units: [{ value: 'per_bag', choice: 'Per bag', noun: 'bag', placeholder: 'e.g. 10.00' }],
+    requirable: true,
     notesPlaceholder: '',
   },
   {
@@ -125,6 +136,7 @@ const SLOTS: readonly Slot[] = [
         placeholder: 'e.g. 60.00',
       },
     ],
+    requirable: false,
     notesPlaceholder: 'e.g. Electric included; spots are requested, not guaranteed',
   },
 ];
@@ -145,9 +157,14 @@ function unitChoice(slot: Slot, unit: string): UnitChoice {
 
 /** The floor as a number the backend will take. Blank, zero and anything that
  *  is not a whole number all mean "no minimum" — a show that has not answered
- *  the question must not end up with one. */
-function minQuantityOf(slot: SlotState): number {
-  const n = Number.parseInt(slot.minQuantity, 10);
+ *  the question must not end up with one.
+ *
+ *  A slot that cannot be required always sends 0, which is also how a stray
+ *  value left on a camping row by an older version of this screen gets cleared
+ *  rather than sitting there refusing sign-ups from a box nothing renders. */
+function minQuantityOf(slot: Slot, state: SlotState): number {
+  if (!slot.requirable) return 0;
+  const n = Number.parseInt(state.minQuantity, 10);
   return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
 }
 
@@ -294,7 +311,7 @@ export default function LodgingClient({
                 ? { unit: slot.unit }
                 : {}),
               ...(slot.feeCode !== s.code ? { code: s.code } : {}),
-              min_quantity: minQuantityOf(slot),
+              min_quantity: minQuantityOf(s, slot),
               ...early,
             }),
           });
@@ -313,7 +330,7 @@ export default function LodgingClient({
               unit: slot.unit,
               amount_cents: cents,
               notes: slot.notes.trim() || null,
-              min_quantity: minQuantityOf(slot),
+              min_quantity: minQuantityOf(s, slot),
               ...early,
             }),
           });
@@ -498,32 +515,39 @@ export default function LodgingClient({
                   the shavings ban most of all: banning outside shavings tells
                   the exhibitor to buy bedding here, and "buy some" with no
                   number is a stall bedded with two bags where the show wanted
-                  four. Offered on every slot, because a venue that requires two
-                  stalls a rig is not a stranger case than one requiring four
-                  bags. */}
-              <label className="block sm:max-w-xs">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Minimum per exhibitor{' '}
-                  <span style={{ color: '#a08a6e' }}>(optional)</span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={999}
-                  value={slot.minQuantity}
-                  onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder="no minimum"
-                  aria-label={`${s.title} — minimum quantity`}
-                />
-                <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                  <strong>Required of everyone who signs up</strong>, not just of people who order
-                  some — that is the point of it, and it is why a sign-up with none of this line is
-                  refused. Leave blank if you take day-haul entries who should not be charged for
-                  it.
-                </span>
-              </label>
+                  four.
+
+                  Only where the show can require the line of everybody, which
+                  is stalls and bedding. Camping is not that — nobody makes an
+                  exhibitor book a spot to be allowed to enter — so the box was
+                  asking a question with no sensible answer, under an
+                  explanation ("required of everyone who signs up") that read as
+                  nonsense against a camping line. */}
+              {s.requirable && (
+                <label className="block sm:max-w-xs">
+                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    Minimum per exhibitor{' '}
+                    <span style={{ color: '#a08a6e' }}>(optional)</span>
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={slot.minQuantity}
+                    onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                    style={{ borderColor: COLORS.border }}
+                    placeholder="no minimum"
+                    aria-label={`${s.title} — minimum quantity`}
+                  />
+                  <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                    <strong>Required of everyone who signs up</strong>, not just of people who
+                    order some — that is the point of it, and it is why a sign-up with none of this
+                    line is refused. Leave blank if you take day-haul entries who should not be
+                    charged for it.
+                  </span>
+                </label>
+              )}
 
               {s.code === 'shavings' && (
                 <label

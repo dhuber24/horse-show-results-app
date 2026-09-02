@@ -55,6 +55,14 @@ const RESERVABLE_UNITS = new Set<Unit>([
   'per_show',
 ]);
 
+/** Units a show can require of everybody, which is narrower than the ones an
+ *  exhibitor books a quantity of. A minimum is a policy — "every rig takes a
+ *  stall", "we will not have horses bedded on less than this" — and camping is
+ *  not one: nobody makes an exhibitor book a spot to be allowed to enter.
+ *  Mirrors REQUIRABLE_FEE_UNITS in backend/reservations.py, which refuses a
+ *  minimum on any other unit. */
+const REQUIRABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag']);
+
 function dollarsFromCents(cents: number): string {
   return (cents / 100).toFixed(2);
 }
@@ -79,10 +87,11 @@ type Draft = {
 
 /** The floor as a number the backend will take. Anything that is not a whole
  *  number above zero means "no minimum" — a show that has not answered the
- *  question must not end up with one. Cleared outright on a non-reservable
- *  unit, the same way the early rate is: there is no quantity for it to bound. */
+ *  question must not end up with one. Cleared outright on a unit a show cannot
+ *  require of everybody — a stray value on a camping row would otherwise go on
+ *  refusing sign-ups from a box nothing renders any more. */
 function minQuantityOf(draft: Draft): number {
-  if (!RESERVABLE_UNITS.has(draft.unit)) return 0;
+  if (!REQUIRABLE_UNITS.has(draft.unit)) return 0;
   const n = Number.parseInt(draft.minQuantity, 10);
   return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
 }
@@ -420,25 +429,31 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                   {'error' in early && (
                     <span className="text-xs text-red-600">{early.error}</span>
                   )}
-                  {/* Beside the early rate because they are the same kind of
-                      thing: both only mean something on a line an exhibitor
-                      books a quantity of, and the backend refuses both
-                      anywhere else. */}
-                  <span className="text-xs" style={{ color: '#8b7355' }}>
-                    · minimum
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    placeholder="none"
-                    value={draft.minQuantity}
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, minQuantity: e.target.value } }))}
-                    className="w-20 border rounded px-2 py-1 text-sm"
-                    style={{ borderColor: '#d4b896' }}
-                    aria-label={`Minimum quantity for ${fee.label}`}
-                    title="The fewest an exhibitor may reserve once they reserve any of this line. Blank means no minimum."
-                  />
+                  {/* Beside the early rate because they are nearly the same
+                      kind of thing — but not on the same set of units. An early
+                      rate applies wherever a quantity is booked; a minimum is a
+                      policy the show imposes on everybody, which is stalls and
+                      bedding and not camping. The backend refuses one on any
+                      other unit. */}
+                  {REQUIRABLE_UNITS.has(draft.unit) && (
+                    <>
+                      <span className="text-xs" style={{ color: '#8b7355' }}>
+                        · minimum
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        placeholder="none"
+                        value={draft.minQuantity}
+                        onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, minQuantity: e.target.value } }))}
+                        className="w-20 border rounded px-2 py-1 text-sm"
+                        style={{ borderColor: '#d4b896' }}
+                        aria-label={`Minimum quantity for ${fee.label}`}
+                        title="The fewest an exhibitor may reserve once they reserve any of this line. Blank means no minimum."
+                      />
+                    </>
+                  )}
                 </div>
               )}
               </li>

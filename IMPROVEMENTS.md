@@ -2,6 +2,12 @@
 
 ## September 2026
 
+### A Minimum Is Not A Camping Question
+
+The floor added with migration 128 was offered against every reservable line on setup Step 4, on the reasoning that a venue requiring two stalls a rig is no stranger a case than one requiring four bags. That holds for stalls. It does not hold for camping: nobody makes an exhibitor book a spot in order to be allowed to enter, so the box sat under the camping line asking a question with no sensible answer, above an explanation — *"required of everyone who signs up … a sign-up with none of this line is refused"* — that read as nonsense there.
+
+`REQUIRABLE_FEE_UNITS` is now `per_stall` and `per_bag`, and it is deliberately **narrower than the reservable units the early rate uses**. An early rate applies wherever a quantity is booked; a minimum is a policy imposed on everybody, which is a different question about the same row. `POST`/`PATCH /shows/{id}/fees` refuses one on a camping unit, both fee editors stop rendering the control there and send 0, and `required_quantity` returns 0 for those units regardless — because the column is older than the guard, and a value left on a camping row by the previous version would otherwise go on refusing sign-ups from a box nothing renders any more.
+
 ### Three Things Registration Was Letting Through
 
 Each one is a rule the app already held somewhere and was not applying.
