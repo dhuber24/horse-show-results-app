@@ -5,10 +5,11 @@ Thank you for contributing! This document provides guidelines for working on thi
 ## Table of Contents
 - [Getting Started](#getting-started)
 - [Development Workflow](#development-workflow)
+  - [Committing](#committing)
 - [Code Style](#code-style)
 - [Testing](#testing)
 - [Commit Messages](#commit-messages)
-- [Pull Request Process](#pull-request-process)
+- [Pull Request Process](#pull-request-process) (branch work only)
 
 ## Getting Started
 
@@ -51,26 +52,33 @@ For changes with no documentation impact, bypass one commit:
 DOCS_CHECK_BYPASS=1 git commit -m "..."
 ```
 
-### Creating a Feature Branch
+### Committing
+
+**This repo commits straight to `main`.** One person works on it, so the two
+things a branch buys -- keeping your work off somebody else's, and holding a
+change behind review -- do not apply, and CI runs on pushes to `main` as well
+as on pull requests (see `.github/workflows/ci.yml`). History is linear; keep
+it that way.
 
 ```bash
-# Update main branch
-git checkout main
 git pull origin main
-
-# Create feature branch with descriptive name
-git checkout -b feature/add-user-authentication
-# or
-git checkout -b fix/correct-placing-validation
+# ... work, and run the checks below ...
+git add -A
+git commit
+git push origin main
 ```
 
-**Branch naming convention:**
-- `feature/description` — New feature
-- `fix/description` — Bug fix
-- `docs/description` — Documentation
-- `refactor/description` — Code refactoring
-- `test/description` — Tests
-- `chore/description` — Maintenance
+Branch only for work you might genuinely abandon or shelve for a while:
+
+```bash
+git checkout -b feature/description   # or fix/, docs/, refactor/, test/, chore/
+```
+
+**A branch does not isolate the database.** `DATABASE_URL` points at one shared
+Neon instance, so a migration is applied the moment you run it, whatever branch
+the code is on. Abandoning a branch leaves its schema change behind, and `main`
+will then be running against a database it does not know about. Treat the
+migration, not the code, as the thing to be careful with.
 
 ### Before You Start Coding
 
@@ -340,6 +348,10 @@ Tests cover validation, authorization, and database persistence.
 - Reference related issues
 
 ## Pull Request Process
+
+**Only for the branch case above.** Day-to-day work is committed straight to
+`main` -- see [Committing](#committing) -- and the checks in this section are
+worth running either way. `bash RUN_TESTS.sh` from the repo root runs the lot.
 
 ### Before Creating a PR
 
