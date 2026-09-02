@@ -39,11 +39,13 @@ export type FeeOption = {
   /** Whether a booking made today would still get the early rate. */
   early_rate_open: boolean;
   /** The fewest of this line the show will take once you book any of it
-   *  (migration 128) — a show that bans outside shavings and needs four bags a
-   *  stall sets it here. 0 means no floor, which is every show that has not
-   *  said otherwise. The picker starts at this number and will not go under
-   *  it; `PUT /signup` refuses the same way, so the control is a courtesy
-   *  rather than the rule. */
+   *  (migration 128) — a show that needs four bags a stall sets it here.
+   *  0 means no floor *of its own*: a show that bans outside shavings still
+   *  requires bedding from anybody who books a stall, derived by
+   *  `requiredQuantities` below and enforced by `backend/reservations.py`.
+   *  The picker starts at whichever floor applies and will not go under it;
+   *  `PUT /signup` refuses the same way, so the control is a courtesy rather
+   *  than the rule. */
   min_quantity: number;
   notes: string | null;
 };
@@ -146,6 +148,48 @@ function unitBlurb(units: string[]): string {
   return '';
 }
 
+/**
+ * The units bedding is sold in, and the units a stall is sold in. Mirrors
+ * `backend/reservations.py`, which is where the rule is actually enforced.
+ */
+const BEDDING_UNITS = ['per_bag'];
+const STALL_UNITS = ['per_stall'];
+
+/**
+ * The fewest of each line this show will take, given what is currently in the
+ * boxes.
+ *
+ * Two facts, not one. `min_quantity` is a number the secretary typed. A show
+ * that bans outside shavings has already said bedding must be bought here, and
+ * almost every show that means it records *that* rather than a number — so a
+ * bedding line at a ban show has a floor of one bag whether or not anybody set
+ * a minimum, and the boxes have to know it or the form offers a booking the
+ * save is going to refuse.
+ *
+ * Conditional on a stall, because a day-haul entry that ships in on the
+ * Saturday and goes home has nothing to bed. That is why this is computed from
+ * the live quantities rather than seeded once: dropping to no stalls drops the
+ * bedding requirement in the same breath.
+ */
+function requiredQuantities(
+  fees: FeeOption[],
+  quantities: Record<string, number>,
+  banOutsideShavings: boolean,
+): Record<string, number> {
+  const stalls = fees
+    .filter((f) => STALL_UNITS.includes(f.unit))
+    .reduce((sum, f) => sum + (quantities[f.id] ?? 0), 0);
+  const floors: Record<string, number> = {};
+  for (const fee of fees) {
+    let floor = fee.min_quantity || 0;
+    if (BEDDING_UNITS.includes(fee.unit) && banOutsideShavings && stalls > 0) {
+      floor = Math.max(floor, 1);
+    }
+    floors[fee.id] = floor;
+  }
+  return floors;
+}
+
 function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
@@ -233,7 +277,7 @@ export default function ReservationFields({
 }) {
   const { show, fee_options, signup } = data;
 
-  const [quantities, setQuantities] = useState<Record<string, number>>(() => {
+  const [rawQuantities, setRawQuantities] = useState<Record<string, number>>(() => {
     const seed: Record<string, number> = {};
     // A line the show requires starts at the number it requires. Starting at
     // zero and refusing three is the same information delivered after the
@@ -267,6 +311,29 @@ export default function ReservationFields({
       })).filter((group) => group.fees.length > 0),
     [fee_options],
   );
+  // Recomputed as the boxes change, because the bedding floor at a show that
+  // bans outside shavings depends on whether a stall has been booked. Somebody
+  // adding a stall picks up the requirement in the same moment; somebody
+  // dropping to none loses it.
+  const floors = useMemo(
+    () => requiredQuantities(fee_options, rawQuantities, show.shavings_ban_outside),
+    [fee_options, rawQuantities, show.shavings_ban_outside],
+  );
+
+  // What is actually in the boxes: never below the floor that applies right now.
+  //
+  // Derived rather than written back into state. Raising the number with an
+  // effect meant the state that feeds the floors is the same state the floors
+  // then change — which is a render loop the moment anything about it is not
+  // perfectly idempotent, and it was not. Deriving it makes the invariant
+  // structural: there is no stored value that can disagree with the floor.
+  const quantities = useMemo(() => {
+    const out: Record<string, number> = { ...rawQuantities };
+    for (const [feeId, floor] of Object.entries(floors)) {
+      if (floor > 0 && (out[feeId] ?? 0) < floor) out[feeId] = floor;
+    }
+    return out;
+  }, [rawQuantities, floors]);
 
   const reservationTotal = fee_options.reduce(
     (sum, fee) => sum + fee.rate_cents * (quantities[fee.id] ?? 0),
@@ -284,7 +351,7 @@ export default function ReservationFields({
    */
   const setQuantity = (feeId: string, value: number, floor = 0) => {
     const clamped = Math.max(0, Math.min(999, value));
-    setQuantities((prev) => ({ ...prev, [feeId]: Math.max(floor, clamped) }));
+    setRawQuantities((prev) => ({ ...prev, [feeId]: Math.max(floor, clamped) }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -292,6 +359,24 @@ export default function ReservationFields({
     setError(null);
     if (arrival && departure && departure < arrival) {
       setError('Departure date cannot be before the arrival date.');
+      return;
+    }
+    // Checked here as well as on the server, and against the whole booking
+    // rather than the lines being sent: leaving a line out entirely is the
+    // easiest way to book none of something, which is exactly what
+    // `PUT /signup` refuses. Saying it here saves a round trip and puts the
+    // sentence next to the box it is about.
+    const short = fee_options.find((f) => (quantities[f.id] ?? 0) < (floors[f.id] ?? 0));
+    if (short) {
+      const noun = UNIT_NOUN[short.unit] ?? 'item';
+      const floor = floors[short.id] ?? 0;
+      setError(
+        `This show requires at least ${floor} ${noun}${floor === 1 ? '' : 's'} of ` +
+          `${short.label}.` +
+          (!short.min_quantity && BEDDING_UNITS.includes(short.unit)
+            ? ' Outside shavings are not allowed here, so bedding has to be bought from the show.'
+            : ''),
+      );
       return;
     }
     setSaving(true);
@@ -395,7 +480,7 @@ export default function ReservationFields({
                 {group.fees.map((fee) => {
                   const qty = quantities[fee.id] ?? 0;
                   const noun = UNIT_NOUN[fee.unit] ?? 'item';
-                  const floor = fee.min_quantity || 0;
+                  const floor = floors[fee.id] ?? 0;
                   const atFloor = floor > 0 && qty <= floor;
                   return (
                     <li
@@ -423,6 +508,15 @@ export default function ReservationFields({
                             Required — this show will not take an entry with fewer than {floor}{' '}
                             {noun}
                             {floor === 1 ? '' : 's'}.
+                            {/* Where the number came from, when it came from the
+                                show's shavings policy rather than a minimum
+                                somebody typed on the fee. Otherwise the line
+                                quotes a requirement the exhibitor cannot find
+                                printed anywhere on the show bill. */}
+                            {!fee.min_quantity && BEDDING_UNITS.includes(fee.unit) && (
+                              <> Outside shavings aren&apos;t allowed here, so your stalls have to
+                              be bedded with bags bought from the show.</>
+                            )}
                           </div>
                         )}
                       </div>
@@ -456,7 +550,7 @@ export default function ReservationFields({
                           // the way to "12" jump to the minimum and the second
                           // digit land somewhere nobody meant.
                           onChange={(e) =>
-                            setQuantities((prev) => ({
+                            setRawQuantities((prev) => ({
                               ...prev,
                               [fee.id]: Math.max(0, Math.min(999, Number(e.target.value) || 0)),
                             }))

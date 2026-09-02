@@ -2,6 +2,22 @@
 
 ## September 2026
 
+### Three Things Registration Was Letting Through
+
+Each one is a rule the app already held somewhere and was not applying.
+
+**A show that bans outside shavings was taking sign-ups with no bedding at all.** `show_fees.min_quantity` (migration 128) was the floor, and it was zero on every real show — because the fact a show actually records is `shows.shavings_ban_outside`, ticked in setup Step 4. The two are the same requirement written down twice, and only one of them had a reader, so the exhibitor answered the bedding question by leaving it alone and the office found out when a horse arrived with nowhere to stand. `backend/reservations.py` reconciles them: one bag where the show bans outside shavings **and the exhibitor has reserved a stall**, with an explicit minimum winning wherever it is higher. One bag rather than a guess at more, because how deep a stall is bedded is the show's to state. Conditional on the stall, because a day-haul entry that ships in on the Saturday has nothing to bed — which is why the floor is computed from the booking in hand rather than seeded when the form opens.
+
+The sign-up form derives the number in the box rather than writing the floor back into state. The first attempt used an effect, which turned the state feeding the floors into the state the floors then changed — a render loop, and React said so. `quantities` is now `rawQuantities` with each floor applied on read: there is no stored value that can disagree with the floor, and nothing to loop on.
+
+**A Grand & Reserve Champion class was in the exhibitor's class picker, priced at $0.** All eight of them on the MNSPHC schedule. You do not enter one — the first- and second-place horses from each qualifying class are called back once those classes have been judged, so at the moment somebody is filling in an entry form there is nothing to sign up for. Migration 129 adds `classes.entered_by_qualification`, seeded from the class name by `rules.disciplines.entered_by_qualification` and owned by the column thereafter — the same derive-then-store shape as `score_type`, because a name is a guess and Step 6's class list has to be able to correct it either way. The picker drops them and **says how many it dropped**: a class that is simply absent, read next to a printed show bill that lists it, looks like the app has lost one.
+
+The refusal is a 409 rather than a flag, and that is not the health-paperwork rule bending. A missing Coggins can be produced at the desk; nobody can produce a placing in a class that has not been judged. **The desk still enters them**, because the office is standing at the gate when the judge calls the horses back and the app holds no relationship between a championship and the classes feeding it. Working that out is a separate piece of work, and inventing it here would have been guessing.
+
+**A horse could not be taken back off the registration.** The way onto the horses step is a link to the add-a-horse wizard; the way off it was nothing at all, so somebody who added the wrong horse had to leave registration and find the profile screen. **Remove** is now on each horse, inline-confirmed, calling whichever of the two existing endpoints applies — clearing the creator, or dropping the rider link. Neither deletes the horse.
+
+Both endpoints now refuse while the horse is entered in a class at a show still to come. Removal never deleted the entries, so without the guard they survived, pointing at a horse its rider could no longer reach and still being billed for. Scoped to shows that have not finished: an entry at a show last spring is history, and refusing forever would mean a horse could never leave a profile once it had been shown. On the endpoint rather than on the one screen with a control, so the profile screen is covered too.
+
 ### Registration Became A Wizard, And Two Questions Stopped Being Asked Twice
 
 Registration was three collapsible sections on one screen. It is now five, under a stepper, with Back and Next on each — the exhibitor's answer to the wizard a show manager already gets while setting a show up.

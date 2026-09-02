@@ -387,6 +387,7 @@ export default function RegisterShowForm({
         >
           <HorsesStep
             showId={showId}
+            exhibitorId={exhibitor.id}
             horses={horses}
             // Only a show whose association asks. Elsewhere it is a field with
             // no reader, and a form that asks for what nothing consumes is how

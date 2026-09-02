@@ -14,7 +14,7 @@ from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
 from routers.horse_access import approval_url, build_access_request, notify_request
 from routers.auth import clear_security_answer_throttle, hash_security_answer
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association, Class, Show
 from schemas import (
     UserCreate, UserOut,
     CreatedHorseResult,
@@ -1290,6 +1290,53 @@ async def get_exhibitor_created_horses(
     return result.scalars().all()
 
 
+async def _assert_horse_not_entered(exhibitor_id: UUID, horse_id: UUID, db: AsyncSession) -> None:
+    """Refuse to take a horse off a profile while it is entered in a show ahead.
+
+    Taking a horse off a profile does not delete it, and it does not delete the
+    entries either -- so without this the exhibitor is left entered on a horse
+    that has vanished from every picker they can reach, billed for classes they
+    can no longer withdraw from, and the office reads a card with a horse on it
+    that its rider no longer manages. Removing the wrong horse is exactly the
+    accident the registration screen's Remove button exists for, so the guard
+    belongs on the endpoint rather than on the one screen that has a control.
+
+    Scoped to shows that have not finished. An entry at a show last spring is
+    history, and refusing forever would mean a horse could never leave a profile
+    once it had been shown -- which is the opposite of the mistake being caught.
+    """
+    rows = await db.execute(
+        select(Show.name, func.count(Entry.id))
+        .join(Class, Entry.class_id == Class.id)
+        .join(Show, Class.show_id == Show.id)
+        .where(
+            Entry.exhibitor_id == exhibitor_id,
+            Entry.horse_id == horse_id,
+            Show.end_date >= func.current_date(),
+        )
+        .group_by(Show.name)
+        .order_by(Show.name)
+    )
+    entered = rows.all()
+    if not entered:
+        return
+    total = sum(count for _, count in entered)
+    show_names = ", ".join(name for name, _ in entered)
+    raise HTTPException(
+        409,
+        {
+            "code": "HORSE_HAS_ENTRIES",
+            "message": (
+                f"This horse is entered in {total} class"
+                f"{'' if total == 1 else 'es'} at {show_names}. "
+                "Withdraw those entries first, then remove the horse."
+            ),
+            "entry_count": total,
+            "shows": [name for name, _ in entered],
+        },
+    )
+
+
 @exhibitors_router.delete("/{exhibitor_id}/created-horses/{horse_id}", status_code=204)
 async def remove_created_horse_from_profile(
     exhibitor_id: UUID,
@@ -1307,6 +1354,7 @@ async def remove_created_horse_from_profile(
     horse = await db.get(Horse, horse_id)
     if not horse or horse.created_by_exhibitor_id != exhibitor_id:
         raise HTTPException(404, "Horse not found on your profile")
+    await _assert_horse_not_entered(exhibitor_id, horse_id, db)
     horse.created_by_exhibitor_id = None
     if horse.owner_exhibitor_id == exhibitor_id:
         horse.owner_exhibitor_id = None
@@ -1405,6 +1453,7 @@ async def unlink_horse_from_self(
     link = result.scalar_one_or_none()
     if not link:
         raise HTTPException(404, "Horse is not linked to your profile")
+    await _assert_horse_not_entered(exhibitor_id, horse_id, db)
     await db.delete(link)
     await db.commit()
 

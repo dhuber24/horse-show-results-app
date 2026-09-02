@@ -40,6 +40,10 @@ export type ClassItem = {
   status: string;
   score_type: string;
   entry_fee_cents: number;
+  /** Entered by placing first or second in a qualifying class rather than by
+   *  signing up (migration 129). Seeded from the class name when the class is
+   *  created; this list is where a guess gets corrected. */
+  entered_by_qualification: boolean;
   sort_order: number | null;
 };
 
@@ -1166,6 +1170,42 @@ function ClassesStep({
     }
   }
 
+  /**
+   * Mark a class as one people qualify into rather than enter.
+   *
+   * Seeded from the class name when the class is created — "Grand & Reserve
+   * Amateur Stallions" is not a class anybody signs up for — but a name is a
+   * guess and this is where it gets corrected in either direction. A show that
+   * has run a class called "Reserve Champion Trail" as an ordinary open class
+   * for twenty years unticks it here and it stays unticked.
+   *
+   * The consequence is one-sided: ticked, the class disappears from the
+   * exhibitor's class picker and `POST /shows/{id}/register` refuses it. The
+   * desk keeps entering it, because the office is standing there when the judge
+   * calls the horses back.
+   */
+  async function toggleQualification(cls: ClassItem) {
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entered_by_qualification: !cls.entered_by_qualification,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(j?.detail || 'Failed to update class.');
+        return;
+      }
+      await refreshClasses();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeClass(classId: string) {
     setError(null);
     setBusy(true);
@@ -1412,15 +1452,40 @@ function ClassesStep({
                                       #{c.class_number}
                                     </span>
                                     <span className="truncate">{c.class_name}</span>
+                                    {c.entered_by_qualification && (
+                                      <span
+                                        className="shrink-0 text-xs px-1.5 py-0.5 rounded"
+                                        style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                                        title="Exhibitors can't enter this class — the top two from each qualifying class are called back to it. The desk still enters it."
+                                      >
+                                        by qualification
+                                      </span>
+                                    )}
                                   </span>
-                                  <button
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => removeClass(c.id)}
-                                    className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0"
-                                  >
-                                    Delete
-                                  </button>
+                                  <span className="flex items-center gap-3 shrink-0">
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => toggleQualification(c)}
+                                      className="text-xs hover:underline disabled:opacity-50"
+                                      style={{ color: COLORS.muted }}
+                                      title={
+                                        c.entered_by_qualification
+                                          ? 'Put this class back in the exhibitor entry form'
+                                          : 'Take this class out of the exhibitor entry form — entries come from placing in a qualifying class'
+                                      }
+                                    >
+                                      {c.entered_by_qualification ? 'Open entry' : 'By qualification'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => removeClass(c.id)}
+                                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  </span>
                                 </li>
                               )}
                             </Draggable>

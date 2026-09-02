@@ -19,6 +19,11 @@ export type PreviewClass = {
    *  horses in them. Everything else is once per exhibitor. */
   score_type: string;
   entry_fee_cents: number;
+  /** Entered by placing first or second in a qualifying class, not by signing
+   *  up (migration 129) -- a Grand & Reserve Champion halter class calls back
+   *  the top two from each qualifying class. The picker leaves these out and
+   *  says why; `POST /shows/{id}/register` refuses them either way. */
+  entered_by_qualification: boolean;
   /** Which APHA divisions this class is actually run for, read off its bracket
    *  by `divisions_for_bracket`. **Null means the class does not say**, and
    *  every division stays on offer — not "no division fits". Only ever sent at
@@ -75,6 +80,14 @@ export type PreviewHorse = {
   /** Who owns it, when that is not the exhibitor — names the person the
    *  relationship is being asked about. */
   owner_name?: string | null;
+  /** Whether this exhibitor created the horse record, which decides which door
+   *  removing it goes through: clearing the creator, or dropping the rider
+   *  link. Neither deletes the horse. */
+  is_creator?: boolean;
+  /** How many classes at this show it is entered in. Removing a horse it is
+   *  down the card on would leave entries pointing at a horse the exhibitor can
+   *  no longer reach, so the control says so and the endpoint refuses. */
+  entered_class_count?: number;
 };
 
 export type ExistingEntry = { id: string; class_id: string; horse_id: string | null };

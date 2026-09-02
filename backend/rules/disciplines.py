@@ -17,9 +17,14 @@ get mis-routed into a generic Trail division.
 To add a new discipline, append a row in the right priority position. If
 the new keyword is a substring of an existing keyword, put the more specific
 one first.
+
+The same file also answers a second question off a class name: whether a class
+is one you **qualify into** rather than enter -- see `entered_by_qualification`
+at the foot of this module.
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 ScoreType = Literal["placement", "pattern", "time"]
@@ -209,3 +214,45 @@ def classify_class_name(name: str) -> tuple[str, ScoreType] | None:
         if keyword in upper:
             return (discipline, score_type)
     return None
+
+
+# ── Classes you qualify into rather than enter ───────────────────────────────
+#
+# A Grand & Reserve Champion halter class is not entered. The first- and
+# second-place horses from each qualifying class are called back, so nobody can
+# sign up for one at registration -- there is nothing to sign up *for* until the
+# qualifying classes have been judged.
+#
+# This is a name test for the same reason `classify_class_name` is one: the
+# association's own class list says it in the name and nowhere else. It decides
+# the column's **starting value** only -- `classes.entered_by_qualification` is
+# the authority once the class exists, and the secretary can tick or untick it,
+# exactly as `score_type` is derived at create time and stored thereafter.
+#
+# Deliberately narrow. "Champion" on its own is not enough: a Hi-Point champion
+# is an award rather than a class, and a show is entitled to name an ordinary
+# class something with "champion" in it. Only the two shapes that appear on
+# real schedules match -- a Grand/Reserve pairing, or one of the two on its own
+# followed by "champion".
+_QUALIFYING_ONLY_RE = re.compile(
+    r"""
+      \b grand \s* (?: & | and | / ) \s* reserve \b   # "Grand & Reserve ..."
+    | \b reserve \s* (?: & | and | / ) \s* grand \b   # ... and the other order
+    | \b grand \s+ champion (?: ship )? \b
+    | \b reserve \s+ champion (?: ship )? \b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def entered_by_qualification(name: str | None) -> bool:
+    """True when a class of this name is reached by placing, not by entering.
+
+    Used to seed `classes.entered_by_qualification` when a class is created,
+    and mirrored by migration 129's backfill. If this pattern changes, the
+    backfill does not re-run -- existing shows keep whatever is stored, which
+    is the point of storing it.
+    """
+    if not name:
+        return False
+    return bool(_QUALIFYING_ONLY_RE.search(name))

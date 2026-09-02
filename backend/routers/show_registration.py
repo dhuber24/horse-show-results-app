@@ -67,6 +67,7 @@ from horse_eligibility import (
     owns_horse,
     registration_codes,
 )
+from reservations import minimum_shortfall
 from billing import (
     build_bill,
     early_rate_is_open,
@@ -539,31 +540,47 @@ async def save_signup(
         if item.show_fee_id not in fees_by_id:
             raise HTTPException(400, "One or more selected options are not offered by this show")
 
-    # A floor on a line the show requires (migration 128), checked against the
-    # whole booking rather than line by line. A range check on the lines that
-    # were sent cannot see the one that was left out, and leaving it out is the
-    # easiest way to book none of something -- so "at least four bags" would
-    # have been satisfied by sending no bags at all.
+    # The fewest of each line this show will take, checked against the whole
+    # booking rather than line by line. A range check on the lines that were
+    # sent cannot see the one that was left out, and leaving it out is the
+    # easiest way to book none of something -- "at least four bags" would have
+    # been satisfied by sending no bags at all.
     #
-    # Zero is not an escape hatch. A show sets this because it will not have
-    # horses bedded on less, which is a statement about everybody who signs up;
-    # a show that takes day-haul entries and does not want to charge them for
-    # bedding leaves the minimum unset and says so in the fee's notes.
+    # The floor is two facts, not one. `show_fees.min_quantity` (migration 128)
+    # is a number the secretary typed; `shows.shavings_ban_outside` is the show
+    # saying bedding must be bought here, which almost every show that means it
+    # records instead of the number. Both are the same requirement, and only the
+    # first was ever enforced -- so a show banning outside shavings took sign-ups
+    # with no bedding at all. `reservations.required_quantity` is where the two
+    # are reconciled, including why the ban does not bind a day-haul entry with
+    # no stall.
+    #
+    # Zero is not an escape hatch. A show sets a minimum because it will not have
+    # horses bedded on less, which is a statement about everybody who stables
+    # here; a show that wants day-haul entries exempt says so in the fee's notes.
     requested = {item.show_fee_id: item.quantity for item in body.reservations}
-    for fee in fees_by_id.values():
-        floor = fee.min_quantity or 0
-        if floor and requested.get(fee.id, 0) < floor:
-            raise HTTPException(
-                422,
-                {
-                    "code": "BELOW_MINIMUM_QUANTITY",
-                    "message": (
-                        f"This show requires at least {floor} of {fee.label}."
-                    ),
-                    "show_fee_id": str(fee.id),
-                    "min_quantity": floor,
-                },
+    shortfall = minimum_shortfall(fees_by_id.values(), show=show, requested=requested)
+    if shortfall is not None:
+        fee, floor, booked = shortfall
+        booked_text = "none booked" if booked == 0 else f"{booked} booked"
+        message = f"This show requires at least {floor} of {fee.label} ({booked_text})."
+        # Say where the floor came from when it came from the show's shavings
+        # policy rather than from a number on the fee. Otherwise the refusal
+        # quotes a minimum the exhibitor cannot find printed anywhere.
+        if fee.unit == "per_bag" and show.shavings_ban_outside and not fee.min_quantity:
+            message += (
+                " Outside shavings are not allowed here, so bedding has to be"
+                " bought from the show."
             )
+        raise HTTPException(
+            422,
+            {
+                "code": "BELOW_MINIMUM_QUANTITY",
+                "message": message,
+                "show_fee_id": str(fee.id),
+                "min_quantity": floor,
+            },
+        )
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     if show_entry is None:
@@ -1003,6 +1020,12 @@ async def preview_registration(
                 # once per exhibitor and the POST enforces that.
                 "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
+                # Reached by placing first or second in a qualifying class, not
+                # by signing up (migration 129). Sent so the picker can leave it
+                # out and say why -- offering a Grand & Reserve Champion class in
+                # a dropdown is offering something nobody can accept, and the
+                # POST refuses it anyway.
+                "entered_by_qualification": c.entered_by_qualification,
                 # Which APHA divisions this class is actually run for, read off
                 # its bracket. None means the class does not say, and every
                 # division stays on offer -- see `divisions_for_bracket`, which
@@ -1067,6 +1090,23 @@ async def preview_registration(
                 # than from an answer somebody typed. The screen states it
                 # instead of offering a picker.
                 "owns_horse": owns_horse(h, exhibitor.id),
+                # Whether this horse can be taken off the profile from here, and
+                # by which door. Both endpoints already exist and the profile
+                # screen already picks between them the same way -- the flag is
+                # sent so the registration screen does not have to fetch a second
+                # payload to work out which one applies. Creating the horse and
+                # linking somebody else's are removed differently: one clears the
+                # creator (and the ownership, if it was theirs), the other drops
+                # the rider link, and neither deletes the horse.
+                "is_creator": h.created_by_exhibitor_id == exhibitor.id,
+                # How many classes at *this* show it is entered in. Removing a
+                # horse mid-registration is the accident this is here for, and a
+                # horse that is already down the card is exactly the one somebody
+                # would remove by mistake -- so the control says what it would
+                # cost and the endpoint refuses until the entries are withdrawn.
+                "entered_class_count": sum(
+                    1 for e in existing if e.horse_id == h.id
+                ),
                 # Who the relationship is being asked *about*, so the question
                 # names a person rather than "this horse's owner". Only the
                 # free-text column: the owning exhibitor's own name would mean
@@ -1155,6 +1195,28 @@ async def register_for_show(
                 400,
                 f"Class {cls.class_number} ({cls.class_name}) is closed and not "
                 "accepting entries.",
+            )
+        # A Grand & Reserve Champion class is reached by placing first or second
+        # in a qualifying class, not by signing up for it (migration 129).
+        # Refused rather than flagged, and this is not the health-paperwork rule
+        # bending: a missing Coggins can be produced at the desk, but nobody can
+        # produce a placing in a class that has not been judged yet. The show
+        # office still enters these from the desk -- the office is standing there
+        # when the judge calls the horses back, and the app has no idea which
+        # classes feed which championship.
+        if cls.entered_by_qualification:
+            raise HTTPException(
+                409,
+                {
+                    "code": "CLASS_BY_QUALIFICATION",
+                    "message": (
+                        f"Class {cls.class_number} ({cls.class_name}) is not "
+                        "entered directly -- the top two from each qualifying "
+                        "class are called back to it. Enter the qualifying "
+                        "class instead."
+                    ),
+                    "class_id": str(cls.id),
+                },
             )
 
     # Sign-up comes first. A missing (or unfinished) show_entries row means the

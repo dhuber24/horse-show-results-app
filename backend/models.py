@@ -450,6 +450,15 @@ class Class(Base):
     status = Column(Text, nullable=False, default="OPEN")
     score_type = Column(Text, nullable=False, server_default="placement")
     entry_fee_cents = Column(Integer, nullable=False, server_default="0")
+    # Entered by placing, not by signing up (migration 129). A Grand & Reserve
+    # Champion halter class calls back the first and second from each qualifying
+    # class, so there is nothing to enter at registration time. Seeded from the
+    # class name by `rules.disciplines.entered_by_qualification` when the class
+    # is created and owned by whoever edits the class thereafter -- the same
+    # derive-then-store shape as `score_type`. Exhibitor self-registration
+    # refuses these; the desk still enters them, because the office knows who
+    # was called back and the app does not.
+    entered_by_qualification = Column(Boolean, nullable=False, server_default="false")
     gate_status = Column(Text, nullable=False, server_default="pending")
     # NULL = results are a staff-only draft; timestamp = posted to the public
     # /live and /results screens. See migration 094.

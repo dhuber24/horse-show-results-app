@@ -17,6 +17,10 @@ export type ScheduleClass = {
   ring_sort_order: number | null;
   discipline_name: string | null;
   division_name: string | null;
+  /** Reached by placing first or second in a qualifying class rather than by
+   *  entering (migration 129). Marked on the programme so somebody comparing
+   *  the schedule against their entry form can see why it is not on offer. */
+  entered_by_qualification?: boolean;
 };
 
 export type ProgramEntry = {
@@ -428,6 +432,20 @@ export default function ScheduleBoard({
                           <div className="min-w-0">
                             <div className="font-semibold" style={{ color: '#2c1810' }}>
                               {cls.class_number} — {cls.class_name}
+                              {/* Marked on the programme, not just missing from
+                                  the entry form. Somebody reading the schedule
+                                  beside their entry screen would otherwise see a
+                                  class here and no way to enter it, with nothing
+                                  on either page saying why. */}
+                              {cls.entered_by_qualification && (
+                                <span
+                                  className="ml-2 align-middle text-xs font-normal px-1.5 py-0.5 rounded"
+                                  style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                                  title="The top two from each qualifying class are called back to this one — there is nothing to enter."
+                                >
+                                  by qualification
+                                </span>
+                              )}
                             </div>
                             {meta && (
                               <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>{meta}</div>

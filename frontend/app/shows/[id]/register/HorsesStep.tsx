@@ -45,13 +45,142 @@ const RELATIONSHIP_HELP =
   'this horse, so it is the one thing about it the app cannot work out. Answered ' +
   'once here and used on every class you enter.';
 
+/**
+ * Take a horse back off the profile.
+ *
+ * Added because the way onto this step is a link to the add-a-horse wizard, and
+ * the way back off it was nothing at all — somebody who added the wrong horse,
+ * or added one twice, had to leave registration, find the profile screen, and
+ * work out which of two similarly-named rows was the accident.
+ *
+ * Two doors, picked the same way `MyHorsesPanel` picks them: a horse this
+ * exhibitor created is removed by clearing the creator, one somebody else owns
+ * by dropping the rider link. **Neither deletes the horse** — its papers, its
+ * documents and its history at other shows are untouched — so the wording says
+ * "remove from my profile" rather than "delete".
+ *
+ * Refused outright while the horse is entered in a class at a show ahead, by
+ * the endpoint and again here so the button never looks available. A horse
+ * removed out from under its own entries leaves the exhibitor billed for
+ * classes they can no longer withdraw from, on a horse that has disappeared
+ * from every picker they can reach.
+ *
+ * Inline confirmation rather than a straight click, matching the class table
+ * above it: this is the exhibitor's own phone, and a mis-tap that quietly
+ * unpicks a horse is not something anybody notices until the gate.
+ */
+function RemoveHorse({
+  showId,
+  exhibitorId,
+  horse,
+  onRemoved,
+}: {
+  showId: string;
+  exhibitorId: string;
+  horse: PreviewHorse;
+  onRemoved: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enteredCount = horse.entered_class_count ?? 0;
+
+  const remove = async () => {
+    setRemoving(true);
+    setError(null);
+    const url = horse.is_creator
+      ? `/api/exhibitors/${exhibitorId}/created-horses/${horse.id}`
+      : `/api/exhibitors/${exhibitorId}/linked-horses/${horse.id}`;
+    try {
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.status !== 204 && !res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(
+          typeof json?.detail === 'string'
+            ? json.detail
+            : json?.detail?.message || 'Could not remove that horse.',
+        );
+        setRemoving(false);
+        return;
+      }
+      setRemoving(false);
+      setConfirming(false);
+      onRemoved();
+    } catch {
+      setError('Network error — please try again.');
+      setRemoving(false);
+    }
+  };
+
+  if (enteredCount > 0) {
+    return (
+      <span className="text-xs shrink-0" style={{ color: '#8b7355' }}>
+        Entered in {enteredCount} class{enteredCount === 1 ? '' : 'es'} —{' '}
+        <Link
+          href={`#registration-classes`}
+          className="font-medium hover:underline"
+          style={{ color: '#8b4513' }}
+        >
+          withdraw {enteredCount === 1 ? 'it' : 'them'}
+        </Link>{' '}
+        to remove this horse
+      </span>
+    );
+  }
+
+  return (
+    <span className="shrink-0 text-right">
+      {confirming ? (
+        <span className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={remove}
+            disabled={removing}
+            className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
+            style={{ backgroundColor: '#b91c1c' }}
+          >
+            {removing ? 'Removing…' : 'Yes, remove'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setConfirming(false); setError(null); }}
+            disabled={removing}
+            className="text-xs hover:underline disabled:opacity-50"
+            style={{ color: '#8b7355' }}
+          >
+            Keep
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="text-xs hover:underline"
+          style={{ color: '#b91c1c' }}
+          title={`Remove ${horse.name} from your profile — this does not delete the horse`}
+        >
+          Remove
+        </button>
+      )}
+      {error && (
+        <span className="block text-xs mt-1" style={{ color: '#b91c1c' }}>
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function HorseCard({
   showId,
+  exhibitorId,
   horse,
   needsRelationship,
   onChanged,
 }: {
   showId: string;
+  exhibitorId: string;
   horse: PreviewHorse;
   /** Only relevant at a show whose association cares. Everywhere else it is a
    *  field with no reader, and a form that asks for something nothing consumes
@@ -104,10 +233,18 @@ function HorseCard({
             </span>
           )}
         </span>
-        <span className="text-xs" style={{ color: '#8b7355' }}>
-          {(horse.registrations ?? []).length > 0
-            ? `Registered: ${(horse.registrations ?? []).join(', ')}`
-            : 'No registration numbers on file'}
+        <span className="flex items-center gap-3 text-xs" style={{ color: '#8b7355' }}>
+          <span>
+            {(horse.registrations ?? []).length > 0
+              ? `Registered: ${(horse.registrations ?? []).join(', ')}`
+              : 'No registration numbers on file'}
+          </span>
+          <RemoveHorse
+            showId={showId}
+            exhibitorId={exhibitorId}
+            horse={horse}
+            onRemoved={onChanged}
+          />
         </span>
       </div>
 
@@ -211,11 +348,13 @@ function HorseCard({
 
 export default function HorsesStep({
   showId,
+  exhibitorId,
   horses,
   needsRelationship,
   showTypeCode,
 }: {
   showId: string;
+  exhibitorId: string;
   horses: PreviewHorse[];
   needsRelationship: boolean;
   /** Only for the wording — which body's papers this show is asking about. */
@@ -253,6 +392,7 @@ export default function HorsesStep({
             <HorseCard
               key={horse.id}
               showId={showId}
+              exhibitorId={exhibitorId}
               horse={horse}
               needsRelationship={needsRelationship}
               onChanged={() => router.refresh()}

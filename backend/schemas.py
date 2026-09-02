@@ -643,6 +643,9 @@ class ClassCreate(BaseModel):
     # Omit to derive from discipline.default_score_type at creation time.
     score_type: Optional[ScoreType] = None
     entry_fee_cents: int = Field(default=0, ge=0)
+    # Omit to derive from the class name at creation time -- a "Grand & Reserve"
+    # class is called back from the qualifying classes, never entered.
+    entered_by_qualification: Optional[bool] = None
 
 class ClassUpdate(BaseModel):
     ring_id: Optional[UUID] = None
@@ -653,6 +656,9 @@ class ClassUpdate(BaseModel):
     status: Optional[Literal["OPEN", "CLOSED"]] = None
     score_type: Optional[ScoreType] = None
     entry_fee_cents: Optional[int] = Field(default=None, ge=0)
+    # Entered by placing rather than by signing up (migration 129). Derived
+    # from the class name at creation; this is how it is corrected.
+    entered_by_qualification: Optional[bool] = None
     # Which pattern, in the judge’s words (migration 120). The pattern itself is
     # posted physically at the show and is deliberately not stored.
     pattern_notes: Optional[str] = Field(default=None, max_length=2000)
@@ -750,6 +756,9 @@ class ClassOut(BaseModel):
     status: str
     score_type: str = "placement"
     entry_fee_cents: int = 0
+    # Entered by placing in a qualifying class rather than by signing up
+    # (migration 129). The exhibitor picker drops these; the desk keeps them.
+    entered_by_qualification: bool = False
     gate_status: str = "pending"
     results_published_at: Optional[datetime] = None
     pattern_posted_at: Optional[datetime] = None

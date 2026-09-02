@@ -23,7 +23,7 @@ from models import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.apha import zone_individual_work_note
-from rules.disciplines import classify_class_name
+from rules.disciplines import classify_class_name, entered_by_qualification
 from schemas import (
     ClassCreate, ClassUpdate, ClassOut, ClassReorder,
     ClassAssociationCreate, ClassAssociationOut,
@@ -165,6 +165,9 @@ async def _create_classes_auto_routed(
             division_id=division.id,
             score_type=score_type,
             ring_id=ring_id,
+            # Same derivation as the single-class create: an imported "Grand &
+            # Reserve" class is a call-back, not something to offer an exhibitor.
+            entered_by_qualification=entered_by_qualification(name),
         )
         db.add(cls)
         await db.flush()
@@ -480,6 +483,17 @@ async def create_class(
 
     score_type = body.score_type or discipline.default_score_type
 
+    # Derived from the name unless the caller said otherwise, the same shape as
+    # score_type above: a class named "Grand & Reserve Geldings" is reached by
+    # placing first or second in a qualifying class, so it has nothing to offer
+    # an exhibitor filling in an entry form. Stored rather than re-derived on
+    # read, so the class list screen can correct a guess and have it stick.
+    by_qualification = (
+        body.entered_by_qualification
+        if body.entered_by_qualification is not None
+        else entered_by_qualification(body.class_name)
+    )
+
     max_order_result = await db.execute(
         select(func.coalesce(func.max(Class.sort_order), 0)).where(Class.show_id == show_id)
     )
@@ -497,6 +511,7 @@ async def create_class(
         status=body.status,
         score_type=score_type,
         entry_fee_cents=body.entry_fee_cents,
+        entered_by_qualification=by_qualification,
     )
     db.add(class_)
     try:

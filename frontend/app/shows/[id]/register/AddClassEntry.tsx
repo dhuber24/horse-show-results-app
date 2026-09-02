@@ -33,6 +33,12 @@ import {
  * show two horses in them — and only while a horse is left that is not already
  * in it.
  *
+ * Championship classes are left out entirely, and that one is not a filter on
+ * this exhibitor: a Grand & Reserve Champion class calls back the top two from
+ * each qualifying class, so nobody enters it and the POST refuses it from
+ * anybody. Counted and explained separately from "you are already in it" below,
+ * because the two read completely differently to the person reading the list.
+ *
  * It posts to the exhibitor's own endpoint, not the staff one. Same form, same
  * rules, different door: `POST /shows/{id}/register` derives the exhibitor from
  * the session, so this cannot be pointed at anybody else.
@@ -115,12 +121,25 @@ export default function AddClassEntry({
     return map;
   }, [existingEntries]);
 
+  // Two reasons a class is not on offer, and they read differently to the
+  // exhibitor, so they are counted apart.
+  //
+  // A Grand & Reserve Champion class is never enterable by anybody: the top two
+  // from each qualifying class are called back to it once those classes have
+  // been judged. Leaving it in the dropdown offers something the POST refuses,
+  // and the exhibitor has no way to work out why from the class name alone.
+  const qualificationClasses = useMemo(
+    () => classes.filter((c) => c.entered_by_qualification),
+    [classes],
+  );
+
   // Being entered finishes a class — except a pattern class, and even that only
   // while a horse is left to put in it. Mirrors `selectableClasses` on the desk
   // form; the backend 409s on the rest either way.
   const selectableClasses = useMemo(
     () =>
       classes.filter((c) => {
+        if (c.entered_by_qualification) return false;
         const taken = horseIdsByClass.get(c.id);
         if (!taken || taken.length === 0) return true;
         if (c.score_type !== 'pattern') return false;
@@ -219,7 +238,7 @@ export default function AddClassEntry({
   // Classes dropped from the picker because this exhibitor is done with them.
   // Worth saying out loud: somebody looking for a class they entered an hour
   // ago should not be left wondering whether the show pulled it.
-  const enteredCount = classes.length - selectableClasses.length;
+  const enteredCount = classes.length - qualificationClasses.length - selectableClasses.length;
 
   return (
     <div
@@ -292,6 +311,22 @@ export default function AddClassEntry({
           {enteredCount === 1 ? '1 class is' : `${enteredCount} classes are`} off this list
           because you are already in {enteredCount === 1 ? 'it' : 'them'} — they are listed
           above.
+        </p>
+      )}
+
+      {/* Said once, under the picker, rather than as an error after somebody
+          picks one — because they cannot pick one: the class is not in the
+          list. Without this line a Grand & Reserve class simply is not there,
+          and an exhibitor reading the printed show bill beside the screen has
+          no way to tell a rule from a missing class. */}
+      {qualificationClasses.length > 0 && (
+        <p className="text-xs" style={{ color: '#8b7355' }}>
+          {qualificationClasses.length === 1
+            ? '1 championship class is'
+            : `${qualificationClasses.length} championship classes are`}{' '}
+          not on this list — the top two from each qualifying class are called back to{' '}
+          {qualificationClasses.length === 1 ? 'it' : 'them'}, so there is nothing to enter.
+          Enter the qualifying class and the show office takes it from there.
         </p>
       )}
 
