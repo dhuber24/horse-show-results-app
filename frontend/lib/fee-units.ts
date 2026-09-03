@@ -78,7 +78,7 @@ export const UNIT_LABEL: Record<FeeUnit, string> = {
   per_horse: 'per horse',
   per_judge_per_horse: 'per judge, per horse',
   per_judge_per_exhibitor: 'per judge, per exhibitor',
-  per_judge_per_entry: 'per judge, per entry',
+  per_judge_per_entry: 'per judge, per class',
   per_class_per_horse: 'per class, per horse',
   per_night: 'per night',
   per_day: 'per day',
@@ -98,6 +98,20 @@ export function isReservableUnit(unit: string): boolean {
 
 export function isAutomaticUnit(unit: string): boolean {
   return (AUTOMATIC_FEE_UNITS as readonly string[]).includes(unit);
+}
+
+/** Units offered in the Class Fees box, beyond the automatic family: `per_entry`
+ *  is published-price-list text that bills nobody (a jackpot/sidepot buy-in is
+ *  set on the pot itself, not billed here) — but it is still a *class* fee, so
+ *  the box that holds All Day fees and the APHA assessment is also where a
+ *  manager types one in. */
+export const CLASS_FEE_EDITOR_UNITS = [
+  ...AUTOMATIC_FEE_UNITS,
+  'per_entry',
+] as const satisfies readonly FeeUnit[];
+
+export function isClassFeeEditorUnit(unit: string): boolean {
+  return (CLASS_FEE_EDITOR_UNITS as readonly string[]).includes(unit);
 }
 
 /**

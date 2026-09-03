@@ -5,20 +5,25 @@ import { useRouter } from 'next/navigation';
 import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEditor';
 
 /**
- * Entry Fees: what a class costs, plus the charges the show adds on top.
+ * Entry Fees: everything a class fee can mean, in one "Class Fees" box —
+ * what each class costs to enter, plus the charges the show adds on top (an
+ * office fee, an association assessment, an all-day pass, a jackpot fee). No
+ * class fee lives in a box outside this one.
  *
  * The per-horse and per-judge tables that used to live here were a second
  * implementation of the same `show_fees` editing that setup Step 5 needed, in a
  * different vocabulary — and one of them wrote a `per_judge` unit that did not
  * say what it multiplied by. Both screens now render `ShowChargesEditor`, so
- * there is one shape for a charge and one place it is written.
+ * there is one shape for a charge and one place it is written. Here it renders
+ * `boxed={false}`, sharing this screen's single outer border with the
+ * per-class pricing table below it rather than drawing a second one.
  *
  * `OfficeChargeCard` still owns the office charge's own state and save button
  * — it is a column on `shows`, not a `show_fees` row, and saves the instant
  * you press its own Save rather than the class-fee table's. What it no longer
- * owns is its own box: it renders inside `ShowChargesEditor`'s, because to
- * the exhibitor reading a bill it is one more automatic charge sitting beside
- * a drug fee, not a different kind of thing.
+ * owns is its own box: it renders inside this one, because to the exhibitor
+ * reading a bill it is one more automatic charge sitting beside a drug fee,
+ * not a different kind of thing.
  */
 
 interface ClassItem {
@@ -265,20 +270,20 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
 
   if (classes.length === 0) {
     return (
-      <section className="rounded-lg border p-4" style={{ borderColor: '#d4b896' }}>
-        <h2 className="font-semibold mb-1" style={{ color: '#2c1810' }}>Class entry fees</h2>
+      <div className="pt-3 border-t" style={{ borderColor: '#e8d5b7' }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>Per-class pricing</h3>
         <p className="text-sm" style={{ color: '#8b7355' }}>
           No classes yet. Add classes from the Show home page, then come back to set fees.
         </p>
-      </section>
+      </div>
     );
   }
 
   const unpricedBreedCount = classes.filter(isDefaultFillable).length;
 
   return (
-    <section className="rounded-lg border p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
-      <h2 className="font-semibold" style={{ color: '#2c1810' }}>Class entry fees</h2>
+    <div className="pt-3 border-t space-y-3" style={{ borderColor: '#e8d5b7' }}>
+      <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Per-class pricing</h3>
       <p className="text-xs" style={{ color: '#8b7355' }}>
         Charged once per entry (per class per horse). A class a club sanctions outright — WSCA,
         MNSPHC and the like — carries that club&apos;s own price and is not touched by the
@@ -400,7 +405,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
           );
         })}
       </ul>
-    </section>
+    </div>
   );
 }
 
@@ -415,12 +420,14 @@ export default function EntryFeesEditor({
   judgeCount,
 }: Props) {
   return (
-    <div className="space-y-4">
+    <section className="rounded-lg border p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+      <h2 className="text-base font-semibold" style={{ color: '#2c1810' }}>Class Fees</h2>
       <ShowChargesEditor
         showId={showId}
         initialCharges={initialCharges}
         judgeCount={judgeCount}
         judgesHref={`/admin/shows/${showId}/setup/judges`}
+        boxed={false}
         officeChargeSection={
           <OfficeChargeCard
             showId={showId}
@@ -430,6 +437,6 @@ export default function EntryFeesEditor({
         }
       />
       <ClassFeesTable showId={showId} initialClasses={initialClasses} />
-    </div>
+    </section>
   );
 }

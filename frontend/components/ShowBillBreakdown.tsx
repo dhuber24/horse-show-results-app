@@ -158,24 +158,15 @@ function ChargeLine({ line }: { line: BillChargeLine }) {
   }
   return (
     <>
-      <dt title={`Charged ${unitLabel(line.unit)}.`}>
+      <dt
+        title={`Charged ${unitLabel(
+          line.unit,
+        )}, counted only against horses/entries in the breed association's own classes — not ones a club like WSCA or MNSPHC sanctions outright.`}
+      >
         {line.label}
         <span className="text-xs" style={{ color: '#8b7355' }}>
           {' '}({parts.join(' ')})
         </span>
-        {/* per_judge_per_entry always reads this way, so the note there would
-            be redundant with the ×N entries breakdown just above — only worth
-            saying out loud on a unit that would otherwise look like it counts
-            everything. */}
-        {line.scoped_to_breed_association && line.unit !== 'per_judge_per_entry' && (
-          <span
-            className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
-            style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
-            title="Counted only against horses/entries in the breed association's own classes"
-          >
-            breed classes only
-          </span>
-        )}
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
     </>

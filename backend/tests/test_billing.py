@@ -814,13 +814,10 @@ def test_the_assessment_fee_counts_only_the_breed_classes_on_a_mixed_bill():
     assert (line["judge_count"], line["entry_count"], line["quantity"]) == (3, 2, 6)
 
 
-def test_a_per_horse_charge_is_unaffected_by_club_sanctioning_by_default():
-    """Only the breed body's own per-entry assessment is scoped unconditionally.
-    The show's own office-type charges (`per_horse`, `per_judge_per_horse`) are
-    the show's, not one association's, and count every entry by default -- an
-    exhibitor showing only in club classes still uses a stall and still owes
-    the office charge, unless the show has explicitly opted this fee into
-    breed-association scoping (see below)."""
+def test_a_per_horse_charge_counts_only_breed_classes_by_default():
+    """Every automatic charge is scoped to the breed association's own
+    classes -- an exhibitor showing only in a club's All Breed classes owes
+    nothing on it, the same rule `per_judge_per_entry` has always followed."""
     club = make_sanctioning("WSCA")
     horse = uuid4()
     fee = make_fee(code="drug", unit="per_horse", amount_cents=800)
@@ -829,23 +826,25 @@ def test_a_per_horse_charge_is_unaffected_by_club_sanctioning_by_default():
         for _ in range(3)
     ]
 
-    assert _charged(fee, entries)["charge_total_cents"] == 800
+    assert _charged(fee, entries)["charge_lines"] == []
 
 
-# ── A show's own charge may opt into breed-association scoping ───────────────
+# ── Every automatic charge counts only the breed association's own classes ──
 #
 # Found on a real show bill: a hand-built `per_horse` "APHA All Day fee" whose
 # own notes read "APHA classes only... All Breed (MNSPHC or WSCA) classes...
 # are not included" -- the secretary had worked out the scope by hand ($45 per
 # judge x 4 judges = $180, typed as a flat per_horse amount) because nothing
-# on the row itself could express it. `breed_association_only` (migration 130)
-# is that switch.
+# on the row itself could express it. This used to be an opt-in flag
+# (migration 130, dropped in 131) -- there was no real case for the other
+# choice, since a show with no club sanctioning set up has no club-sanctioned
+# classes to exclude and scoping changes nothing for it.
 
 
-def test_a_per_horse_charge_can_opt_into_breed_scoping():
+def test_a_per_horse_charge_counts_only_the_breed_horse():
     club = make_sanctioning("WSCA")
     breed_horse, club_horse = uuid4(), uuid4()
-    fee = make_fee(code="all_day", unit="per_horse", amount_cents=18000, breed_association_only=True)
+    fee = make_fee(code="all_day", unit="per_horse", amount_cents=18000)
     entries = [
         make_entry(horse_id=breed_horse),
         make_entry(horse_id=club_horse, cls=make_class(sanctioning=[make_class_sanction(club)])),
@@ -857,15 +856,13 @@ def test_a_per_horse_charge_can_opt_into_breed_scoping():
     assert bill["charge_lines"][0]["horse_count"] == 1
 
 
-def test_a_per_judge_per_horse_charge_can_opt_into_breed_scoping():
+def test_a_per_judge_per_horse_charge_counts_only_the_breed_horse():
     """The real row this was found on: $45 per judge, for the one horse
     entered in APHA classes, at a 4-judge show -- $180, computed rather than
     typed in by hand."""
     club = make_sanctioning("MNSPHC")
     breed_horse = uuid4()
-    fee = make_fee(
-        code="all_day", unit="per_judge_per_horse", amount_cents=4500, breed_association_only=True
-    )
+    fee = make_fee(code="all_day", unit="per_judge_per_horse", amount_cents=4500)
     entries = [make_entry(horse_id=breed_horse)] + [
         make_entry(horse_id=uuid4(), cls=make_class(sanctioning=[make_class_sanction(club)]))
         for _ in range(3)
@@ -877,10 +874,10 @@ def test_a_per_judge_per_horse_charge_can_opt_into_breed_scoping():
 
 
 def test_scoping_a_charge_to_breed_classes_can_zero_it_out_entirely():
-    """An exhibitor entered only in club classes owes nothing on a scoped
-    charge -- the whole point of the flag."""
+    """An exhibitor entered only in club classes owes nothing on any
+    automatic charge."""
     club = make_sanctioning("WSCA")
-    fee = make_fee(code="all_day", unit="per_horse", amount_cents=18000, breed_association_only=True)
+    fee = make_fee(code="all_day", unit="per_horse", amount_cents=18000)
     entries = [
         make_entry(horse_id=uuid4(), cls=make_class(sanctioning=[make_class_sanction(club)]))
     ]
@@ -888,12 +885,12 @@ def test_scoping_a_charge_to_breed_classes_can_zero_it_out_entirely():
     assert _charged(fee, entries)["charge_lines"] == []
 
 
-def test_a_scoped_per_exhibitor_charge_is_zero_with_no_breed_entries():
+def test_a_per_exhibitor_charge_is_zero_with_no_breed_entries():
     """`per_exhibitor` and `per_judge_per_exhibitor` have no count of their
-    own to scope -- `has_relevant_entries` is what lets a scoped version of
-    either bill nothing to somebody with only club entries."""
+    own to scope -- `has_relevant_entries` is what makes either bill nothing
+    to somebody with only club entries."""
     club = make_sanctioning("WSCA")
-    fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500, breed_association_only=True)
+    fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500)
     entries = [
         make_entry(cls=make_class(sanctioning=[make_class_sanction(club)])) for _ in range(2)
     ]
@@ -901,28 +898,14 @@ def test_a_scoped_per_exhibitor_charge_is_zero_with_no_breed_entries():
     assert _charged(fee, entries)["charge_lines"] == []
 
 
-def test_a_scoped_per_exhibitor_charge_still_bills_once_with_a_breed_entry():
+def test_a_per_exhibitor_charge_still_bills_once_with_a_breed_entry():
     club = make_sanctioning("WSCA")
-    fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500, breed_association_only=True)
+    fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500)
     entries = [make_entry()] + [
         make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))
     ]
 
     assert _charged(fee, entries)["charge_total_cents"] == 1500
-
-
-def test_per_judge_per_entry_scopes_itself_even_when_the_flag_is_unset():
-    """The flag is how a show's *own* charge opts in; SC-125.B-style
-    assessments never needed to ask -- they are always the breed body's own,
-    which is exactly the earlier test coverage above this section."""
-    club = make_sanctioning("WSCA")
-    fee = make_fee(code="assessment", unit="per_judge_per_entry", amount_cents=300)
-    assert fee.breed_association_only is False  # the factory default
-    entries = [
-        make_entry(cls=make_class(sanctioning=[make_class_sanction(club)])) for _ in range(3)
-    ]
-
-    assert _charged(fee, entries, judges=2)["charge_lines"] == []
 
 
 def test_charge_multiplier_zeroes_an_exhibitor_scoped_unit_when_told_to():

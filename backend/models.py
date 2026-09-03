@@ -1576,13 +1576,6 @@ class ShowFee(Base):
     # rate may be set, and enforced in the router for the same reason: the unit
     # families live in billing.py rather than in the schema.
     min_quantity = Column(Integer, nullable=False, server_default="0")
-    # Whether an automatic charge counts only the breed association's own
-    # classes (migration 130) -- a show's own invented per-horse or
-    # per-judge-per-horse fee can carry this; per_judge_per_entry is always
-    # scoped this way regardless of the column, because that unit is the
-    # breed body's own assessment (SC-125.B) by definition. See
-    # billing.charge_lines.
-    breed_association_only = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="fees")

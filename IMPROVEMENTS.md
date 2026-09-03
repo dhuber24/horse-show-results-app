@@ -2,6 +2,22 @@
 
 ## September 2026
 
+### One Class Fees Box, Not Several
+
+A follow-up correction to the two entries below this one, after a closer look at what they actually built. Six changes, all to the same screen:
+
+**There is no "Standard class fee" any more.** Step 5 pinned a `standard_class` fee row to its own dedicated slot — `per_entry`, published price-list text, billed nobody — next to a `jackpot` slot doing the same job. Both were a second, narrower "class fee" concept sitting beside the real one (`classes.entry_fee_cents`), for no computed benefit. The slot is gone; a show that already had one keeps the row, now just an ordinary, renamable line in the Class Fees list rather than under a fixed label.
+
+**Every class fee lives in one box, wherever it's set up.** The "All Day fee" quick-add from the entry below landed in a box called **Other Fees**, sitting beside — not inside — the per-class entry-fee table. That's not one box, it's two, and an all-day pass is exactly as much a class fee as a per-class price is. `ShowChargesEditor` is now titled **Class Fees** everywhere it renders, and on the Entry Fees screen it renders `boxed={false}` inside the same outer border as the per-class pricing table below it — one box, one heading, both ways to price a class fee under it.
+
+**Jackpot is now a quick-add, not a slot.** Same reasoning as Standard: a fixed `jackpot` row was a special case of an ordinary `per_entry` charge. It's now a fifth quick-add preset ("Jackpot / sidepot fee") that pre-fills the unit and a note explaining that the pot's own buy-in is what actually bills — press **+ Add a fee** and pick it like any other starting point.
+
+**Every class fee is added the same way: `+ Add a fee`, optionally pre-filled by a preset.** That was already how `ShowChargesEditor` worked for its automatic charges; the fix here was making it the *only* way, by retiring the two hand-coded slots that bypassed it.
+
+**`per_judge_per_entry` reads "per judge, per class" now, not "per judge, per entry."** The internal unit name is unchanged (renaming it would mean a migration and a schema churn for a label nobody but the code reads) — only `UNIT_LABEL` and the quick-add preset text changed, because "entry" reads as a possibly-plural thing an exhibitor books, and what it actually counts is classes entered.
+
+**The breed-association-scoping checkbox is gone, and scoping is unconditional instead.** The entry below this one added `show_fees.breed_association_only` — an opt-in per fee, ticked in `ShowChargesEditor` next to the unit picker — so a show's own charge could be told to exclude a club's classes the way `per_judge_per_entry` always has. On reflection there was no real case for the *other* choice: a show with no club sanctioning set up (most shows) has no club-sanctioned classes to exclude, so the scoping is a no-op for it regardless, and both real rows the feature was built from wanted it on. Migration 131 drops the column again (mirroring `100_drop_trainer_membership_verification.sql`, the last time this codebase tried an opt-in and reversed it); `billing.charge_lines` now computes the breed-scoped horse/entry counts once per bill and applies them to every automatic charge, full stop. Which classes are the breed association's own is still entirely `class_sanctioning` — the same data Sanctioned Classes (Step 6) already collects — so nothing about *how* a class gets classified changed, only that a manager no longer has to also say "yes, apply that" on every fee row.
+
 ### Two More Controls That Answered A Question Nobody Was Asking
 
 Following on from the camping-minimum fix below: **stalls don't need a minimum either.** It was offered on the same reasoning as bedding — a venue requiring two stalls a rig seemed no stranger than one requiring four bags — but nobody ever used it, because a stall count has no venue policy behind it the way a bag count does. An exhibitor books however many stalls they need; there is no "every rig takes a stall" fact about the grounds for a floor to state. `REQUIRABLE_FEE_UNITS` (`backend/reservations.py`) is now `per_bag` alone, and `required_quantity` returns 0 for a stall regardless of what is stored — the same defense-in-depth already applied to camping.

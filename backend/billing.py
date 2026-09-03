@@ -271,36 +271,35 @@ def charge_lines(
     one on these units: an early rate is chosen by the day a line was *booked*,
     and nothing books these.
 
-    Takes `entries` rather than precomputed counts because scoping is decided
-    per fee, not once for the whole bill: a discovered real show bill carried
-    a hand-built `per_horse` "APHA All Day fee" whose own notes read "APHA
+    Every automatic charge counts only the breed association's own classes —
+    a class a club like WSCA or MNSPHC sanctions outright already carries its
+    own separate entry fee (`is_club_sanctioned_class`) and is not reported to
+    (or paid for by) the breed body at all. Found on a real show bill: a
+    hand-built `per_horse` "APHA All Day fee" whose own notes read "APHA
     classes only... All Breed (MNSPHC or WSCA) classes... are not included" —
     the secretary had worked out the scope by hand because nothing on the row
-    could say it. `fee.breed_association_only` is that switch, off by default
-    so every existing fee keeps billing exactly as it always has.
-    `per_judge_per_entry` scopes itself unconditionally regardless of the
-    flag, because that unit is the breed body's own per-entry assessment
-    (SC-125.B and its kin) by definition — see `breed_association_entry_count`.
+    could say it. This used to be an opt-in flag (migration 130); it is not
+    one any more, because there was never a real case for the other choice —
+    a show with no club sanctioning set up (most shows) has no club-sanctioned
+    classes to exclude, so scoping is a no-op there and changes nothing.
+    `per_judge_per_entry` (SC-125.B and its kin) always worked this way, by
+    definition; every other automatic unit now works the same way, by default,
+    with nothing to configure.
     """
     entry_list = list(entries)
     if not entry_list:
         return [], 0
-    all_horse_ids = {e.horse_id for e in entry_list if e.horse_id}
     breed_entries = [
         e for e in entry_list if e.class_ is not None and not is_club_sanctioned_class(e.class_)
     ]
-    breed_horse_ids = {e.horse_id for e in breed_entries if e.horse_id}
+    horse_count = len({e.horse_id for e in breed_entries if e.horse_id})
+    entry_count = len(breed_entries)
 
     lines: list[dict] = []
     total = 0
     for fee in fees:
         if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
             continue
-        scoped = fee.unit == "per_judge_per_entry" or getattr(
-            fee, "breed_association_only", False
-        )
-        horse_count = len(breed_horse_ids) if scoped else len(all_horse_ids)
-        entry_count = len(breed_entries) if scoped else len(entry_list)
         quantity = charge_multiplier(
             fee.unit, horse_count, judge_count, entry_count, has_relevant_entries=entry_count > 0
         )
@@ -314,13 +313,12 @@ def charge_lines(
                 "label": fee.label,
                 "unit": fee.unit,
                 "amount_cents": fee.amount_cents,
-                # All three counts travel with the line so the bill can show
-                # the arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
+                # Both counts travel with the line so the bill can show the
+                # arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
                 # against a paper bill in a way "$5.00 x 6" is not.
                 "horse_count": horse_count,
                 "judge_count": judge_count,
                 "entry_count": entry_count,
-                "scoped_to_breed_association": scoped,
                 "quantity": quantity,
                 "line_total_cents": line_total,
             }

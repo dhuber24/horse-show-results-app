@@ -1,6 +1,6 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
-import { isAutomaticUnit } from '@/lib/fee-units';
+import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow, type SanctioningRow } from './FeesClient';
 import StepLayout from '../_lib/StepLayout';
@@ -14,14 +14,14 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-// No `futurity` here. It was a single per-entry amount sitting beside the
-// jackpot fee, and a futurity cannot be described by one number: the same class
-// is priced three ways depending on how the horse got there, entries close on a
-// stated date after which every class carries a late fee, and there is an office
-// fee per horse that depends on club membership. That lives in Step 7 now.
-// Shows set up before migration 107 may still carry the old row; the futurity
-// step links to it rather than this screen silently repricing anything.
-const FEE_CODES = new Set(['standard_class', 'jackpot']);
+// No `futurity` fee code here. It was a single per-entry amount sitting beside
+// the jackpot fee, and a futurity cannot be described by one number: the same
+// class is priced three ways depending on how the horse got there, entries
+// close on a stated date after which every class carries a late fee, and
+// there is an office fee per horse that depends on club membership. That
+// lives in Step 7 now. Shows set up before migration 107 may still carry the
+// old row; the futurity step links to it rather than this screen silently
+// repricing anything.
 const LEGACY_FUTURITY_CODE = 'futurity';
 
 export default async function SetupFeesPage({
@@ -48,11 +48,12 @@ export default async function SetupFeesPage({
   const sanctionedCounts: Record<string, number> = Object.fromEntries(
     classSanctioning.map((c) => [c.association_id, c.class_ids.length]),
   );
-  const otherFees = allFees.filter((f) => FEE_CODES.has(f.code));
-  // The show's own charges, picked out by unit rather than by a list of codes:
-  // the whole point is that a manager names their own, so there is no code here
-  // to match on. See AUTOMATIC_FEE_UNITS in backend/billing.py.
-  const charges = allFees.filter((f) => isAutomaticUnit(f.unit)) as ShowCharge[];
+  // The show's own class fees, picked out by unit rather than by a list of
+  // codes: the whole point is that a manager names their own, so there is no
+  // code here to match on. `per_entry` rides along too — a jackpot/sidepot
+  // fee is published text rather than an automatic charge, but it is still a
+  // class fee and belongs in the same box. See CLASS_FEE_EDITOR_UNITS.
+  const charges = allFees.filter((f) => isClassFeeEditorUnit(f.unit)) as ShowCharge[];
   const legacyFuturityFee =
     allFees.find((f) => f.code === LEGACY_FUTURITY_CODE) ?? null;
 
@@ -62,22 +63,16 @@ export default async function SetupFeesPage({
       showName={show.name}
       current="fees"
       title="Step 5: Show Fees"
-      subtitle="Office charge, standard class fee, jackpot, and any other fee this show adds per exhibitor, horse or judge. Per-sanctioning class fees come from Step 3; futurity pricing comes from Step 7."
+      subtitle="Office charge and any class fee this show adds — per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 6; per-sanctioning class fees come from Step 3; futurity pricing comes from Step 7."
       stepsInput={{
         ...stepsInput,
-        feesCount:
-          otherFees.length > 0 ||
-          charges.length > 0 ||
-          (show.office_charge_cents ?? 0) > 0
-            ? 1
-            : 0,
+        feesCount: charges.length > 0 || (show.office_charge_cents ?? 0) > 0 ? 1 : 0,
       }}
     >
       <FeesClient
         showId={id}
         initialOfficeChargeCents={show.office_charge_cents ?? 0}
         initialOfficeChargeBasis={show.office_charge_basis ?? 'per_back_number'}
-        initialFees={otherFees}
         initialCharges={charges}
         judgeCount={judges.length}
         sanctioning={sanctioning}

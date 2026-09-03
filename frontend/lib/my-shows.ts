@@ -85,15 +85,11 @@ export type BillChargeLine = {
   amount_cents: number;
   horse_count: number;
   judge_count: number;
-  /** Entries this line is counted against — every entry on the bill, unless
-   *  `scoped_to_breed_association` says otherwise. */
+  /** Entries this line is counted against. Always excludes classes a club
+   *  (WSCA, MNSPHC, etc.) sanctions outright — those already carry their own
+   *  separate price and are not reported to (or paid for by) the breed
+   *  association at all. */
   entry_count: number;
-  /** Whether `horse_count` / `entry_count` above already exclude classes a
-   *  club (WSCA, MNSPHC, etc.) sanctions outright. Always true for
-   *  `per_judge_per_entry` — the breed body's own assessment (migration 125)
-   *  — and true for any other automatic unit the show opted in (migration
-   *  130). */
-  scoped_to_breed_association: boolean;
   quantity: number;
   line_total_cents: number;
 };

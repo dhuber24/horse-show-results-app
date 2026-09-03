@@ -7,6 +7,9 @@ import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEdit
 
 type SanctioningFeeState = { association_id: string; dollars: string };
 
+/** A raw `show_fees` row, the shape a legacy pre-107 futurity fee still needs
+ *  (see `legacyFuturityFee` below) — everything else that used to read this
+ *  shape (the Standard/Jackpot slots) now lives in `ShowChargesEditor`. */
 export type FeeRow = {
   id: string;
   code: string;
@@ -34,32 +37,6 @@ const COLORS = {
   warnSoft: '#fdf8eb',
 } as const;
 
-const SLOTS = [
-  {
-    code: 'standard_class',
-    label: 'Standard class fee (per entry)',
-    unit: 'per_entry',
-    placeholder: 'e.g. 25.00',
-    notesPlaceholder: 'e.g. Includes association sanction fee',
-    hint: 'Published on the show bill. What an entry is actually billed comes from the fee on each class in Step 6, so a class priced differently there charges its own amount.',
-  },
-  {
-    code: 'jackpot',
-    label: 'Jackpot / sidepot fee (per entry)',
-    unit: 'per_entry',
-    placeholder: 'e.g. 15.00',
-    notesPlaceholder: 'e.g. 80% paid back to top 3',
-    hint: 'Published on the show bill only. A jackpot is not charged on every class: each side pot bundles the classes you pick for it, and the buy-in that actually bills is set on the pot itself.',
-  },
-  // A futurity slot used to sit here. It has moved to Step 7 and is not coming
-  // back: one amount cannot say that the same class costs $75, $100 or $150
-  // depending on which category the entrant qualifies for, that entries close
-  // on a stated day after which each class carries a late fee, or that the
-  // office fee per horse depends on club membership.
-] as const;
-
-type SlotState = { feeId: string | null; dollars: string; notes: string };
-
 function centsToDollars(cents: number): string {
   return (cents / 100).toFixed(2);
 }
@@ -74,7 +51,6 @@ export default function FeesClient({
   showId,
   initialOfficeChargeCents,
   initialOfficeChargeBasis,
-  initialFees,
   initialCharges,
   judgeCount,
   sanctioning,
@@ -86,8 +62,8 @@ export default function FeesClient({
   showId: string;
   initialOfficeChargeCents: number;
   initialOfficeChargeBasis: string;
-  initialFees: FeeRow[];
-  /** The show's own per-exhibitor / per-horse / per-judge charges. Saved by
+  /** The show's own class fees — office fee, association assessment, all-day
+   *  pass, jackpot/sidepot fee, anything else a manager names. Saved by
    *  `ShowChargesEditor` a row at a time rather than by this screen's Save
    *  button — they are `show_fees` rows with their own endpoints, and folding
    *  them into the wizard's batch save would mean re-implementing add, edit and
@@ -145,23 +121,6 @@ export default function FeesClient({
     initialOfficeChargeBasis === 'per_horse' ? 'per_horse' : 'per_back_number',
   );
 
-  function findFee(code: string): FeeRow | undefined {
-    return initialFees.find((f) => f.code === code);
-  }
-
-  const [slots, setSlots] = useState<Record<string, SlotState>>(() => {
-    const base: Record<string, SlotState> = {};
-    for (const s of SLOTS) {
-      const fee = findFee(s.code);
-      base[s.code] = {
-        feeId: fee?.id ?? null,
-        dollars: fee ? centsToDollars(fee.amount_cents) : '',
-        notes: fee?.notes ?? '',
-      };
-    }
-    return base;
-  });
-
   const [sanctioningFees, setSanctioningFees] = useState<SanctioningFeeState[]>(
     sanctioning.map((s) => ({
       association_id: s.association_id,
@@ -175,10 +134,6 @@ export default function FeesClient({
         s.association_id === id ? { ...s, dollars } : s,
       ),
     );
-  }
-
-  function setSlot(code: string, patch: Partial<SlotState>) {
-    setSlots((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
   }
 
   async function save() {
@@ -199,55 +154,6 @@ export default function FeesClient({
         const j = await showRes.json().catch(() => null);
         setError(j?.detail || 'Failed to update office charge.');
         return;
-      }
-
-      // Class-level fee slots in show_fees.
-      for (const s of SLOTS) {
-        const slot = slots[s.code];
-        const isEmpty = slot.dollars.trim() === '';
-        const cents = dollarsToCents(slot.dollars);
-
-        if (slot.feeId && isEmpty) {
-          const res = await fetch(`/api/shows/${showId}/fees/${slot.feeId}`, {
-            method: 'DELETE',
-          });
-          if (!res.ok && res.status !== 204) {
-            const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to remove ${s.label}.`);
-            return;
-          }
-        } else if (slot.feeId && !isEmpty) {
-          const res = await fetch(`/api/shows/${showId}/fees/${slot.feeId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              amount_cents: cents,
-              notes: slot.notes.trim() || null,
-            }),
-          });
-          if (!res.ok) {
-            const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to update ${s.label}.`);
-            return;
-          }
-        } else if (!slot.feeId && !isEmpty) {
-          const res = await fetch(`/api/shows/${showId}/fees`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              code: s.code,
-              label: s.label,
-              unit: s.unit,
-              amount_cents: cents,
-              notes: slot.notes.trim() || null,
-            }),
-          });
-          if (!res.ok) {
-            const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to create ${s.label}.`);
-            return;
-          }
-        }
       }
 
       // Sanctioning per-class fees: PUT replaces the full set, so we send
@@ -302,69 +208,62 @@ export default function FeesClient({
         className="p-4 rounded-lg border space-y-4"
         style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
       >
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-            Class fees
-          </h2>
-          <span className="text-xs" style={{ color: COLORS.muted }}>
-            Leave any amount blank to skip
-          </span>
-        </div>
-        {SLOTS.map((s) => {
-          const slot = slots[s.code];
-          return (
-            <div key={s.code} className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-              <span>
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  {s.label}
-                </span>
-                <span className="block text-xs" style={{ color: COLORS.muted }}>
-                  {s.hint}
-                  {s.code === 'jackpot' && (
-                    <>
-                      {' '}
-                      <Link
-                        href={`/admin/shows/${showId}/side-pots`}
-                        className="underline"
-                        style={{ color: COLORS.warn }}
-                      >
-                        Set up side pots
-                      </Link>
-                      .
-                    </>
-                  )}
-                </span>
-              </span>
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Amount ($)
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={slot.dollars}
-                  onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder={s.placeholder}
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Notes (optional)
-                </span>
-                <input
-                  type="text"
-                  value={slot.notes}
-                  onChange={(e) => setSlot(s.code, { notes: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder={s.notesPlaceholder}
-                />
-              </label>
+        <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+          Class Fees
+        </h2>
+
+        <ShowChargesEditor
+          showId={showId}
+          initialCharges={initialCharges}
+          judgeCount={judgeCount}
+          judgesHref={`/admin/shows/${showId}/setup/judges`}
+          boxed={false}
+          officeChargeSection={
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+                Office charge
+              </h2>
+              <p className="text-xs mt-0.5 mb-2" style={{ color: COLORS.muted }}>
+                The show&apos;s standing office / drug-testing charge — saves with the
+                rest of this step below, not on its own.
+              </p>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    Amount ($)
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={officeChargeDollars}
+                    onChange={(e) => setOfficeChargeDollars(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
+                    style={{ borderColor: COLORS.border }}
+                    placeholder="e.g. 10.00"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    Charged...
+                  </span>
+                  <select
+                    value={officeChargeBasis}
+                    onChange={(e) =>
+                      setOfficeChargeBasis(
+                        e.target.value === 'per_horse' ? 'per_horse' : 'per_back_number',
+                      )
+                    }
+                    className="w-full border rounded px-3 py-2"
+                    style={{ borderColor: COLORS.border }}
+                  >
+                    <option value="per_back_number">per back number (exhibitor)</option>
+                    <option value="per_horse">per horse</option>
+                  </select>
+                </label>
+              </div>
             </div>
-          );
-        })}
+          }
+        />
 
         {sanctioning.length === 0 ? (
           <p className="text-xs" style={{ color: COLORS.muted }}>
@@ -443,58 +342,6 @@ export default function FeesClient({
           </>
         )}
       </section>
-
-      <ShowChargesEditor
-        showId={showId}
-        initialCharges={initialCharges}
-        judgeCount={judgeCount}
-        judgesHref={`/admin/shows/${showId}/setup/judges`}
-        officeChargeSection={
-          <div>
-            <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-              Office charge
-            </h2>
-            <p className="text-xs mt-0.5 mb-2" style={{ color: COLORS.muted }}>
-              The show&apos;s standing office / drug-testing charge — saves with the
-              rest of this step below, not on its own.
-            </p>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Amount ($)
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={officeChargeDollars}
-                  onChange={(e) => setOfficeChargeDollars(e.target.value)}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder="e.g. 10.00"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Charged...
-                </span>
-                <select
-                  value={officeChargeBasis}
-                  onChange={(e) =>
-                    setOfficeChargeBasis(
-                      e.target.value === 'per_horse' ? 'per_horse' : 'per_back_number',
-                    )
-                  }
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                >
-                  <option value="per_back_number">per back number (exhibitor)</option>
-                  <option value="per_horse">per horse</option>
-                </select>
-              </label>
-            </div>
-          </div>
-        }
-      />
 
       <section
         className="p-4 rounded-lg border space-y-3"

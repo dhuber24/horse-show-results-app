@@ -104,10 +104,6 @@ def make_fee(**overrides) -> SimpleNamespace:
         early_amount_cents=None,
         early_deadline=None,
         min_quantity=0,
-        # Off by default, matching the column's server default (migration
-        # 130) -- every existing fee keeps billing every entry until a show
-        # opts a row into counting only the breed association's own classes.
-        breed_association_only=False,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

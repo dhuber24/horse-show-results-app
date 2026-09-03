@@ -1,14 +1,10 @@
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
-import { isAutomaticUnit } from '@/lib/fee-units';
+import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { WizardStepsInput } from '../../../_wizard/steps';
 
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
 // code for the camping line and still counts as lodging that is configured.
 const LODGING_CODES = new Set(['stall', 'shavings', 'camping', 'hookup']);
-// `futurity` is deliberately absent: a futurity is its own programme with its
-// own tiered pricing (Step 7), not a single amount on the fee schedule. The code
-// still exists on shows set up before migration 107 and is left alone there.
-const FEE_CODES = new Set(['standard_class', 'jackpot']);
 
 type FeeRow = {
   id: string;
@@ -49,12 +45,12 @@ export async function fetchStepCounts(
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
-  const otherFeeCount = fees.filter((f) => FEE_CODES.has(f.code)).length;
-  // A show whose only Step 5 money is its own named charge — a drug fee per
-  // horse, say — has done the step. Matched by unit rather than by code,
-  // because a manager names these themselves and there is no code to look for.
-  const chargeCount = fees.filter((f) => isAutomaticUnit(f.unit)).length;
-  const feesDone = otherFeeCount > 0 || chargeCount > 0 || officeChargeCents > 0;
+  // A show whose only Step 5 money is a class fee — a drug fee per horse, a
+  // jackpot line, whatever a manager named — has done the step. Matched by
+  // unit rather than by code, because a manager names these themselves and
+  // there is no fixed code to look for any more (see CLASS_FEE_EDITOR_UNITS).
+  const chargeCount = fees.filter((f) => isClassFeeEditorUnit(f.unit)).length;
+  const feesDone = chargeCount > 0 || officeChargeCents > 0;
 
   return {
     showId,

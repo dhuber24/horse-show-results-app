@@ -1,7 +1,7 @@
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import { isAutomaticUnit } from '@/lib/fee-units';
+import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { ShowCharge } from '@/components/ShowChargesEditor';
 import EntryFeesEditor from './EntryFeesEditor';
 
@@ -28,9 +28,10 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
   ]);
 
   // Picked out by unit, not by a list of codes: the whole point of these rows is
-  // that the show manager names their own. See AUTOMATIC_FEE_UNITS in
-  // backend/billing.py for what makes a unit one of these.
-  const charges: ShowCharge[] = fees.filter((f: { unit: string }) => isAutomaticUnit(f.unit));
+  // that the show manager names their own. `per_entry` rides along too — a
+  // jackpot/sidepot fee is published text rather than an automatic charge, but
+  // it is still a class fee and belongs in the same box, not a second one.
+  const charges: ShowCharge[] = fees.filter((f: { unit: string }) => isClassFeeEditorUnit(f.unit));
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
