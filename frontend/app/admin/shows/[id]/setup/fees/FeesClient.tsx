@@ -299,49 +299,6 @@ export default function FeesClient({
       )}
 
       <section
-        className="p-4 rounded-lg border space-y-3"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-      >
-        <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-          Office charge
-        </h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-              Amount ($)
-            </span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={officeChargeDollars}
-              onChange={(e) => setOfficeChargeDollars(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-              style={{ borderColor: COLORS.border }}
-              placeholder="e.g. 10.00"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-              Charged...
-            </span>
-            <select
-              value={officeChargeBasis}
-              onChange={(e) =>
-                setOfficeChargeBasis(
-                  e.target.value === 'per_horse' ? 'per_horse' : 'per_back_number',
-                )
-              }
-              className="w-full border rounded px-3 py-2"
-              style={{ borderColor: COLORS.border }}
-            >
-              <option value="per_back_number">per back number (exhibitor)</option>
-              <option value="per_horse">per horse</option>
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section
         className="p-4 rounded-lg border space-y-4"
         style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
       >
@@ -492,6 +449,51 @@ export default function FeesClient({
         initialCharges={initialCharges}
         judgeCount={judgeCount}
         judgesHref={`/admin/shows/${showId}/setup/judges`}
+        officeChargeSection={
+          <div>
+            <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+              Office charge
+            </h2>
+            <p className="text-xs mt-0.5 mb-2" style={{ color: COLORS.muted }}>
+              The show&apos;s standing office / drug-testing charge — saves with the
+              rest of this step below, not on its own.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  Amount ($)
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={officeChargeDollars}
+                  onChange={(e) => setOfficeChargeDollars(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                  placeholder="e.g. 10.00"
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  Charged...
+                </span>
+                <select
+                  value={officeChargeBasis}
+                  onChange={(e) =>
+                    setOfficeChargeBasis(
+                      e.target.value === 'per_horse' ? 'per_horse' : 'per_back_number',
+                    )
+                  }
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                >
+                  <option value="per_back_number">per back number (exhibitor)</option>
+                  <option value="per_horse">per horse</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        }
       />
 
       <section

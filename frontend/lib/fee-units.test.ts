@@ -14,7 +14,7 @@
 // `@types/jest` to the dependency tree.
 import { describe, expect, it } from '@jest/globals';
 
-import { FEE_GROUPS, groupFees } from './fee-units';
+import { FEE_GROUPS, canHaveEarlyRate, canHaveMinimumQuantity, groupFees } from './fee-units';
 
 const fee = (unit: string, id = unit) => ({ id, unit });
 
@@ -80,6 +80,34 @@ describe('groupFees', () => {
   it('gives every group a note saying whether the amounts are the readers to control', () => {
     for (const group of FEE_GROUPS) {
       expect(group.note.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('canHaveEarlyRate', () => {
+  it('allows an early rate on a stall or a camping line', () => {
+    for (const unit of ['per_stall', 'per_night', 'per_day', 'per_show']) {
+      expect(canHaveEarlyRate(unit)).toBe(true);
+    }
+  });
+
+  it('refuses one on bedding — there is no reserve-early convention for a bag count', () => {
+    expect(canHaveEarlyRate('per_bag')).toBe(false);
+  });
+
+  it('refuses one on a unit that is not reservable at all', () => {
+    expect(canHaveEarlyRate('per_horse')).toBe(false);
+  });
+});
+
+describe('canHaveMinimumQuantity', () => {
+  it('allows a minimum on bedding — a real venue policy about the grounds', () => {
+    expect(canHaveMinimumQuantity('per_bag')).toBe(true);
+  });
+
+  it('refuses one on a stall count or a camping line', () => {
+    for (const unit of ['per_stall', 'per_night', 'per_day', 'per_show']) {
+      expect(canHaveMinimumQuantity(unit)).toBe(false);
     }
   });
 });

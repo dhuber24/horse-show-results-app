@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 
 import {
   UNIT_LABEL as UNIT_LABELS,
+  canHaveEarlyRate,
+  canHaveMinimumQuantity,
   isAutomaticUnit,
   type FeeUnit as Unit,
 } from '@/lib/fee-units';
@@ -43,26 +45,6 @@ const BOARDING_UNIT_OPTIONS: Unit[] = [
   'per_class_per_horse',
 ];
 
-/** Units an exhibitor books a quantity of at sign-up. Only these can carry an
- *  early rate — nothing else produces a reservation for a discount to apply
- *  to, and the backend rejects one on any other unit. Mirrors
- *  RESERVABLE_FEE_UNITS in backend/billing.py. */
-const RESERVABLE_UNITS = new Set<Unit>([
-  'per_stall',
-  'per_bag',
-  'per_night',
-  'per_day',
-  'per_show',
-]);
-
-/** Units a show can require of everybody, which is narrower than the ones an
- *  exhibitor books a quantity of. A minimum is a policy — "every rig takes a
- *  stall", "we will not have horses bedded on less than this" — and camping is
- *  not one: nobody makes an exhibitor book a spot to be allowed to enter.
- *  Mirrors REQUIRABLE_FEE_UNITS in backend/reservations.py, which refuses a
- *  minimum on any other unit. */
-const REQUIRABLE_UNITS = new Set<Unit>(['per_stall', 'per_bag']);
-
 function dollarsFromCents(cents: number): string {
   return (cents / 100).toFixed(2);
 }
@@ -91,7 +73,7 @@ type Draft = {
  *  require of everybody — a stray value on a camping row would otherwise go on
  *  refusing sign-ups from a box nothing renders any more. */
 function minQuantityOf(draft: Draft): number {
-  if (!REQUIRABLE_UNITS.has(draft.unit)) return 0;
+  if (!canHaveMinimumQuantity(draft.unit)) return 0;
   const n = Number.parseInt(draft.minQuantity, 10);
   return Number.isFinite(n) && n > 0 ? Math.min(n, 999) : 0;
 }
@@ -115,10 +97,11 @@ type EarlyFields = { early_amount_cents: number | null; early_deadline: string |
 function earlyFields(draft: Draft, standardCents: number): EarlyFields | { error: string } {
   const hasAmount = draft.early.trim() !== '';
   const hasDeadline = draft.earlyDeadline.trim() !== '';
-  // Switching a row to a non-reservable unit clears its early rate rather than
-  // erroring — the secretary changed what the fee *is*, and the discount no
-  // longer has a reservation to attach to.
-  if ((!hasAmount && !hasDeadline) || !RESERVABLE_UNITS.has(draft.unit)) {
+  // Switching a row to a unit that can't carry an early rate clears it rather
+  // than erroring — the secretary changed what the fee *is* (bedding has no
+  // reserve-early convention the way a stall or a camping spot does), and the
+  // discount no longer has anything to attach to.
+  if ((!hasAmount && !hasDeadline) || !canHaveEarlyRate(draft.unit)) {
     return { early_amount_cents: null, early_deadline: null };
   }
   if (hasAmount !== hasDeadline) {
@@ -398,7 +381,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                   </button>
                 )}
               </div>
-              {RESERVABLE_UNITS.has(draft.unit) && (
+              {canHaveEarlyRate(draft.unit) && (
                 <div className="flex items-center flex-wrap gap-2 mt-1.5 pl-1">
                   <span className="text-xs" style={{ color: '#8b7355' }}>
                     Early rate
@@ -430,12 +413,15 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                     <span className="text-xs text-red-600">{early.error}</span>
                   )}
                   {/* Beside the early rate because they are nearly the same
-                      kind of thing — but not on the same set of units. An early
-                      rate applies wherever a quantity is booked; a minimum is a
-                      policy the show imposes on everybody, which is stalls and
-                      bedding and not camping. The backend refuses one on any
-                      other unit. */}
-                  {REQUIRABLE_UNITS.has(draft.unit) && (
+                      kind of thing — but not on the same set of units, and not
+                      even the same units as each other. An early rate applies
+                      wherever a quantity is booked, minus bedding; a minimum is
+                      a policy the show states about the grounds, which is
+                      bedding alone — neither a stall count nor a camping spot
+                      is a fact about the venue the way "every stall gets
+                      bedded this deep" is. The backend refuses either outside
+                      its own set. */}
+                  {canHaveMinimumQuantity(draft.unit) && (
                     <>
                       <span className="text-xs" style={{ color: '#8b7355' }}>
                         · minimum
@@ -509,7 +495,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
               Cancel
             </button>
           </div>
-          {RESERVABLE_UNITS.has(newRow.unit) && (
+          {canHaveEarlyRate(newRow.unit) && (
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-xs" style={{ color: '#8b7355' }}>Early rate (optional)</span>
               <div className="relative w-24">

@@ -32,6 +32,17 @@ from typing import Iterable, Optional
 # against a count of nights under-bills every camper by a day.
 RESERVABLE_FEE_UNITS = ("per_stall", "per_bag", "per_night", "per_day", "per_show")
 
+# Which of those may additionally carry an early rate.
+#
+# Bags are the one exception. Every other reservable line — a stall, a
+# camping spot — has a real reserve-early convention on a paper show bill:
+# book by a date, pay less. A bag count has no such convention; a secretary
+# who set one on shavings was filling in a control that happened to be there,
+# not answering a question exhibitors actually get asked. Excluded here
+# rather than only in the fee editors, so a fee created any other way (the
+# seed templates, a direct API call) cannot end up with one either.
+EARLY_RATE_FEE_UNITS = tuple(u for u in RESERVABLE_FEE_UNITS if u != "per_bag")
+
 # Which `show_fees` rows the show charges automatically, from what the exhibitor
 # entered rather than from anything they booked (migration 112).
 #
@@ -72,7 +83,14 @@ def has_early_rate(fee) -> bool:
     The discounted amount and the deadline are a pair. One without the other is
     a half-finished edit in the fee editor, not a price — treating it as one
     would either give the discount away forever or never.
+
+    Read here as well as guarded on the way in (same reasoning as
+    `reservations.required_quantity`): a value stored on a bag fee before
+    `EARLY_RATE_FEE_UNITS` existed must not go on quoting a discount from a
+    control no screen offers any more.
     """
+    if fee.unit not in EARLY_RATE_FEE_UNITS:
+        return False
     return fee.early_amount_cents is not None and fee.early_deadline is not None
 
 
@@ -137,6 +155,45 @@ def class_sanction_cents(cls, rates: dict) -> int:
     return total
 
 
+def is_club_sanctioned_class(cls) -> bool:
+    """Whether this class runs under a club rather than the show's own body.
+
+    A dual-sanctioned show's "All Breed" classes — WSCA, MNSPHC and the like —
+    carry their own entry fee already (`classes.entry_fee_cents`) and are not
+    reported to the breed association at all: they are a different class, not
+    the same class with a second fee stacked on. `class_sanctioning`
+    (migration 113) is exactly the list of classes a club has taken on, so a
+    class with a row there is one; everything else — including a class with no
+    catalog code, like a Grand & Reserve callback — is presumed to belong to
+    the show's own breed body, the way it always has.
+    """
+    return bool(getattr(cls, "sanctioning", None))
+
+
+def breed_association_entry_count(entries: Iterable) -> int:
+    """How many of these entries are in the breed association's own classes.
+
+    What a breed body's own per-entry assessment (`per_judge_per_entry`, e.g.
+    APHA SC-125.B) is counted against. That fee is the breed body's own levy,
+    forwarded to *them* — a class run entirely under a club's rules, that the
+    breed body never sees a result from, owes it nothing. Club-sanctioned
+    classes already carry their own separate fee (`is_club_sanctioned_class`);
+    stacking the breed body's assessment on top would be charging for a
+    relationship that class does not have.
+
+    Every other automatic charge (`per_horse`, `per_judge_per_horse`, the
+    office charge) stays counted against every entry regardless of which
+    classes they are in — those are the show's own charges, not a specific
+    association's, and a show requires them of everybody who shows up exactly
+    the way it always has.
+    """
+    return sum(
+        1
+        for entry in entries
+        if entry.class_ is not None and not is_club_sanctioned_class(entry.class_)
+    )
+
+
 def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool) -> int:
     """The office/drug-testing charge, applied on the show's stated basis.
 
@@ -152,7 +209,11 @@ def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool
 
 
 def charge_multiplier(
-    unit: str, horse_count: int, judge_count: int, entry_count: int = 0
+    unit: str,
+    horse_count: int,
+    judge_count: int,
+    entry_count: int = 0,
+    has_relevant_entries: bool = True,
 ) -> int:
     """How many of an automatic fee one exhibitor owes.
 
@@ -165,15 +226,23 @@ def charge_multiplier(
 
     `entry_count` defaults to 0 so a caller that predates `per_judge_per_entry`
     bills that unit at nothing rather than at a wrong multiple. Under-billing a
-    fee nobody has created yet is recoverable; over-billing every exhibitor at a
-    show is not.
+    fee nobody has created yet is recoverable; over-billing every exhibitor at
+    a show is not.
+
+    `has_relevant_entries` is what makes a *scoped* charge (see
+    `charge_lines`) bill nothing to an exhibitor with none of the entries it
+    counts — a `per_exhibitor` or `per_judge_per_exhibitor` fee has no count
+    of its own to zero out otherwise. Defaults to True so every unscoped
+    charge, which is most of them, is unaffected: `has_entries` at the
+    `charge_lines` level already guarantees this is true whenever multiplying
+    would matter.
     """
     if unit == "per_exhibitor":
-        return 1
+        return 1 if has_relevant_entries else 0
     if unit == "per_horse":
         return horse_count
     if unit == "per_judge_per_exhibitor":
-        return judge_count
+        return judge_count if has_relevant_entries else 0
     if unit == "per_judge_per_horse":
         return judge_count * horse_count
     if unit == "per_judge_per_entry":
@@ -183,10 +252,8 @@ def charge_multiplier(
 
 def charge_lines(
     fees: Iterable,
-    horse_count: int,
+    entries: Iterable,
     judge_count: int,
-    has_entries: bool,
-    entry_count: int = 0,
 ) -> tuple[list[dict], int]:
     """Itemize the show's own automatic charges for one exhibitor.
 
@@ -203,15 +270,40 @@ def charge_lines(
     There is no early rate here, and `_assert_early_rate_valid` refuses to store
     one on these units: an early rate is chosen by the day a line was *booked*,
     and nothing books these.
+
+    Takes `entries` rather than precomputed counts because scoping is decided
+    per fee, not once for the whole bill: a discovered real show bill carried
+    a hand-built `per_horse` "APHA All Day fee" whose own notes read "APHA
+    classes only... All Breed (MNSPHC or WSCA) classes... are not included" —
+    the secretary had worked out the scope by hand because nothing on the row
+    could say it. `fee.breed_association_only` is that switch, off by default
+    so every existing fee keeps billing exactly as it always has.
+    `per_judge_per_entry` scopes itself unconditionally regardless of the
+    flag, because that unit is the breed body's own per-entry assessment
+    (SC-125.B and its kin) by definition — see `breed_association_entry_count`.
     """
-    if not has_entries:
+    entry_list = list(entries)
+    if not entry_list:
         return [], 0
+    all_horse_ids = {e.horse_id for e in entry_list if e.horse_id}
+    breed_entries = [
+        e for e in entry_list if e.class_ is not None and not is_club_sanctioned_class(e.class_)
+    ]
+    breed_horse_ids = {e.horse_id for e in breed_entries if e.horse_id}
+
     lines: list[dict] = []
     total = 0
     for fee in fees:
         if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
             continue
-        quantity = charge_multiplier(fee.unit, horse_count, judge_count, entry_count)
+        scoped = fee.unit == "per_judge_per_entry" or getattr(
+            fee, "breed_association_only", False
+        )
+        horse_count = len(breed_horse_ids) if scoped else len(all_horse_ids)
+        entry_count = len(breed_entries) if scoped else len(entry_list)
+        quantity = charge_multiplier(
+            fee.unit, horse_count, judge_count, entry_count, has_relevant_entries=entry_count > 0
+        )
         if quantity <= 0:
             continue
         line_total = fee.amount_cents * quantity
@@ -222,12 +314,13 @@ def charge_lines(
                 "label": fee.label,
                 "unit": fee.unit,
                 "amount_cents": fee.amount_cents,
-                # Both counts travel with the line so the bill can show the
-                # arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
+                # All three counts travel with the line so the bill can show
+                # the arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
                 # against a paper bill in a way "$5.00 x 6" is not.
                 "horse_count": horse_count,
                 "judge_count": judge_count,
                 "entry_count": entry_count,
+                "scoped_to_breed_association": scoped,
                 "quantity": quantity,
                 "line_total_cents": line_total,
             }
@@ -440,10 +533,8 @@ def build_bill(
     # entire show, which is not.
     charge_line_list, charge_total = charge_lines(
         show.fees or [],
-        len(horse_ids),
+        entry_list,
         len(show.judges or []),
-        bool(entry_list),
-        entry_count=len(entry_list),
     )
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 

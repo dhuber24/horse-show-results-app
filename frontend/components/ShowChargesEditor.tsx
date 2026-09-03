@@ -19,9 +19,17 @@ import {
  * rather than computes (see Claude.md); the same rule applies to an editor —
  * there is one place these rows are shaped.
  *
- * The office charge on the show row is deliberately not edited here. It is a
- * column on `shows`, not a fee row, and each screen that wants it renders its
- * own control for it beside this one.
+ * The office charge on the show row is not *edited* here — it is a column on
+ * `shows`, not a fee row, and each caller still owns its own control and save
+ * timing for it (`EntryFeesEditor` saves it the moment you press Save;
+ * `FeesClient` batches it into the setup step's own Save button). What moved
+ * is where that control *renders*: it used to sit in a separate bordered box
+ * above this one, on the reasoning that it is a different kind of row. To an
+ * exhibitor's bill it is not — it is one more charge added to everyone who
+ * enters a class, sitting right next to a drug fee or an assessment doing the
+ * same job — so a manager configuring "what does this show add on top" was
+ * looking at two boxes for one question. `officeChargeSection` is the
+ * caller's own markup, rendered inside this box instead of its own.
  */
 
 export type ShowCharge = {
@@ -33,9 +41,67 @@ export type ShowCharge = {
   unit: FeeUnit;
   notes: string | null;
   sort_order: number;
+  /** Whether this charge counts only the breed association's own classes
+   *  (migration 130) — see the checkbox below. `per_judge_per_entry` scopes
+   *  itself regardless of this value; it only changes anything on the other
+   *  automatic units. */
+  breed_association_only: boolean;
 };
 
-type Draft = { label: string; amount: string; unit: FeeUnit; notes: string };
+type Draft = {
+  label: string;
+  amount: string;
+  unit: FeeUnit;
+  notes: string;
+  breedAssociationOnly: boolean;
+};
+
+/**
+ * The three shapes a "per horse and per judge" question actually turns out
+ * to be, offered as one-click starting points rather than left for a manager
+ * to find in a generic unit dropdown.
+ *
+ * `per_judge_per_horse` and `per_judge_per_entry` already compute exactly the
+ * two examples a manager asking for "by horse and by judge at once" usually
+ * means — one horse at a four-judge show is $3 × 1 × 4 = $12 either way the
+ * office charges it, and the difference is whether it multiplies by horses
+ * brought or by classes entered. Both units existed before this row did; what
+ * did not exist was a place that named the two apart from a list of eleven.
+ */
+const QUICK_ADD_PRESETS: {
+  label: string;
+  unit: FeeUnit;
+  breedAssociationOnly?: boolean;
+  blurb: string;
+}[] = [
+  {
+    label: 'Office fee (per horse)',
+    unit: 'per_horse',
+    blurb: 'Once for each horse entered — the usual drug/office fee.',
+  },
+  {
+    label: 'Office fee (per horse, per judge)',
+    unit: 'per_judge_per_horse',
+    blurb: 'One horse at a 4-judge show is ×4 — see the math below once you set an amount.',
+  },
+  {
+    label: 'Association assessment (per judge, per entry)',
+    unit: 'per_judge_per_entry',
+    blurb: "The breed body's own per-entry levy (e.g. APHA SC-125.B) — counts classes entered, only in the breed association's own classes.",
+  },
+  // Named for what a real show bill already called it by hand: a flat charge
+  // per horse per judge that covers a horse for every class it enters that
+  // day, as against a per-class fee. Ticks "breed association's own classes"
+  // by default because that show's version explicitly excluded All Breed
+  // (club) classes in a hand-typed note — untick it if this show's version
+  // should not.
+  {
+    label: 'All-day fee (per horse, per judge, breed classes only)',
+    unit: 'per_judge_per_horse',
+    breedAssociationOnly: true,
+    blurb: 'A flat charge per horse per judge, covering every class that horse enters — counted only against horses in the breed association\'s own classes.',
+  },
+];
 
 const COLORS = {
   text: '#2c1810',
@@ -75,24 +141,44 @@ function codeFromLabel(label: string): string {
  * judge per horse is $30 to somebody with two horses at a three-judge show, and
  * that is the number they are checking against a paper bill.
  */
-function chargeExplanation(unit: string, cents: number, judgeCount: number): string {
+function chargeExplanation(
+  unit: string,
+  cents: number,
+  judgeCount: number,
+  breedAssociationOnly: boolean,
+): string {
   const rate = `$${dollarsFromCents(cents)}`;
   const judges = `${judgeCount} judge${judgeCount === 1 ? '' : 's'}`;
+  // per_judge_per_entry is always scoped, regardless of what the checkbox
+  // says — that unit is the breed body's own per-entry assessment (e.g. APHA
+  // SC-125.B) by definition. Every other unit only gets the note when the
+  // show has explicitly ticked the box.
+  const scoped = unit === 'per_judge_per_entry' || breedAssociationOnly;
+  const scopeNote = scoped
+    ? " — only the breed association's own classes, not ones a club like WSCA or MNSPHC sanctions outright"
+    : '';
   switch (unit) {
     case 'per_exhibitor':
-      return `${rate} once per exhibitor, however many horses they bring.`;
+      return `${rate} once per exhibitor, however many horses they bring${scopeNote}.`;
     case 'per_horse':
-      return `${rate} for each horse they enter.`;
+      return `${rate} for each horse they enter${scopeNote}.`;
     case 'per_judge_per_exhibitor':
       return judgeCount > 0
-        ? `${rate} × ${judges} = $${dollarsFromCents(cents * judgeCount)} per exhibitor.`
-        : `${rate} per judge, charged once per exhibitor.`;
+        ? `${rate} × ${judges} = $${dollarsFromCents(cents * judgeCount)} per exhibitor${scopeNote}.`
+        : `${rate} per judge, charged once per exhibitor${scopeNote}.`;
     case 'per_judge_per_horse':
       return judgeCount > 0
         ? `${rate} × ${judges} = $${dollarsFromCents(
             cents * judgeCount,
-          )} for each horse they enter.`
-        : `${rate} per judge, for each horse they enter.`;
+          )} for each horse they enter${scopeNote}.`
+        : `${rate} per judge, for each horse they enter${scopeNote}.`;
+    case 'per_judge_per_entry':
+      // No live entry count to multiply by here — unlike horses, classes
+      // entered isn't known until someone signs up, so this states the
+      // formula rather than a total.
+      return judgeCount > 0
+        ? `${rate} × ${judges} × classes entered${scopeNote}.`
+        : `${rate} per judge, per class entered${scopeNote}.`;
     default:
       return '';
   }
@@ -127,6 +213,7 @@ export default function ShowChargesEditor({
   initialCharges,
   judgeCount,
   judgesHref,
+  officeChargeSection,
 }: {
   showId: string;
   initialCharges: ShowCharge[];
@@ -137,6 +224,11 @@ export default function ShowChargesEditor({
   judgeCount: number;
   /** Where to go and fix an empty panel. */
   judgesHref?: string;
+  /** The office charge control, rendered inside this box instead of its own.
+   *  The caller keeps its own state, save button and timing — this only
+   *  changes where the markup sits, so `EntryFeesEditor` can keep saving on
+   *  press and `FeesClient` can keep batching it with the rest of the step. */
+  officeChargeSection?: React.ReactNode;
 }) {
   const router = useRouter();
 
@@ -150,6 +242,7 @@ export default function ShowChargesEditor({
           amount: dollarsFromCents(c.amount_cents),
           unit: c.unit,
           notes: c.notes ?? '',
+          breedAssociationOnly: c.breed_association_only,
         },
       ]),
     ),
@@ -163,8 +256,24 @@ export default function ShowChargesEditor({
     amount: '',
     unit: 'per_horse',
     notes: '',
+    breedAssociationOnly: false,
   });
   const [error, setError] = useState<string | null>(null);
+
+  /** Opens the add-a-fee form pre-filled from a preset — the manager only has
+   *  to type the amount. The label is a starting point, not locked in;
+   *  they're free to rename it before pressing Add. */
+  const startQuickAdd = (preset: (typeof QUICK_ADD_PRESETS)[number]) => {
+    setNewRow({
+      label: preset.label,
+      amount: '',
+      unit: preset.unit,
+      notes: '',
+      breedAssociationOnly: preset.breedAssociationOnly ?? false,
+    });
+    setShowAddForm(true);
+    setError(null);
+  };
 
   const draftFor = (charge: ShowCharge): Draft =>
     drafts[charge.id] ?? {
@@ -172,6 +281,7 @@ export default function ShowChargesEditor({
       amount: dollarsFromCents(charge.amount_cents),
       unit: charge.unit,
       notes: charge.notes ?? '',
+      breedAssociationOnly: charge.breed_association_only,
     };
 
   const patchDraft = (charge: ShowCharge, patch: Partial<Draft>) =>
@@ -198,6 +308,7 @@ export default function ShowChargesEditor({
         amount_cents: cents,
         unit: draft.unit,
         notes: draft.notes.trim() || null,
+        breed_association_only: draft.breedAssociationOnly,
       }),
     });
     setBusyId(null);
@@ -246,6 +357,7 @@ export default function ShowChargesEditor({
         amount_cents: cents,
         unit: newRow.unit,
         notes: newRow.notes.trim() || null,
+        breed_association_only: newRow.breedAssociationOnly,
         sort_order: charges.length,
       }),
     });
@@ -260,9 +372,10 @@ export default function ShowChargesEditor({
           amount: dollarsFromCents(created.amount_cents),
           unit: created.unit,
           notes: created.notes ?? '',
+          breedAssociationOnly: created.breed_association_only,
         },
       }));
-      setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '' });
+      setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '', breedAssociationOnly: false });
       setShowAddForm(false);
       router.refresh();
     } else {
@@ -279,6 +392,11 @@ export default function ShowChargesEditor({
       className="p-4 rounded-lg border space-y-3"
       style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
     >
+      {officeChargeSection && (
+        <div className="pb-3 border-b space-y-3" style={{ borderColor: COLORS.soft }}>
+          {officeChargeSection}
+        </div>
+      )}
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
@@ -301,6 +419,28 @@ export default function ShowChargesEditor({
           </button>
         )}
       </div>
+
+      {/* Named starting points for the two "by horse and by judge at once"
+          questions this box gets asked most — a manager wanting either does
+          not have to already know which of eleven units means it. Picking one
+          opens the form below with the unit set; only the amount is left to
+          type. */}
+      {!showAddForm && (
+        <div className="flex flex-wrap gap-1.5">
+          {QUICK_ADD_PRESETS.map((preset) => (
+            <button
+              key={preset.unit + preset.label}
+              type="button"
+              onClick={() => startQuickAdd(preset)}
+              title={preset.blurb}
+              className="text-xs px-2.5 py-1 rounded-full border hover:bg-amber-50 whitespace-nowrap"
+              style={{ borderColor: COLORS.soft, color: COLORS.muted }}
+            >
+              + {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
 
@@ -335,6 +475,7 @@ export default function ShowChargesEditor({
               (cents !== charge.amount_cents ||
                 draft.label !== charge.label ||
                 draft.unit !== charge.unit ||
+                draft.breedAssociationOnly !== charge.breed_association_only ||
                 (draft.notes.trim() || null) !== (charge.notes ?? null));
             return (
               <li key={charge.id} className="py-2.5 space-y-1.5">
@@ -405,10 +546,20 @@ export default function ShowChargesEditor({
                     </button>
                   )}
                 </div>
+                {draft.unit !== 'per_judge_per_entry' && (
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.muted }}>
+                    <input
+                      type="checkbox"
+                      checked={draft.breedAssociationOnly}
+                      onChange={(e) => patchDraft(charge, { breedAssociationOnly: e.target.checked })}
+                    />
+                    Only the breed association&apos;s own classes — not ones a club sanctions outright
+                  </label>
+                )}
                 <p className="text-xs" style={{ color: COLORS.muted }}>
                   {invalid
                     ? 'Enter an amount like 8 or 8.50.'
-                    : chargeExplanation(draft.unit, cents ?? 0, judgeCount)}
+                    : chargeExplanation(draft.unit, cents ?? 0, judgeCount, draft.breedAssociationOnly)}
                 </p>
                 <input
                   value={draft.notes}
@@ -462,6 +613,18 @@ export default function ShowChargesEditor({
               value={newRow.unit}
               onChange={(unit) => setNewRow((p) => ({ ...p, unit }))}
             />
+            {newRow.unit !== 'per_judge_per_entry' && (
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: COLORS.muted }}>
+                <input
+                  type="checkbox"
+                  checked={newRow.breedAssociationOnly}
+                  onChange={(e) =>
+                    setNewRow((p) => ({ ...p, breedAssociationOnly: e.target.checked }))
+                  }
+                />
+                Breed association&apos;s classes only
+              </label>
+            )}
             <button
               type="button"
               onClick={add}
@@ -475,7 +638,7 @@ export default function ShowChargesEditor({
               type="button"
               onClick={() => {
                 setShowAddForm(false);
-                setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '' });
+                setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '', breedAssociationOnly: false });
                 setError(null);
               }}
               className="text-xs hover:underline"
@@ -485,7 +648,12 @@ export default function ShowChargesEditor({
             </button>
           </div>
           <p className="text-xs" style={{ color: COLORS.muted }}>
-            {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
+            {chargeExplanation(
+              newRow.unit,
+              centsFromDollars(newRow.amount) ?? 0,
+              judgeCount,
+              newRow.breedAssociationOnly,
+            )}
           </p>
           <input
             value={newRow.notes}

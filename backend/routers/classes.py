@@ -19,6 +19,7 @@ from models import (
     ShowType,
     Discipline,
     Division,
+    FuturityClass,
     discipline_divisions,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -390,11 +391,24 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .correlate(Class)
         .scalar_subquery()
     )
+    # Whether this class belongs to a futurity programme. A futurity class
+    # carries `entry_fee_cents = 0` by design -- the futurity's own fee tier
+    # supplies the rate, which depends on the entrant's category and cannot
+    # live on the class row -- so anything that offers to price classes in
+    # bulk (the Entry Fees screen's default-fill) has to be able to leave
+    # these alone, the same way it already leaves club-sanctioned ones alone.
+    futurity_subq = (
+        select(func.count(FuturityClass.futurity_id))
+        .where(FuturityClass.class_id == Class.id)
+        .correlate(Class)
+        .scalar_subquery()
+    )
     result = await db.execute(
         select(
             Class,
             placed_subq.label("placed_count"),
             entry_subq.label("entry_count"),
+            futurity_subq.label("futurity_class_count"),
             Ring.name.label("ring_name"),
             Ring.sort_order.label("ring_sort_order"),
             Discipline.name.label("discipline_name"),
@@ -430,11 +444,13 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 for row in (cls.sanctioning or [])
                 if row.association is not None
             ],
+            "is_futurity_class": futurity_class_count > 0,
         }
         for (
             cls,
             placed_count,
             entry_count,
+            futurity_class_count,
             ring_name,
             ring_sort_order,
             discipline_name,

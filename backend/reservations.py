@@ -45,15 +45,24 @@ STALL_UNITS = frozenset({"per_stall"})
 
 # The units a floor may be set on at all.
 #
-# Narrower than `RESERVABLE_FEE_UNITS`, and the missing ones are the camping
-# family (`per_night` / `per_day` / `per_show`). A minimum here is a *policy*
-# -- "we will not have horses bedded on less than this", "every rig takes a
-# stall" -- and no show has ever required everybody who enters to also camp.
-# Offering the control there put a box on the setup screen whose own
-# explanation ("required of everyone who signs up") was nonsense against the
-# line it sat under, and a stray value in it would have refused sign-ups for
-# not booking a camping spot.
-REQUIRABLE_FEE_UNITS = BEDDING_UNITS | STALL_UNITS
+# Bedding only -- not camping (`per_night` / `per_day` / `per_show`), for the
+# reason below, and not stalls either. A minimum stall count was offered here
+# once, on the reasoning that a venue requiring two stalls a rig is no
+# stranger than one requiring four bags -- but nobody has ever needed a floor
+# under how many stalls an exhibitor books: they book what they need, and
+# there is no venue policy like "every rig takes a stall" the way "every stall
+# gets bedded" is a real one. A bag count is different -- the venue is stating
+# how deep it wants a stall bedded, which is a fact about the *grounds*, not
+# about the booking. So this is bedding's alone.
+#
+# Camping is excluded for the reason its own comment used to give: a minimum
+# is a *policy* -- "we will not have horses bedded on less than this" -- and
+# no show has ever required everybody who enters to also camp. Offering the
+# control there put a box on the setup screen whose own explanation
+# ("required of everyone who signs up") was nonsense against the line it sat
+# under, and a stray value in it would have refused sign-ups for not booking a
+# camping spot.
+REQUIRABLE_FEE_UNITS = BEDDING_UNITS
 
 
 def _quantity(requested: Mapping[UUID, int], fee_id: UUID) -> int:

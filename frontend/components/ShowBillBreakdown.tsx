@@ -140,11 +140,21 @@ export default function ShowBillBreakdown({
  */
 function ChargeLine({ line }: { line: BillChargeLine }) {
   const parts = [formatMoney(line.amount_cents)];
-  if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
+  if (
+    line.unit === 'per_judge_per_horse' ||
+    line.unit === 'per_judge_per_exhibitor' ||
+    line.unit === 'per_judge_per_entry'
+  ) {
     parts.push(`× ${line.judge_count} judge${line.judge_count === 1 ? '' : 's'}`);
   }
   if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
     parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
+  }
+  if (line.unit === 'per_judge_per_entry') {
+    // Only the breed association's own class entries — a class a club like
+    // WSCA or MNSPHC sanctions outright is not counted, so this can read
+    // lower than the exhibitor's total entry count on the same bill.
+    parts.push(`× ${line.entry_count} ${line.entry_count === 1 ? 'entry' : 'entries'}`);
   }
   return (
     <>
@@ -153,6 +163,19 @@ function ChargeLine({ line }: { line: BillChargeLine }) {
         <span className="text-xs" style={{ color: '#8b7355' }}>
           {' '}({parts.join(' ')})
         </span>
+        {/* per_judge_per_entry always reads this way, so the note there would
+            be redundant with the ×N entries breakdown just above — only worth
+            saying out loud on a unit that would otherwise look like it counts
+            everything. */}
+        {line.scoped_to_breed_association && line.unit !== 'per_judge_per_entry' && (
+          <span
+            className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
+            style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+            title="Counted only against horses/entries in the breed association's own classes"
+          >
+            breed classes only
+          </span>
+        )}
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
     </>

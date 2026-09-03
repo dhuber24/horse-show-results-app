@@ -152,9 +152,18 @@ def test_no_camping_unit_can_be_required(unit):
     assert required_quantity(_fee(unit, min_quantity=3), show=_show(), stalls=2) == 0
 
 
-@pytest.mark.parametrize("unit", ["per_stall", "per_bag"])
-def test_stalls_and_bedding_still_can_be(unit):
-    assert required_quantity(_fee(unit, min_quantity=3), show=_show(), stalls=2) == 3
+def test_a_stall_count_takes_no_minimum_either():
+    """Offered once, on the same reasoning as bedding -- a venue requiring two
+    stalls a rig seemed no stranger a case than one requiring four bags. It
+    is: an exhibitor books however many stalls they need, and there is no
+    venue policy shaped like "every rig takes a stall" the way "every stall
+    gets bedded this deep" is a real one. Only bedding states a fact about the
+    grounds; a stall count is just how many the exhibitor asked for."""
+    assert required_quantity(_fee("per_stall", min_quantity=3), show=_show(), stalls=2) == 0
+
+
+def test_bedding_still_can_be_required():
+    assert required_quantity(_fee("per_bag", min_quantity=3), show=_show(), stalls=2) == 3
 
 # -- Classes you qualify into ------------------------------------------------
 

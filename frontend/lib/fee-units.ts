@@ -25,8 +25,7 @@ export type FeeUnit =
   | 'per_show'
   | 'percent_of_entry';
 
-/** Quantities an exhibitor books at sign-up. The only units that may carry an
- *  early rate, because an early rate is chosen by the day a line was booked. */
+/** Quantities an exhibitor books at sign-up. */
 export const RESERVABLE_FEE_UNITS = [
   'per_stall',
   'per_bag',
@@ -34,6 +33,29 @@ export const RESERVABLE_FEE_UNITS = [
   'per_day',
   'per_show',
 ] as const satisfies readonly FeeUnit[];
+
+/** Which reservable units may additionally carry an early rate. Mirrors
+ *  `EARLY_RATE_FEE_UNITS` in backend/billing.py — bags are the one exception.
+ *  A stall or a camping spot has a real reserve-early convention on a paper
+ *  show bill; a bag count does not, so the control does not offer one. */
+export const EARLY_RATE_FEE_UNITS = RESERVABLE_FEE_UNITS.filter(
+  (u) => u !== 'per_bag',
+) as readonly FeeUnit[];
+
+/** Which reservable units the show may require a minimum quantity of. Mirrors
+ *  `REQUIRABLE_FEE_UNITS` in backend/reservations.py — bedding only. A
+ *  minimum is a policy about the grounds ("every stall gets bedded this
+ *  deep"), and neither a stall count nor a camping spot is that: an
+ *  exhibitor books however many of either they need. */
+export const REQUIRABLE_FEE_UNITS = ['per_bag'] as const satisfies readonly FeeUnit[];
+
+export function canHaveEarlyRate(unit: string): boolean {
+  return (EARLY_RATE_FEE_UNITS as readonly string[]).includes(unit);
+}
+
+export function canHaveMinimumQuantity(unit: string): boolean {
+  return (REQUIRABLE_FEE_UNITS as readonly string[]).includes(unit);
+}
 
 /** Charges the show applies to every exhibitor who has entered a class,
  *  derived from what they entered and the size of the judge panel. Nobody

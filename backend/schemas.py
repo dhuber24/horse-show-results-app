@@ -830,6 +830,10 @@ class ShowFeeCreate(BaseModel):
     # (migration 128). Only meaningful on a reservable unit, which the router
     # checks -- the unit families live in billing.py, not in the schema.
     min_quantity: int = Field(default=0, ge=0, le=999)
+    # Whether this automatic charge counts only breed-association classes
+    # (migration 130). Only meaningful on an automatic unit, which the router
+    # checks the same way it checks min_quantity's unit.
+    breed_association_only: bool = False
 
 
 class ShowFeeUpdate(BaseModel):
@@ -842,6 +846,7 @@ class ShowFeeUpdate(BaseModel):
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
     min_quantity: Optional[int] = Field(default=None, ge=0, le=999)
+    breed_association_only: Optional[bool] = None
 
 
 class ShowFeeOut(BaseModel):
@@ -856,6 +861,7 @@ class ShowFeeOut(BaseModel):
     early_amount_cents: Optional[int] = None
     early_deadline: Optional[date] = None
     min_quantity: int = 0
+    breed_association_only: bool = False
     created_at: datetime
     # How many exhibitors have booked a quantity against this row. Filled in by
     # the staff list endpoint only; it stays 0 on the public price list, which

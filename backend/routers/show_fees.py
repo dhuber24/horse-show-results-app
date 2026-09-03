@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from uuid import UUID
 
-from billing import RESERVABLE_FEE_UNITS
+from billing import RESERVABLE_FEE_UNITS, EARLY_RATE_FEE_UNITS, AUTOMATIC_FEE_UNITS
 from reservations import REQUIRABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
@@ -90,25 +90,59 @@ def _assert_early_rate_valid(
             "An early rate only applies to fees exhibitors reserve a quantity "
             "of at sign-up (per stall, per bag, per night, per day, per show).",
         )
+    if unit not in EARLY_RATE_FEE_UNITS:
+        raise HTTPException(
+            422,
+            "An early rate does not apply to shavings — there is no "
+            "reserve-early convention for a bag count the way there is for a "
+            "stall or a camping spot.",
+        )
 
 
 def _assert_min_quantity_valid(*, unit: str, min_quantity: int | None) -> None:
     """A floor only means something on a line the show can require of everybody.
 
     Narrower than the early-rate guard above it, which takes any reservable
-    unit. A minimum is a *policy* -- "we will not have horses bedded on less
-    than this", "every rig takes a stall" -- and nothing about camping is like
-    that: no show requires everyone who enters to also book a spot. Setting one
-    there would refuse a sign-up for not camping. See `REQUIRABLE_FEE_UNITS`.
+    unit but bedding. A minimum is a *policy* about the grounds -- "every
+    stall gets bedded this deep" -- and nothing else on a show's booking form
+    is like that. Not stalls: an exhibitor books however many stalls they
+    need, and there is no venue policy shaped like "every rig takes a stall"
+    the way "every stall gets bedded" is a real one. Not camping either: no
+    show requires everyone who enters to also book a spot. Setting one on
+    either would refuse a sign-up for not camping, or for booking one stall
+    instead of two. See `REQUIRABLE_FEE_UNITS`.
     """
     if not min_quantity:
         return
     if unit not in REQUIRABLE_FEE_UNITS:
         raise HTTPException(
             422,
-            "A minimum quantity only applies to stalls and bedding — the lines "
-            "a show can require of everybody. Camping is booked by whoever "
-            "wants it.",
+            "A minimum quantity only applies to bedding — the one line a "
+            "show states a real venue policy about. Stalls and camping are "
+            "booked by whoever wants them.",
+        )
+
+
+def _assert_breed_association_only_valid(*, unit: str, breed_association_only: bool | None) -> None:
+    """Scoping to the breed association's own classes only means something on
+    a charge that is actually charged automatically.
+
+    Discovered from a real show bill: a hand-built `per_horse` "APHA All Day
+    fee" carried a note reading "APHA classes only... All Breed (MNSPHC or
+    WSCA) classes... are not included" because nothing on the row itself could
+    say that. `per_judge_per_entry` already scopes itself unconditionally --
+    it is the breed body's own per-entry assessment by definition -- so
+    setting this flag there is accepted but changes nothing.
+    """
+    if not breed_association_only:
+        return
+    if unit not in AUTOMATIC_FEE_UNITS:
+        raise HTTPException(
+            422,
+            "Scoping to the breed association's own classes only applies to "
+            "charges that bill automatically (per exhibitor, per horse, or "
+            "per judge) — not to a published price or something an "
+            "exhibitor books.",
         )
 
 
@@ -200,6 +234,9 @@ async def create_show_fee(
         early_deadline=body.early_deadline,
     )
     _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
+    _assert_breed_association_only_valid(
+        unit=body.unit, breed_association_only=body.breed_association_only
+    )
     fee = ShowFee(show_id=show_id, **body.model_dump())
     db.add(fee)
     await db.commit()
@@ -268,6 +305,10 @@ async def update_show_fee(
     _assert_min_quantity_valid(
         unit=updates.get("unit", fee.unit),
         min_quantity=updates.get("min_quantity", fee.min_quantity),
+    )
+    _assert_breed_association_only_valid(
+        unit=updates.get("unit", fee.unit),
+        breed_association_only=updates.get("breed_association_only", fee.breed_association_only),
     )
     # A booked quantity has no meaning apart from the unit it was booked under.
     # `build_bill` multiplies rate x quantity and never reads the unit, so

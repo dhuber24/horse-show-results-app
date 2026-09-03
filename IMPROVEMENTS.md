@@ -2,6 +2,40 @@
 
 ## September 2026
 
+### Two More Controls That Answered A Question Nobody Was Asking
+
+Following on from the camping-minimum fix below: **stalls don't need a minimum either.** It was offered on the same reasoning as bedding — a venue requiring two stalls a rig seemed no stranger than one requiring four bags — but nobody ever used it, because a stall count has no venue policy behind it the way a bag count does. An exhibitor books however many stalls they need; there is no "every rig takes a stall" fact about the grounds for a floor to state. `REQUIRABLE_FEE_UNITS` (`backend/reservations.py`) is now `per_bag` alone, and `required_quantity` returns 0 for a stall regardless of what is stored — the same defense-in-depth already applied to camping.
+
+**And shavings don't get an early rate.** Every other reservable line — a stall, a camping spot — has a real "reserve by this date, pay less" convention on a paper show bill; a bag count does not, and the control sat there anyway because the room was offered to every reservable unit uniformly. `EARLY_RATE_FEE_UNITS` (`backend/billing.py`) excludes `per_bag` from `RESERVABLE_FEE_UNITS`, `_assert_early_rate_valid` refuses one on the way in, and `has_early_rate` refuses to honor one already stored — the same read-time guard as the two changes above it, for the same reason: the column predates the rule.
+
+### An Assessment Fee Is The Breed Body's Own, And A Show's Own Charge Can Say So Too
+
+A real show bill made the gap visible. Two hand-built `per_horse` rows, "APHA All Day fee — Open, Amateur & Novice Amateur (one horse)" at $180.00 and its Youth counterpart at $140.00, each carrying a note reading *"$45 per judge x 4 APHA judges, one horse, APHA classes only. Does not include APHA fees; All Breed (MNSPHC or WSCA) classes and side pots are not included."* The secretary had already worked out the rule and the arithmetic by hand — $45 × 4 judges = $180 — because nothing on the row itself could say "only horses entered in an APHA class count toward this," and nothing multiplied the judge count for them either.
+
+Two changes close that gap, at two different depths.
+
+**`per_judge_per_entry` — the breed body's own per-entry assessment (APHA SC-125.B and its kin) — now scopes itself unconditionally.** It previously counted every entry on the bill; a horse showing only in WSCA or MNSPHC's All Breed classes was being charged an APHA assessment on classes APHA never sees a result from. `billing.is_club_sanctioned_class` reads `class_sanctioning` (the same table the club sanction *fee* already uses) to tell a club's own class apart from the breed association's, and `breed_association_entry_count` is what the assessment counts against instead of every entry.
+
+**A show's own invented charge can opt into the same scoping.** `show_fees.breed_association_only` (migration 130) is the checkbox next to `ShowChargesEditor`'s unit picker. Off by default — every existing fee, including the two rows above, keeps billing exactly as it always has until a manager ticks it. `billing.charge_lines` was restructured to take the raw entry list rather than precomputed counts specifically so it can decide the scope *per fee row*: one bill can carry a scoped assessment and an unscoped drug fee at once, each reading a different horse/entry count off the same entries. `charge_multiplier` gained a `has_relevant_entries` parameter for the same reason `per_horse` needed a substituted count — `per_exhibitor` and `per_judge_per_exhibitor` have no count of their own to zero out when an exhibitor's only entries fall outside a scoped fee's reach.
+
+A fourth quick-add preset ("All-day fee (per horse, per judge, breed classes only)") offers the shape those two real rows should have used — `per_judge_per_horse` at $45/$35, computed rather than pre-multiplied by hand, so a fifth judge joining the panel doesn't mean remembering to retype $180 as $225.
+
+### Two Boxes For One Question, Made One
+
+The office charge (`shows.office_charge_cents` / `office_charge_basis`) lived in its own bordered box, above **Other fees**, on the reasoning that it is a column on `shows` rather than a `show_fees` row. To an exhibitor reading a bill it is not a different kind of thing — it is one more automatic charge sitting next to a drug fee or an assessment — so a manager configuring "what does this show add on top" was reading two boxes for one question. `ShowChargesEditor` now accepts an `officeChargeSection` prop and renders it inside its own box, above the "Other fees" heading. Nothing about *how* it saves changed: `EntryFeesEditor`'s copy still saves the instant its own button is pressed, `FeesClient`'s copy still batches into the setup step's Save — the prop only moved where the markup sits, not the state model behind it.
+
+The same box also gained **quick-add presets** — three named starting points ("Office fee (per horse)", "Office fee (per horse, per judge)", "Association assessment (per judge, per entry)") for a manager who does not already know that `per_judge_per_horse` and `per_judge_per_entry` compute exactly the two questions this box gets asked most. Both units already existed and already computed correctly; what did not exist was a place that named them apart from a list of eleven, and `chargeExplanation` had a real gap of its own — it returned an empty string for `per_judge_per_entry`, so the one unit doing genuinely non-obvious arithmetic (classes entered, not horses) was the one with no worked example on screen.
+
+### The Class Fees Box Can Fill Itself In, Carefully
+
+`EntryFeesEditor`'s "Class entry fees" table asked a secretary to type the same number into ~130 rows by hand for a show whose entry fee is genuinely uniform across most of its APHA class list. A new default-price control fills every still-unpriced (`entry_fee_cents = 0`) class in one action — but only the ones `isDefaultFillable` says are genuinely unpriced, which turned out to need three exclusions rather than one:
+
+- **Club-sanctioned classes** (`sanctioning_codes`) already carry their own price, set by that club — a WSCA class costs $10, an MNSPHC class costs $32, and neither is the breed association's number to overwrite.
+- **Grand & Reserve callbacks** (`entered_by_qualification`, migration 129) have nobody to price — nobody enters one directly.
+- **Futurity classes** (`is_futurity_class`, new on `GET /shows/{id}/classes/`) are priced by the futurity's own fee tier; filling one in here would double-charge every entrant, which is exactly the mistake the `standard_class` fee slot already carries a warning about.
+
+On the real MNSPHC show all eighteen of its $0 breed-association-adjacent classes turned out to be the second or third kind — a genuinely empty fill list, which is the correct answer, not a bug: there was nothing safe to bulk-price. A synthetic test class confirmed the happy path separately. Rows priced despite carrying either exclusion flag get a `⚠ priced anyway` badge, since that combination should never happen and is worth a second look when it does.
+
 ### A Minimum Is Not A Camping Question
 
 The floor added with migration 128 was offered against every reservable line on setup Step 4, on the reasoning that a venue requiring two stalls a rig is no stranger a case than one requiring four bags. That holds for stalls. It does not hold for camping: nobody makes an exhibitor book a spot in order to be allowed to enter, so the box sat under the camping line asking a question with no sensible answer, above an explanation — *"required of everyone who signs up … a sign-up with none of this line is refused"* — that read as nonsense there.

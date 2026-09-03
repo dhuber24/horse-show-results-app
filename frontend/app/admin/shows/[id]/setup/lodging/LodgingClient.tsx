@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { canHaveEarlyRate } from '@/lib/fee-units';
 
 export type FeeRow = {
   id: string;
@@ -74,12 +75,13 @@ type Slot = {
   units: readonly UnitChoice[];
   /** Whether this line is one the show can require of everybody.
    *
-   *  Stalls and bedding are: "every rig takes a stall", "we will not have
-   *  horses bedded on less than this". Camping is not — nobody makes an
-   *  exhibitor book a spot to be allowed to enter, so the box asked a question
-   *  with no sensible answer and its own explanation ("required of everyone
-   *  who signs up") read as nonsense under it. `POST/PATCH /shows/{id}/fees`
-   *  refuses a minimum on a camping unit for the same reason. */
+   *  Bedding is the only one: "we will not have horses bedded on less than
+   *  this" is a real venue policy. Stalls and camping are not — an exhibitor
+   *  books however many stalls they need, and nobody makes an exhibitor book
+   *  a camping spot to be allowed to enter — so the box asked a question with
+   *  no sensible answer and its own explanation ("required of everyone who
+   *  signs up") read as nonsense under either. `POST/PATCH /shows/{id}/fees`
+   *  refuses a minimum on anything but bedding for the same reason. */
   requirable: boolean;
   notesPlaceholder: string;
 };
@@ -93,7 +95,7 @@ const SLOTS: readonly Slot[] = [
     units: [
       { value: 'per_stall', choice: 'Per stall', noun: 'stall', placeholder: 'e.g. 75.00' },
     ],
-    requirable: true,
+    requirable: false,
     notesPlaceholder: '',
   },
   {
@@ -140,6 +142,13 @@ const SLOTS: readonly Slot[] = [
     notesPlaceholder: 'e.g. Electric included; spots are requested, not guaranteed',
   },
 ];
+
+/** Whether any unit this slot offers may carry an early rate. A slot with
+ *  several units (camping) qualifies if any of them do; shavings has exactly
+ *  one unit and it does not. */
+function earlyRateAllowed(slot: Slot): boolean {
+  return slot.units.some((u) => canHaveEarlyRate(u.value));
+}
 
 function centsToDollars(cents: number): string {
   return (cents / 100).toFixed(2);
@@ -475,54 +484,62 @@ export default function LodgingClient({
                   {unitLocked && <> {lockReason}</>}
                 </p>
               )}
-              <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-                <span className="text-xs" style={{ color: COLORS.muted }}>
-                  Early rate{' '}
-                  <span style={{ color: '#a08a6e' }}>
-                    (optional — cheaper if they reserve by the date)
+              {/* Not offered on shavings. Every other reservable line has a
+                  real reserve-early convention on a paper show bill — book a
+                  stall or a camping spot by a date, pay less. A bag count has
+                  no such convention; the control used to sit here anyway, a
+                  box with nothing behind it for a secretary to fill in. */}
+              {earlyRateAllowed(s) && (
+                <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
+                  <span className="text-xs" style={{ color: COLORS.muted }}>
+                    Early rate{' '}
+                    <span style={{ color: '#a08a6e' }}>
+                      (optional — cheaper if they reserve by the date)
+                    </span>
                   </span>
-                </span>
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Early amount ($)
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={slot.earlyDollars}
-                    onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    placeholder="e.g. 60.00"
-                    aria-label={`${s.title} — early rate amount`}
-                  />
-                </label>
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Reserve by
-                  </span>
-                  <input
-                    type="date"
-                    value={slot.earlyDeadline}
-                    onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    aria-label={`${s.title} — early rate deadline`}
-                  />
-                </label>
-              </div>
+                  <label className="block">
+                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                      Early amount ($)
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={slot.earlyDollars}
+                      onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
+                      className="w-full border rounded px-3 py-2"
+                      style={{ borderColor: COLORS.border }}
+                      placeholder="e.g. 60.00"
+                      aria-label={`${s.title} — early rate amount`}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                      Reserve by
+                    </span>
+                    <input
+                      type="date"
+                      value={slot.earlyDeadline}
+                      onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
+                      className="w-full border rounded px-3 py-2"
+                      style={{ borderColor: COLORS.border }}
+                      aria-label={`${s.title} — early rate deadline`}
+                    />
+                  </label>
+                </div>
+              )}
               {/* The floor an exhibitor cannot book under. It belongs beside
                   the shavings ban most of all: banning outside shavings tells
                   the exhibitor to buy bedding here, and "buy some" with no
                   number is a stall bedded with two bags where the show wanted
                   four.
 
-                  Only where the show can require the line of everybody, which
-                  is stalls and bedding. Camping is not that — nobody makes an
-                  exhibitor book a spot to be allowed to enter — so the box was
-                  asking a question with no sensible answer, under an
-                  explanation ("required of everyone who signs up") that read as
-                  nonsense against a camping line. */}
+                  Bedding only. A minimum states a fact about the grounds —
+                  "every stall gets bedded this deep" — and neither a stall
+                  count nor a camping spot is that: an exhibitor books however
+                  many of either they need, and asking for a floor under it was
+                  a question with no sensible answer, under an explanation
+                  ("required of everyone who signs up") that read as nonsense
+                  against either line. */}
               {s.requirable && (
                 <label className="block sm:max-w-xs">
                   <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
