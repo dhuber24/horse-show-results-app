@@ -25,7 +25,7 @@ export default async function SetupHubPage({
 
   // One source for what each step has on file — the step pages read the same
   // helper, so the hub and the stepper can never disagree about what is done.
-  const counts = await fetchStepCounts(id, show.office_charge_cents ?? 0);
+  const counts = await fetchStepCounts(id);
   const steps = buildSteps(counts);
 
   return (

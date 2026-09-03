@@ -24,11 +24,12 @@ import {
  * owns an outer "Class Fees" box (Entry Fees, which also holds the per-class
  * pricing table) render this without a second border and a second heading.
  *
- * The office charge on the show row is not *edited* here — it is a column on
- * `shows`, not a fee row, and each caller still owns its own control and save
- * timing for it (`EntryFeesEditor` saves it the moment you press Save;
- * `FeesClient` batches it into the setup step's own Save button).
- * `officeChargeSection` is the caller's own markup, rendered inside this box.
+ * The office charge is one of these rows (migration 132) and has no special
+ * control of its own. It was `shows.office_charge_cents` + a basis column,
+ * which meant a bespoke box, bespoke state and a bespoke save button for a
+ * charge that is, to an exhibitor's bill, a `per_exhibitor` or `per_horse` fee
+ * like any other. A converted show has an "Office charge" row here, renamable
+ * and removable; a new show adds one from the quick-add presets.
  *
  * Every automatic charge counts only the breed association's own classes —
  * not ones a club like WSCA or MNSPHC sanctions outright, which already
@@ -73,6 +74,14 @@ const QUICK_ADD_PRESETS: {
   notes?: string;
   blurb: string;
 }[] = [
+  // The two shapes the old `shows.office_charge_basis` column offered, now
+  // just two presets: `per_back_number` was `per_exhibitor` and `per_horse`
+  // was `per_horse` (migration 132).
+  {
+    label: 'Office fee (per exhibitor)',
+    unit: 'per_exhibitor',
+    blurb: 'Once per exhibitor, however many horses they bring — one back number, one charge.',
+  },
   {
     label: 'Office fee (per horse)',
     unit: 'per_horse',
@@ -205,7 +214,6 @@ export default function ShowChargesEditor({
   initialCharges,
   judgeCount,
   judgesHref,
-  officeChargeSection,
   boxed = true,
 }: {
   showId: string;
@@ -217,11 +225,6 @@ export default function ShowChargesEditor({
   judgeCount: number;
   /** Where to go and fix an empty panel. */
   judgesHref?: string;
-  /** The office charge control, rendered inside this box instead of its own.
-   *  The caller keeps its own state, save button and timing — this only
-   *  changes where the markup sits, so `EntryFeesEditor` can keep saving on
-   *  press and `FeesClient` can keep batching it with the rest of the step. */
-  officeChargeSection?: React.ReactNode;
   /** False when a parent already renders the outer "Class Fees" box (Entry
    *  Fees, which also holds the per-class pricing table below this) — skips
    *  this component's own border and top-level heading so there is exactly
@@ -381,11 +384,6 @@ export default function ShowChargesEditor({
 
   const content = (
     <>
-      {officeChargeSection && (
-        <div className="pb-3 border-b space-y-3" style={{ borderColor: COLORS.soft }}>
-          {officeChargeSection}
-        </div>
-      )}
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <div>
           {boxed && (

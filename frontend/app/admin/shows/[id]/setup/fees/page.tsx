@@ -41,7 +41,7 @@ export default async function SetupFeesPage({
         [],
       ),
       fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/classes/`, []),
-      fetchStepCounts(id, show.office_charge_cents ?? 0),
+      fetchStepCounts(id),
     ]);
   // A per-class sanction fee only bills on classes the club approves, so the
   // amount on its own does not say whether it charges anybody. See migration 113.
@@ -63,16 +63,11 @@ export default async function SetupFeesPage({
       showName={show.name}
       current="fees"
       title="Step 5: Show Fees"
-      subtitle="Office charge and any class fee this show adds — per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 6; per-sanctioning class fees come from Step 3; futurity pricing comes from Step 7."
-      stepsInput={{
-        ...stepsInput,
-        feesCount: charges.length > 0 || (show.office_charge_cents ?? 0) > 0 ? 1 : 0,
-      }}
+      subtitle="Every class fee this show adds — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 6; futurity pricing comes from Step 7."
+      stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
     >
       <FeesClient
         showId={id}
-        initialOfficeChargeCents={show.office_charge_cents ?? 0}
-        initialOfficeChargeBasis={show.office_charge_basis ?? 'per_back_number'}
         initialCharges={charges}
         judgeCount={judges.length}
         sanctioning={sanctioning}

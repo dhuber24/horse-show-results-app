@@ -30,7 +30,7 @@ export default async function FuturitiesPage({
   const [classes, futurities, stepsInput] = await Promise.all([
     fetchClasses(id),
     loadFuturities(id),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
+    fetchStepCounts(id),
   ]);
 
   return (

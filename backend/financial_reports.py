@@ -110,14 +110,11 @@ def _revenue_summary(fin: dict) -> dict:
         totals["sanction_total_cents"],
         "Per-class fee for each club sanctioning the class entered",
     )
-    add(
-        "Office charge",
-        totals["office_charge_total_cents"],
-        "per horse" if fin.get("office_charge_basis") == "per_horse" else "per back number",
-    )
-    # The show's own automatic charges, each on its own row. Folding them into
-    # one "other fees" line would hide the thing the office opens this report to
-    # find out — which charge the money came from.
+    # The show's own automatic charges, each on its own row — the office charge
+    # among them since migration 132 made it an ordinary fee row rather than a
+    # column, so it no longer needs a line of its own above this loop. Folding
+    # them into one "other fees" line would hide the thing the office opens this
+    # report to find out — which charge the money came from.
     for charge in totals.get("charge_lines", []):
         add(
             charge["label"],

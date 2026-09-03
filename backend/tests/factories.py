@@ -23,14 +23,13 @@ def make_show(**overrides) -> SimpleNamespace:
     defaults = dict(
         id=uuid4(),
         # Money
-        office_charge_cents=0,
-        office_charge_basis="per_back_number",
         sanctioning=[],
         # `build_bill` reads the show's own fee catalog and its judge panel off
-        # the Show row, the same way it reads `office_charge_cents`. Defaulted
-        # to empty so a test about class fees says nothing about either — and
-        # present at all so a test that forgets them fails the way the app does
-        # rather than passing on a stub the ORM would never hand over.
+        # the Show row, the same way it reads `sanctioning`. Defaulted to empty
+        # so a test about class fees says nothing about either — and present at
+        # all so a test that forgets them fails the way the app does rather
+        # than passing on a stub the ORM would never hand over. The office
+        # charge is one of these `fees` rows since migration 132.
         fees=[],
         judges=[],
         # Dates

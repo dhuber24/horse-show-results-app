@@ -26,10 +26,7 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-export async function fetchStepCounts(
-  showId: string,
-  officeChargeCents: number,
-): Promise<WizardStepsInput> {
+export async function fetchStepCounts(showId: string): Promise<WizardStepsInput> {
   const [judges, sanctioning, fees, classes, futurities, showbill] = await Promise.all([
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
@@ -45,12 +42,13 @@ export async function fetchStepCounts(
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
-  // A show whose only Step 5 money is a class fee — a drug fee per horse, a
-  // jackpot line, whatever a manager named — has done the step. Matched by
-  // unit rather than by code, because a manager names these themselves and
-  // there is no fixed code to look for any more (see CLASS_FEE_EDITOR_UNITS).
-  const chargeCount = fees.filter((f) => isClassFeeEditorUnit(f.unit)).length;
-  const feesDone = chargeCount > 0 || officeChargeCents > 0;
+  // A show whose only Step 5 money is a class fee — an office fee, a drug fee
+  // per horse, a jackpot line, whatever a manager named — has done the step.
+  // Matched by unit rather than by code, because a manager names these
+  // themselves and there is no fixed code to look for any more (see
+  // CLASS_FEE_EDITOR_UNITS). The office charge is one of these rows since
+  // migration 132, so it needs no separate term here.
+  const feesDone = fees.some((f) => isClassFeeEditorUnit(f.unit));
 
   return {
     showId,

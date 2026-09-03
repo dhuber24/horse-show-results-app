@@ -100,20 +100,6 @@ export default function ShowBillBreakdown({
         {(bill.futurity_lines ?? []).map((line) => (
           <FuturityLine key={line.futurity_entry_id} line={line} />
         ))}
-        {bill.office_charge_total_cents > 0 && (
-          <>
-            <dt
-              title={
-                bill.office_charge_basis === 'per_horse'
-                  ? 'Office/drug-testing charge, per horse.'
-                  : 'One office/drug-testing charge per back number.'
-              }
-            >
-              Office charge
-            </dt>
-            <dd className="text-right">{formatMoney(bill.office_charge_total_cents)}</dd>
-          </>
-        )}
         <dt
           className="pt-1.5 mt-1 border-t font-semibold"
           style={{ borderColor: '#e8d5b7', color: '#2c1810' }}

@@ -391,24 +391,11 @@ export default function ShowbillDocument({
           FEE_GROUPS in lib/fee-units.ts. */}
       <Section title="Fees">
         <div className="space-y-4">
-          {/* Its own group of one: the office charge lives on the show row
-              rather than in `show_fees`, and it is the charge every exhibitor
-              pays whatever else they do. */}
-          {show.office_charge_cents > 0 && (
-            <FeeGroup
-              heading="Show office"
-              note="Charged once to every exhibitor at this show."
-            >
-              <FeeRow
-                label="Office charge"
-                unitText={
-                  show.office_charge_basis === 'per_horse' ? 'per horse' : 'per back number'
-                }
-                amountCents={show.office_charge_cents}
-              />
-            </FeeGroup>
-          )}
-
+          {/* The office charge had a group of its own here while it was a
+              column on the show row. Migration 132 made it an ordinary
+              `per_exhibitor` / `per_horse` fee, so it now prints under
+              "Added to every entry" with the drug fees and assessments doing
+              the same job — which is how an exhibitor reads it anyway. */}
           {groupFees(fees).map((group) => (
             <FeeGroup key={group.key} heading={group.heading} note={group.note}>
               {group.fees.map((fee) => (
@@ -430,7 +417,7 @@ export default function ShowbillDocument({
             </FeeGroup>
           ))}
 
-          {fees.length === 0 && show.office_charge_cents === 0 && (
+          {fees.length === 0 && (
             <p className="text-sm" style={{ color: '#8b7355' }}>
               No stall, shavings or camping fees have been published for this show.
             </p>

@@ -2,6 +2,48 @@
 
 ## September 2026
 
+### The Office Charge Stops Being A Special Case
+
+A follow-up to the entry below. The office charge was still rendering as its own
+thing on the fee screens, and no amount of moving the markup was going to fix
+that, because it was not a fee — it was `shows.office_charge_cents` +
+`office_charge_basis`, two columns dating to migration 055, when it was the only
+non-class charge the app had. A column can only ever be edited by its own bespoke
+control, so it had its own box, its own state, its own save button, its own
+function in `billing.py`, its own key in every bill payload and its own row in
+the revenue report — for something that is, to an exhibitor reading a bill, one
+more automatic charge sitting next to a drug fee.
+
+Migration 132 converts each show's office charge into an ordinary `show_fees`
+row and drops both columns. The unit to hold it already existed: migration 112
+added `per_exhibitor` and said why in as many words — `per_back_number` is "a
+basis for *that one* charge rather than a unit any fee can carry". So
+`per_back_number` becomes `per_exhibitor`, `per_horse` stays `per_horse`, and
+`billing.charge_lines` was already billing both correctly. `build_bill` loses
+`office_charge_total_cents` and its two sibling keys; the money simply arrives in
+`charge_total_cents` with the rest. Converted rows get `sort_order = -1` so they
+sort where the office charge has always rendered. It is now renamable, removable,
+and added from the same quick-add presets (two new ones, per exhibitor and per
+horse) as every other class fee.
+
+**One behaviour moved with it, deliberately.** Every automatic charge counts only
+the breed association's own classes (migration 131), so the converted office
+charge now does too — an exhibitor entered solely in a club's All Breed classes
+previously owed it and no longer does. That is one rule reaching one more row
+rather than a new exception, but it is a real change to what a dual-sanctioned
+show bills, and worth knowing before the next Paint-O-Rama.
+
+Also on that screen: **club sanctioning fees got their own box, "Club Sanctioned
+Fees"**, instead of sitting as a footnote under the show's own class fees. It is
+a different body's money, charged on a different set of classes, and it is now
+the only thing on Step 5 that the Save button at the foot of the step still
+writes — everything above it saves a row at a time — which the box says out loud.
+
+Cleaning up after it reached further than the two screens: five `fetchStepCounts`
+call sites passed `show.office_charge_cents`, one of them passing a hard-coded
+`0` that would have quietly marked Step 5 incomplete on the Judges step; three
+seed scripts wrote the dropped columns and would have crashed on their next run.
+
 ### One Class Fees Box, Not Several
 
 A follow-up correction to the two entries below this one, after a closer look at what they actually built. Six changes, all to the same screen:

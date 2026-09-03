@@ -109,7 +109,6 @@ class ShowCreate(BaseModel):
     aqha_approval_status: Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"] = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
-    office_charge_cents: int = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -135,8 +134,6 @@ class ShowUpdate(BaseModel):
     aqha_approval_status: Optional[Literal["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "CHANGES_REQUIRED"]] = None
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
-    office_charge_cents: Optional[int] = Field(default=None, ge=0)
-    office_charge_basis: Optional[Literal["per_back_number", "per_horse"]] = None
     shavings_ban_outside: Optional[bool] = None
     # Which health papers this show requires (migration 097). Coggins is
     # universal; a CVI follows from crossing a state line and vaccinations from
@@ -224,8 +221,6 @@ class ShowOut(BaseModel):
     aqha_approval_status: str = "NOT_SUBMITTED"
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = None
-    office_charge_cents: int = 0
-    office_charge_basis: str = "per_back_number"
     shavings_ban_outside: bool = False
     # Which show bill the Show Bill button opens (migration 127). Serialized in
     # `routers/shows._serialize` as well as declared here -- that function builds
@@ -3362,9 +3357,6 @@ class BillOut(BaseModel):
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
     sanction_total_cents: int
-    office_charge_cents: int
-    office_charge_basis: str
-    office_charge_total_cents: int
     reservation_total_cents: int
     charge_total_cents: int = 0
     futurity_total_cents: int = 0
@@ -3436,7 +3428,6 @@ class FinancialTotalsOut(BaseModel):
     accounts: int = 0
     class_fee_total_cents: int = 0
     sanction_total_cents: int = 0
-    office_charge_total_cents: int = 0
     reservation_total_cents: int = 0
     charge_total_cents: int = 0
     futurity_total_cents: int = 0
@@ -3498,9 +3489,6 @@ class ShowFinancialsOut(BaseModel):
     show_name: str
     show_status: str
     currency: str = "USD"
-    # `per_back_number` or `per_horse` — what the office charge is multiplied by,
-    # so the screen can label the line without guessing.
-    office_charge_basis: str = "per_back_number"
     totals: FinancialTotalsOut = Field(default_factory=FinancialTotalsOut)
     registrations: FinancialRegistrationsOut = Field(default_factory=FinancialRegistrationsOut)
     accounts: list[FinancialAccountOut] = Field(default_factory=list)

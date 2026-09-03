@@ -86,7 +86,7 @@ export default async function ShowClassesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const stepsInput = await fetchStepCounts(id, show.office_charge_cents ?? 0);
+  const stepsInput = await fetchStepCounts(id);
 
   const [showTypes, disciplines, divisions, classes, clubs] = await Promise.all([
     fetchShowTypes(),

@@ -130,9 +130,6 @@ export type Bill = {
   futurity_lines: BillFuturityLine[];
   class_fee_total_cents: number;
   sanction_total_cents: number;
-  office_charge_cents: number;
-  office_charge_basis: string;
-  office_charge_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;
   futurity_total_cents: number;

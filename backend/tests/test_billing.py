@@ -148,37 +148,49 @@ def test_sanction_fee_does_not_scale_with_the_entry_fee():
 
 
 
-# ── The office charge honours the show's stated basis ─────────────────────────
+# ── The office charge is an ordinary fee row (migration 132) ──────────────────
+#
+# It was `shows.office_charge_cents` + `office_charge_basis` until then, with
+# its own function in this module and its own line in every bill. The two bases
+# map onto units `charge_lines` already billed: `per_back_number` is
+# `per_exhibitor`, `per_horse` is `per_horse`. These cases are the old
+# office-charge tests, restated against the fee row that replaced it.
 
 
-def test_office_charge_per_back_number_is_charged_once():
+def _office_fee(cents: int, unit: str = "per_exhibitor"):
+    return make_fee(code="office_charge", label="Office charge", unit=unit, amount_cents=cents)
+
+
+def test_office_charge_per_exhibitor_is_charged_once():
     """One back number, one charge, however many horses they brought."""
-    show = make_show(office_charge_cents=1500, office_charge_basis="per_back_number")
-    assert billing.office_charge_total_cents(show, distinct_horse_count=4, has_entries=True) == 1500
+    show = make_show(fees=[_office_fee(1500)])
+    entries = [make_entry(), make_entry(), make_entry(), make_entry()]
+    assert billing.build_bill(show, entries, [])["charge_total_cents"] == 1500
 
 
 def test_office_charge_per_horse_multiplies():
-    show = make_show(office_charge_cents=1500, office_charge_basis="per_horse")
-    assert billing.office_charge_total_cents(show, distinct_horse_count=3, has_entries=True) == 4500
+    show = make_show(fees=[_office_fee(1500, "per_horse")])
+    entries = [make_entry() for _ in range(3)]
+    assert billing.build_bill(show, entries, [])["charge_total_cents"] == 4500
 
 
 def test_office_charge_is_zero_without_entries():
     """Signing up for a show you never entered a class at does not owe the
     office charge."""
-    show = make_show(office_charge_cents=1500, office_charge_basis="per_back_number")
-    assert billing.office_charge_total_cents(show, distinct_horse_count=0, has_entries=False) == 0
+    show = make_show(fees=[_office_fee(1500)])
+    assert billing.build_bill(show, [], [])["charge_total_cents"] == 0
 
 
 def test_office_charge_is_zero_when_the_show_sets_none():
-    show = make_show(office_charge_cents=0, office_charge_basis="per_horse")
-    assert billing.office_charge_total_cents(show, distinct_horse_count=3, has_entries=True) == 0
+    show = make_show(fees=[_office_fee(0, "per_horse")])
+    assert billing.build_bill(show, [make_entry()], [])["charge_total_cents"] == 0
 
 
 # ── build_bill ────────────────────────────────────────────────────────────────
 
 
 def test_bill_totals_its_four_components():
-    show = make_show(office_charge_cents=1000, office_charge_basis="per_back_number")
+    show = make_show(fees=[_office_fee(1000)])
     entries = [
         make_entry(cls=make_class(entry_fee_cents=2500)),
         make_entry(cls=make_class(entry_fee_cents=3000)),
@@ -189,13 +201,13 @@ def test_bill_totals_its_four_components():
 
     assert bill["class_fee_total_cents"] == 5500
     assert bill["sanction_total_cents"] == 0
-    assert bill["office_charge_total_cents"] == 1000
+    assert bill["charge_total_cents"] == 1000
     assert bill["reservation_total_cents"] == 10000
     assert bill["total_cents"] == 16500
     assert bill["total_cents"] == (
         bill["class_fee_total_cents"]
         + bill["sanction_total_cents"]
-        + bill["office_charge_total_cents"]
+        + bill["charge_total_cents"]
         + bill["reservation_total_cents"]
     )
 
@@ -203,8 +215,8 @@ def test_bill_totals_its_four_components():
 def test_bill_counts_distinct_horses_for_a_per_horse_office_charge():
     """Two classes on the same horse is one horse. Counting entries instead
     would overcharge every exhibitor who enters more than one class."""
-    show = make_show(office_charge_cents=1000, office_charge_basis="per_horse")
-    shared_horse = object()
+    show = make_show(fees=[_office_fee(1000, "per_horse")])
+    shared_horse = uuid4()
     entries = [
         make_entry(horse_id=shared_horse),
         make_entry(horse_id=shared_horse),
@@ -213,7 +225,7 @@ def test_bill_counts_distinct_horses_for_a_per_horse_office_charge():
 
     bill = billing.build_bill(show, entries, [])
 
-    assert bill["office_charge_total_cents"] == 2000, "two distinct horses, not three entries"
+    assert bill["charge_total_cents"] == 2000, "two distinct horses, not three entries"
 
 
 def test_bill_charges_sanction_per_entry():
@@ -294,7 +306,7 @@ def test_bill_reservation_line_reports_the_early_rate_and_what_it_saved():
 
 
 def test_an_empty_bill_is_zero_rather_than_an_error():
-    bill = billing.build_bill(make_show(office_charge_cents=1000), [], [])
+    bill = billing.build_bill(make_show(fees=[_office_fee(1000)]), [], [])
     assert bill["total_cents"] == 0
     assert bill["class_lines"] == []
     assert bill["reservation_lines"] == []
@@ -390,18 +402,13 @@ def test_a_settled_account_counts_as_paid_in_full():
 
 
 def test_rollup_sums_each_billed_category():
-    show = make_show(
-        office_charge_cents=1000,
-        sanctioning=[make_sanctioning("NSBA", per_class_fee_cents=600)],
-    )
-    entries = [
-        make_entry(
-            cls=make_class(
-                entry_fee_cents=10000,
-                sanctioning=[make_class_sanction(show.sanctioning[0])],
-            )
-        )
-    ]
+    nsba = make_sanctioning("NSBA", per_class_fee_cents=600)
+    show = make_show(fees=[_office_fee(1000)], sanctioning=[nsba])
+    # Deliberately not a club-sanctioned class: every automatic charge counts
+    # only the breed association's own classes (migration 131), so putting the
+    # office fee's only entry in an NSBA class would zero it out and this test
+    # would be asserting the wrong thing about the rollup.
+    entries = [make_entry(cls=make_class(entry_fee_cents=10000, sanctioning=[]))]
     reservations = [make_reservation(fee=make_fee(amount_cents=5000), quantity=1)]
     account = billing.build_account(show, entries, reservations, [])
 
@@ -409,10 +416,10 @@ def test_rollup_sums_each_billed_category():
 
     assert totals["accounts"] == 2
     assert totals["class_fee_total_cents"] == 20000
-    assert totals["sanction_total_cents"] == 1200
-    assert totals["office_charge_total_cents"] == 2000
+    assert totals["sanction_total_cents"] == 0
+    assert totals["charge_total_cents"] == 2000
     assert totals["reservation_total_cents"] == 10000
-    assert totals["billed_cents"] == 33200
+    assert totals["billed_cents"] == 32000
 
 
 def test_rollup_groups_reservations_by_fee_across_exhibitors():
@@ -557,8 +564,8 @@ def test_a_per_judge_per_exhibitor_charge_ignores_the_horse_count():
 
 def test_an_automatic_charge_needs_entries():
     """Signing up is not entering. Somebody holding a stall and no classes has
-    not incurred the show's per-horse costs — the rule `office_charge_total_cents`
-    already applies."""
+    not incurred the show's per-horse costs — the rule the office charge
+    always applied."""
     fee = make_fee(code="gate", unit="per_exhibitor", amount_cents=1500)
     assert _charged(fee, [])["charge_total_cents"] == 0
 
@@ -581,7 +588,7 @@ def test_a_per_judge_charge_is_nothing_without_a_panel():
 def test_price_list_units_bill_nobody(unit):
     """`flat` because the app cannot derive who left the stall dirty; the rest
     because `classes.entry_fee_cents` already charges per entry and billing a
-    `standard_class` row on top of it would double every class."""
+    `per_entry` class fee on top of it would double every class."""
     fee = make_fee(code="x", unit=unit, amount_cents=2500)
     assert _charged(fee, [make_entry()])["charge_total_cents"] == 0
 
@@ -594,16 +601,16 @@ def test_a_reservable_fee_is_never_charged_automatically():
 
 def test_charges_are_added_to_the_bill_total():
     show = make_show(
-        office_charge_cents=1000,
         fees=[
+            _office_fee(1000),
             make_fee(code="gate", unit="per_exhibitor", amount_cents=1500),
             make_fee(code="drug", unit="per_horse", amount_cents=800),
         ],
         judges=make_judges(2),
     )
     bill = billing.build_bill(show, [make_entry(cls=make_class(entry_fee_cents=2500))], [])
-    # 2500 class + 1000 office + 1500 gate + 800 drug
-    assert bill["charge_total_cents"] == 2300
+    # 1000 office + 1500 gate + 800 drug, on top of the 2500 class fee
+    assert bill["charge_total_cents"] == 3300
     assert bill["total_cents"] == 5800
 
 

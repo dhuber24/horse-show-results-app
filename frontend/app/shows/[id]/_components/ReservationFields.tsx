@@ -57,8 +57,6 @@ export type SignupData = {
     status: string;
     start_date: string;
     end_date: string;
-    office_charge_cents: number;
-    office_charge_basis: string;
     shavings_ban_outside: boolean;
   };
   exhibitor: { id: string; full_name: string };

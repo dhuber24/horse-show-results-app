@@ -89,7 +89,6 @@ export type FinancialTotals = {
   accounts: number;
   class_fee_total_cents: number;
   sanction_total_cents: number;
-  office_charge_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;
   billed_cents: number;
@@ -138,7 +137,6 @@ export type ShowFinancials = {
   show_name: string;
   show_status: string;
   currency: string;
-  office_charge_basis: string;
   totals: FinancialTotals;
   registrations: FinancialRegistrations;
   accounts: FinancialAccount[];

@@ -49,8 +49,6 @@ function dollarsToCents(input: string): number {
 
 export default function FeesClient({
   showId,
-  initialOfficeChargeCents,
-  initialOfficeChargeBasis,
   initialCharges,
   judgeCount,
   sanctioning,
@@ -60,8 +58,6 @@ export default function FeesClient({
   futurityCount = 0,
 }: {
   showId: string;
-  initialOfficeChargeCents: number;
-  initialOfficeChargeBasis: string;
   /** The show's own class fees — office fee, association assessment, all-day
    *  pass, jackpot/sidepot fee, anything else a manager names. Saved by
    *  `ShowChargesEditor` a row at a time rather than by this screen's Save
@@ -112,15 +108,6 @@ export default function FeesClient({
     }
   }
 
-  const [officeChargeDollars, setOfficeChargeDollars] = useState(
-    initialOfficeChargeCents > 0 ? centsToDollars(initialOfficeChargeCents) : '',
-  );
-  const [officeChargeBasis, setOfficeChargeBasis] = useState<
-    'per_back_number' | 'per_horse'
-  >(
-    initialOfficeChargeBasis === 'per_horse' ? 'per_horse' : 'per_back_number',
-  );
-
   const [sanctioningFees, setSanctioningFees] = useState<SanctioningFeeState[]>(
     sanctioning.map((s) => ({
       association_id: s.association_id,
@@ -141,21 +128,11 @@ export default function FeesClient({
     setSuccessMsg(null);
     setBusy(true);
     try {
-      // Office charge + basis live on the show row.
-      const showRes = await fetch(`/api/shows/${showId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          office_charge_cents: dollarsToCents(officeChargeDollars || '0'),
-          office_charge_basis: officeChargeBasis,
-        }),
-      });
-      if (!showRes.ok) {
-        const j = await showRes.json().catch(() => null);
-        setError(j?.detail || 'Failed to update office charge.');
-        return;
-      }
-
+      // Class fees save themselves a row at a time in `ShowChargesEditor` —
+      // the office charge among them since migration 132 made it an ordinary
+      // fee row rather than a column on `shows`. All this button still owns is
+      // the club sanctioning amounts below it.
+      //
       // Sanctioning per-class fees: PUT replaces the full set, so we send
       // every currently-selected sanction with its (possibly updated) fee.
       if (sanctioningFees.length > 0) {
@@ -204,141 +181,95 @@ export default function FeesClient({
         </div>
       )}
 
+      <ShowChargesEditor
+        showId={showId}
+        initialCharges={initialCharges}
+        judgeCount={judgeCount}
+        judgesHref={`/admin/shows/${showId}/setup/judges`}
+      />
+
+      {/* The clubs picked in Step 3, and what each charges per class it
+          approves. Its own box rather than a footnote under the show's own
+          class fees: this is a different body's money, on a different set of
+          classes, and it is the only thing on this screen the Save button
+          below still writes. */}
       <section
-        className="p-4 rounded-lg border space-y-4"
+        className="p-4 rounded-lg border space-y-3"
         style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
       >
         <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-          Class Fees
+          Club Sanctioned Fees
         </h2>
-
-        <ShowChargesEditor
-          showId={showId}
-          initialCharges={initialCharges}
-          judgeCount={judgeCount}
-          judgesHref={`/admin/shows/${showId}/setup/judges`}
-          boxed={false}
-          officeChargeSection={
-            <div>
-              <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-                Office charge
-              </h2>
-              <p className="text-xs mt-0.5 mb-2" style={{ color: COLORS.muted }}>
-                The show&apos;s standing office / drug-testing charge — saves with the
-                rest of this step below, not on its own.
-              </p>
-              <div className="grid sm:grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Amount ($)
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={officeChargeDollars}
-                    onChange={(e) => setOfficeChargeDollars(e.target.value)}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    placeholder="e.g. 10.00"
-                  />
-                </label>
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Charged...
-                  </span>
-                  <select
-                    value={officeChargeBasis}
-                    onChange={(e) =>
-                      setOfficeChargeBasis(
-                        e.target.value === 'per_horse' ? 'per_horse' : 'per_back_number',
-                      )
-                    }
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                  >
-                    <option value="per_back_number">per back number (exhibitor)</option>
-                    <option value="per_horse">per horse</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-          }
-        />
-
         {sanctioning.length === 0 ? (
           <p className="text-xs" style={{ color: COLORS.muted }}>
-            Sanctioning fees:{' '}
+            No clubs sanction this show.{' '}
             <Link
               href={`/admin/shows/${showId}/setup/sanctioning`}
               className="underline"
               style={{ color: COLORS.warn }}
             >
-              add sanctioning associations in Step 3
+              Add sanctioning associations in Step 3
             </Link>{' '}
             to set per-class fees here.
           </p>
         ) : (
           <>
-            <div
-              className="border-t pt-3 mt-1"
-              style={{ borderColor: COLORS.border }}
-            >
-              <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
-                Sanctioning per-class fees, added on top of the class fee — but
-                only on the classes that club actually approves. A club
-                sanctions a list of classes, not the whole schedule, so nothing
-                is charged until you say which ones in{' '}
-                <Link
-                  href={`/admin/shows/${showId}/classes/sanctioning`}
-                  className="underline"
-                  style={{ color: COLORS.warn }}
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              Each club&apos;s per-class fee, added on top of the class fee — but
+              only on the classes that club actually approves. A club sanctions a
+              list of classes, not the whole schedule, so nothing is charged until
+              you say which ones in{' '}
+              <Link
+                href={`/admin/shows/${showId}/classes/sanctioning`}
+                className="underline"
+                style={{ color: COLORS.warn }}
+              >
+                Sanctioned Classes
+              </Link>
+              . These amounts save with the button at the foot of the step, not on
+              their own — the class fees above each save as you set them.
+            </p>
+            {sanctioning.map((s) => {
+              const fee = sanctioningFees.find(
+                (f) => f.association_id === s.association_id,
+              );
+              return (
+                <div
+                  key={s.association_id}
+                  className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end"
                 >
-                  Sanctioned Classes
-                </Link>
-                .
-              </p>
-              {sanctioning.map((s) => {
-                const fee = sanctioningFees.find(
-                  (f) => f.association_id === s.association_id,
-                );
-                return (
-                  <div
-                    key={s.association_id}
-                    className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end mb-2"
-                  >
-                    <span>
-                      <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                        {s.name}
-                      </span>
-                      <span className="font-mono text-xs" style={{ color: '#8b4513' }}>
-                        {s.code} per-class fee
-                      </span>
-                      <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                        {sanctionedCounts[s.association_id] ?? 0} of{' '}
-                        {classCount} classes marked {s.code}-approved
-                      </span>
+                  <span>
+                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                      {s.name}
                     </span>
-                    <label className="block">
-                      <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                        Amount ($)
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={fee?.dollars ?? ''}
-                        onChange={(e) =>
-                          setSanctioningFee(s.association_id, e.target.value)
-                        }
-                        className="w-full border rounded px-3 py-2"
-                        style={{ borderColor: COLORS.border }}
-                        placeholder="e.g. 3.00"
-                      />
-                    </label>
-                    <span />
-                  </div>
-                );
-              })}
-            </div>
+                    <span className="font-mono text-xs" style={{ color: '#8b4513' }}>
+                      {s.code} per-class fee
+                    </span>
+                    <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                      {sanctionedCounts[s.association_id] ?? 0} of{' '}
+                      {classCount} classes marked {s.code}-approved
+                    </span>
+                  </span>
+                  <label className="block">
+                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                      Amount ($)
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={fee?.dollars ?? ''}
+                      onChange={(e) =>
+                        setSanctioningFee(s.association_id, e.target.value)
+                      }
+                      className="w-full border rounded px-3 py-2"
+                      style={{ borderColor: COLORS.border }}
+                      placeholder="e.g. 3.00"
+                    />
+                  </label>
+                  <span />
+                </div>
+              );
+            })}
           </>
         )}
       </section>

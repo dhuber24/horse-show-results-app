@@ -168,8 +168,6 @@ class Show(Base):
     aqha_approval_status = Column(Text, nullable=False, default="NOT_SUBMITTED")
     aqha_approval_submitted_at = Column(Date, nullable=True)
     aqha_approval_notes = Column(Text, nullable=True)
-    office_charge_cents = Column(Integer, nullable=False, server_default="0")
-    office_charge_basis = Column(Text, nullable=False, server_default="per_back_number")
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
     # Which show bill `/shows/{id}/showbill` renders (migration 127): the one the
     # app generates from this show's own classes, judges and fees, or a file the

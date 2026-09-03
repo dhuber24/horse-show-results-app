@@ -25,7 +25,7 @@ export default async function SetupSanctioningPage({
   const [associations, current, stepsInput] = await Promise.all([
     fetchAuthed<AssociationOption[]>(`${API_URL}/sanctioned-associations/`, []),
     fetchAuthed<ShowSanctioningRow[]>(`${API_URL}/shows/${id}/sanctioning/`, []),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
+    fetchStepCounts(id),
   ]);
 
   return (

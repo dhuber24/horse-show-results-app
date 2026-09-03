@@ -211,8 +211,6 @@ SHOWS = [
         "aqha_approval_status": "APPROVED",
         "aqha_approval_submitted_offset": -60,
         "aqha_approval_notes": "Approved for 3 judges over 3 days. Split combined youth classes.",
-        "office_charge_cents": 4500,
-        "office_charge_basis": "per_horse",
         "shavings_ban_outside": True,
         "entry_fee_cents": 4500,
         "rings": ["Main Arena", "Warm-Up Arena"],
@@ -222,6 +220,7 @@ SHOWS = [
             ("Ray", "Hollingsworth", "ray.hollingsworth@example.com", "(940) 555-0322"),
         ],
         "fees": [
+            ("office_charge", "Office charge", 4500, "per_horse", None),
             ("stall", "Stall (per stall, whole show)", 12000, "per_stall", None),
             ("shavings", "Shavings", 900, "per_bag", "Outside shavings are not permitted."),
             ("camping", "Camping", 4000, "per_night", "Includes electric hookup."),
@@ -237,8 +236,6 @@ SHOWS = [
         "start_offset": -1,
         "days": 3,
         "apha_show_number": "26-4471",
-        "office_charge_cents": 3000,
-        "office_charge_basis": "per_back_number",
         "shavings_ban_outside": False,
         "entry_fee_cents": 3500,
         "rings": ["Coliseum", "Outdoor Arena"],
@@ -248,6 +245,7 @@ SHOWS = [
             ("Curtis", "Blayne", "curtis.blayne@example.com", "(405) 555-0355"),
         ],
         "fees": [
+            ("office_charge", "Office charge", 3000, "per_exhibitor", None),
             ("stall", "Stall (per stall, whole show)", 10000, "per_stall", None),
             ("shavings", "Shavings", 800, "per_bag", None),
             ("camping", "Camping", 3500, "per_night", "Dry camping only; no hookups."),
@@ -262,8 +260,6 @@ SHOWS = [
         "status": "PUBLISHED",
         "start_offset": 80,
         "days": 2,
-        "office_charge_cents": 1500,
-        "office_charge_basis": "per_back_number",
         "shavings_ban_outside": False,
         "entry_fee_cents": 2000,
         "rings": ["Show Arena"],
@@ -272,6 +268,7 @@ SHOWS = [
             ("Tonya", "Beaulieu", "tonya.beaulieu@example.com", "(319) 555-0366"),
         ],
         "fees": [
+            ("office_charge", "Office charge", 1500, "per_exhibitor", None),
             ("stall", "Stall (per stall, whole show)", 6000, "per_stall", None),
             ("shavings", "Shavings", 700, "per_bag", None),
             ("camping", "Camping", 2500, "per_night", "Includes electric hookup."),
@@ -403,8 +400,6 @@ async def seed(db: AsyncSession) -> None:
                 today + timedelta(days=submitted_offset) if submitted_offset else None
             ),
             aqha_approval_notes=spec.get("aqha_approval_notes"),
-            office_charge_cents=spec["office_charge_cents"],
-            office_charge_basis=spec["office_charge_basis"],
             shavings_ban_outside=spec["shavings_ban_outside"],
             created_by_user_id=creator.id if creator else None,
         )

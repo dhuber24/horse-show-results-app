@@ -52,7 +52,7 @@ export default async function EditShowDetailsPage({
     fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/gate-stewards`, []),
     fetchAuthed<PendingInvite[]>(`${API_URL}/user-invites/by-show/${id}`, []),
     isAdmin ? fetchAuthed<StaffUser[]>(`${API_URL}/users/`, []) : Promise.resolve([]),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
+    fetchStepCounts(id),
   ]);
 
   return (

@@ -70,10 +70,10 @@ from horse_eligibility import (
 from reservations import minimum_shortfall
 from billing import (
     build_bill,
+    charge_lines,
     early_rate_is_open,
     fee_rate_cents,
     class_sanction_cents,
-    office_charge_total_cents,
     reservable_fees,
     sanction_rates,
 )
@@ -140,7 +140,11 @@ class ShowRegistrationResult(BaseModel):
     fee_breakdown: list[FeeBreakdownItem]
     subtotal_fee_cents: int
     sanction_total_cents: int = 0
-    office_charge_total_cents: int = 0
+    # The show's own automatic charges on this batch — the office charge among
+    # them since migration 132 made it an ordinary fee row. Was
+    # `office_charge_total_cents`, which special-cased the one charge that had a
+    # column and silently left a drug fee or an assessment out of the receipt.
+    charge_total_cents: int = 0
     total_fee_cents: int
 
 
@@ -178,8 +182,8 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
             # off the show's club sanctioning rows.
             selectinload(Show.sanctioning),
             # Read by `billing.charge_lines` off the Show row, the same way
-            # `office_charge_cents` is: the show's own per-horse and per-judge
-            # charges, and the panel size they multiply by.
+            # `sanctioning` is: the show's own per-horse and per-judge charges
+            # (the office charge among them), and the panel size they multiply by.
             selectinload(Show.fees),
             selectinload(Show.judges),
         )
@@ -475,8 +479,6 @@ async def get_signup(
             "status": show.status,
             "start_date": show.start_date,
             "end_date": show.end_date,
-            "office_charge_cents": show.office_charge_cents,
-            "office_charge_basis": show.office_charge_basis,
             "shavings_ban_outside": show.shavings_ban_outside,
         },
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
@@ -1001,8 +1003,6 @@ async def preview_registration(
             "start_date": show.start_date,
             "end_date": show.end_date,
             "show_type_code": show.show_type.code if show.show_type else None,
-            "office_charge_cents": show.office_charge_cents,
-            "office_charge_basis": show.office_charge_basis,
         },
         "exhibitor": {
             "id": str(exhibitor.id),
@@ -1292,7 +1292,6 @@ async def register_for_show(
     fee_breakdown: list[FeeBreakdownItem] = []
     subtotal = 0
     sanction_total = 0
-    horses_charged: set[UUID] = set()
 
     for item in body.entries:
         cls = classes_by_id[item.class_id]
@@ -1380,10 +1379,11 @@ async def register_for_show(
         )
         subtotal += cls.entry_fee_cents
         sanction_total += sanction_cents
-        horses_charged.add(item.horse_id)
 
-    office_charge_total = office_charge_total_cents(show, len(horses_charged), bool(created))
-    total_fee = subtotal + sanction_total + office_charge_total
+    # Scoped to the entries just created, which is the same scope the office
+    # charge's own distinct-horse count used before it became a fee row.
+    _, charge_total = charge_lines(show.fees or [], created, len(show.judges or []))
+    total_fee = subtotal + sanction_total + charge_total
 
     try:
         await db.commit()
@@ -1409,7 +1409,7 @@ async def register_for_show(
         fee_breakdown=fee_breakdown,
         subtotal_fee_cents=subtotal,
         sanction_total_cents=sanction_total,
-        office_charge_total_cents=office_charge_total,
+        charge_total_cents=charge_total,
         total_fee_cents=total_fee,
     )
 

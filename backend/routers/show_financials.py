@@ -289,7 +289,6 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
         "show_id": show.id,
         "show_name": show.name,
         "show_status": show.status,
-        "office_charge_basis": show.office_charge_basis,
         "totals": totals,
         "registrations": {
             "exhibitors": len(exhibitors),

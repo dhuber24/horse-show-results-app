@@ -242,12 +242,8 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
   const rows = [
     { label: 'Class entry fees', cents: bill.class_fee_total_cents },
     { label: 'Club sanction fees', cents: bill.sanction_total_cents },
-    {
-      label: `Office charge (${
-        bill.office_charge_basis === 'per_horse' ? 'per horse' : 'per back number'
-      })`,
-      cents: bill.office_charge_total_cents,
-    },
+    // No office charge row of its own: since migration 132 it is an ordinary
+    // fee row and arrives with the show's other charges below.
     ...bill.reservation_lines.map((line) => ({
       label: `${line.label} — ${line.quantity} × ${formatMoney(line.amount_cents)}${
         line.is_early_rate ? ' (early rate)' : ''

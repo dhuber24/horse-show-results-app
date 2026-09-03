@@ -20,7 +20,7 @@ export default async function SetupShowbillPage({
   const show = await fetchShow(id);
   const [showbill, stepsInput] = await Promise.all([
     fetchShowbill(id),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
+    fetchStepCounts(id),
   ]);
 
   return (

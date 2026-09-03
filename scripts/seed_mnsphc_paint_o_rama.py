@@ -221,10 +221,18 @@ BRACKETS = [
 # Fees" / "Other" panels. Every per-judge rate is multiplied out by the panel
 # it applies to, since an exhibitor pays the product and not the rate.
 #
-# The office fee is deliberately NOT here: it lives on the show row as
-# `office_charge_cents` / `office_charge_basis`, which is what actually bills
-# and what the show bill prints. A second copy in show_fees would double-list.
+# The office fee is one of these rows since migration 132 made it an ordinary
+# `per_horse` fee rather than a column on the show. It is first in the list for
+# the same reason the migration gives its converted rows sort_order -1: that is
+# where the office charge has always rendered.
 SHOW_FEES = [
+    {
+        "code": "office_charge",
+        "label": "Office charge",
+        "amount_cents": 1600,
+        "unit": "per_horse",
+        "notes": "$4 per horse, per judge, all horses -- four judges.",
+    },
     {
         "code": "standard_class",
         "label": "APHA class — Open, Amateur & Novice Amateur",
@@ -711,9 +719,6 @@ async def main() -> None:
             start_date=SATURDAY,
             end_date=SUNDAY,
             status="DRAFT",
-            # $4 per horse, per judge, all horses -- four judges.
-            office_charge_cents=1600,
-            office_charge_basis="per_horse",
             # The stall form is unambiguous: NO OUTSIDE SHAVINGS ALLOWED.
             shavings_ban_outside=True,
             created_by_user_id=admin.id,
@@ -948,8 +953,7 @@ async def main() -> None:
               f"({len(SATURDAY_CLASSES)} Sat / {len(SUNDAY_CLASSES)} Sun)")
         print(f"  disciplines {len(DISCIPLINES)}, brackets {len(BRACKETS)}, "
               f"pairs {len(pairs)}")
-        print(f"  fees       {len(SHOW_FEES)} rows, office charge "
-              f"${show.office_charge_cents / 100:.2f} {show.office_charge_basis}")
+        print(f"  fees       {len(SHOW_FEES)} rows (office charge among them)")
         print(f"  side pots  {len(SIDE_POTS)}")
         print(f"  futurity   {FUTURITY_NAME}: "
               f"{len(futurity_class_numbers)} classes, {len(FUTURITY_TIERS)} categories, "

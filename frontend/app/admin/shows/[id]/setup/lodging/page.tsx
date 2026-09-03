@@ -27,7 +27,7 @@ export default async function SetupLodgingPage({
   const show = await fetchShow(id);
   const [allFees, stepsInput] = await Promise.all([
     fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
-    fetchStepCounts(id, show.office_charge_cents ?? 0),
+    fetchStepCounts(id),
   ]);
   const lodgingFees = allFees.filter((f) => LODGING_CODES.has(f.code));
 

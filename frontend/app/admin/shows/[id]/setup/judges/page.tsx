@@ -15,7 +15,7 @@ export default async function SetupJudgesPage({
   const [show, judgeData, stepsInput] = await Promise.all([
     fetchShow(id),
     fetchJudgeSetupData(id, headers || {}),
-    fetchStepCounts(id, 0),
+    fetchStepCounts(id),
   ]);
 
   return (

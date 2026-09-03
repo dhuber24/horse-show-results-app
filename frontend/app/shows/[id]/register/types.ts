@@ -182,8 +182,6 @@ export type PreviewData = {
     start_date: string;
     end_date: string;
     show_type_code: string | null;
-    office_charge_cents: number;
-    office_charge_basis: string;
   };
   exhibitor: { id: string; full_name: string };
   classes: PreviewClass[];

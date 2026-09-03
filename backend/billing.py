@@ -46,22 +46,23 @@ EARLY_RATE_FEE_UNITS = tuple(u for u in RESERVABLE_FEE_UNITS if u != "per_bag")
 # Which `show_fees` rows the show charges automatically, from what the exhibitor
 # entered rather than from anything they booked (migration 112).
 #
-# `shows.office_charge_cents` was the only such charge the app had, and there is
+# `shows.office_charge_cents` was the only such charge the app had, and there was
 # exactly one of it. A show bill routinely carries several — an office fee per
 # back number, a drug fee per horse, a judge fee per judge per horse - and the
 # `per_horse` / `per_judge` rows the fee editors have accepted since migration
-# 060 printed on the price list and reached nobody's account.
+# 060 printed on the price list and reached nobody's account. The office charge
+# itself became one of these rows in migration 132, which is what `per_exhibitor`
+# was added here for in the first place.
 #
 # `flat` is deliberately not here. A flat fee is charged once however many you
 # have, and its *occurrence* is not derivable: a stall cleanout penalty applies
 # to whoever left a mess, which no query answers. `per_exhibitor` is derived
-# from having entries, which is the test `office_charge_total_cents` already
-# makes.
+# from having entries, which is the test the office charge always made.
 #
 # `per_entry`, `per_class_per_horse` and `percent_of_entry` are not here either,
 # and must not be added: they are the class-fee vocabulary, and
-# `classes.entry_fee_cents` is what charges per entry. Billing the setup step's
-# `standard_class` row on top of it would double every class on every bill.
+# `classes.entry_fee_cents` is what charges per entry. Billing a `per_entry`
+# class fee on top of it would double every class on every bill.
 AUTOMATIC_FEE_UNITS = (
     "per_exhibitor",
     "per_horse",
@@ -194,20 +195,6 @@ def breed_association_entry_count(entries: Iterable) -> int:
     )
 
 
-def office_charge_total_cents(show, distinct_horse_count: int, has_entries: bool) -> int:
-    """The office/drug-testing charge, applied on the show's stated basis.
-
-    `per_back_number` is charged once for the exhibitor — one back number, one
-    charge, however many horses they bring. `per_horse` multiplies by the
-    distinct horses they entered.
-    """
-    if not has_entries or show.office_charge_cents <= 0:
-        return 0
-    if show.office_charge_basis == "per_horse":
-        return show.office_charge_cents * distinct_horse_count
-    return show.office_charge_cents
-
-
 def charge_multiplier(
     unit: str,
     horse_count: int,
@@ -258,9 +245,9 @@ def charge_lines(
     """Itemize the show's own automatic charges for one exhibitor.
 
     Returns (lines, total_cents). Nothing is charged to somebody with no
-    entries — the same rule `office_charge_total_cents` applies, and for the
-    same reason: a signed-up exhibitor who has not entered a class has not
-    incurred the show's per-horse costs.
+    entries — the rule the office charge always applied, and for the same
+    reason: a signed-up exhibitor who has not entered a class has not incurred
+    the show's per-horse costs.
 
     A fee priced at zero produces no line. `POST /shows/{id}/fees/seed` writes
     several fee templates at $0 for the secretary to fill in, and a column of
@@ -469,7 +456,6 @@ def build_bill(
     class_lines: list[dict] = []
     class_fee_total = 0
     sanction_total = 0
-    horse_ids: set = set()
 
     entry_list = list(entries)
     for entry in entry_list:
@@ -491,8 +477,6 @@ def build_bill(
         )
         class_fee_total += cls.entry_fee_cents
         sanction_total += sanction
-        if entry.horse_id:
-            horse_ids.add(entry.horse_id)
 
     reservation_lines: list[dict] = []
     reservation_total = 0
@@ -522,13 +506,13 @@ def build_bill(
         )
         reservation_total += line_total
 
-    office_total = office_charge_total_cents(show, len(horse_ids), bool(entry_list))
-    # The show's own automatic charges (migration 112). `show.fees` and
-    # `show.judges` are read off the Show row, the way `office_charge_cents` and
-    # `sanctioning` already are, so every caller must eager-load both. An
-    # unloaded relationship raises MissingGreenlet in an async request, which is
-    # loud; defaulting to "this show has no fees" would silently under-bill an
-    # entire show, which is not.
+    # The show's own automatic charges (migration 112), the office charge now
+    # among them (migration 132 — it was a column on `shows` until it became an
+    # ordinary `per_exhibitor` / `per_horse` fee row). `show.fees` and
+    # `show.judges` are read off the Show row, the way `sanctioning` already is,
+    # so every caller must eager-load both. An unloaded relationship raises
+    # MissingGreenlet in an async request, which is loud; defaulting to "this
+    # show has no fees" would silently under-bill an entire show, which is not.
     charge_line_list, charge_total = charge_lines(
         show.fees or [],
         entry_list,
@@ -543,16 +527,12 @@ def build_bill(
         "futurity_lines": futurity_line_list,
         "class_fee_total_cents": class_fee_total,
         "sanction_total_cents": sanction_total,
-        "office_charge_cents": show.office_charge_cents,
-        "office_charge_basis": show.office_charge_basis,
-        "office_charge_total_cents": office_total,
         "reservation_total_cents": reservation_total,
         "charge_total_cents": charge_total,
         "futurity_total_cents": futurity_total,
         "total_cents": (
             class_fee_total
             + sanction_total
-            + office_total
             + reservation_total
             + charge_total
             + futurity_total
@@ -622,7 +602,6 @@ def summarize_accounts(accounts: Iterable) -> dict:
         "accounts": 0,
         "class_fee_total_cents": 0,
         "sanction_total_cents": 0,
-        "office_charge_total_cents": 0,
         "reservation_total_cents": 0,
         "charge_total_cents": 0,
         "futurity_total_cents": 0,
@@ -652,7 +631,6 @@ def summarize_accounts(accounts: Iterable) -> dict:
         for key in (
             "class_fee_total_cents",
             "sanction_total_cents",
-            "office_charge_total_cents",
             "reservation_total_cents",
             "charge_total_cents",
             "futurity_total_cents",

@@ -196,12 +196,11 @@ def _show_specs(today: date) -> list[ShowSpec]:
             days=2,
             rings=["Main Arena", "Warm-Up Arena"],
             entry_fee_cents=2500,
-            office_charge_cents=1500,
-            office_charge_basis="per_back_number",
             shavings_ban_outside=True,
             clubs=[("WSCA", 200)],
             judges=[("Tonya", "Beaulieu", "tonya.beaulieu@example.com", "(319) 555-0366")],
             fees=[
+                ("office_charge", "Office charge", 1500, "per_exhibitor", None, None, None),
                 # Early rate still wide open — this is the show you use to check
                 # that a fresh booking is quoted the discount.
                 ("stall", "Stall (whole show)", 10000, "per_stall", None, 8000, 45),
@@ -224,8 +223,6 @@ def _show_specs(today: date) -> list[ShowSpec]:
             days=2,
             rings=["Coliseum", "Outdoor Arena"],
             entry_fee_cents=2500,
-            office_charge_cents=1500,
-            office_charge_basis="per_back_number",
             shavings_ban_outside=False,
             # NSBA sanctioning puts the 6%-of-entry sanction line on every bill.
             clubs=[("NSBA", 300)],
@@ -234,6 +231,7 @@ def _show_specs(today: date) -> list[ShowSpec]:
                 ("Ray", "Hollingsworth", "ray.hollingsworth@example.com", "(940) 555-0322"),
             ],
             fees=[
+                ("office_charge", "Office charge", 1500, "per_exhibitor", None, None, None),
                 # Stall early rate has closed, camping's is still open. The
                 # exhibitors seeded below booked stalls before the deadline, so
                 # their bill keeps the old rate while a new booking pays 110.00 —
@@ -264,10 +262,6 @@ def _show_specs(today: date) -> list[ShowSpec]:
             days=3,
             rings=["Show Arena", "Outdoor Arena"],
             entry_fee_cents=3000,
-            # per_horse basis, so the office charge on the bill scales with the
-            # horses an exhibitor brought rather than being a flat line.
-            office_charge_cents=2000,
-            office_charge_basis="per_horse",
             shavings_ban_outside=True,
             clubs=[("NSBA", 300), ("WSCA", 200)],
             judges=[
@@ -275,6 +269,9 @@ def _show_specs(today: date) -> list[ShowSpec]:
                 ("Curtis", "Blayne", "curtis.blayne@example.com", "(405) 555-0355"),
             ],
             fees=[
+                # per_horse, so the office charge on the bill scales with the
+                # horses an exhibitor brought rather than being a flat line.
+                ("office_charge", "Office charge", 2000, "per_horse", None, None, None),
                 # Both early deadlines are long past; the sign-ups below are
                 # dated either side of them, so one show carries both rates.
                 ("stall", "Stall (whole show)", 12000, "per_stall", None, 9500, -30),
@@ -381,8 +378,6 @@ async def _build_show(
         start_date=spec.start,
         end_date=end,
         status=spec.status,
-        office_charge_cents=spec.office_charge_cents,
-        office_charge_basis=spec.office_charge_basis,
         shavings_ban_outside=spec.shavings_ban_outside,
         created_by_user_id=staff["manager"].id if staff["manager"] else None,
     )

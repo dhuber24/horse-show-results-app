@@ -55,8 +55,6 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
 
       <EntryFeesEditor
         showId={id}
-        initialOfficeChargeCents={show.office_charge_cents ?? 0}
-        initialOfficeChargeBasis={show.office_charge_basis ?? 'per_back_number'}
         initialCharges={charges}
         initialClasses={classes}
         judgeCount={judges.length}
