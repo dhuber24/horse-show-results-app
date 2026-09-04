@@ -150,6 +150,13 @@ function codeFromLabel(label: string): string {
  * A rate on its own does not tell a manager what they just set up: $5.00 per
  * judge per horse is $30 to somebody with two horses at a three-judge show, and
  * that is the number they are checking against a paper bill.
+ *
+ * On a saved row this is the unit select's tooltip rather than a line of text
+ * under it. Repeated down a list of eight fees it stopped reading as an
+ * explanation and started reading as furniture — and it sat exactly where the
+ * show-bill note belongs, so the note looked like more of the same grey prose.
+ * It stays as visible text in the new-fee form below, which is the one place
+ * the unit is actually being chosen.
  */
 function chargeExplanation(unit: string, cents: number, judgeCount: number): string {
   const rate = `$${dollarsFromCents(cents)}`;
@@ -188,15 +195,19 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
 function BasisSelect({
   value,
   onChange,
+  title,
 }: {
   value: FeeUnit;
   onChange: (unit: FeeUnit) => void;
+  /** What this row will actually charge, on hover — see `chargeExplanation`. */
+  title?: string;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as FeeUnit)}
       aria-label="Charged"
+      title={title}
       className="border rounded px-2 py-1 text-sm"
       style={{ borderColor: COLORS.border, color: COLORS.text }}
     >
@@ -354,13 +365,20 @@ export default function ShowChargesEditor({
         amount_cents: cents,
         unit: newRow.unit,
         notes: newRow.notes.trim() || null,
-        sort_order: charges.length,
+        // Top of the list, not the bottom. The fee you have just added is the
+        // one you are about to type an amount and a note into, and on a show
+        // carrying a dozen charges it appeared below the fold — which reads
+        // as nothing having happened. Persisted rather than done in state
+        // alone, so the row is still there after a reload; `show_fees` is
+        // ordered by `sort_order` then `created_at`. Negative because
+        // migration 132's converted office charge sits at -1.
+        sort_order: Math.min(0, ...charges.map((c) => c.sort_order)) - 1,
       }),
     });
     setAdding(false);
     if (res.ok) {
       const created: ShowCharge = await res.json();
-      setCharges((prev) => [...prev, created]);
+      setCharges((prev) => [created, ...prev]);
       setDrafts((prev) => ({
         ...prev,
         [created.id]: {
@@ -448,111 +466,10 @@ export default function ShowChargesEditor({
         </p>
       )}
 
-      {charges.length === 0 ? (
-        <p className="text-sm italic" style={{ color: COLORS.muted }}>
-          No class fees yet. Most shows add at least one — a drug or office fee per
-          horse is the usual example.
-        </p>
-      ) : (
-        <ul className="divide-y" style={{ borderColor: COLORS.soft }}>
-          {charges.map((charge) => {
-            const draft = draftFor(charge);
-            const cents = centsFromDollars(draft.amount);
-            const invalid = cents === null;
-            const dirty =
-              !invalid &&
-              (cents !== charge.amount_cents ||
-                draft.label !== charge.label ||
-                draft.unit !== charge.unit ||
-                (draft.notes.trim() || null) !== (charge.notes ?? null));
-            return (
-              <li key={charge.id} className="py-2.5 space-y-1.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    value={draft.label}
-                    onChange={(e) => patchDraft(charge, { label: e.target.value })}
-                    aria-label="Fee name"
-                    className="flex-1 min-w-[150px] border rounded px-2 py-1 text-sm"
-                    style={{ borderColor: COLORS.border }}
-                  />
-                  <div className="relative w-24">
-                    <span
-                      className="absolute left-2 top-1/2 -translate-y-1/2 text-xs"
-                      style={{ color: COLORS.muted }}
-                    >
-                      $
-                    </span>
-                    <input
-                      inputMode="decimal"
-                      value={draft.amount}
-                      onChange={(e) => patchDraft(charge, { amount: e.target.value })}
-                      aria-label="Amount"
-                      className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                      style={{ borderColor: invalid ? '#fca5a5' : COLORS.border }}
-                    />
-                  </div>
-                  <BasisSelect
-                    value={draft.unit}
-                    onChange={(unit) => patchDraft(charge, { unit })}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => save(charge)}
-                    disabled={busyId === charge.id || invalid || !dirty}
-                    className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
-                    style={{ color: COLORS.accent }}
-                    title={!dirty ? 'No change' : invalid ? 'Invalid amount' : 'Save'}
-                  >
-                    {busyId === charge.id ? '…' : 'Save'}
-                  </button>
-                  {confirmDeleteId === charge.id ? (
-                    <span className="flex items-center gap-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => remove(charge)}
-                        className="text-red-600 hover:underline"
-                        disabled={busyId === charge.id}
-                      >
-                        Yes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="hover:underline"
-                        style={{ color: COLORS.muted }}
-                      >
-                        No
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(charge.id)}
-                      className="text-xs text-red-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <p className="text-xs" style={{ color: COLORS.muted }}>
-                  {invalid
-                    ? 'Enter an amount like 8 or 8.50.'
-                    : chargeExplanation(draft.unit, cents ?? 0, judgeCount)}
-                </p>
-                <input
-                  value={draft.notes}
-                  onChange={(e) => patchDraft(charge, { notes: e.target.value })}
-                  placeholder="Note for the show bill (optional)"
-                  aria-label="Notes"
-                  className="w-full border rounded px-2 py-1 text-xs"
-                  style={{ borderColor: COLORS.soft }}
-                />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
+      {/* Above the list, not below it. The "+ Add a fee" button and the
+          quick-add chips are up here, so a form that opened at the foot of a
+          dozen rows put the thing you just asked for out of sight — and the
+          row it creates now lands directly beneath it. */}
       {showAddForm && (
         <div
           className="rounded border p-3 space-y-2"
@@ -613,18 +530,130 @@ export default function ShowChargesEditor({
               Cancel
             </button>
           </div>
+          {/* Kept as visible text here, where the unit is being chosen — see
+              `chargeExplanation`. On a saved row it is the select's tooltip. */}
           <p className="text-xs" style={{ color: COLORS.muted }}>
             {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
           </p>
-          <input
-            value={newRow.notes}
-            onChange={(e) => setNewRow((p) => ({ ...p, notes: e.target.value }))}
-            placeholder="Note for the show bill (optional)"
-            aria-label="Notes"
-            className="w-full border rounded px-2 py-1 text-xs"
-            style={{ borderColor: COLORS.soft }}
-          />
+          <label className="block text-xs" style={{ color: COLORS.muted }}>
+            Note for the show bill (optional)
+            <input
+              value={newRow.notes}
+              onChange={(e) => setNewRow((p) => ({ ...p, notes: e.target.value }))}
+              placeholder="e.g. APHA classes only — All Breed classes are not included"
+              className="mt-0.5 w-full border rounded px-2 py-1 text-xs"
+              style={{ borderColor: COLORS.soft, color: COLORS.text }}
+            />
+          </label>
         </div>
+      )}
+
+      {charges.length === 0 ? (
+        <p className="text-sm italic" style={{ color: COLORS.muted }}>
+          No class fees yet. Most shows add at least one — a drug or office fee per
+          horse is the usual example.
+        </p>
+      ) : (
+        <ul className="divide-y" style={{ borderColor: COLORS.soft }}>
+          {charges.map((charge) => {
+            const draft = draftFor(charge);
+            const cents = centsFromDollars(draft.amount);
+            const invalid = cents === null;
+            const dirty =
+              !invalid &&
+              (cents !== charge.amount_cents ||
+                draft.label !== charge.label ||
+                draft.unit !== charge.unit ||
+                (draft.notes.trim() || null) !== (charge.notes ?? null));
+            return (
+              <li key={charge.id} className="py-2.5 space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input
+                    value={draft.label}
+                    onChange={(e) => patchDraft(charge, { label: e.target.value })}
+                    aria-label="Fee name"
+                    className="flex-1 min-w-[150px] border rounded px-2 py-1 text-sm"
+                    style={{ borderColor: COLORS.border }}
+                  />
+                  <div className="relative w-24">
+                    <span
+                      className="absolute left-2 top-1/2 -translate-y-1/2 text-xs"
+                      style={{ color: COLORS.muted }}
+                    >
+                      $
+                    </span>
+                    <input
+                      inputMode="decimal"
+                      value={draft.amount}
+                      onChange={(e) => patchDraft(charge, { amount: e.target.value })}
+                      aria-label="Amount"
+                      className="w-full border rounded pl-5 pr-2 py-1 text-sm"
+                      style={{ borderColor: invalid ? '#fca5a5' : COLORS.border }}
+                    />
+                  </div>
+                  <BasisSelect
+                    value={draft.unit}
+                    onChange={(unit) => patchDraft(charge, { unit })}
+                    title={chargeExplanation(draft.unit, cents ?? 0, judgeCount)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => save(charge)}
+                    disabled={busyId === charge.id || invalid || !dirty}
+                    className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
+                    style={{ color: COLORS.accent }}
+                    title={!dirty ? 'No change' : invalid ? 'Invalid amount' : 'Save'}
+                  >
+                    {busyId === charge.id ? '…' : 'Save'}
+                  </button>
+                  {confirmDeleteId === charge.id ? (
+                    <span className="flex items-center gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => remove(charge)}
+                        className="text-red-600 hover:underline"
+                        disabled={busyId === charge.id}
+                      >
+                        Yes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="hover:underline"
+                        style={{ color: COLORS.muted }}
+                      >
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(charge.id)}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {invalid && (
+                  <p className="text-xs text-red-600">
+                    Enter an amount like 8 or 8.50.
+                  </p>
+                )}
+                <label className="block text-xs" style={{ color: COLORS.muted }}>
+                  Note for the show bill (optional)
+                  <input
+                    value={draft.notes}
+                    onChange={(e) => patchDraft(charge, { notes: e.target.value })}
+                    placeholder="e.g. APHA classes only — All Breed classes are not included"
+                    className="mt-0.5 w-full border rounded px-2 py-1 text-xs"
+                    style={{ borderColor: COLORS.soft, color: COLORS.text }}
+                  />
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       <p className="text-xs" style={{ color: COLORS.muted }}>

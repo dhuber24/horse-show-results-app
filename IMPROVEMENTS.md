@@ -2,6 +2,42 @@
 
 ## September 2026
 
+### Three Small Things On The Fee Screen
+
+Follow-ups to the entry below, all on the Class Fees box.
+
+**A new fee lands at the top of the list, not the bottom.** It was written with
+`sort_order = charges.length`, so on a show carrying a dozen charges the row you
+had just created appeared below the fold — which reads as nothing having
+happened, and then means scrolling past everything else to type the amount into
+it. New rows now take a `sort_order` below every existing row (negative, so they
+also stay ahead of migration 132's converted office charge at -1) and are
+prepended in state to match. Persisted rather than done in state alone, because
+`show_fees` is ordered by `sort_order` then `created_at` and a purely local
+reorder would put the row back at the bottom on the next page load. The **+ Add
+a fee** form moved above the list for the same reason: the button and the
+quick-add chips are at the top of the box, and a form that opened at the foot of
+the list sent you looking for the thing you had just asked for.
+
+**The per-row explanation is a tooltip now, and the show-bill note is a labelled
+field.** Every saved row printed a line of grey prose under it saying what the
+fee charges — useful once, furniture by the eighth row, and sitting in exactly
+the place the show-bill note belongs, so the note (which had only a placeholder)
+read as more of the same. The explanation moved to the unit picker's `title`,
+where the arithmetic is still one hover away; the note input gained a visible
+**Note for the show bill (optional)** label and a placeholder drawn from the real
+MNSPHC row this feature came from. Net row height is unchanged. The explanation
+stays as visible text in the new-fee form, which is the one place the unit is
+actually being chosen. An invalid amount still says so, in red, where the
+explanation used to be.
+
+**Futurities are one line on Step 5.** The step carried a box of its own — a
+paragraph explaining what a futurity is and an "+ Add a futurity" button — which
+put a second door into Step 7 on a step about fees, and made the futurity look
+like something the fee screen configures. It is now a sentence pointing at Step 7.
+The legacy-fee warning stays where it was, because a leftover pre-107 `futurity`
+row is a `show_fees` row on this show and so is genuinely this step's business.
+
 ### The Office Charge Stops Being A Special Case
 
 A follow-up to the entry below. The office charge was still rendering as its own

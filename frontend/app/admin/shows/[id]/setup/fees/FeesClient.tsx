@@ -274,64 +274,50 @@ export default function FeesClient({
         )}
       </section>
 
-      <section
-        className="p-4 rounded-lg border space-y-3"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-      >
-        <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-          Futurity
-        </h2>
-        <p className="text-sm" style={{ color: COLORS.muted }}>
-          A futurity is not a fee. It runs its own classes at its own prices —
-          the same class costs different money depending on which category the
-          entrant qualifies for — closes entries on a stated day, charges an
-          office fee per horse that depends on club membership, and hands out
-          Hi-Point awards. All of that is set up in{' '}
-          <Link
-            href={`/admin/shows/${showId}/futurities`}
-            className="underline"
-            style={{ color: COLORS.warn }}
-          >
-            Step 7
-          </Link>
-          .
-        </p>
-
-        {legacyFee && (
-          <div
-            className="rounded border px-3 py-2 text-sm space-y-2"
-            style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
-          >
-            <p>
-              <strong>This show still carries an old flat futurity fee</strong> of{' '}
-              {centsToDollars(legacyFee.amount_cents)} per entry, from before
-              futurities were their own programme.
-              {futurityCount > 0
-                ? ' It is charged on top of the futurity’s own pricing, so every entrant is being billed twice.'
-                : ' Remove it once the futurity is set up in Step 7, or entrants will be billed for both.'}
-            </p>
-            <button
-              type="button"
-              onClick={removeLegacyFuturityFee}
-              disabled={removingLegacy}
-              className="text-sm rounded px-3 py-1.5 border disabled:opacity-50"
-              style={{ borderColor: '#c0392b', backgroundColor: '#fff', color: '#922' }}
-            >
-              {removingLegacy ? 'Removing…' : 'Remove the old futurity fee'}
-            </button>
-          </div>
-        )}
-
+      {/* Futurities are Step 7, so this step says where they live and stops
+          there. It used to carry a box of its own — a paragraph explaining
+          what a futurity is and an "Add a futurity" button — which put a
+          second door into Step 7 on a step about fees, and made the futurity
+          look like something this screen configures. What stays below is the
+          legacy-fee warning, which is about a `show_fees` row on this show
+          and so is genuinely this step's business. */}
+      <p className="text-sm" style={{ color: COLORS.muted }}>
+        Adding a futurity? It is not a fee — it prices its own classes, closes
+        on its own deadline and hands out its own awards, so it is set up in{' '}
         <Link
           href={`/admin/shows/${showId}/futurities`}
-          className="inline-block text-sm rounded px-4 py-2"
-          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+          className="underline"
+          style={{ color: COLORS.warn }}
         >
-          {futurityCount > 0
-            ? `Futurities (${futurityCount}) →`
-            : '+ Add a futurity'}
+          Step 7
         </Link>
-      </section>
+        .
+      </p>
+
+      {legacyFee && (
+        <div
+          className="rounded border px-3 py-2 text-sm space-y-2"
+          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+        >
+          <p>
+            <strong>This show still carries an old flat futurity fee</strong> of{' '}
+            {centsToDollars(legacyFee.amount_cents)} per entry, from before
+            futurities were their own programme.
+            {futurityCount > 0
+              ? ' It is charged on top of the futurity’s own pricing, so every entrant is being billed twice.'
+              : ' Remove it once the futurity is set up in Step 7, or entrants will be billed for both.'}
+          </p>
+          <button
+            type="button"
+            onClick={removeLegacyFuturityFee}
+            disabled={removingLegacy}
+            className="text-sm rounded px-3 py-1.5 border disabled:opacity-50"
+            style={{ borderColor: '#c0392b', backgroundColor: '#fff', color: '#922' }}
+          >
+            {removingLegacy ? 'Removing…' : 'Remove the old futurity fee'}
+          </button>
+        </div>
+      )}
 
       <div className="flex justify-end">
         <button
