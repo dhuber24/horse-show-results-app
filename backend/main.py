@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from database import engine, Base
 from dependencies import INTERNAL_API_KEY
+from schema_drift import schema_drift
 import models  # noqa: F401 — ensure all models are registered before create_all
 from routers.shows import router as shows_router
 from routers.rings import router as rings_router
@@ -233,14 +234,26 @@ async def root():
 
 @app.get("/health/ready", tags=["Health"])
 async def readiness():
-    """Readiness — can this process actually reach the database?
+    """Readiness — can this process reach the database, and still fit it?
 
     Separate from `/` on purpose (see above). Returns 503 rather than raising so
     a monitor reads a status rather than a stack trace.
+
+    Drift is worth failing the probe over because there is no harmless case:
+    SQLAlchemy selects every mapped column, so a column the database is missing
+    breaks *every* read of that table, and nothing the process can do repairs
+    it. Being marked unhealthy is the honest report, and it is what makes a
+    deploy that lands ahead of its migration refuse to be promoted rather than
+    quietly replacing a working release with one that 500s.
     """
     async def _ping():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
+        # Reaching the database is only half the question. A migration applied
+        # while this process is running can take a column out from under its
+        # mappers, and `SELECT 1` will go on saying yes for as long as the app
+        # returns 500s. See `schema_drift`.
+        return await schema_drift(engine, time.monotonic())
 
     try:
         # Bounded on purpose. An unreachable host does not refuse the
@@ -248,7 +261,7 @@ async def readiness():
         # without this the probe hangs until the caller gives up and reports
         # nothing. A readiness check that never answers is no more use than one
         # that always says yes.
-        await asyncio.wait_for(_ping(), timeout=READINESS_TIMEOUT_SECONDS)
+        missing = await asyncio.wait_for(_ping(), timeout=READINESS_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
         logger.error("Readiness check timed out after %ss", READINESS_TIMEOUT_SECONDS)
         return JSONResponse(
@@ -259,4 +272,26 @@ async def readiness():
         return JSONResponse(
             status_code=503, content={"status": "degraded", "database": "error"}
         )
-    return {"status": "ok", "database": "ok"}
+
+    if missing:
+        # Named rather than counted: the columns are the whole diagnosis, and
+        # whoever reads this needs to know which migration is out of step with
+        # which deploy. Capped so a wholesale mismatch cannot return a wall of
+        # text to an unauthenticated caller.
+        logger.error(
+            "Readiness check failed: %d mapped column(s) missing from the database: %s",
+            len(missing),
+            ", ".join(missing[:20]),
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "database": "ok",
+                "schema": "drifted",
+                "missing_columns": missing[:20],
+                "missing_column_count": len(missing),
+            },
+        )
+
+    return {"status": "ok", "database": "ok", "schema": "ok"}

@@ -63,6 +63,64 @@ When DNS has verified, update the variables and redeploy both services:
 Choose one of the apex or `www` names as canonical and redirect the other to it.
 Render provides TLS certificates after verification.
 
+## Keep development off the production database
+
+`render.yaml` does not create the database, so nothing stops `DATABASE_URL` in a
+local `.env` from naming the same Neon branch the API serves from. That is how
+the migration-133 outage happened: the rename of
+`show_sanctioning.per_class_fee_cents` was applied from a developer machine
+while the deployed release still mapped the old name. Every class load returned
+500 — `Class.sanctioning` is `lazy="selectin"`, so this is *every* class load —
+and `/health/ready` reported `{"status":"ok"}` throughout, because `SELECT 1`
+touches no mapped column.
+
+Use a Neon branch per environment:
+
+1. In the Neon console, branch the production database (**Branches > New
+   branch**) and name it `dev`. A branch is copy-on-write, so it costs little
+   and starts with production's schema and data.
+2. Point the local `.env` `DATABASE_URL` at the `dev` branch's connection
+   string. Production keeps the parent branch, set only in Render.
+3. Set `PRODUCTION_DATABASE_HOST` in the local `.env` to the *production*
+   host (`ep-....neon.tech`, no credentials). `database/migrate.ps1` prints its
+   target before doing anything and refuses to run against that host without
+   `-AllowProduction`.
+
+Migrating production then becomes a deliberate release step, in this order:
+
+```powershell
+# 1. Deploy the code that expects the new schema, or take the outage knowingly.
+# 2. Then, and only then:
+powershell -ExecutionPolicy Bypass -File database/migrate.ps1 -AllowProduction
+```
+
+Order matters in both directions, and neither is free. A migration ahead of its
+deploy breaks the running release; a deploy ahead of its migration fails its own
+readiness check and is not promoted. The second is the recoverable one, which is
+why the readiness probe is allowed to fail on drift.
+
+## What readiness actually checks
+
+`/health/ready` answers two questions, and the second exists because the first
+was green for the whole of the outage above:
+
+- **Can this process reach the database?** `SELECT 1`, bounded at
+  `READINESS_TIMEOUT_SECONDS`.
+- **Does the database still have every column this build maps?**
+  `backend/schema_drift.py` diffs `Base.metadata` against
+  `information_schema.columns`, at most once a minute. Drift returns 503 with
+  the offending columns named in `missing_columns`.
+
+Drift is worth a 503 because there is no harmless case: SQLAlchemy selects every
+mapped column, so a column the database lacks breaks every read of that table,
+and no amount of restarting repairs it. `Base.metadata.create_all` at startup
+creates a missing *table* but never adds a missing *column* — which is exactly
+the gap a rename leaves.
+
+A 503 here means Render will not promote the deploy. That is the intent: a
+release that arrives before its migration should fail rather than replace a
+working one.
+
 ## Operations
 
 - Use an always-on paid Render plan for both services.

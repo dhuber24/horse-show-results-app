@@ -2,6 +2,47 @@
 
 ## September 2026
 
+### The Probe That Was Green Through The Outage
+
+Migration 133 renamed `show_sanctioning.per_class_fee_cents` to
+`fee_amount_cents`. It was applied from a developer machine, and local `.env`
+and Render pointed at the same Neon branch -- so it landed on the database the
+*deployed* release was serving from. That release still mapped the old name.
+`Class.sanctioning` is `lazy="selectin"`, so every class load selected a column
+that no longer existed: `/shows/`, the class schedule, the public fee list, the
+results index and the show bill all returned 500.
+
+Nothing reported it. `/health/ready` answered `{"status":"ok","database":"ok"}`
+for the whole outage, because it ran `SELECT 1` -- which touches no mapped
+column -- and that endpoint is Render's `healthCheckPath`. The platform's own
+dashboard said the service was healthy while most of it was down. It was found
+by reading the API by hand.
+
+Three changes, and none of them is sufficient alone.
+
+**Readiness asks whether the schema still fits.** `backend/schema_drift.py`
+diffs `Base.metadata` against `information_schema.columns` and returns 503 with
+the offending columns named. It is **throttled to once a minute rather than
+computed at startup**, because the migration that breaks a process is normally
+applied while that process is running -- the case a boot-time check is
+structurally unable to see. Drift is worth a 503 because there is no harmless
+case: SQLAlchemy selects every mapped column, so a missing one breaks every read
+of that table and no restart repairs it. Note what `create_all` does *not* do --
+it creates a missing table and never adds a missing column, which is exactly the
+shape a rename leaves.
+
+**The migration runner names its target and can refuse it.**
+`database/migrate.ps1` prints the host before it does anything, and refuses to
+run against `PRODUCTION_DATABASE_HOST` unless `-AllowProduction` is passed.
+Applying a migration to production is a release step; a release step should have
+to be asked for.
+
+**Development belongs on its own Neon branch.** Documented in
+`docs/deployment.md`, along with the ordering that has no free option: a
+migration ahead of its deploy breaks the running release, a deploy ahead of its
+migration fails readiness and is not promoted. The second is the recoverable
+one, and that is the argument for letting the probe fail.
+
 ### A Card Is A Year's Card
 
 The exhibitor profile could record that somebody was an APHA member and not

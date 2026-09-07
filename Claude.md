@@ -51,6 +51,7 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 | Reading data off uploaded documents | `docs/document-extraction.md` |
 | Historical change log | `IMPROVEMENTS.md` |
 | Contributor workflow | `CONTRIBUTING.md` |
+| Production deployment, environments, readiness | `docs/deployment.md` |
 
 ## Key Source Files
 
@@ -58,6 +59,7 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 | --- | --- |
 | FastAPI app setup | `backend/main.py` |
 | DB session/engine | `backend/database.py` |
+| Does the schema still fit the mappers | `backend/schema_drift.py` |
 | Auth guards | `backend/dependencies.py` |
 | ORM models | `backend/models.py` |
 | Pydantic schemas | `backend/schemas.py` |
@@ -271,6 +273,7 @@ powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
 
 ## Sharp Edges
 
+- **A migration and the deploy that expects it are one release, and the app is live now.** Local `.env` and Render pointed at the same Neon branch, so applying migration 133's rename of `show_sanctioning.per_class_fee_cents` from a developer machine broke the *running* release instantly: `Class.sanctioning` is `lazy="selectin"`, so every class load selected a column that no longer existed and returned 500. Nothing said so. `/health/ready` answered `{"status":"ok"}` for the entire outage because `SELECT 1` touches no mapped column, and Render's health check is that endpoint — so the platform reported the service healthy while most of it was down. Three things came out of it, and none of them is optional on its own. `backend/schema_drift.py` diffs `Base.metadata` against `information_schema.columns` on readiness, at most once a minute — **throttled rather than checked at boot**, because the migration that breaks a process is normally applied while that process is running, which is exactly what a startup check cannot see. `database/migrate.ps1` prints its target and refuses `PRODUCTION_DATABASE_HOST` without `-AllowProduction`. And development belongs on its own Neon branch (`docs/deployment.md`). **`create_all` is not a safety net here**: it creates a missing *table* and never adds a missing *column*, which is precisely the shape a rename leaves behind.
 - **The APHA show number is the approval.** `GET /shows/{id}/apha-validation` reports SC-090 readiness — the application ladder, the class-list deadline, the reserved words in the show's name, and whether each assigned judge has APHA carding on file — and it treats a number on file as proof the show was approved, because APHA assigns one on approval and the results export already refuses without it. So the deadline ladder disappears the moment the number appears. The alternative was `apha_approval_status` / `_submitted_at` / `_notes` mirroring the AQHA columns, which would be the **third** association-prefixed pair on `shows`; migration 114 exists because of the second one. If that metadata is ever genuinely needed, the answer is a `show_approvals` table keyed on the (show, association) pair — not another four columns.
 - **Everything SC-090 reports is a warning, bar one.** None of it is enforceable from here: the application goes to APHA on paper, the approved-judge list is APHA's, and the app cannot tell an APHA-sponsored show (entitled to "Championship" in its name) from any other. The single error is a show inside 30 days with no number, because SC-090.D.3 means it *cannot* be approved and that is not advice. Do not promote the rest to errors — an error nobody can clear is one the office learns to scroll past, which is the failure this panel exists to avoid. Equally, `APHA_JUDGE_NOT_CARDED` reads `judge_associations`, so it reports a gap in the app's **own records** and never claims a judge is unapproved; a carding typed in here does not make one approved either.
 - **`shows.entry_deadline` is measured against, not enforced.** It exists because SC-090.C counts the approval deadline back from "the show or contest entry deadline or show date, whichever comes first", and holding only the show date meant the app always computed the *later* of the two — telling a manager they had 95 days when entries closed in 60. A show that leaves it blank still gets a window, reported as `basis: "start_date"` so the screen can say the real cutoff may be earlier. Do not wire it to self-registration or to the `post_entry` fee as a tidy-up: both are decisions about access and money, and a column added for a date calculation must not silently change what a show charges.
