@@ -34,9 +34,9 @@ interface Props {
 }
 
 const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
-const labelStyle = { color: '#5a3e2b' } as const;
-const sectionStyle = { backgroundColor: '#ffffff', borderColor: '#d4b896' } as const;
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
+const labelStyle = { color: 'var(--text-deep)' } as const;
+const sectionStyle = { backgroundColor: 'var(--surface)', borderColor: 'var(--border)' } as const;
 
 function filterPhone(raw: string): string {
   const cleaned = raw.replace(/[^\d\s\-\(\)\+\.]/g, '');
@@ -71,7 +71,7 @@ function Field({
       <label className="block text-sm font-medium mb-1" style={labelStyle}>{label}</label>
       {children}
       {error && <p className="text-xs mt-1 text-red-600">{error}</p>}
-      {!error && hint && <p className="text-xs mt-1" style={{ color: '#8b7355' }}>{hint}</p>}
+      {!error && hint && <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{hint}</p>}
     </div>
   );
 }
@@ -146,7 +146,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
 
   if (!trainer) {
     return (
-      <p className="text-sm" style={{ color: '#8b7355' }}>
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
         No trainer registry profile is linked to this account yet. Ask an admin to review the trainer registry.
       </p>
     );
@@ -249,7 +249,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
         <SectionHeader title="Account &amp; Private Contact" open={open.account} onToggle={() => toggle('account')} />
         {open.account && (
           <>
-            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: 'var(--muted)' }}>
               Used for your account and admin/office contact. Not shown on your public profile or in ads.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -285,7 +285,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
       <div className="rounded-lg border p-5" style={sectionStyle}>
         <div className="flex items-center justify-between gap-3">
           <SectionHeader title="Public Profile" open={open.public} onToggle={() => toggle('public')} />
-          <label className="flex items-center gap-2 text-sm shrink-0 ml-4" style={{ color: '#2c1810' }}>
+          <label className="flex items-center gap-2 text-sm shrink-0 ml-4" style={{ color: 'var(--foreground)' }}>
             <input
               type="checkbox"
               checked={form.is_public}
@@ -301,7 +301,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
         )}
         {open.public && (
           <>
-            <p className="text-xs mt-2 mb-4" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-2 mb-4" style={{ color: 'var(--muted)' }}>
               Shown to exhibitors browsing trainers and, in the future, on ad surfaces.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -350,12 +350,12 @@ export default function TrainerProfileForm({ trainer }: Props) {
               </Field>
             </div>
 
-            <div className="mt-5 border-t pt-5" style={{ borderColor: '#f0e4d0' }}>
-              <h4 className="text-sm font-medium mb-2" style={{ color: '#2c1810' }}>Headshot</h4>
+            <div className="mt-5 border-t pt-5" style={{ borderColor: 'var(--bg-subtle)' }}>
+              <h4 className="text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>Headshot</h4>
               <div className="flex items-start gap-4 flex-wrap">
                 <div
                   className="w-28 h-28 rounded-full border flex items-center justify-center overflow-hidden shrink-0"
-                  style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
                 >
                   {hasHeadshot ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -366,7 +366,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-xs" style={{ color: '#8b7355' }}>No photo</span>
+                    <span className="text-xs" style={{ color: 'var(--muted)' }}>No photo</span>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -380,7 +380,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
                     }}
                     className="text-sm"
                   />
-                  <p className="text-xs" style={{ color: '#8b7355' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
+                  <p className="text-xs" style={{ color: 'var(--muted)' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
                   {hasHeadshot && (
                     <button
                       type="button"
@@ -390,7 +390,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
                       Remove headshot
                     </button>
                   )}
-                  {uploadingPhoto && <p className="text-xs" style={{ color: '#8b7355' }}>Uploading...</p>}
+                  {uploadingPhoto && <p className="text-xs" style={{ color: 'var(--muted)' }}>Uploading...</p>}
                   {photoError && <p className="text-xs text-red-600">{photoError}</p>}
                 </div>
               </div>
@@ -404,7 +404,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
         <SectionHeader title="Compliance" open={open.compliance} onToggle={() => toggle('compliance')} />
         {open.compliance && (
           <>
-            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: 'var(--muted)' }}>
               Visible to you and to show management. The dates themselves are not shown publicly — only a current/expired badge.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -442,10 +442,10 @@ export default function TrainerProfileForm({ trainer }: Props) {
         <SectionHeader title="Liability Insurance" open={open.insurance} onToggle={() => toggle('insurance')} />
         {open.insurance && (
           <>
-            <p className="text-xs mt-1 mb-4" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-1 mb-4" style={{ color: 'var(--muted)' }}>
               Many shows require commercial equine liability coverage. This is self-attested; carrier/policy details and certificate upload will be added later.
             </p>
-            <label className="flex items-center gap-2 text-sm" style={{ color: '#2c1810' }}>
+            <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--foreground)' }}>
               <input
                 type="checkbox"
                 checked={form.has_liability_insurance}
@@ -474,7 +474,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
             : undefined
         }
         className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513' }}
+        style={{ backgroundColor: 'var(--accent)' }}
       >
         {saving ? 'Saving...' : 'Save Trainer Profile'}
       </button>

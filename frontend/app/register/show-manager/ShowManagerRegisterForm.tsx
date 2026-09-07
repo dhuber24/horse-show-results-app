@@ -102,7 +102,7 @@ export default function ShowManagerRegisterForm() {
           { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },
         ].map(field => (
           <div key={field.name}>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>
               {field.label}
             </label>
             <input
@@ -113,34 +113,34 @@ export default function ShowManagerRegisterForm() {
               onChange={handleChange}
               onBlur={field.name === 'email' ? handleEmailBlur : undefined}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
           </div>
         ))}
       </div>
 
       {/* APHA certification lookup — recommended for managers */}
-      <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
+      <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
         <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold" style={{ color: '#2c1810' }}>APHA Show Management Certification</p>
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: '#e8d5b7', color: '#5c3d1e' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>APHA Show Management Certification</p>
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
             Recommended
           </span>
         </div>
-        <p className="text-xs" style={{ color: '#8b7355' }}>
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
           APHA recommends that Show Managers hold an active APHA Show Management Certification
           when hosting APHA-sanctioned events.{' '}
           <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer"
-            className="underline" style={{ color: '#8b4513' }}>
+            className="underline" style={{ color: 'var(--accent)' }}>
             View certified list
           </a>
         </p>
         <AphaCertBadge cert={aphaCert} />
       </div>
 
-      <div className="rounded-lg border p-3 text-sm" style={{ borderColor: '#d4b896', backgroundColor: '#fdf6ee' }}>
-        <p className="font-medium mb-1" style={{ color: '#2c1810' }}>What happens next?</p>
-        <ol className="space-y-1 list-decimal list-inside" style={{ color: '#5a3e2b' }}>
+      <div className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}>
+        <p className="font-medium mb-1" style={{ color: 'var(--foreground)' }}>What happens next?</p>
+        <ol className="space-y-1 list-decimal list-inside" style={{ color: 'var(--text-deep)' }}>
           <li>Create your account and log in immediately.</li>
           <li>Submit a show hosting request with your association and venue details.</li>
           <li>An admin reviews your request — on approval, your show is created automatically.</li>
@@ -148,7 +148,7 @@ export default function ShowManagerRegisterForm() {
       </div>
 
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -157,7 +157,7 @@ export default function ShowManagerRegisterForm() {
         onClick={handleSubmit}
         disabled={loading}
         className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
       >
         {loading ? 'Creating account…' : 'Create Show Manager Account'}
       </button>
@@ -167,10 +167,10 @@ export default function ShowManagerRegisterForm() {
 
 function AphaCertBadge({ cert }: { cert: AphaCert }) {
   if (cert.status === 'idle') {
-    return <p className="text-xs" style={{ color: '#8b7355' }}>Enter your email above to check your certification status.</p>;
+    return <p className="text-xs" style={{ color: 'var(--muted)' }}>Enter your email above to check your certification status.</p>;
   }
   if (cert.status === 'checking') {
-    return <p className="text-xs" style={{ color: '#8b7355' }}>Checking APHA certification…</p>;
+    return <p className="text-xs" style={{ color: 'var(--muted)' }}>Checking APHA certification…</p>;
   }
   if (cert.status === 'found') {
     const expLabel = cert.expiration_date
@@ -178,14 +178,14 @@ function AphaCertBadge({ cert }: { cert: AphaCert }) {
       : '';
     if (cert.expired) {
       return (
-        <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#fef2f2', color: '#991b1b' }}>
+        <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           <span className="font-semibold">⚠ Certification expired</span>
           {expLabel && <span className="ml-1">— {expLabel}</span>}
         </div>
       );
     }
     return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#f0fdf4', color: '#166534' }}>
+      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
         <span className="font-semibold">✓ APHA Show Management Certification verified</span>
         {expLabel && <span className="ml-1">— {expLabel}</span>}
       </div>
@@ -193,7 +193,7 @@ function AphaCertBadge({ cert }: { cert: AphaCert }) {
   }
   if (cert.status === 'not-found') {
     return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#fffbeb', color: '#92400e' }}>
+      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
         <span className="font-semibold">Not found in APHA certified list</span>
         <span className="block mt-0.5">
           This is recommended but not required. You can still register and host APHA events.
@@ -202,10 +202,10 @@ function AphaCertBadge({ cert }: { cert: AphaCert }) {
     );
   }
   return (
-    <p className="text-xs" style={{ color: '#8b7355' }}>
+    <p className="text-xs" style={{ color: 'var(--muted)' }}>
       Could not reach the APHA certification list.{' '}
       <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer"
-        className="underline" style={{ color: '#8b4513' }}>
+        className="underline" style={{ color: 'var(--accent)' }}>
         Verify manually
       </a>.
     </p>

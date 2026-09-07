@@ -16,7 +16,7 @@ export default async function EditBreedPage({ params }: { params: Promise<{ id: 
           { label: 'Breeds', href: '/admin/horses/breeds' },
           { label: breed.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Breed</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Edit Breed</h1>
       </div>
       <BreedForm breed={breed} />
     </main>

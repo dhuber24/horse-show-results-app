@@ -42,10 +42,10 @@ export default async function NewShowPage() {
             { label: 'New Show' },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           New Show
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Step 1 of 5: basic show information and Show Secretary.
         </p>
       </div>

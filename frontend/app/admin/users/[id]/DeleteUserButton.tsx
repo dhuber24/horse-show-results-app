@@ -32,14 +32,14 @@ export default function DeleteUserButton({ userId, userName }: Props) {
     <div className="space-y-2">
       {confirmDelete ? (
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm" style={{ color: '#991b1b' }}>
+          <span className="text-sm" style={{ color: 'var(--error-strong)' }}>
             Permanently delete {userName}? This cannot be undone.
           </span>
           <button
             onClick={handleDelete}
             disabled={deleting}
             className="px-3 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
-            style={{ backgroundColor: '#dc2626' }}
+            style={{ backgroundColor: 'var(--error)' }}
           >
             {deleting ? 'Deleting…' : 'Yes, delete'}
           </button>
@@ -47,7 +47,7 @@ export default function DeleteUserButton({ userId, userName }: Props) {
             onClick={() => setConfirmDelete(false)}
             disabled={deleting}
             className="text-sm hover:underline"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Cancel
           </button>
@@ -56,7 +56,7 @@ export default function DeleteUserButton({ userId, userName }: Props) {
         <button
           onClick={() => setConfirmDelete(true)}
           className="px-4 py-2 rounded text-sm font-medium text-white"
-          style={{ backgroundColor: '#dc2626' }}
+          style={{ backgroundColor: 'var(--error)' }}
         >
           Delete User
         </button>

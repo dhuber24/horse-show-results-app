@@ -15,18 +15,45 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Horse Show Results',
+  title: {
+    default: 'GaitDesk',
+    template: '%s · GaitDesk',
+  },
   description: 'Entry and results management for ranch and western pleasure horse shows',
   manifest: '/manifest.json',
+  applicationName: 'GaitDesk',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icons/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: '/icons/apple-touch-icon.png',
+  },
+  openGraph: {
+    title: 'GaitDesk',
+    description: 'Entry and results management for ranch and western pleasure horse shows',
+    siteName: 'GaitDesk',
+    images: ['/brand/og-image-1200x630.png'],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'GaitDesk',
+    description: 'Entry and results management for ranch and western pleasure horse shows',
+    images: ['/brand/og-image-1200x630.png'],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'ShowResults',
+    title: 'GaitDesk',
   },
 };
 
+// Literal, not var(--accent): the theme-color meta tag is read by the browser
+// chrome before any stylesheet applies, so a CSS variable resolves to nothing.
+// Keep in step with manifest.json's theme_color.
 export const viewport: Viewport = {
-  themeColor: '#1e3a5f',
+  themeColor: '#2B5CB8',
 };
 
 export default function RootLayout({
@@ -36,10 +63,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head>
-        <link rel="apple-touch-icon" href="/icons/icon.svg" />
-      </head>
-      <body className={`${inter.variable} ${robotoMono.variable} antialiased bg-gray-50 min-h-screen`}>
+      <body className={`${inter.variable} ${robotoMono.variable} antialiased min-h-screen`}>
         <Navbar />
         {children}
         <ServiceWorkerRegistration />

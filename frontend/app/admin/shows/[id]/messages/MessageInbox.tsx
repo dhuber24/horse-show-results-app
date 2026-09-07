@@ -87,10 +87,10 @@ export default function MessageInbox({
     return (
       <div
         className="rounded-lg border border-dashed p-6 text-center"
-        style={{ borderColor: '#d4b896' }}
+        style={{ borderColor: 'var(--border)' }}
       >
-        <p className="text-sm font-medium" style={{ color: '#2c1810' }}>No messages yet</p>
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>No messages yet</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Anyone viewing this show&rsquo;s page can send the office a question, with or without an
           account. Their messages land here.
         </p>
@@ -101,7 +101,7 @@ export default function MessageInbox({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {unread > 0 ? `${unread} unread` : 'Nothing unread'} · {messages.length} total
         </p>
         <div className="flex gap-2">
@@ -111,8 +111,8 @@ export default function MessageInbox({
               onClick={() => setFilter(f)}
               className="text-sm font-medium px-3 py-1.5 rounded-full border transition"
               style={filter === f
-                ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-                : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+                ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+                : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               {f === 'open' ? 'Open' : f === 'archived' ? 'Archived' : 'All'}
             </button>
@@ -123,14 +123,14 @@ export default function MessageInbox({
       {error && (
         <div
           className="rounded border p-2 text-xs"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
       )}
 
       {visible.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           Nothing in this view.
         </p>
       ) : (
@@ -142,18 +142,18 @@ export default function MessageInbox({
                 key={m.id}
                 className="rounded-lg border p-4"
                 style={{
-                  borderColor: isNew ? '#8b4513' : '#e8d5b7',
-                  backgroundColor: isNew ? '#fffdf8' : '#fdfbf7',
+                  borderColor: isNew ? 'var(--accent)' : 'var(--border-subtle)',
+                  backgroundColor: isNew ? 'var(--surface)' : 'var(--surface)',
                 }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+                    <div className="text-sm font-semibold flex items-center flex-wrap gap-1.5" style={{ color: 'var(--foreground)' }}>
                       {m.subject || '(no subject)'}
                       {isNew && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
                         >
                           New
                         </span>
@@ -161,14 +161,14 @@ export default function MessageInbox({
                       {m.status === 'archived' && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}
+                          style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)' }}
                         >
                           Archived
                         </span>
                       )}
                     </div>
                     <p className="text-xs mt-0.5 flex items-center flex-wrap gap-1.5"
-                      style={{ color: '#8b7355' }}>
+                      style={{ color: 'var(--muted)' }}>
                       <span>
                         {m.sender_name} · {m.sender_email}
                         {m.sender_phone && <> · {m.sender_phone}</>}
@@ -176,7 +176,7 @@ export default function MessageInbox({
                       {m.sender_is_registered ? (
                         <span
                           className="px-1.5 py-0.5 rounded font-medium"
-                          style={{ backgroundColor: '#dcfce7', color: '#166534' }}
+                          style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
                           title="Signed in when they sent this, and entered at this show."
                         >
                           {m.sender_back_number != null
@@ -186,35 +186,35 @@ export default function MessageInbox({
                       ) : m.sender_exhibitor_id ? (
                         <span
                           className="px-1.5 py-0.5 rounded font-medium"
-                          style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}
+                          style={{ backgroundColor: 'var(--accent-border)', color: 'var(--accent-hover)' }}
                           title="Signed in when they sent this, but has no entry at this show."
                         >
                           Has an account
                         </span>
                       ) : null}
                     </p>
-                    <p className="text-xs" style={{ color: '#8b7355' }}>{formatWhen(m.created_at)}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>{formatWhen(m.created_at)}</p>
                   </div>
                 </div>
 
                 {/* whitespace-pre-wrap: they typed paragraphs, show paragraphs. */}
                 <p
                   className="text-sm mt-3 whitespace-pre-wrap break-words"
-                  style={{ color: '#2c1810' }}
+                  style={{ color: 'var(--foreground)' }}
                 >
                   {m.message}
                 </p>
 
                 <div
                   className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t"
-                  style={{ borderColor: '#f0e4d0' }}
+                  style={{ borderColor: 'var(--bg-subtle)' }}
                 >
                   <a
                     href={`mailto:${encodeURIComponent(m.sender_email)}?subject=${encodeURIComponent(
                       `Re: ${m.subject || 'your message about this show'}`,
                     )}`}
                     className="text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Reply by email
                   </a>
@@ -223,7 +223,7 @@ export default function MessageInbox({
                       onClick={() => setStatus(m.id, 'read')}
                       disabled={busyId === m.id}
                       className="text-xs font-medium hover:underline disabled:opacity-50"
-                      style={{ color: '#8b4513' }}
+                      style={{ color: 'var(--accent)' }}
                     >
                       Mark read
                     </button>
@@ -233,7 +233,7 @@ export default function MessageInbox({
                       onClick={() => setStatus(m.id, 'new')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                       title="Put it back in the unread pile"
                     >
                       Mark unread
@@ -244,7 +244,7 @@ export default function MessageInbox({
                       onClick={() => setStatus(m.id, 'archived')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Archive
                     </button>
@@ -253,7 +253,7 @@ export default function MessageInbox({
                       onClick={() => setStatus(m.id, 'read')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Unarchive
                     </button>

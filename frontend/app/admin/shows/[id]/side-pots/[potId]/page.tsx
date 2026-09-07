@@ -27,16 +27,16 @@ function Tile({ label, value, detail }: { label: string; value: string; detail?:
   return (
     <div
       className="rounded-lg border p-4"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: '#8b7355' }}>
+      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
         {label}
       </p>
-      <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: '#2c1810' }}>
+      <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: 'var(--foreground)' }}>
         {value}
       </p>
       {detail && (
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           {detail}
         </p>
       )}
@@ -61,7 +61,7 @@ function NavCard({
     <Link
       href={href}
       className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       <div className="flex items-start gap-3">
         <div className="text-2xl" aria-hidden>
@@ -70,7 +70,7 @@ function NavCard({
         <div>
           <h2
             className="text-lg font-semibold flex items-center flex-wrap gap-2"
-            style={{ color: '#2c1810' }}
+            style={{ color: 'var(--foreground)' }}
           >
             {title}
             {badge && (
@@ -82,7 +82,7 @@ function NavCard({
               </span>
             )}
           </h2>
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
             {description}
           </p>
         </div>
@@ -110,18 +110,18 @@ export default async function SidePotDetailPage({
       <div>
         <Breadcrumbs crumbs={potCrumbs(id, show.name, pot)} />
         <div className="flex flex-wrap items-center gap-2 mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
             {pot.name}
           </h1>
           <StatusPill status={pot.status} />
         </div>
         {pot.description && (
-          <p className="text-sm mt-1" style={{ color: '#5c3d1e' }}>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
             {pot.description}
           </p>
         )}
         {pot.settled_at && (
-          <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
             Settled {new Date(pot.settled_at).toLocaleString()} — payouts are frozen.
           </p>
         )}
@@ -133,7 +133,7 @@ export default async function SidePotDetailPage({
           icon="⚙️"
           title="Settings"
           description="Buy-in, payback, scoring, and which classes are bundled."
-          badge={isSettled ? { label: 'Locked', bg: '#d4d4d4', fg: '#404040' } : undefined}
+          badge={isSettled ? { label: 'Locked', bg: 'var(--border)', fg: 'var(--text-deep)' } : undefined}
         />
         <NavCard
           href={`${base}/entries`}
@@ -142,7 +142,7 @@ export default async function SidePotDetailPage({
           description="Add exhibitors to the pot, and see who is already in."
           badge={
             pot.entry_count > 0
-              ? { label: String(pot.entry_count), bg: '#f0e8d8', fg: '#8b4513' }
+              ? { label: String(pot.entry_count), bg: 'var(--bg-subtle)', fg: 'var(--accent)' }
               : undefined
           }
         />
@@ -159,7 +159,7 @@ export default async function SidePotDetailPage({
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
           Pool
         </h2>
         <div className="grid sm:grid-cols-3 gap-4">
@@ -181,7 +181,7 @@ export default async function SidePotDetailPage({
             )}`}
           />
         </div>
-        <p className="text-xs" style={{ color: '#8b7355' }}>
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
           Everyone in the pot owes the buy-in and settles at the end of the show. Pot money
           is tracked apart from the exhibitor&rsquo;s show bill and is not part of their
           balance on Financials.
@@ -189,34 +189,34 @@ export default async function SidePotDetailPage({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
           How it scores
         </h2>
-        <dl className="text-sm rounded-lg border divide-y" style={{ borderColor: '#d4b896' }}>
+        <dl className="text-sm rounded-lg border divide-y" style={{ borderColor: 'var(--border)' }}>
           {[
             ['Scoring', SCORING_LABEL[pot.scoring_method]],
             ['Eligibility', ELIGIBILITY_LABEL[pot.eligibility_rule]],
           ].map(([label, value]) => (
             <div key={label} className="flex flex-wrap gap-x-3 gap-y-1 px-4 py-2">
-              <dt className="w-28 shrink-0" style={{ color: '#8b7355' }}>
+              <dt className="w-28 shrink-0" style={{ color: 'var(--muted)' }}>
                 {label}
               </dt>
-              <dd style={{ color: '#2c1810' }}>{value}</dd>
+              <dd style={{ color: 'var(--foreground)' }}>{value}</dd>
             </div>
           ))}
           <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 py-2">
-            <dt className="w-28 shrink-0" style={{ color: '#8b7355' }}>
+            <dt className="w-28 shrink-0" style={{ color: 'var(--muted)' }}>
               Classes
             </dt>
-            <dd className="flex flex-wrap gap-1" style={{ color: '#2c1810' }}>
+            <dd className="flex flex-wrap gap-1" style={{ color: 'var(--foreground)' }}>
               {pot.classes.length === 0 ? (
-                <span style={{ color: '#8b7355' }}>None bundled yet.</span>
+                <span style={{ color: 'var(--muted)' }}>None bundled yet.</span>
               ) : (
                 pot.classes.map((c) => (
                   <span
                     key={c.class_id}
                     className="text-xs font-mono px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                    style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                     title={c.class_name}
                   >
                     #{c.class_number}

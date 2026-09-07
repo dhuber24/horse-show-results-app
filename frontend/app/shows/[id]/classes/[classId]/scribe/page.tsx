@@ -79,16 +79,16 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="max-w-3xl mx-auto p-6">
-      <a href={`/shows/${id}/classes/${classId}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+      <a href={`/shows/${id}/classes/${classId}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
         ← Back to Results
       </a>
-      <h1 className="text-2xl font-bold mt-4" style={{ color: '#2c1810' }}>
+      <h1 className="text-2xl font-bold mt-4" style={{ color: 'var(--foreground)' }}>
         {cls ? `${cls.class_number} — ${cls.class_name}` : 'Scribe'}
       </h1>
-      <p className="text-sm mb-5" style={{ color: '#8b7355' }}>{show.name} · {cls?.class_date}</p>
+      <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>{show.name} · {cls?.class_date}</p>
       {show.status !== 'ACTIVE' ? (
         <div className="p-4 rounded-lg text-sm"
-          style={{ backgroundColor: '#fef3c7', border: '1px solid #d4b896', color: '#92400e' }}>
+          style={{ backgroundColor: 'var(--warning-bg)', border: '1px solid var(--border)', color: 'var(--warning)' }}>
           This show is not active ({show.status}). Placings cannot be entered until the show is set to Active.
         </div>
       ) : cls?.score_type === 'pattern' || cls?.score_type === 'time' ? (

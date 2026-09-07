@@ -28,13 +28,13 @@ export default async function GateShowsPage() {
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <div className="mb-6 mt-2">
-        <h2 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Gate — My Shows</h2>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <h2 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Gate — My Shows</h2>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Shows where you manage the in-gate and order-of-go
         </p>
       </div>
       {visible.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>
+        <p style={{ color: 'var(--muted)' }}>
           You haven&apos;t been assigned to any shows yet. Contact your show secretary.
         </p>
       ) : (
@@ -44,10 +44,10 @@ export default async function GateShowsPage() {
               <Link
                 href={`/gate/${show.id}`}
                 className="block p-4 rounded-lg border hover:shadow transition"
-                style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
               >
-                <div className="font-semibold" style={{ color: '#2c1810' }}>{show.name}</div>
-                <div className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{show.name}</div>
+                <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                   {show.start_date} – {show.end_date}
                   {show.status === 'ACTIVE' ? ' · Active' : ''}
                 </div>

@@ -30,7 +30,7 @@ export default function SidePotsManager({
         <button
           onClick={() => setCreating(true)}
           className="px-4 py-2 rounded text-sm font-medium"
-          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+          style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
         >
           + Create Side Pot
         </button>
@@ -45,14 +45,14 @@ export default function SidePotsManager({
       )}
 
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
           Pots
-          <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
+          <span className="ml-2 text-sm font-normal" style={{ color: 'var(--muted)' }}>
             ({pots.length})
           </span>
         </h2>
         {pots.length === 0 ? (
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             No side pots yet.
           </p>
         ) : (
@@ -62,33 +62,33 @@ export default function SidePotsManager({
                 <Link
                   href={`/admin/shows/${showId}/side-pots/${pot.id}`}
                   className="block p-3 rounded-lg border hover:bg-gray-50 transition"
-                  style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className="font-medium"
-                          style={{ color: '#2c1810' }}
+                          style={{ color: 'var(--foreground)' }}
                         >
                           {pot.name}
                         </span>
                         <StatusPill status={pot.status} />
                         <span
                           className="text-xs"
-                          style={{ color: '#8b7355' }}
+                          style={{ color: 'var(--muted)' }}
                         >
                           · {formatCents(pot.entry_fee_cents)} buy-in
                         </span>
                         <span
                           className="text-xs"
-                          style={{ color: '#8b7355' }}
+                          style={{ color: 'var(--muted)' }}
                         >
                           · {pot.payback_percent}% payback
                         </span>
                         <span
                           className="text-xs font-mono px-1 rounded"
-                          style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                          style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                           title="Scoring method"
                         >
                           {pot.scoring_method === 'sum_scores'
@@ -99,14 +99,14 @@ export default function SidePotsManager({
                       {pot.description && (
                         <p
                           className="text-sm mt-1"
-                          style={{ color: '#5c3d1e' }}
+                          style={{ color: 'var(--text-deep)' }}
                         >
                           {pot.description}
                         </p>
                       )}
                       <p
                         className="text-xs mt-1"
-                        style={{ color: '#8b7355' }}
+                        style={{ color: 'var(--muted)' }}
                       >
                         {pot.classes.length} class
                         {pot.classes.length === 1 ? '' : 'es'} ·{' '}
@@ -114,7 +114,7 @@ export default function SidePotsManager({
                         ({pot.paid_count} paid)
                       </p>
                     </div>
-                    <span className="text-sm" style={{ color: '#8b7355' }}>
+                    <span className="text-sm" style={{ color: 'var(--muted)' }}>
                       Manage →
                     </span>
                   </div>
@@ -241,9 +241,9 @@ function CreatePotForm({
   return (
     <div
       className="border rounded-lg p-4 space-y-4"
-      style={{ borderColor: '#d4b896' }}
+      style={{ borderColor: 'var(--border)' }}
     >
-      <h3 className="font-semibold" style={{ color: '#2c1810' }}>
+      <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>
         Create Side Pot
       </h3>
 
@@ -341,7 +341,7 @@ function CreatePotForm({
         <div className="flex items-baseline justify-between gap-2">
           <label
             className="text-sm font-medium"
-            style={{ color: '#2c1810' }}
+            style={{ color: 'var(--foreground)' }}
           >
             Bundled classes ({selectedClassIds.size} selected)
           </label>
@@ -353,19 +353,19 @@ function CreatePotForm({
           />
         </div>
         {scoringMethod === 'sum_scores' && (
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Showing only pattern and timed classes. Mark a class as Pattern or
             Timed in the class editor to make it eligible here.
           </p>
         )}
         <div
           className="border rounded overflow-y-auto"
-          style={{ maxHeight: '320px', borderColor: '#e8d5b7' }}
+          style={{ maxHeight: '320px', borderColor: 'var(--border-subtle)' }}
         >
           {filtered.length === 0 ? (
             <p
               className="p-3 text-sm"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               No matching classes.
             </p>
@@ -375,7 +375,7 @@ function CreatePotForm({
                 <div key={date}>
                   <div
                     className="px-3 py-1.5 text-xs font-medium sticky top-0"
-                    style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}
+                    style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}
                   >
                     {date}
                   </div>
@@ -383,7 +383,7 @@ function CreatePotForm({
                     <label
                       key={c.id}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm border-t cursor-pointer hover:bg-gray-50"
-                      style={{ borderColor: '#f0e6d2' }}
+                      style={{ borderColor: 'var(--bg-subtle)' }}
                     >
                       <input
                         type="checkbox"
@@ -393,19 +393,19 @@ function CreatePotForm({
                       <span
                         className="text-xs font-mono px-1.5 py-0.5 rounded"
                         style={{
-                          backgroundColor: '#f0e8d8',
-                          color: '#8b4513',
+                          backgroundColor: 'var(--bg-subtle)',
+                          color: 'var(--accent)',
                         }}
                       >
                         #{c.class_number}
                       </span>
-                      <span style={{ color: '#2c1810' }}>{c.class_name}</span>
+                      <span style={{ color: 'var(--foreground)' }}>{c.class_name}</span>
                       {c.score_type !== 'placement' && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded ml-auto"
                           style={{
-                            backgroundColor: '#dcebd5',
-                            color: '#3f6b2f',
+                            backgroundColor: 'var(--success-border)',
+                            color: 'var(--success)',
                           }}
                         >
                           {c.score_type === 'pattern' ? 'Pattern' : 'Timed'}
@@ -427,7 +427,7 @@ function CreatePotForm({
           onClick={handleSubmit}
           disabled={saving}
           className="px-5 py-2 rounded text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+          style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
         >
           {saving ? 'Creating…' : 'Create pot'}
         </button>

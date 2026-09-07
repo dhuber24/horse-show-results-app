@@ -90,7 +90,7 @@ export default function TrainerRegisterForm() {
           { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: 'Re-enter password' },
         ].map((field) => (
           <div key={field.name}>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>
               {field.label}
             </label>
             <input
@@ -100,22 +100,22 @@ export default function TrainerRegisterForm() {
               value={(form as Record<string, string>)[field.name]}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
           </div>
         ))}
       </div>
 
-      <div className="rounded-lg border p-3 text-sm" style={{ borderColor: '#d4b896', backgroundColor: '#fdf6ee' }}>
-        <p className="font-medium mb-1" style={{ color: '#2c1810' }}>What this creates</p>
-        <p style={{ color: '#5a3e2b' }}>
+      <div className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}>
+        <p className="font-medium mb-1" style={{ color: 'var(--foreground)' }}>What this creates</p>
+        <p style={{ color: 'var(--text-deep)' }}>
           Your login is created with the Trainer role and linked to the trainer registry used on horse profiles.
           Private contact fields are required for account/admin use. Public contact fields are optional and can be shown with your trainer record.
         </p>
       </div>
 
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -124,7 +124,7 @@ export default function TrainerRegisterForm() {
         onClick={handleSubmit}
         disabled={loading}
         className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
       >
         {loading ? 'Creating account...' : 'Create Trainer Account'}
       </button>

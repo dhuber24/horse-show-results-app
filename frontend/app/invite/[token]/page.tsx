@@ -31,12 +31,12 @@ async function fetchInvite(token: string): Promise<InvitePayload | { error: stri
 }
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
 
 export default async function AcceptInvitePage({
@@ -52,7 +52,7 @@ export default async function AcceptInvitePage({
       <main className="max-w-md mx-auto p-6 mt-12">
         <div
           className="rounded border p-6 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           {result.error}
         </div>

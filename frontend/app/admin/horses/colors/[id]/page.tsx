@@ -16,7 +16,7 @@ export default async function EditHorseColorPage({ params }: { params: Promise<{
           { label: 'Colors', href: '/admin/horses/colors' },
           { label: color.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Color</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Edit Color</h1>
       </div>
       <HorseColorForm color={color} />
     </main>

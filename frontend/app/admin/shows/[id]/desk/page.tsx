@@ -43,10 +43,10 @@ export default async function ShowDeskPage({ params }: { params: Promise<{ id: s
         />
         <div className="flex items-start justify-between gap-3 flex-wrap mt-2">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+            <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
               Registration Desk
             </h1>
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
               {show.name} — back numbers, class entries, side pots, and paperwork check-in.
             </p>
           </div>
@@ -57,7 +57,7 @@ export default async function ShowDeskPage({ params }: { params: Promise<{ id: s
           <Link
             href={`/admin/shows/${id}/desk/paperwork`}
             className="text-sm rounded px-3 py-2 border shrink-0 hover:bg-amber-50 transition-colors"
-            style={{ borderColor: '#d4b896', color: '#8b4513', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
           >
             Paperwork requirements
           </Link>

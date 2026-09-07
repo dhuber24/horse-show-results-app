@@ -36,8 +36,8 @@ type FlagTone = 'danger' | 'warn';
 interface ReadinessFlag { tone: FlagTone; text: string; }
 
 const FLAG_STYLES: Record<FlagTone, { backgroundColor: string; color: string }> = {
-  danger: { backgroundColor: '#fee2e2', color: '#991b1b' },
-  warn: { backgroundColor: '#fef3c7', color: '#92400e' },
+  danger: { backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' },
+  warn: { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' },
 };
 
 function daysUntil(isoDate: string): number {
@@ -369,7 +369,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {horses.length === 0
             ? 'No horses yet'
             : `${horses.length} horse${horses.length === 1 ? '' : 's'} on your profile`}
@@ -379,14 +379,14 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             <button
               onClick={() => { setShowSearch(true); setSearchMode('name'); }}
               className="px-3 py-1.5 rounded text-sm font-medium border"
-              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             >
               Find existing horse
             </button>
             <Link
               href="/profile/horses/new"
               className="px-3 py-1.5 rounded text-sm font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               Add a horse
             </Link>
@@ -404,13 +404,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter by name, barn name, sire, dam, or registration #"
             className="flex-1 min-w-[200px] border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
           />
           <select
             value={sortMode}
             onChange={(e) => setSortMode(e.target.value as SortMode)}
             className="border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
             aria-label="Sort horses"
           >
             <option value="name">Name A-Z</option>
@@ -423,18 +423,18 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
       {horses.length === 0 ? (
         // With a panel open the empty-state copy is just noise — the panel says it better.
         !panelOpen && (
-          <div className="rounded-lg border border-dashed p-6 text-center" style={{ borderColor: '#d4b896' }}>
-            <p className="text-sm font-medium" style={{ color: '#2c1810' }}>No horses on your profile yet</p>
-            <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+          <div className="rounded-lg border border-dashed p-6 text-center" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>No horses on your profile yet</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
               Add the horses you show so you can pick them when you register for a show.
               If a horse is already in the system, find it by name or registration number instead of creating a duplicate.
             </p>
           </div>
         )
       ) : visibleHorses.length === 0 ? (
-        <p className="text-sm flex flex-wrap items-center gap-2" style={{ color: '#8b7355' }}>
+        <p className="text-sm flex flex-wrap items-center gap-2" style={{ color: 'var(--muted)' }}>
           <span>No horses match &ldquo;{filter}&rdquo;.</span>
-          <button onClick={() => setFilter('')} className="text-xs font-medium hover:underline" style={{ color: '#8b4513' }}>
+          <button onClick={() => setFilter('')} className="text-xs font-medium hover:underline" style={{ color: 'var(--accent)' }}>
             Clear filter
           </button>
         </p>
@@ -445,10 +445,10 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
             const isCreator = horse.created_by_exhibitor_id === exhibitorId;
             const badgeLabel = isOwner ? 'Owner' : isCreator ? 'Created' : 'Linked';
             const badgeStyle = isOwner
-              ? { backgroundColor: '#fef3c7', color: '#92400e' }
+              ? { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }
               : isCreator
-                ? { backgroundColor: '#dcfce7', color: '#166534' }
-                : { backgroundColor: '#e0e7ff', color: '#3730a3' };
+                ? { backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }
+                : { backgroundColor: 'var(--accent-bg)', color: 'var(--accent-active)' };
             const breedLabel = horse.breed_names?.length ? horse.breed_names.join(', ') : horse.breed_name;
             const spec = [breedLabel, coatDescription(horse.color_name, horse.pattern_name), horse.age !== null && horse.age !== undefined ? `${horse.age} yr` : null]
               .filter(Boolean) as string[];
@@ -459,21 +459,21 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
               <li
                 key={horse.id}
                 className="rounded-lg border p-4"
-                style={{ borderColor: '#e8d5b7', backgroundColor: '#fdfbf7' }}
+                style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
               >
                 <div className="space-y-1.5">
-                  <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+                  <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: 'var(--foreground)' }}>
                     {horse.name}
                     {horse.barn_name && (
-                      <span className="font-normal" style={{ color: '#8b7355' }}>&ldquo;{horse.barn_name}&rdquo;</span>
+                      <span className="font-normal" style={{ color: 'var(--muted)' }}>&ldquo;{horse.barn_name}&rdquo;</span>
                     )}
                     {horse.sex && (
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                         {horse.sex}
                       </span>
                     )}
                     {horse.is_solid_paint_bred && (
-                      <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                      <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
                         SPB
                       </span>
                     )}
@@ -483,22 +483,22 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   </div>
 
                   {spec.length > 0 && (
-                    <p className="text-xs" style={{ color: '#8b7355' }}>{spec.join(' · ')}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>{spec.join(' · ')}</p>
                   )}
 
                   {(horse.sire_name || horse.dam_name) && (
-                    <p className="text-xs" style={{ color: '#8b7355' }}>
-                      {horse.sire_name && <>Sire: <span style={{ color: '#5c3d1e' }}>{horse.sire_name}</span></>}
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {horse.sire_name && <>Sire: <span style={{ color: 'var(--text-deep)' }}>{horse.sire_name}</span></>}
                       {horse.sire_name && horse.dam_name && ' · '}
-                      {horse.dam_name && <>Dam: <span style={{ color: '#5c3d1e' }}>{horse.dam_name}</span></>}
+                      {horse.dam_name && <>Dam: <span style={{ color: 'var(--text-deep)' }}>{horse.dam_name}</span></>}
                     </p>
                   )}
 
                   {(ownerLabel || horse.trainer_name) && (
-                    <p className="text-xs" style={{ color: '#8b7355' }}>
-                      {ownerLabel && <>Owner: <span style={{ color: '#5c3d1e' }}>{ownerLabel}</span></>}
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {ownerLabel && <>Owner: <span style={{ color: 'var(--text-deep)' }}>{ownerLabel}</span></>}
                       {ownerLabel && horse.trainer_name && ' · '}
-                      {horse.trainer_name && <>Trainer: <span style={{ color: '#5c3d1e' }}>{horse.trainer_name}</span></>}
+                      {horse.trainer_name && <>Trainer: <span style={{ color: 'var(--text-deep)' }}>{horse.trainer_name}</span></>}
                     </p>
                   )}
 
@@ -523,21 +523,21 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                     how many readiness flags a horse has. */}
                 <div
                   className="flex flex-wrap items-center gap-3 mt-3 pt-3 border-t"
-                  style={{ borderColor: '#f0e4d0' }}
+                  style={{ borderColor: 'var(--bg-subtle)' }}
                 >
                   {isOwner ? (
                     <>
                       <Link
                         href={`/profile/horses/${horse.id}`}
                         className="text-xs font-medium hover:underline"
-                        style={{ color: '#8b4513' }}
+                        style={{ color: 'var(--accent)' }}
                       >
                         Edit
                       </Link>
                       <Link
                         href={`/profile/horses/${horse.id}?section=health`}
                         className="text-xs font-medium hover:underline"
-                        style={{ color: '#8b4513' }}
+                        style={{ color: 'var(--accent)' }}
                       >
                         Documents
                       </Link>
@@ -551,14 +551,14 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                     <Link
                       href={`/profile/horses/${horse.id}`}
                       className="text-xs font-medium hover:underline"
-                      style={{ color: '#8b4513' }}
+                      style={{ color: 'var(--accent)' }}
                     >
                       View
                     </Link>
                   )}
                   {confirmUnlinkId === horse.id ? (
                     <span className="flex items-center gap-2">
-                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove from profile?</span>
+                      <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Remove from profile?</span>
                       <button
                         onClick={() => handleRemoveFromProfile(horse)}
                         disabled={unlinkingId === horse.id}
@@ -569,7 +569,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                       <button
                         onClick={() => setConfirmUnlinkId(null)}
                         className="text-xs hover:underline"
-                        style={{ color: '#8b7355' }}
+                        style={{ color: 'var(--muted)' }}
                       >
                         Cancel
                       </button>
@@ -592,9 +592,9 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
       {/* Find existing horse */}
       {showSearch && (
-        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
-          <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Find an Existing Horse</h3>
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Find an Existing Horse</h3>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             If a horse is already in the system, add it to your profile instead of creating a second record for it.
           </p>
 
@@ -612,8 +612,8 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 className="px-3 py-1.5 rounded text-xs font-medium border"
                 style={
                   searchMode === mode
-                    ? { backgroundColor: '#2c1810', color: '#f5ede0', borderColor: '#2c1810' }
-                    : { backgroundColor: '#ffffff', color: '#8b7355', borderColor: '#d4b896' }
+                    ? { backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)', borderColor: 'var(--foreground)' }
+                    : { backgroundColor: 'var(--surface)', color: 'var(--muted)', borderColor: 'var(--border)' }
                 }
               >
                 {mode === 'name' ? 'By horse name' : 'By registration #'}
@@ -624,21 +624,21 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           {searchMode === 'name' ? (
             <div className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[180px]">
-                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Horse name or registration #</label>
+                <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Horse name or registration #</label>
                 <input
                   value={nameQuery}
                   onChange={(e) => setNameQuery(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleNameSearch(); }}
                   placeholder="e.g. Fancy Little Gun"
                   className="w-full border rounded px-3 py-2 text-sm"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 />
               </div>
               <button
                 onClick={handleNameSearch}
                 disabled={searching}
                 className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+                style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
               >
                 {searching ? 'Searching...' : 'Search'}
               </button>
@@ -646,12 +646,12 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           ) : (
             <div className="flex flex-wrap gap-2 items-end">
               <div className="flex-1 min-w-[140px]">
-                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
+                <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Association</label>
                 <select
                   value={searchInput.association_id}
                   onChange={(e) => setSearchInput((p) => ({ ...p, association_id: e.target.value }))}
                   className="w-full border rounded px-3 py-2 text-sm"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 >
                   <option value="">Select...</option>
                   {associations.map((st) => (
@@ -660,21 +660,21 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 </select>
               </div>
               <div className="flex-1 min-w-[140px]">
-                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration #</label>
+                <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Registration #</label>
                 <input
                   value={searchInput.registration_number}
                   onChange={(e) => setSearchInput((p) => ({ ...p, registration_number: e.target.value }))}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleRegSearch(); }}
                   placeholder="e.g. 1234567"
                   className="w-full border rounded px-3 py-2 text-sm"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 />
               </div>
               <button
                 onClick={handleRegSearch}
                 disabled={searching}
                 className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+                style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
               >
                 {searching ? 'Searching...' : 'Search'}
               </button>
@@ -694,8 +694,8 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
           {/* Registration-search result */}
           {searchMode === 'registration' && searchResult && (
-            <div className="rounded p-3 border" style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}>
-              <p className="text-sm" style={{ color: '#166534' }}>
+            <div className="rounded p-3 border" style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)' }}>
+              <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
                 <span className="font-semibold">{searchResult.horse_name}</span>
                 {searchResult.owner_name && <span> - owner: {searchResult.owner_name}</span>}
               </p>
@@ -704,14 +704,14 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                   onClick={() => handleLink(searchResult.horse_id)}
                   disabled={linkingId !== null}
                   className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50"
-                  style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
+                  style={{ backgroundColor: 'var(--success-strong)', color: 'var(--success-bg)' }}
                 >
                   {linkingId ? 'Adding...' : 'Add to my profile'}
                 </button>
                 <button
                   onClick={() => { setSearchResult(null); setSearchMessage(null); }}
                   className="px-3 py-1.5 rounded text-xs border"
-                  style={{ borderColor: '#d4b896', color: '#8b7355' }}
+                  style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
                 >
                   Cancel
                 </button>
@@ -721,13 +721,13 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
 
           {searchMessage && !searchResult && (
             <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs" style={{ color: '#8b4513' }}>{searchMessage}</p>
+              <p className="text-xs" style={{ color: 'var(--accent)' }}>{searchMessage}</p>
               {approvalNeeded && (
                 <button
                   onClick={handleRequestApproval}
                   disabled={requestingApproval}
                   className="px-3 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50 shrink-0"
-                  style={{ backgroundColor: '#8b4513' }}
+                  style={{ backgroundColor: 'var(--accent)' }}
                 >
                   {requestingApproval
                     ? 'Sending…'
@@ -738,7 +738,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
                 <button
                   onClick={handleCreateFromSearch}
                   className="text-xs font-medium hover:underline shrink-0"
-                  style={{ color: '#2c1810' }}
+                  style={{ color: 'var(--foreground)' }}
                 >
                   Create new profile -&gt;
                 </button>
@@ -755,7 +755,7 @@ export default function MyHorsesPanel({ exhibitorId, initialHorses }: Props) {
           )}
 
           <div>
-            <button onClick={resetSearchPanel} className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+            <button onClick={resetSearchPanel} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
               Close
             </button>
           </div>

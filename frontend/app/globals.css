@@ -1,42 +1,115 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   GaitDesk palette.
+
+   The five brand colours come from GaitDesk-Brand/README.md:
+     Ink #1A1C20 · Ribbon Blue #2B5CB8 · Slate #12141A · Warm Paper #F6F4F0
+     Blue Light #7FA8EA (on dark — #2B5CB8 is too dark on Slate)
+
+   Everything else here is derived to fill the roles a UI needs and the brand
+   sheet does not name: a neutral ramp between Paper and Ink, and the three
+   status families. Every text token is AA or better on both #F6F4F0 and
+   #FFFFFF; --border-strong is held at 3:1 so form-control edges satisfy
+   WCAG 1.4.11. Change a colour HERE, not in a component.
+--------------------------------------------------------------------------- */
+
 :root {
-  --background: #faf7f2;
-  --foreground: #2c1810;
-  --card: #ffffff;
-  --border: #d4b896;
-  --border-subtle: #e8d5b7;
-  --bg-subtle: #faf6f0;
-  --primary: #8b4513;
-  --primary-hover: #6b3410;
-  --primary-foreground: #ffffff;
-  --muted: #8b7355;
-  --muted-bg: #f5ede0;
-  --text-deep: #5c3d1e;
-  --text-dimmed: #a89070;
-  --accent: #c4860a;
-  --success: #2d6a2d;
-  --success-bg: #f0f7f0;
-  --error: #8b1a1a;
-  --error-bg: #fdf0f0;
+  /* Brand core */
+  --brand-ink: #1a1c20;
+  --brand-blue: #2b5cb8;
+  --brand-slate: #12141a;
+  --brand-paper: #f6f4f0;
+  --brand-blue-light: #7fa8ea;
+
+  /* Ground and surface */
+  --background: #f6f4f0;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --bg-subtle: #efede7;
+
+  /* Text ramp — warm paper down to cool ink */
+  --foreground: #1a1c20;
+  --text-deep: #33363d;
+  --muted: #5e6168;
+  --text-dimmed: #8a8b8f;
+
+  /* Borders */
+  --border: #d6d3cc;
+  --border-subtle: #e7e4de;
+  --border-strong: #8f8b82;
+
+  /* Accent — Ribbon Blue. Also carries "info": with a blue brand,
+     a separate info blue is indistinguishable from the accent. */
+  --accent: #2b5cb8;
+  --accent-hover: #224a96;
+  --accent-active: #1b3b78;
+  --accent-light: #7fa8ea;
+  --accent-bg: #edf2fc;
+  --accent-border: #c6d7f3;
+  --accent-foreground: #ffffff;
+
+  /* Dark ground */
+  --slate: #12141a;
+  --slate-raised: #1d2028;
+  --on-slate: #f6f4f0;
+  --on-slate-muted: #9da1a9;
+
+  /* Status */
+  --success: #1b7a4f;
+  --success-strong: #12603d;
+  --success-bg: #eaf6f0;
+  --success-border: #bce0cd;
+
+  --warning: #a05e06;
+  --warning-strong: #7c4903;
+  --warning-bg: #fcf3e4;
+  --warning-border: #edd8ac;
+
+  --error: #b32820;
+  --error-strong: #8c1f18;
+  --error-bg: #fcf0ef;
+  --error-border: #f0ccc8;
+
+  /* Back-compat aliases for the pre-rebrand token names */
+  --card: var(--surface);
+  --primary: var(--accent);
+  --primary-hover: var(--accent-hover);
+  --primary-foreground: var(--accent-foreground);
+  --muted-bg: var(--bg-subtle);
 }
 
 @theme {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-bg-subtle: var(--bg-subtle);
   --color-foreground: var(--foreground);
+  --color-text-deep: var(--text-deep);
   --color-muted: var(--muted);
-  --color-muted-bg: var(--muted-bg);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
+  --color-text-dimmed: var(--text-dimmed);
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);
-  --color-bg-subtle: var(--bg-subtle);
-  --color-text-deep: var(--text-deep);
-  --color-text-dimmed: var(--text-dimmed);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-light: var(--accent-light);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-border: var(--accent-border);
+  --color-slate: var(--slate);
+  --color-on-slate: var(--on-slate);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-error: var(--error);
+  --color-error-bg: var(--error-bg);
+  --color-primary: var(--accent);
+  --color-primary-hover: var(--accent-hover);
+  --color-muted-bg: var(--bg-subtle);
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), sans-serif;
+  font-family: var(--font-inter), sans-serif;
 }

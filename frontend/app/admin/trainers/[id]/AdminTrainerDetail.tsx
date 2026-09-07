@@ -63,8 +63,8 @@ const STATUS_LABEL: Record<Affiliation['status'], string> = {
 };
 
 const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none';
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
-const sectionStyle = { backgroundColor: '#ffffff', borderColor: '#d4b896' } as const;
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
+const sectionStyle = { backgroundColor: 'var(--surface)', borderColor: 'var(--border)' } as const;
 
 function filterPhone(raw: string): string {
   const cleaned = raw.replace(/[^\d\s\-\(\)\+\.]/g, '');
@@ -86,10 +86,10 @@ function isValidUrl(v: string) { return /^https?:\/\/.+/.test(v); }
 function Field({ label, children, hint, error }: { label: string; children: React.ReactNode; hint?: string; error?: string | null }) {
   return (
     <div>
-      <label className="block text-xs font-medium uppercase tracking-wide mb-1" style={{ color: '#5a4632' }}>{label}</label>
+      <label className="block text-xs font-medium uppercase tracking-wide mb-1" style={{ color: 'var(--text-deep)' }}>{label}</label>
       {children}
       {error && <p className="text-xs mt-1 text-red-600">{error}</p>}
-      {!error && hint && <p className="text-xs mt-1" style={{ color: '#8b7355' }}>{hint}</p>}
+      {!error && hint && <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{hint}</p>}
     </div>
   );
 }
@@ -271,7 +271,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                   checked={form.is_public}
                   onChange={(e) => update('is_public', e.target.checked)}
                 />
-                <label htmlFor="is_public" className="text-sm" style={{ color: '#2c1810' }}>
+                <label htmlFor="is_public" className="text-sm" style={{ color: 'var(--foreground)' }}>
                   Public profile (ad-listable)
                 </label>
               </div>
@@ -309,7 +309,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                 />
               </Field>
             </div>
-            <label className="flex items-center gap-2 mt-4 text-sm" style={{ color: '#2c1810' }}>
+            <label className="flex items-center gap-2 mt-4 text-sm" style={{ color: 'var(--foreground)' }}>
               <input
                 type="checkbox"
                 checked={form.has_liability_insurance}
@@ -340,7 +340,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
             : undefined
         }
         className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513' }}
+        style={{ backgroundColor: 'var(--accent)' }}
       >
         {saving ? 'Saving...' : 'Save Trainer'}
       </button>
@@ -356,28 +356,28 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
         {open.horses && (
           <div className="mt-4 space-y-4">
             {initialHorses.length === 0 ? (
-              <p className="text-sm" style={{ color: '#8b7355' }}>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
                 No horses are linked to this trainer yet.
               </p>
             ) : (
-              <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+              <ul className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
                 {initialHorses.map((horse) => (
                   <li key={horse.id} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+                      <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: 'var(--foreground)' }}>
                         {horse.name}
                         {horse.sex && (
-                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                             {horse.sex}
                           </span>
                         )}
                         {horse.is_solid_paint_bred && (
-                          <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                          <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
                             SPB
                           </span>
                         )}
                       </div>
-                      <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: '#8b7355' }}>
+                      <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: 'var(--muted)' }}>
                         {(horse.owner_exhibitor_name || horse.owner_name) && (
                           <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
                         )}
@@ -391,7 +391,7 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                     <Link
                       href={`/admin/horses/${horse.id}`}
                       className="text-sm shrink-0 hover:underline"
-                      style={{ color: '#8b4513' }}
+                      style={{ color: 'var(--accent)' }}
                     >
                       Edit
                     </Link>
@@ -455,26 +455,26 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
           disabled={!newReg.association_id || !newReg.member_number.trim()}
           title={!newReg.association_id ? 'Pick an association' : !newReg.member_number.trim() ? 'Enter the member number' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           Add Affiliation
         </button>
 
         {affiliations.length === 0 ? (
-          <p className="text-sm" style={{ color: '#8b7355' }}>No affiliations on file.</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>No affiliations on file.</p>
         ) : (
           <ul className="space-y-2">
             {affiliations.map((a) => (
               <li
                 key={a.id}
                 className="border rounded p-3 flex flex-wrap items-start justify-between gap-3"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 <div className="space-y-1 min-w-0">
-                  <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
-                    {a.association_name} <span className="text-xs" style={{ color: '#8b7355' }}>({a.association_code})</span>
+                  <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                    {a.association_name} <span className="text-xs" style={{ color: 'var(--muted)' }}>({a.association_code})</span>
                   </p>
-                  <p className="text-sm" style={{ color: '#5a4632' }}>
+                  <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
                     Member #{a.member_number} · {STATUS_LABEL[a.status]}
                     {a.expires_at ? ` · Expires ${a.expires_at}` : ''}
                   </p>
@@ -482,9 +482,9 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                 <div className="shrink-0">
                   {confirmDeleteId === a.id ? (
                     <span className="flex items-center gap-2">
-                      <span className="text-xs" style={{ color: '#8b7355' }}>Remove?</span>
+                      <span className="text-xs" style={{ color: 'var(--muted)' }}>Remove?</span>
                       <button onClick={() => handleDeleteAffiliation(a.id)} className="text-xs text-red-600 hover:underline">Yes</button>
-                      <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                      <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>Cancel</button>
                     </span>
                   ) : (
                     <button onClick={() => setConfirmDeleteId(a.id)} className="text-sm text-red-600">Remove</button>

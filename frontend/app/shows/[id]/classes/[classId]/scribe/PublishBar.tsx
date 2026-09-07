@@ -35,9 +35,9 @@ interface Props {
   flush: () => Promise<void>;
 }
 
-const INK = '#2c1810';
-const MUTED = '#8b7355';
-const BORDER = '#d4b896';
+const INK = 'var(--foreground)';
+const MUTED = 'var(--muted)';
+const BORDER = 'var(--border)';
 
 function StatusLine({ status, lastSavedAt, error, onRetry }: Pick<Props, 'status' | 'lastSavedAt' | 'error' | 'onRetry'>) {
   if (status === 'saving') {
@@ -45,7 +45,7 @@ function StatusLine({ status, lastSavedAt, error, onRetry }: Pick<Props, 'status
   }
   if (status === 'error') {
     return (
-      <span className="flex items-center gap-2 flex-wrap" style={{ color: '#991b1b' }}>
+      <span className="flex items-center gap-2 flex-wrap" style={{ color: 'var(--error-strong)' }}>
         <span>⚠ {error ?? 'Save failed'} — your entries are still here.</span>
         <button type="button" onClick={onRetry} className="font-semibold hover:underline">
           Retry
@@ -55,7 +55,7 @@ function StatusLine({ status, lastSavedAt, error, onRetry }: Pick<Props, 'status
   }
   if (status === 'saved' && lastSavedAt) {
     return (
-      <span style={{ color: '#065f46' }}>
+      <span style={{ color: 'var(--success-strong)' }}>
         ✓ All changes saved ·{' '}
         {lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
       </span>
@@ -168,8 +168,8 @@ export default function PublishBar({
     <div
       className="mb-4 rounded-lg border p-3"
       style={{
-        borderColor: isLive ? '#a7f3d0' : BORDER,
-        backgroundColor: isLive ? '#ecfdf5' : '#faf7f2',
+        borderColor: isLive ? 'var(--success-border)' : BORDER,
+        backgroundColor: isLive ? 'var(--success-bg)' : 'var(--background)',
       }}
     >
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -188,7 +188,7 @@ export default function PublishBar({
           <Link
             href={`/shows/${showId}/classes/${classId}`}
             className="text-sm font-medium hover:underline shrink-0 min-h-[44px] flex items-center"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             View public results →
           </Link>
@@ -200,7 +200,7 @@ export default function PublishBar({
               disabled={publishing || empty}
               title={empty ? 'Enter at least one placing first' : undefined}
               className="min-h-[44px] px-5 rounded-lg font-semibold text-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ backgroundColor: INK, color: '#f5ede0' }}
+              style={{ backgroundColor: INK, color: 'var(--bg-subtle)' }}
             >
               {publishing ? 'Posting…' : 'Post Results to Live'}
             </button>
@@ -211,7 +211,7 @@ export default function PublishBar({
       {tieBlock && (
         <div
           className="mt-3 px-3 py-2 rounded text-sm space-y-2"
-          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
         >
           <p>⚠ {tieBlock.message}</p>
           <ul className="list-disc pl-5">
@@ -222,7 +222,7 @@ export default function PublishBar({
               </li>
             ))}
           </ul>
-          <p style={{ color: '#a16207' }}>
+          <p style={{ color: 'var(--warning)' }}>
             Set the order the judge called on the tied rows. The scores stay exactly
             as they were entered.
           </p>
@@ -250,7 +250,7 @@ export default function PublishBar({
       {depthShortfall && (
         <div
           className="mt-3 px-3 py-2 rounded text-sm space-y-2"
-          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
         >
           <p>
             ⚠ {depthShortfall.message}
@@ -285,7 +285,7 @@ export default function PublishBar({
       {confirmGap && gapWarning && (
         <div
           className="mt-3 px-3 py-2 rounded text-sm flex items-center gap-3 flex-wrap"
-          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
         >
           <span>
             ⚠ Place gap —{' '}
@@ -298,7 +298,7 @@ export default function PublishBar({
             type="button"
             onClick={() => void doPublish({ incomplete: true })}
             className="font-semibold hover:underline"
-            style={{ color: '#b45309' }}
+            style={{ color: 'var(--warning)' }}
           >
             Yes, post
           </button>
@@ -309,12 +309,12 @@ export default function PublishBar({
       )}
 
       {publishError && (
-        <p className="mt-2 text-sm" style={{ color: '#991b1b' }}>
+        <p className="mt-2 text-sm" style={{ color: 'var(--error-strong)' }}>
           ⚠ {publishError}
         </p>
       )}
 
-      <div className="mt-2 pt-2 text-sm border-t" style={{ borderColor: '#e8ddd0' }}>
+      <div className="mt-2 pt-2 text-sm border-t" style={{ borderColor: 'var(--border-subtle)' }}>
         <StatusLine status={status} lastSavedAt={lastSavedAt} error={error} onRetry={onRetry} />
       </div>
     </div>

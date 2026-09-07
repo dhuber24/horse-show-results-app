@@ -10,7 +10,7 @@ export default function NewVenuePage() {
           { label: 'Venues', href: '/admin/venues' },
           { label: 'New Venue' },
         ]} />
-        <h1 className="text-3xl font-bold mt-2" style={{ color: '#2c1810' }}>Add New Venue</h1>
+        <h1 className="text-3xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Add New Venue</h1>
       </div>
 
       <CreateVenueForm />

@@ -32,15 +32,15 @@ export default async function MyShowsPage() {
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Shows</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>My Shows</h1>
           {data.exhibitor && (
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.exhibitor.full_name}</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{data.exhibitor.full_name}</p>
           )}
         </div>
         <Link
           href="/dashboard"
           className="text-sm font-medium px-3 py-2 rounded border"
-          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
         >
           My entries &amp; results →
         </Link>
@@ -49,16 +49,16 @@ export default async function MyShowsPage() {
       {data.shows.length === 0 ? (
         <div
           className="rounded-lg border p-6 text-center"
-          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
         >
-          <p className="text-lg mb-1" style={{ color: '#2c1810' }}>No shows yet</p>
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-lg mb-1" style={{ color: 'var(--foreground)' }}>No shows yet</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             Sign up for a show to reserve stalls and enter classes.
           </p>
           <Link
             href="/"
             className="inline-block mt-4 text-sm font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Browse upcoming shows →
           </Link>
@@ -74,7 +74,7 @@ export default async function MyShowsPage() {
             <section>
               <h2
                 className="text-xs font-semibold uppercase tracking-wider mb-3"
-                style={{ color: '#8b7355' }}
+                style={{ color: 'var(--muted)' }}
               >
                 Active &amp; Upcoming
               </h2>
@@ -88,7 +88,7 @@ export default async function MyShowsPage() {
             <section>
               <h2
                 className="text-xs font-semibold uppercase tracking-wider mb-3"
-                style={{ color: '#8b7355' }}
+                style={{ color: 'var(--muted)' }}
               >
                 Past Shows
               </h2>
@@ -98,7 +98,7 @@ export default async function MyShowsPage() {
             </section>
           )}
 
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Totals are what the show office will collect — this app does not take payment. If a
             number looks wrong, the show secretary is the one who can change it.
           </p>
@@ -113,24 +113,24 @@ function ShowBillCard({ show }: { show: MyShow }) {
   const { bill } = show;
 
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: '#d4b896' }}>
+    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
       <div
         className="px-4 py-3 flex items-start justify-between gap-3"
-        style={{ backgroundColor: '#faf4ec' }}
+        style={{ backgroundColor: 'var(--background)' }}
       >
         <div className="min-w-0">
           <Link
             href={`/shows/${show.show_id}`}
             className="font-semibold hover:underline leading-snug block"
-            style={{ color: '#2c1810' }}
+            style={{ color: 'var(--foreground)' }}
           >
             {show.show_name}
           </Link>
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {formatDateRange(show.start_date, show.end_date)}
             {show.venue && <> · {show.venue}</>}
           </p>
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {show.back_number != null ? `Back #${show.back_number}` : 'No back # yet'}
             {' · '}
             {show.entry_count} class{show.entry_count === 1 ? '' : 'es'}
@@ -150,21 +150,21 @@ function ShowBillCard({ show }: { show: MyShow }) {
       <div className="px-4 py-3">
         <ShowBillBreakdown bill={bill} />
 
-        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: '#f0e4d0' }}>
+        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
           {/* The details page itself, not the show menu — the show name at the
               top of this card is already the link to the menu, and it is the
               details page that carries what you owe here. */}
           <Link
             href={`/shows/${show.show_id}/details`}
             className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
           >
             Show details
           </Link>
           <Link
             href={`/shows/${show.show_id}/schedule`}
             className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
           >
             Full class schedule
           </Link>
@@ -175,7 +175,7 @@ function ShowBillCard({ show }: { show: MyShow }) {
           <Link
             href={`/shows/${show.show_id}/contact`}
             className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
           >
             Message the office
           </Link>
@@ -184,14 +184,14 @@ function ShowBillCard({ show }: { show: MyShow }) {
               <Link
                 href={`/shows/${show.show_id}/signup`}
                 className="text-xs font-medium px-2.5 py-1 rounded border"
-                style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+                style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
               >
                 Stalls &amp; camping
               </Link>
               <Link
                 href={`/shows/${show.show_id}/register`}
                 className="text-xs font-medium px-2.5 py-1 rounded"
-                style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+                style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
               >
                 Manage registration
               </Link>

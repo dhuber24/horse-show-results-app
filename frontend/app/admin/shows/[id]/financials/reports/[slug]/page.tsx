@@ -55,7 +55,7 @@ export default async function FinancialReportPage({
         <div>{crumbs}</div>
         <div
           className="rounded border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           Couldn&rsquo;t run that report. Reload the page, and if it keeps happening check that
           you&rsquo;re assigned to this show.
@@ -70,11 +70,11 @@ export default async function FinancialReportPage({
         {crumbs}
         <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: '#2c1810' }}>
+            <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
               <span aria-hidden>{reportIcon(report.slug)}</span>
               {report.title}
             </h1>
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
               {report.description}
             </p>
           </div>
@@ -90,7 +90,7 @@ export default async function FinancialReportPage({
         <Link
           href={`/admin/shows/${id}/financials/reports`}
           className="underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           ← All reports
         </Link>

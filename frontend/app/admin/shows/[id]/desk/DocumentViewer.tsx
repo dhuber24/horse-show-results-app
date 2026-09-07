@@ -182,7 +182,7 @@ export default function DocumentViewer({
                 src={src ?? ''}
                 alt={`${title} for ${horseName}`}
                 className="w-full h-auto rounded border"
-                style={{ borderColor: COLORS.borderSoft, backgroundColor: '#ffffff' }}
+                style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
               />
             )}
             {isPdf && (
@@ -190,7 +190,7 @@ export default function DocumentViewer({
                 src={src ?? ''}
                 title={`${title} for ${horseName}`}
                 className="w-full rounded border"
-                style={{ height: '32rem', borderColor: COLORS.borderSoft, backgroundColor: '#ffffff' }}
+                style={{ height: '32rem', borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
               />
             )}
             {!isImage && !isPdf && (

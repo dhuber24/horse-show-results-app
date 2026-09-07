@@ -33,7 +33,7 @@ export default async function AdminShowsPage() {
           { label: role === 'SHOW_SECRETARY' ? 'My Shows' : 'Shows' },
         ]} />
         <div className="flex items-center justify-between mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
             {role === 'SHOW_SECRETARY' ? 'My Shows' : 'Shows'}
           </h1>
           <div className="flex items-center gap-2">
@@ -41,7 +41,7 @@ export default async function AdminShowsPage() {
               <Link
                 href="/admin/shows/types"
                 className="text-sm px-4 py-2 rounded font-medium border"
-                style={{ borderColor: '#d4b896', color: '#2c1810' }}
+                style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
               >
                 Manage Show Types
               </Link>
@@ -49,7 +49,7 @@ export default async function AdminShowsPage() {
             <Link
               href="/admin/shows/new"
               className="text-sm px-4 py-2 rounded font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               + Create New Show
             </Link>

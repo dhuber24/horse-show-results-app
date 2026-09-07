@@ -19,13 +19,13 @@ import { useRouter } from 'next/navigation';
  */
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  accent: '#8b4513',
-  border: '#d4b896',
-  borderSoft: '#e8d5b7',
-  surface: '#ffffff',
-  surfaceSoft: '#faf7f2',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  accent: 'var(--accent)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border-subtle)',
+  surface: 'var(--surface)',
+  surfaceSoft: 'var(--background)',
 } as const;
 
 export type Waiver = {
@@ -173,7 +173,7 @@ export default function PaperworkClient({
       {error && (
         <p
           className="text-sm px-3 py-2 rounded border"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
         >
           {error}
         </p>
@@ -299,7 +299,7 @@ export default function PaperworkClient({
             >
               {busy ? 'Saving…' : 'Save requirements'}
             </button>
-            {saved && <span className="text-sm" style={{ color: '#2f6b3f' }}>Saved.</span>}
+            {saved && <span className="text-sm" style={{ color: 'var(--success)' }}>Saved.</span>}
           </div>
         </div>
       </Card>
@@ -341,7 +341,7 @@ export default function PaperworkClient({
                   </div>
                   {confirmDelete === w.id ? (
                     <span className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs" style={{ color: '#b91c1c' }}>
+                      <span className="text-xs" style={{ color: 'var(--error)' }}>
                         Delete this and every signature on it?
                       </span>
                       <button
@@ -349,7 +349,7 @@ export default function PaperworkClient({
                         onClick={() => removeWaiver(w.id)}
                         disabled={busy}
                         className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
-                        style={{ backgroundColor: '#b91c1c' }}
+                        style={{ backgroundColor: 'var(--error)' }}
                       >
                         Yes, delete
                       </button>
@@ -380,7 +380,7 @@ export default function PaperworkClient({
         {adding ? (
           <div
             className="rounded border p-3 space-y-2"
-            style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}
+            style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
           >
             <input
               value={draftTitle}

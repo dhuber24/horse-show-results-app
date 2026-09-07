@@ -46,13 +46,13 @@ interface Props {
 }
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
-  link: '#8b4513',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
+  link: 'var(--accent)',
 } as const;
 
 function AssociationBadges({ associations }: { associations: JudgeAssociation[] }) {
@@ -213,7 +213,7 @@ export default function JudgesEditor({
   return (
     <section
       className="p-5 rounded-lg border"
-      style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
+      style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
     >
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
@@ -362,7 +362,7 @@ export default function JudgesEditor({
               type="button"
               onClick={closePicker}
               className="px-3 py-1 rounded text-sm border"
-              style={{ borderColor: COLORS.border, color: '#5a3e2b' }}
+              style={{ borderColor: COLORS.border, color: 'var(--text-deep)' }}
             >
               Cancel
             </button>
@@ -494,7 +494,7 @@ export default function JudgesEditor({
               type="button"
               onClick={() => setShowNewJudgeForm(false)}
               className="px-3 py-1 rounded text-sm border"
-              style={{ borderColor: COLORS.border, color: '#5a3e2b' }}
+              style={{ borderColor: COLORS.border, color: 'var(--text-deep)' }}
             >
               Cancel
             </button>

@@ -85,7 +85,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
         </button>
         {confirmDelete ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete this venue?</span>
+            <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Delete this venue?</span>
             <button
               onClick={handleDelete}
               disabled={deleting}
@@ -97,7 +97,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
               onClick={() => setConfirmDelete(false)}
               disabled={deleting}
               className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Cancel
             </button>

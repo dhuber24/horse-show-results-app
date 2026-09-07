@@ -16,7 +16,7 @@ export default async function EditHorsePatternPage({ params }: { params: Promise
           { label: 'Patterns', href: '/admin/horses/patterns' },
           { label: pattern.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Pattern</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Edit Pattern</h1>
       </div>
       <HorsePatternForm pattern={pattern} />
     </main>

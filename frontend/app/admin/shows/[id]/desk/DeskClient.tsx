@@ -140,12 +140,12 @@ export default function DeskClient({
         <Stat
           label="No back #"
           value={String(t.no_back_number)}
-          tone={t.no_back_number > 0 ? '#92400e' : undefined}
+          tone={t.no_back_number > 0 ? 'var(--warning)' : undefined}
         />
         <Stat
           label="Paperwork to check"
           value={String(t.paperwork_outstanding)}
-          tone={t.paperwork_outstanding > 0 ? '#92400e' : undefined}
+          tone={t.paperwork_outstanding > 0 ? 'var(--warning)' : undefined}
         />
       </div>
 
@@ -210,7 +210,7 @@ export default function DeskClient({
                     className="text-xs font-medium px-2.5 py-1 rounded-full border transition disabled:opacity-40"
                     style={
                       filter === f
-                        ? { backgroundColor: COLORS.accent, borderColor: COLORS.accent, color: '#ffffff' }
+                        ? { backgroundColor: COLORS.accent, borderColor: COLORS.accent, color: 'var(--surface)' }
                         : { backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.accent }
                     }
                   >
@@ -265,7 +265,7 @@ export default function DeskClient({
                         type="button"
                         onClick={() => setSelectedId(ex.exhibitor_id)}
                         className="w-full text-left px-3 py-2.5 transition-colors hover:bg-amber-50"
-                        style={isSelected ? { backgroundColor: '#f5ede0' } : undefined}
+                        style={isSelected ? { backgroundColor: 'var(--bg-subtle)' } : undefined}
                       >
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium truncate" style={{ color: COLORS.text }}>
@@ -279,12 +279,12 @@ export default function DeskClient({
                           <span>{ex.entries.length} class{ex.entries.length === 1 ? '' : 'es'}</span>
                           {ex.side_pot_ids.length > 0 && <span>· {ex.side_pot_ids.length} pot{ex.side_pot_ids.length === 1 ? '' : 's'}</span>}
                           {ex.paperwork_outstanding > 0 && (
-                            <span style={{ color: '#92400e' }}>· {ex.paperwork_outstanding} to check</span>
+                            <span style={{ color: 'var(--warning)' }}>· {ex.paperwork_outstanding} to check</span>
                           )}
-                          {alerts > 0 && <span style={{ color: '#991b1b' }}>· ⚠ health</span>}
-                          {unsigned > 0 && <span style={{ color: '#92400e' }}>· unsigned</span>}
+                          {alerts > 0 && <span style={{ color: 'var(--error-strong)' }}>· ⚠ health</span>}
+                          {unsigned > 0 && <span style={{ color: 'var(--warning)' }}>· unsigned</span>}
                           {ex.balance_cents > 0 && (
-                            <span style={{ color: '#b42318' }}>· {formatMoney(ex.balance_cents)} owing</span>
+                            <span style={{ color: 'var(--error)' }}>· {formatMoney(ex.balance_cents)} owing</span>
                           )}
                         </div>
                       </button>

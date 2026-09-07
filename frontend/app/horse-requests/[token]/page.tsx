@@ -50,9 +50,9 @@ function Notice({
   children: React.ReactNode;
 }) {
   const palette = {
-    warn: { bg: '#fffbeb', border: '#fde68a', text: '#92400e' },
-    error: { bg: '#fef2f2', border: '#fecaca', text: '#991b1b' },
-    neutral: { bg: '#faf7f2', border: '#d4b896', text: '#5d4a37' },
+    warn: { bg: 'var(--warning-bg)', border: 'var(--warning-border)', text: 'var(--warning)' },
+    error: { bg: 'var(--error-bg)', border: 'var(--error-border)', text: 'var(--error-strong)' },
+    neutral: { bg: 'var(--background)', border: 'var(--border)', text: 'var(--text-deep)' },
   }[tone];
   return (
     <div
@@ -87,19 +87,19 @@ export default async function HorseRequestPage({
             <Link
               href={`/login?next=${encodeURIComponent(here)}`}
               className="text-sm font-medium px-3 py-2 rounded"
-              style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
             >
               Sign in
             </Link>
             <Link
               href={`/register?next=${encodeURIComponent(here)}`}
               className="text-sm font-medium px-3 py-2 rounded border"
-              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             >
               Create an account
             </Link>
           </div>
-          <p className="text-xs mt-3" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
             You&rsquo;ll come straight back to this request once you&rsquo;re in.
           </p>
         </Notice>
@@ -117,7 +117,7 @@ export default async function HorseRequestPage({
             <Link
               href="/profile?tab=horses"
               className="text-sm font-medium px-3 py-2 rounded border"
-              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             >
               Back to my horses
             </Link>

@@ -65,27 +65,27 @@ const TABS: { key: HorseSectionKey; label: string; ownerOnly?: boolean }[] = [
   { key: 'associations', label: 'Associations' },
 ];
 
-const CARD_STYLE = { borderColor: '#d4b896', backgroundColor: '#ffffff' };
-const ROW_STYLE = { borderColor: '#e8d5b7', backgroundColor: '#faf6f0' };
-const PRIMARY_BUTTON = { backgroundColor: '#2c1810', color: '#f5ede0' };
-const OWNER_BADGE = { backgroundColor: '#fef3c7', color: '#92400e' };
+const CARD_STYLE = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' };
+const ROW_STYLE = { borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' };
+const PRIMARY_BUTTON = { backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' };
+const OWNER_BADGE = { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' };
 
 function ReadOnlyField({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>{label}</dt>
-      <dd style={{ color: '#2c1810' }}>{value || '-'}</dd>
+      <dt className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-dimmed)' }}>{label}</dt>
+      <dd style={{ color: 'var(--foreground)' }}>{value || '-'}</dd>
     </div>
   );
 }
 
 function PanelIntro({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm" style={{ color: '#8b7355' }}>{children}</p>;
+  return <p className="text-sm" style={{ color: 'var(--muted)' }}>{children}</p>;
 }
 
 function SubHeading({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#a89070' }}>{children}</p>
+    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-dimmed)' }}>{children}</p>
   );
 }
 
@@ -93,9 +93,9 @@ function RegistrationRow({ reg, onRemove }: { reg: Registration; onRemove?: () =
   return (
     <li className="flex items-center justify-between p-3 rounded border" style={ROW_STYLE}>
       <div>
-        <span className="font-mono text-sm font-semibold" style={{ color: '#8b4513' }}>{reg.association_code}</span>
-        <span className="text-sm ml-2" style={{ color: '#2c1810' }}>{reg.registration_number}</span>
-        <span className="text-xs ml-2" style={{ color: '#8b7355' }}>{reg.association_name}</span>
+        <span className="font-mono text-sm font-semibold" style={{ color: 'var(--accent)' }}>{reg.association_code}</span>
+        <span className="text-sm ml-2" style={{ color: 'var(--foreground)' }}>{reg.registration_number}</span>
+        <span className="text-xs ml-2" style={{ color: 'var(--muted)' }}>{reg.association_name}</span>
         <span className="ml-2"><AssociationTypeBadge type={reg.association_type} /></span>
       </div>
       {onRemove && (
@@ -372,7 +372,7 @@ export default function EditMyHorseForm({
         aria-label="Horse record sections"
         onKeyDown={handleTabKeys}
         className="flex border-b overflow-x-auto"
-        style={{ borderColor: '#d4b896' }}
+        style={{ borderColor: 'var(--border)' }}
       >
         {tabs.map((t) => {
           const active = activeTab === t.key;
@@ -387,8 +387,8 @@ export default function EditMyHorseForm({
               onClick={() => setActiveTab(t.key)}
               className="px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors"
               style={{
-                color: active ? '#2c1810' : '#8b7355',
-                borderBottom: active ? '2px solid #8b4513' : '2px solid transparent',
+                color: active ? 'var(--foreground)' : 'var(--muted)',
+                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
               }}
             >
               {t.label}
@@ -403,18 +403,18 @@ export default function EditMyHorseForm({
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Registered Name *</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Registered Name *</label>
                 <input name="name" value={form.name} onChange={handleChange} maxLength={200} className="w-full border rounded px-3 py-2" />
-                <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>
                   What the horse is entered and published under.
                 </p>
               </div>
               <div className="sm:col-span-2">
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Barn Name</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Barn Name</label>
                 <input name="barn_name" value={form.barn_name} onChange={handleChange} maxLength={200} placeholder="Stable or call name" className="w-full border rounded px-3 py-2" />
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sex</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Sex</label>
                 <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2">
                   <option value="">- Not specified -</option>
                   <option value="Mare">Mare</option>
@@ -423,20 +423,20 @@ export default function EditMyHorseForm({
                 </select>
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>
                   Foaling Date
                   {displayAge !== null && displayAge !== undefined && (
-                    <span className="ml-2 font-medium" style={{ color: '#8b4513' }}>(Show Age: {displayAge})</span>
+                    <span className="ml-2 font-medium" style={{ color: 'var(--accent)' }}>(Show Age: {displayAge})</span>
                   )}
                 </label>
                 <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2" />
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Sire</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Sire</label>
                 <input name="sire_name" value={form.sire_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Dam</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Dam</label>
                 <input name="dam_name" value={form.dam_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2" />
               </div>
               <div className="sm:col-span-2">
@@ -447,19 +447,19 @@ export default function EditMyHorseForm({
                 />
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Color</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Color</label>
                 <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
                   <option value="">- Not specified -</option>
                   {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
+                <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Pattern</label>
                 <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2">
                   <option value="">- Not specified -</option>
                   {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                <p className="text-xs mt-1" style={{ color: '#a89070' }}>A Paint has both — the papers say something like &ldquo;Bay Tobiano&rdquo;.</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>A Paint has both — the papers say something like &ldquo;Bay Tobiano&rdquo;.</p>
               </div>
               <div className="flex items-center gap-2 sm:col-span-2">
                 <input
@@ -469,7 +469,7 @@ export default function EditMyHorseForm({
                   onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))}
                   className="h-4 w-4"
                 />
-                <label htmlFor="spb_edit" className="text-sm" style={{ color: '#8b7355' }}>Solid Paint-Bred (SPB)</label>
+                <label htmlFor="spb_edit" className="text-sm" style={{ color: 'var(--muted)' }}>Solid Paint-Bred (SPB)</label>
               </div>
             </div>
             {saveRow('details')}
@@ -512,7 +512,7 @@ export default function EditMyHorseForm({
         </dl>
 
         <div>
-          <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>Trainer</label>
+          <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>Trainer</label>
           {isOwner ? (
             <TrainerSelect
               trainerId={form.trainer_id || null}
@@ -530,20 +530,20 @@ export default function EditMyHorseForm({
               }))}
             />
           ) : (
-            <p style={{ color: '#2c1810' }}>{form.trainer_name || '-'}</p>
+            <p style={{ color: 'var(--foreground)' }}>{form.trainer_name || '-'}</p>
           )}
         </div>
 
-        <div className="space-y-2 border-t pt-4" style={{ borderColor: '#f0e4d0' }}>
+        <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--bg-subtle)' }}>
           <SubHeading>Rider(s)</SubHeading>
           {displayRiders.length === 0 ? (
-            <p className="text-sm" style={{ color: '#8b7355' }}>No riders linked.</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>No riders linked.</p>
           ) : (
             <ul className="space-y-2">
               {displayRiders.map((r) => {
                 const isOwnerRow = horse.owner_exhibitor_id && r.exhibitor_id === horse.owner_exhibitor_id;
                 return (
-                  <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ ...ROW_STYLE, color: '#2c1810' }}>
+                  <li key={r.exhibitor_id} className="flex items-center justify-between p-3 rounded border text-sm" style={{ ...ROW_STYLE, color: 'var(--foreground)' }}>
                     <span>{r.full_name}</span>
                     <div className="flex items-center gap-2">
                       {isOwnerRow && (
@@ -554,9 +554,9 @@ export default function EditMyHorseForm({
                           <button onClick={() => setConfirmRemoveRiderId(r.exhibitor_id)} className="text-xs text-red-600 hover:text-red-800">Remove</button>
                           {confirmRemoveRiderId === r.exhibitor_id && (
                             <span className="flex items-center gap-1">
-                              <span className="text-xs" style={{ color: '#2c1810' }}>Remove {r.full_name}?</span>
+                              <span className="text-xs" style={{ color: 'var(--foreground)' }}>Remove {r.full_name}?</span>
                               <button onClick={() => { handleRemoveRider(r.exhibitor_id); setConfirmRemoveRiderId(null); }} className="text-xs text-red-700 font-semibold hover:text-red-900">Yes</button>
-                              <button onClick={() => setConfirmRemoveRiderId(null)} className="text-xs" style={{ color: '#8b7355' }}>Cancel</button>
+                              <button onClick={() => setConfirmRemoveRiderId(null)} className="text-xs" style={{ color: 'var(--muted)' }}>Cancel</button>
                             </span>
                           )}
                         </>
@@ -570,7 +570,7 @@ export default function EditMyHorseForm({
           {isOwner && availableForRider.length > 0 && (
             <div className="flex flex-wrap gap-2 items-end pt-1">
               <div className="flex-1 min-w-[200px]">
-                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Add Rider</label>
+                <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Add Rider</label>
                 <select value={newRiderId} onChange={(e) => setNewRiderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm">
                   <option value="">Select exhibitor...</option>
                   {availableForRider.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
@@ -618,13 +618,13 @@ export default function EditMyHorseForm({
             ))}
           </ul>
         ) : (
-          <p className="text-sm" style={{ color: '#8b7355' }}>No registrations on file.</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>No registrations on file.</p>
         )}
 
         {isOwner && availableAssociations.length > 0 && (
           <div className="flex flex-wrap gap-2 items-end pt-1">
             <div className="flex-1 min-w-[160px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Association</label>
               <AssociationSelect
                 associations={availableAssociations}
                 value={newReg.association_id}
@@ -632,7 +632,7 @@ export default function EditMyHorseForm({
               />
             </div>
             <div className="flex-1 min-w-[160px]">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registration / Member #</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Registration / Member #</label>
               <input value={newReg.registration_number} onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))} placeholder="e.g. 1234567" className="w-full border rounded px-3 py-2 text-sm" />
             </div>
             <button onClick={handleAddReg} disabled={addingReg} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
@@ -643,7 +643,7 @@ export default function EditMyHorseForm({
         {regError && <p className="text-red-600 text-sm">{regError}</p>}
 
         {isOwner && (
-          <div className="border-t pt-4 space-y-3" style={{ borderColor: '#f0e4d0' }}>
+          <div className="border-t pt-4 space-y-3" style={{ borderColor: 'var(--bg-subtle)' }}>
             <SubHeading>Registration Papers</SubHeading>
             <PanelIntro>
               Scans of the registration certificates and membership cards behind the numbers above.

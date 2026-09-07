@@ -20,10 +20,10 @@ export default async function GateShowPage({
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div className="mt-2">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
           Gate — {show.name}
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Pick a class to manage its order-of-go and send exhibitors into the ring.
         </p>
       </div>

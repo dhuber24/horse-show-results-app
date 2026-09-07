@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation';
 type Mode = 'question' | 'password';
 
 const inputClass = 'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2';
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' };
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' };
 
 function Notice({ kind, children }: { kind: 'error' | 'success' | 'info'; children: React.ReactNode }) {
   const palette = {
-    error: { backgroundColor: '#fdf0f0', color: '#8b1a1a' },
-    success: { backgroundColor: '#f0fdf0', color: '#166534' },
-    info: { backgroundColor: '#f5efe4', color: '#5a3e2b' },
+    error: { backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' },
+    success: { backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' },
+    info: { backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' },
   }[kind];
   return <p className="text-sm px-3 py-2 rounded" style={palette}>{children}</p>;
 }
@@ -30,7 +30,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{label}</label>
+      <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{label}</label>
       <input
         name={name}
         type={type}
@@ -177,7 +177,7 @@ export default function ForgotPasswordForm() {
 
   return (
     <div className="space-y-4">
-      <div className="flex rounded-lg border overflow-hidden text-sm" style={{ borderColor: '#d4b896' }}>
+      <div className="flex rounded-lg border overflow-hidden text-sm" style={{ borderColor: 'var(--border)' }}>
         {([
           ['question', 'Answer my security question'],
           ['password', 'I know my password'],
@@ -187,8 +187,8 @@ export default function ForgotPasswordForm() {
             onClick={() => switchMode(value)}
             className="flex-1 px-3 py-2 font-medium transition"
             style={{
-              backgroundColor: mode === value ? '#8b4513' : '#ffffff',
-              color: mode === value ? '#ffffff' : '#8b7355',
+              backgroundColor: mode === value ? 'var(--accent)' : 'var(--surface)',
+              color: mode === value ? 'var(--surface)' : 'var(--muted)',
             }}
           >
             {label}
@@ -213,7 +213,7 @@ export default function ForgotPasswordForm() {
             onClick={lookUpQuestion}
             disabled={loading}
             className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
           >
             {loading ? 'Checking...' : 'Continue'}
           </button>
@@ -222,15 +222,15 @@ export default function ForgotPasswordForm() {
 
       {mode === 'question' && question && (
         <>
-          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: '#f5efe4' }}>
-            <p className="text-xs uppercase tracking-wide" style={{ color: '#8b7355' }}>Your security question</p>
-            <p className="text-sm font-medium mt-0.5" style={{ color: '#2c1810' }}>{question}</p>
+          <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-subtle)' }}>
+            <p className="text-xs uppercase tracking-wide" style={{ color: 'var(--muted)' }}>Your security question</p>
+            <p className="text-sm font-medium mt-0.5" style={{ color: 'var(--foreground)' }}>{question}</p>
           </div>
           <Field
             label="Answer" name="answer" type="text" placeholder="Your answer"
             value={form.answer} onChange={handleChange} autoFocus
           />
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Capitalization and extra spaces don&rsquo;t matter.
           </p>
           <Field
@@ -246,7 +246,7 @@ export default function ForgotPasswordForm() {
             onClick={submitAnswer}
             disabled={loading}
             className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
           >
             {loading ? 'Updating...' : 'Reset Password'}
           </button>
@@ -254,7 +254,7 @@ export default function ForgotPasswordForm() {
             onClick={() => { setQuestion(null); setError(null); setForm((p) => ({ ...p, answer: '' })); }}
             disabled={loading}
             className="w-full text-sm hover:underline disabled:opacity-50"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Use a different email
           </button>
@@ -284,7 +284,7 @@ export default function ForgotPasswordForm() {
             onClick={submitCurrentPassword}
             disabled={loading}
             className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
           >
             {loading ? 'Updating...' : 'Update Password'}
           </button>

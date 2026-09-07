@@ -22,9 +22,9 @@ interface ShowType {
 }
 
 const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  PUBLISHED: { label: 'Open for Registration', bg: '#fef3c7', text: '#92400e' },
-  ACTIVE: { label: 'In Progress', bg: '#d1fae5', text: '#065f46' },
-  COMPLETED: { label: 'Completed', bg: '#dbeafe', text: '#1e40af' },
+  PUBLISHED: { label: 'Open for Registration', bg: 'var(--accent-bg)', text: 'var(--accent-hover)' },
+  ACTIVE: { label: 'In Progress', bg: 'var(--success-bg)', text: 'var(--success-strong)' },
+  COMPLETED: { label: 'Completed', bg: 'var(--bg-subtle)', text: 'var(--muted)' },
 };
 
 export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; showTypes?: ShowType[] }) {
@@ -74,16 +74,16 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="w-full border rounded-lg px-4 py-2"
-          style={{ borderColor: '#d4b896', color: '#2c1810' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
         />
         {showTypes.length > 0 && (
           <div>
-            <label className="text-sm" style={{ color: '#8b7355' }}>Show type</label>
+            <label className="text-sm" style={{ color: 'var(--muted)' }}>Show type</label>
             <select
               value={showTypeId}
               onChange={(e) => setShowTypeId(e.target.value)}
               className="w-full border rounded-lg px-4 py-2"
-              style={{ borderColor: '#d4b896', color: '#2c1810' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             >
               <option value="">All types</option>
               {showTypes.map((t) => (
@@ -94,29 +94,29 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
         )}
         <div className="flex gap-3 items-end">
           <div className="flex-1">
-            <label className="text-sm" style={{ color: '#8b7355' }}>From</label>
+            <label className="text-sm" style={{ color: 'var(--muted)' }}>From</label>
             <input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
               className="w-full border rounded-lg px-4 py-2"
-              style={{ borderColor: '#d4b896', color: '#2c1810' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             />
           </div>
           <div className="flex-1">
-            <label className="text-sm" style={{ color: '#8b7355' }}>To</label>
+            <label className="text-sm" style={{ color: 'var(--muted)' }}>To</label>
             <input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
               className="w-full border rounded-lg px-4 py-2"
-              style={{ borderColor: '#d4b896', color: '#2c1810' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             />
           </div>
           <button
             onClick={handleSearch}
             className="text-sm px-4 py-2 rounded-lg text-white"
-            style={{ backgroundColor: '#2c1810' }}
+            style={{ backgroundColor: 'var(--foreground)' }}
           >
             Search
           </button>
@@ -124,7 +124,7 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
             <button
               onClick={clearFilters}
               className="text-sm px-3 py-2 rounded-lg border hover:bg-gray-50"
-              style={{ borderColor: '#d4b896', color: '#8b7355' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
             >
               Clear
             </button>
@@ -132,7 +132,7 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
         </div>
       </div>
       {filtered.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>
+        <p style={{ color: 'var(--muted)' }}>
           {hasFilters ? 'No shows match your search.' : 'No shows found.'}
         </p>
       ) : (
@@ -141,9 +141,9 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
             <li key={show.id}>
               <Link href={`/shows/${show.id}`}
                 className="block p-4 rounded-lg border transition hover:shadow-md"
-                style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg" style={{ color: '#2c1810' }}>{show.name}</span>
+                  <span className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{show.name}</span>
                   {show.show_type_code && (
                     <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                       {show.show_type_code}
@@ -158,7 +158,7 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
                     </span>
                   )}
                 </div>
-                <div className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                   📍 {show.venue} &nbsp;·&nbsp; 📅 {show.start_date} – {show.end_date}
                 </div>
               </Link>

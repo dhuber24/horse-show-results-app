@@ -38,12 +38,12 @@ export default function ExhibitorStatusBanner({
     return (
       <div
         className="mb-4 px-4 py-3 rounded border"
-        style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}
+        style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)' }}
       >
-        <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
           Your registration for this show was cancelled
         </p>
-        <p className="text-xs mt-1" style={{ color: '#92400e' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
           Your classes, stalls and camping have been released. Anything you had already paid stays
           on your account for the show office to refund.
         </p>
@@ -54,7 +54,7 @@ export default function ExhibitorStatusBanner({
             <Link
               href={`/shows/${showId}/register`}
               className="text-sm font-medium px-3 py-1.5 rounded text-white inline-block"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               Register again →
             </Link>
@@ -68,22 +68,22 @@ export default function ExhibitorStatusBanner({
     return (
       <div
         className="mb-4 px-4 py-3 rounded border"
-        style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac' }}
+        style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success-border)' }}
       >
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-sm font-medium" style={{ color: '#065f46' }}>
+          <p className="text-sm font-medium" style={{ color: 'var(--success-strong)' }}>
             ✓ You&rsquo;re signed up for this show
           </p>
           {standing.back_number != null && (
             <span
               className="text-xs font-semibold px-2 py-1 rounded shrink-0"
-              style={{ backgroundColor: '#dcfce7', color: '#065f46' }}
+              style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
             >
               Back number {standing.back_number}
             </span>
           )}
         </div>
-        <p className="text-xs mt-1" style={{ color: '#15803d' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--success)' }}>
           {entryCount > 0 ? `Entered in ${classesLabel}.` : 'No classes entered yet.'}
           {/* Only while they can still do something about it. The link is the
               point of the sentence — telling someone to enter a number
@@ -94,7 +94,7 @@ export default function ExhibitorStatusBanner({
               <Link
                 href={`/shows/${showId}/register`}
                 className="underline"
-                style={{ color: '#15803d' }}
+                style={{ color: 'var(--success)' }}
               >
                 Ensure you enter your preferred back number
               </Link>{' '}
@@ -106,7 +106,7 @@ export default function ExhibitorStatusBanner({
             destination rather than a second place to do it. Only required
             waivers count — see `waivers_outstanding`. */}
         {unsigned > 0 && (
-          <p className="text-xs mt-1 font-medium" style={{ color: '#92400e' }}>
+          <p className="text-xs mt-1 font-medium" style={{ color: 'var(--warning)' }}>
             {unsigned === 1 ? '1 release still to sign' : `${unsigned} releases still to sign`} —
             you can also sign a paper copy at the show office.
           </p>
@@ -114,15 +114,15 @@ export default function ExhibitorStatusBanner({
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm font-medium">
           {registrationOpen && (
             <>
-              <Link href={`/shows/${showId}/register`} className="hover:underline" style={{ color: '#8b4513' }}>
+              <Link href={`/shows/${showId}/register`} className="hover:underline" style={{ color: 'var(--accent)' }}>
                 {entryCount > 0 ? 'Add or remove classes →' : 'Pick your classes →'}
               </Link>
-              <Link href={`/shows/${showId}/signup`} className="hover:underline" style={{ color: '#8b4513' }}>
+              <Link href={`/shows/${showId}/signup`} className="hover:underline" style={{ color: 'var(--accent)' }}>
                 {unsigned > 0 ? 'Sign releases, change stalls →' : 'Change stalls, shavings or camping →'}
               </Link>
             </>
           )}
-          <Link href="/my-shows" className="hover:underline" style={{ color: '#8b4513' }}>
+          <Link href="/my-shows" className="hover:underline" style={{ color: 'var(--accent)' }}>
             My shows &amp; bill →
           </Link>
         </div>
@@ -134,12 +134,12 @@ export default function ExhibitorStatusBanner({
     return (
       <div
         className="mb-4 px-4 py-3 rounded border"
-        style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a' }}
+        style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)' }}
       >
-        <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
           The show office has entered you in {classesLabel}
         </p>
-        <p className="text-xs mt-1" style={{ color: '#92400e' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
           You haven&rsquo;t completed sign-up, so the office has no stall, shavings or camping
           numbers for you.
         </p>
@@ -148,7 +148,7 @@ export default function ExhibitorStatusBanner({
             <Link
               href={`/shows/${showId}/register`}
               className="text-sm font-medium px-3 py-1.5 rounded text-white inline-block"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               Complete sign-up →
             </Link>
@@ -162,9 +162,9 @@ export default function ExhibitorStatusBanner({
     return (
       <div
         className="mb-4 px-4 py-3 rounded border flex items-center justify-between gap-3"
-        style={{ backgroundColor: '#f0e8d8', borderColor: '#d4b896' }}
+        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
       >
-        <div className="text-sm" style={{ color: '#5d4a37' }}>
+        <div className="text-sm" style={{ color: 'var(--text-deep)' }}>
           Registration is open. Fill in your profile, reserve stalls, shavings and camping, then
           pick your classes.
         </div>
@@ -175,7 +175,7 @@ export default function ExhibitorStatusBanner({
         <Link
           href={`/shows/${showId}/register`}
           className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           Sign up →
         </Link>
@@ -187,7 +187,7 @@ export default function ExhibitorStatusBanner({
     return (
       <div
         className="mb-4 px-4 py-3 rounded border text-sm"
-        style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         Online registration is closed. Contact the show secretary to be added to classes.
       </div>

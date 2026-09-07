@@ -26,11 +26,11 @@ export type JudgingSystemOption = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  bg: '#fff',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  bg: 'var(--surface)',
 } as const;
 
 function formatDay(iso: string): string {
@@ -120,7 +120,7 @@ export default function JudgingClassesClient({
       {error && (
         <p
           className="text-sm rounded px-3 py-2"
-          style={{ backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5' }}
+          style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid var(--error-border)' }}
         >
           ⚠ {error}
         </p>

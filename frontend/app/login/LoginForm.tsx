@@ -43,32 +43,32 @@ export default function LoginForm({ next }: { next?: string }) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Email</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Email</label>
         <input name="email" type="email" placeholder="you@example.com" value={form.email}
           onChange={handleChange}
           className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
-          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }} />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Password</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Password</label>
         <input name="password" type="password" placeholder="••••••••" value={form.password}
           onChange={handleChange}
           className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
-          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }} />
         <div className="text-right mt-1">
-          <Link href="/forgot-password" className="text-xs hover:underline" style={{ color: '#8b4513' }}>
+          <Link href="/forgot-password" className="text-xs hover:underline" style={{ color: 'var(--accent)' }}>
             Forgot your password?
           </Link>
         </div>
       </div>
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
       <button onClick={handleSubmit} disabled={loading}
         className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>
         {loading ? 'Signing in...' : 'Sign In'}
       </button>
     </div>

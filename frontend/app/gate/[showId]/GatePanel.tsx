@@ -38,11 +38,11 @@ type GateEntry = {
 type ClassGateLabel = 'Done' | 'In progress' | 'Ready' | 'On deck' | 'Waiting';
 
 const CLASS_STATUS_COLORS: Record<ClassGateLabel, { bg: string; fg: string }> = {
-  Done: { bg: '#e8e8e8', fg: '#555' },
-  'In progress': { bg: '#e3f0e3', fg: '#1f4e1f' },
-  Ready: { bg: '#e3ecf7', fg: '#1d4ed8' },
-  'On deck': { bg: '#fdf3d7', fg: '#8a6106' },
-  Waiting: { bg: '#f3ede2', fg: '#5a3e2b' },
+  Done: { bg: 'var(--border-subtle)', fg: 'var(--muted)' },
+  'In progress': { bg: 'var(--success-bg)', fg: 'var(--success-strong)' },
+  Ready: { bg: 'var(--accent-bg)', fg: 'var(--accent)' },
+  'On deck': { bg: 'var(--warning-border)', fg: 'var(--warning-strong)' },
+  Waiting: { bg: 'var(--bg-subtle)', fg: 'var(--text-deep)' },
 };
 
 function localToday(): string {
@@ -430,11 +430,11 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
       )}
 
       {/* ── Order of Go ─────────────────────────────────────────────────── */}
-      <section className="p-4 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+      <section className="p-4 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         {!selectedClass ? (
           <div>
-            <h2 className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>Order of go</h2>
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Order of go</h2>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               {dayClasses.length === 0
                 ? 'No classes scheduled for this day.'
                 : 'Every class today has started or finished. Pick a class below to review it.'}
@@ -443,7 +443,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
         ) : (
           <>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h2 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
                 Order of go — #{selectedClass.class_number} {selectedClass.class_name}
               </h2>
               <span
@@ -457,29 +457,29 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
               </span>
               {entries.length > 1 && (
                 <>
-                  <span className="text-xs" style={{ color: '#d4b896' }}>· drag to reorder</span>
+                  <span className="text-xs" style={{ color: 'var(--border)' }}>· drag to reorder</span>
                   <button
                     type="button"
                     onClick={drawOrder}
                     disabled={busy}
                     title="Draw the order of go at random (APHA SC-185.I). You can still drag afterwards."
                     className="text-xs underline disabled:opacity-50"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     · draw order
                   </button>
                 </>
               )}
               {savingOrder && (
-                <span className="text-xs" style={{ color: '#1f4e1f' }}>· saving…</span>
+                <span className="text-xs" style={{ color: 'var(--success-strong)' }}>· saving…</span>
               )}
             </div>
             {selectedClass.score_type === 'pattern' && (
               <div
                 className="text-xs mb-3 rounded px-2 py-1.5 flex items-center gap-2 flex-wrap"
-                style={{ backgroundColor: selectedClass.pattern_posted_at ? '#ecfdf5' : '#faf7f2', border: `1px solid ${selectedClass.pattern_posted_at ? '#a7f3d0' : '#e8d5b7'}` }}
+                style={{ backgroundColor: selectedClass.pattern_posted_at ? 'var(--success-bg)' : 'var(--background)', border: `1px solid ${selectedClass.pattern_posted_at ? 'var(--success-border)' : 'var(--border-subtle)'}` }}
               >
-                <span style={{ color: selectedClass.pattern_posted_at ? '#065f46' : '#8b7355' }}>
+                <span style={{ color: selectedClass.pattern_posted_at ? 'var(--success-strong)' : 'var(--muted)' }}>
                   {selectedClass.pattern_posted_at
                     ? `✓ Pattern posted ${formatPosted(selectedClass.pattern_posted_at)}`
                     : 'Pattern not yet posted — the rules require it an hour before the class.'}
@@ -489,7 +489,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                   onClick={() => setPatternPosted(!selectedClass.pattern_posted_at)}
                   disabled={busy}
                   className="underline disabled:opacity-50"
-                  style={{ color: '#8b4513' }}
+                  style={{ color: 'var(--accent)' }}
                 >
                   {selectedClass.pattern_posted_at ? 'Undo' : 'Mark posted'}
                 </button>
@@ -498,12 +498,12 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             {selectedClass.procedure_note && (
               <p
                 className="text-xs mb-3 rounded px-2 py-1.5"
-                style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+                style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
               >
                 ⚠ {selectedClass.procedure_note}
               </p>
             )}
-            <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
+            <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
               {entries.length === 0
                 ? 'No entries in this class.'
                 : `${checkedInCount} of ${entries.length} checked in at the gate`}
@@ -516,16 +516,16 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             {!loading && entries.length === 0 && selectedClass.gate_status !== 'done' && (
               <div
                 className="rounded border p-3 mb-3 flex items-center justify-between gap-2 flex-wrap"
-                style={{ borderColor: '#e0c99a', backgroundColor: '#fdf7e8' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--warning-bg)' }}
               >
-                <p className="text-sm" style={{ color: '#8a6106' }}>
+                <p className="text-sm" style={{ color: 'var(--warning-strong)' }}>
                   This class has no entries at the gate. Skip it to move on to the next class.
                 </p>
                 <button
                   onClick={() => setConfirmingSkip(true)}
                   disabled={busy}
                   className="text-sm px-3 py-1 rounded text-white disabled:opacity-50 shrink-0"
-                  style={{ backgroundColor: '#8a6106' }}
+                  style={{ backgroundColor: 'var(--warning-strong)' }}
                 >
                   Skip class
                 </button>
@@ -535,16 +535,16 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             {selectedClass.gate_status === 'ready' && (
               <div
                 className="rounded border p-3 mb-3 flex items-center justify-between gap-2 flex-wrap"
-                style={{ borderColor: '#b8cce4', backgroundColor: '#eef3fa' }}
+                style={{ borderColor: 'var(--accent-border)', backgroundColor: 'var(--accent-bg)' }}
               >
-                <p className="text-sm" style={{ color: '#1d4ed8' }}>
+                <p className="text-sm" style={{ color: 'var(--accent)' }}>
                   All exhibitors are checked in. Wait for the first exhibitor to enter the ring, then start the class.
                 </p>
                 <button
                   onClick={startClass}
                   disabled={busy}
                   className="text-sm px-3 py-1 rounded text-white disabled:opacity-50 shrink-0"
-                  style={{ backgroundColor: '#1d4ed8' }}
+                  style={{ backgroundColor: 'var(--accent)' }}
                 >
                   {busy ? 'Starting…' : 'First exhibitor in the ring — start class'}
                 </button>
@@ -554,9 +554,9 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             {selectedClass.gate_status === 'in_progress' && (
               <div
                 className="rounded border p-3 mb-3 flex items-center justify-between gap-2 flex-wrap"
-                style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee' }}
+                style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)' }}
               >
-                <p className="text-sm" style={{ color: '#1f4e1f' }}>
+                <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
                   This class is in progress in the ring.
                 </p>
                 <span className="flex gap-2 shrink-0">
@@ -565,7 +565,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                     disabled={busy}
                     title="Started by mistake? Return the class to Ready"
                     className="text-xs px-3 py-1 rounded border disabled:opacity-50"
-                    style={{ borderColor: '#d4b896', color: '#5a3e2b', backgroundColor: '#fff' }}
+                    style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
                   >
                     Undo start
                   </button>
@@ -577,7 +577,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                     }}
                     disabled={busy}
                     className="text-xs px-3 py-1 rounded border disabled:opacity-50"
-                    style={{ borderColor: '#7fa97f', color: '#1f4e1f', backgroundColor: '#fff' }}
+                    style={{ borderColor: 'var(--success-border)', color: 'var(--success-strong)', backgroundColor: 'var(--surface)' }}
                   >
                     Mark class done
                   </button>
@@ -588,9 +588,9 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             {selectedClass.gate_status === 'done' && (
               <div
                 className="rounded border p-3 mb-3 flex items-center justify-between gap-2 flex-wrap"
-                style={{ borderColor: '#d4b896', backgroundColor: '#f7f3ec' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}
               >
-                <p className="text-sm" style={{ color: '#5a3e2b' }}>
+                <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
                   This class is done at the gate.
                 </p>
                 <button
@@ -598,7 +598,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                   disabled={busy}
                   title="Completed by mistake? Return the class to In progress"
                   className="text-xs px-3 py-1 rounded border disabled:opacity-50"
-                  style={{ borderColor: '#d4b896', color: '#5a3e2b', backgroundColor: '#fff' }}
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
                 >
                   Reopen class
                 </button>
@@ -607,7 +607,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
 
             {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
             {loading ? (
-              <p className="text-sm" style={{ color: '#8b7355' }}>Loading entries…</p>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading entries…</p>
             ) : entries.length > 0 && (
               <DragDropContext onDragEnd={handleDragEnd}>
                 <Droppable droppableId="gate-order">
@@ -616,7 +616,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                       ref={dropProvided.innerRef}
                       {...dropProvided.droppableProps}
                       className="divide-y"
-                      style={{ borderColor: '#f0e6d6' }}
+                      style={{ borderColor: 'var(--bg-subtle)' }}
                     >
                       {entries.map((e, i) => (
                         <Draggable key={e.id} draggableId={e.id} index={i}>
@@ -626,7 +626,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                               {...dragProvided.draggableProps}
                               className="py-2 flex items-center gap-2 flex-wrap"
                               style={{
-                                backgroundColor: snapshot.isDragging ? '#fdf8eb' : 'transparent',
+                                backgroundColor: snapshot.isDragging ? 'var(--warning-bg)' : 'transparent',
                                 ...dragProvided.draggableProps.style,
                               }}
                             >
@@ -635,19 +635,19 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                                 className="cursor-grab active:cursor-grabbing select-none shrink-0"
                                 title="Drag to reorder"
                                 aria-label="Drag to reorder"
-                                style={{ color: '#d4b896' }}
+                                style={{ color: 'var(--border)' }}
                               >
                                 ⠿
                               </span>
-                              <span className="w-6 text-right text-xs shrink-0" style={{ color: '#8b7355' }}>
+                              <span className="w-6 text-right text-xs shrink-0" style={{ color: 'var(--muted)' }}>
                                 {i + 1}.
                               </span>
-                              <span className="font-mono text-sm w-12 shrink-0" style={{ color: '#2c1810' }}>
+                              <span className="font-mono text-sm w-12 shrink-0" style={{ color: 'var(--foreground)' }}>
                                 {e.back_number ?? '—'}
                               </span>
-                              <span className="text-sm flex-1 min-w-40" style={{ color: '#2c1810' }}>
+                              <span className="text-sm flex-1 min-w-40" style={{ color: 'var(--foreground)' }}>
                                 {e.exhibitor_name}
-                                {e.horse_name && <span style={{ color: '#8b7355' }}> · {e.horse_name}</span>}
+                                {e.horse_name && <span style={{ color: 'var(--muted)' }}> · {e.horse_name}</span>}
                                 {e.is_disqualified && <span className="text-red-600"> (DQ)</span>}
                               </span>
                               {e.gate_checked_in ? (
@@ -661,7 +661,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                                   }
                                   aria-label="Checked in"
                                   className="text-sm px-2 py-0.5 rounded-full shrink-0 disabled:opacity-50"
-                                  style={{ backgroundColor: '#e3f0e3', color: '#1f4e1f' }}
+                                  style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
                                 >
                                   ✓
                                 </button>
@@ -675,7 +675,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                                       : 'Check-in opens when this class is on deck'
                                   }
                                   className="text-xs px-2 py-0.5 rounded border shrink-0 disabled:opacity-50"
-                                  style={{ borderColor: '#7fa97f', color: '#1f4e1f' }}
+                                  style={{ borderColor: 'var(--success-border)', color: 'var(--success-strong)' }}
                                 >
                                   Check in
                                 </button>
@@ -692,7 +692,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
             )}
 
             {(selectedClass.gate_status !== 'pending' || checkedInCount > 0) && (
-              <div className="mt-3 pt-2 border-t" style={{ borderColor: '#f0e6d6' }}>
+              <div className="mt-3 pt-2 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
                 {!confirmingReset ? (
                   <button
                     onClick={() => setConfirmingReset(true)}
@@ -704,14 +704,14 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                   </button>
                 ) : (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs" style={{ color: '#8b1a1a' }}>
+                    <span className="text-xs" style={{ color: 'var(--error-strong)' }}>
                       Clear all check-ins and return this class to Waiting?
                     </span>
                     <button
                       onClick={resetClass}
                       disabled={busy}
                       className="text-xs px-2 py-0.5 rounded text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#b91c1c' }}
+                      style={{ backgroundColor: 'var(--error)' }}
                     >
                       {busy ? 'Resetting…' : 'Yes, reset'}
                     </button>
@@ -719,7 +719,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                       onClick={() => setConfirmingReset(false)}
                       disabled={busy}
                       className="text-xs px-2 py-0.5 rounded border disabled:opacity-50"
-                      style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}
                     >
                       Cancel
                     </button>
@@ -732,12 +732,12 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
       </section>
 
       {/* ── Classes (today only) ────────────────────────────────────────── */}
-      <section className="p-4 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-sm font-semibold mb-2" style={{ color: '#2c1810' }}>
+      <section className="p-4 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
           Classes{activeDate ? ` — ${activeDate}` : ''}
         </h2>
         {dayClasses.length === 0 ? (
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             {classes.length === 0 ? 'No classes on this show yet.' : 'No classes scheduled for this day.'}
           </p>
         ) : (
@@ -751,12 +751,12 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                     className="w-full flex items-center justify-between gap-2 text-left text-sm px-2 py-1 rounded border"
                     style={
                       c.id === selectedClassId
-                        ? { borderColor: '#8b4513', backgroundColor: '#fdf8eb', color: '#2c1810' }
-                        : { borderColor: '#e8dcc8', backgroundColor: '#faf7f2', color: '#5a3e2b' }
+                        ? { borderColor: 'var(--accent)', backgroundColor: 'var(--warning-bg)', color: 'var(--foreground)' }
+                        : { borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)', color: 'var(--text-deep)' }
                     }
                   >
                     <span className="truncate">
-                      <span className="font-mono" style={{ color: '#8b4513' }}>#{c.class_number}</span>{' '}
+                      <span className="font-mono" style={{ color: 'var(--accent)' }}>#{c.class_number}</span>{' '}
                       {c.class_name}
                     </span>
                     <span

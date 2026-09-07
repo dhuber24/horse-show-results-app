@@ -54,11 +54,11 @@ export default function CogginsOverridePanel({ showId }: { showId: string }) {
   if (loading || overrides.length === 0) return null;
 
   return (
-    <section className="rounded-lg border p-4" style={{ borderColor: '#e8d5b7', backgroundColor: '#fffdf9' }}>
+    <section className="rounded-lg border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 text-sm font-semibold"
-        style={{ color: '#92400e' }}
+        style={{ color: 'var(--warning)' }}
       >
         <span>⚠ Coggins overrides — historical ({overrides.length})</span>
         <span className="text-xs font-normal">{open ? 'Hide' : 'Show'}</span>
@@ -66,7 +66,7 @@ export default function CogginsOverridePanel({ showId }: { showId: string }) {
 
       {open && (
         <>
-          <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
             From when a lapsed Coggins blocked an entry outright: staff confirmed the paper
             document and recorded the bypass. Entry no longer waits on health records, so
             nothing is added here any more — outstanding paperwork is flagged above.
@@ -74,7 +74,7 @@ export default function CogginsOverridePanel({ showId }: { showId: string }) {
           <div className="overflow-x-auto mt-3">
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="text-xs uppercase tracking-wide" style={{ color: '#8b4513' }}>
+                <tr className="text-xs uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
                   <th className="text-left font-semibold pb-1 pr-3">Horse</th>
                   <th className="text-left font-semibold pb-1 pr-3">Was</th>
                   <th className="text-left font-semibold pb-1 pr-3">Overridden by</th>
@@ -83,15 +83,15 @@ export default function CogginsOverridePanel({ showId }: { showId: string }) {
               </thead>
               <tbody>
                 {overrides.map((o) => (
-                  <tr key={o.id} className="border-t" style={{ borderColor: '#f0e6d6' }}>
-                    <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{o.horse_name}</td>
-                    <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>
+                  <tr key={o.id} className="border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
+                    <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>{o.horse_name}</td>
+                    <td className="py-1.5 pr-3" style={{ color: 'var(--muted)' }}>
                       {STATUS_LABEL[o.coggins_status] ?? o.coggins_status}
                     </td>
-                    <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>
+                    <td className="py-1.5 pr-3" style={{ color: 'var(--text-deep)' }}>
                       {o.overridden_by_name ?? '(account removed)'}
                     </td>
-                    <td className="py-1.5 whitespace-nowrap" style={{ color: '#8b7355' }} suppressHydrationWarning>
+                    <td className="py-1.5 whitespace-nowrap" style={{ color: 'var(--muted)' }} suppressHydrationWarning>
                       {formatWhen(o.created_at)}
                     </td>
                   </tr>

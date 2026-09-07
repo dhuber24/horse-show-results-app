@@ -78,7 +78,7 @@ export default async function RetentionArchivePage({
         <div>{crumbs}</div>
         <div
           className="rounded border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           Couldn&rsquo;t build the bundle. Reload the page, and if it keeps happening check that
           you&rsquo;re assigned to this show.
@@ -94,15 +94,15 @@ export default async function RetentionArchivePage({
       <header className="space-y-1">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+            <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
               {bundle.show_name}
             </h1>
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               {formatRange(bundle.start_date, bundle.end_date)}
               {bundle.show_type_code && ` · ${bundle.show_type_code}`}
               {bundle.apha_show_number && ` · Show #${bundle.apha_show_number}`}
             </p>
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
               Show record for retention · generated{' '}
               {new Date(bundle.generated_at).toLocaleString('en-US')}
             </p>
@@ -115,7 +115,7 @@ export default async function RetentionArchivePage({
 
       <section
         className="rounded border px-4 py-3 text-sm space-y-1.5"
-        style={{ backgroundColor: '#fdf8eb', borderColor: '#d4b896', color: '#5c3d1e' }}
+        style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         <p className="font-semibold">Before you file this</p>
         {bundle.caveats.map((caveat, index) => (
@@ -125,10 +125,10 @@ export default async function RetentionArchivePage({
 
       {bundle.reports.map((report) => (
         <section key={report.slug} className="space-y-2 break-before-page">
-          <h2 className="text-lg font-bold" style={{ color: '#2c1810' }}>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--foreground)' }}>
             {report.title}
           </h2>
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             {report.description}
           </p>
           <ReportTable report={report} />
@@ -139,7 +139,7 @@ export default async function RetentionArchivePage({
         <Link
           href={`/admin/shows/${id}/reports`}
           className="underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           ← All reports
         </Link>

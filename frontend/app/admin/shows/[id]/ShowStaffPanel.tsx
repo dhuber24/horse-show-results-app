@@ -369,7 +369,7 @@ export default function ShowStaffPanel({
   }
 
   const inputClass = "border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1";
-  const inputStyle = { borderColor: '#d4b896' };
+  const inputStyle = { borderColor: 'var(--border)' };
 
   return (
     <div className="space-y-6">
@@ -378,9 +378,9 @@ export default function ShowStaffPanel({
       {lastInviteUrl && (
         <div
           className="rounded border p-3 space-y-2"
-          style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee' }}
+          style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)' }}
         >
-          <p className="text-sm" style={{ color: '#1f4e1f' }}>
+          <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
             Invite for <strong>{lastInviteUrl.name}</strong> created. Share this
             link until email delivery is configured:
           </p>
@@ -389,14 +389,14 @@ export default function ShowStaffPanel({
               readOnly
               value={lastInviteUrl.url}
               className="flex-1 border rounded px-2 py-1 text-xs font-mono"
-              style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
               onFocus={(e) => e.currentTarget.select()}
             />
             <button
               type="button"
               onClick={() => copyToClipboard('last', lastInviteUrl.url)}
               className="text-xs px-2 py-1 rounded border"
-              style={{ borderColor: '#7fa97f', color: '#1f4e1f', backgroundColor: '#fff' }}
+              style={{ borderColor: 'var(--success-border)', color: 'var(--success-strong)', backgroundColor: 'var(--surface)' }}
             >
               {copiedKey === 'last' ? 'Copied!' : 'Copy'}
             </button>
@@ -404,7 +404,7 @@ export default function ShowStaffPanel({
               type="button"
               onClick={() => setLastInviteUrl(null)}
               className="text-xs px-2 py-1 hover:underline"
-              style={{ color: '#1f4e1f' }}
+              style={{ color: 'var(--success-strong)' }}
             >
               Dismiss
             </button>
@@ -412,22 +412,22 @@ export default function ShowStaffPanel({
         </div>
       )}
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-1" style={{ color: '#2c1810' }}>Show Managers</h2>
-        <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Show Managers</h2>
+        <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
           Whoever created this show manages it. Add a co-manager here — they get the
           same access to setup, staff, and the desk.
         </p>
 
         {managers.length === 0 && (
-          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
+          <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
             No manager assigned — this show was created by an admin.
           </p>
         )}
         <ul className="space-y-1 mb-4">
           {managers.map(m => (
             <li key={m.id} className="flex items-center justify-between text-sm py-1 gap-2">
-              <span style={{ color: '#2c1810' }}>{m.full_name} <span style={{ color: '#8b7355' }}>({m.email})</span></span>
+              <span style={{ color: 'var(--foreground)' }}>{m.full_name} <span style={{ color: 'var(--muted)' }}>({m.email})</span></span>
               <button
                 disabled={busy || managers.length === 1}
                 title={managers.length === 1 ? 'A show cannot be left without a manager — add another first.' : undefined}
@@ -456,7 +456,7 @@ export default function ShowStaffPanel({
 
         {!showAddManagerForm ? (
           <button onClick={() => setShowAddManagerForm(true)}
-            className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+            className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
             + Add Show Manager
           </button>
         ) : availableShowManagers.length > 0 ? (
@@ -476,38 +476,38 @@ export default function ShowStaffPanel({
             <button disabled={busy || !selectedManagerId}
               onClick={() => { if (selectedManagerId) { addManager(selectedManagerId); setSelectedManagerId(''); setShowAddManagerForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}>
+              style={{ backgroundColor: 'var(--accent)' }}>
               {busy ? 'Adding…' : 'Add'}
             </button>
             <button type="button" onClick={() => { setShowAddManagerForm(false); setSelectedManagerId(''); }}
-              className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
               Cancel
             </button>
           </div>
         ) : (
           <div className="space-y-1">
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               No other Show Manager accounts available. Create one in{' '}
               <Link href="/admin/users" className="underline">User Management</Link>.
             </p>
             <button type="button" onClick={() => setShowAddManagerForm(false)}
-              className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+              className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
               Cancel
             </button>
           </div>
         )}
       </section>
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Secretaries</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Show Secretaries</h2>
 
           {admins.length === 0 && (
-            <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No secretary assigned yet.</p>
+            <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>No secretary assigned yet.</p>
           )}
           <ul className="space-y-1 mb-4">
             {admins.map(a => (
               <li key={a.id} className="flex items-center justify-between text-sm py-1 gap-2">
-                <span style={{ color: '#2c1810' }}>{a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span></span>
+                <span style={{ color: 'var(--foreground)' }}>{a.full_name} <span style={{ color: 'var(--muted)' }}>({a.email})</span></span>
                 <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
                   className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
                   Remove
@@ -533,7 +533,7 @@ export default function ShowStaffPanel({
 
           {!showAddAdminForm ? (
             <button onClick={() => setShowAddAdminForm(true)}
-              className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+              className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
               + Add Show Secretary
             </button>
           ) : (
@@ -548,9 +548,9 @@ export default function ShowStaffPanel({
                       aria-pressed={adminMode === m}
                       className="text-sm rounded px-3 py-1.5 border"
                       style={{
-                        borderColor: adminMode === m ? '#5c3d1e' : '#d4b896',
-                        backgroundColor: adminMode === m ? '#fdf8eb' : '#fff',
-                        color: adminMode === m ? '#5c3d1e' : '#2c1810',
+                        borderColor: adminMode === m ? 'var(--text-deep)' : 'var(--border)',
+                        backgroundColor: adminMode === m ? 'var(--warning-bg)' : 'var(--surface)',
+                        color: adminMode === m ? 'var(--text-deep)' : 'var(--foreground)',
                         fontWeight: adminMode === m ? 600 : 400,
                       }}
                     >
@@ -578,24 +578,24 @@ export default function ShowStaffPanel({
                     <button disabled={busy || !selectedAdminId}
                       onClick={() => { if (selectedAdminId) { addAdmin(selectedAdminId); setSelectedAdminId(''); setShowAddAdminForm(false); } }}
                       className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#8b4513' }}>
+                      style={{ backgroundColor: 'var(--accent)' }}>
                       {busy ? 'Adding…' : 'Add'}
                     </button>
                     <button type="button" onClick={() => { setShowAddAdminForm(false); setSelectedAdminId(''); }}
-                      className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+                      className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
                       Cancel
                     </button>
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    <p className="text-xs" style={{ color: '#8b7355' }}>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
                       {isAdmin
                         ? 'Every Show Secretary account is already on this show — use "Create new" for someone else.'
                         : <>No additional Show Secretaries available. Create one in{' '}
                           <Link href="/admin/users" className="underline">User Management</Link>.</>}
                     </p>
                     <button type="button" onClick={() => setShowAddAdminForm(false)}
-                      className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+                      className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
                       Cancel
                     </button>
                   </div>
@@ -625,7 +625,7 @@ export default function ShowStaffPanel({
                   <div className="flex gap-2">
                     <button type="submit" disabled={busy}
                       className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                      style={{ backgroundColor: '#8b4513' }}>
+                      style={{ backgroundColor: 'var(--accent)' }}>
                       {busy ? 'Creating…' : 'Create & assign'}
                     </button>
                     <button type="button"
@@ -635,7 +635,7 @@ export default function ShowStaffPanel({
                         setSecretaryCreateError('');
                       }}
                       className="px-3 py-1 rounded text-sm border"
-                      style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
                       Cancel
                     </button>
                   </div>
@@ -645,16 +645,16 @@ export default function ShowStaffPanel({
           )}
         </section>
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Scribes</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Scribes</h2>
 
         {scribes.length === 0 && (
-          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No scribes assigned.</p>
+          <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>No scribes assigned.</p>
         )}
         <ul className="space-y-1 mb-4">
           {scribes.map(s => (
             <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
-              <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
+              <span style={{ color: 'var(--foreground)' }}>{s.full_name} <span style={{ color: 'var(--muted)' }}>({s.email})</span></span>
               <button disabled={busy} onClick={() => setConfirmRemoveScribeId(s.id)}
                 className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
                 Remove
@@ -681,9 +681,9 @@ export default function ShowStaffPanel({
         {scribeInvites.length > 0 && (
           <div
             className="rounded border p-3 mb-3 space-y-2"
-            style={{ borderColor: '#e8d5b7', backgroundColor: '#fdf8eb' }}
+            style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--warning-bg)' }}
           >
-            <p className="text-xs font-medium" style={{ color: '#5c3d1e' }}>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-deep)' }}>
               Pending scribe invites
             </p>
             <ul className="space-y-1">
@@ -692,9 +692,9 @@ export default function ShowStaffPanel({
                   key={inv.id}
                   className="flex items-center justify-between gap-2 text-sm"
                 >
-                  <span style={{ color: '#2c1810' }}>
+                  <span style={{ color: 'var(--foreground)' }}>
                     {inv.first_name} {inv.last_name}{' '}
-                    <span style={{ color: '#8b7355' }}>({inv.email})</span>
+                    <span style={{ color: 'var(--muted)' }}>({inv.email})</span>
                   </span>
                   <button
                     type="button"
@@ -715,12 +715,12 @@ export default function ShowStaffPanel({
           <div className="flex flex-wrap gap-3">
             {isAdmin && availableScribes.length > 0 && (
               <button onClick={() => setShowAssignForm(true)}
-                className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+                className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
                 + Assign existing scribe
               </button>
             )}
             <button onClick={() => setShowInviteForm(true)}
-              className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+              className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
               + Invite a scribe
             </button>
           </div>
@@ -738,11 +738,11 @@ export default function ShowStaffPanel({
             <button disabled={busy}
               onClick={() => { if (selectedScribeId) { addScribe(selectedScribeId); setSelectedScribeId(''); setShowAssignForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}>
+              style={{ backgroundColor: 'var(--accent)' }}>
               {busy ? 'Assigning…' : 'Assign'}
             </button>
             <button type="button" onClick={() => { setShowAssignForm(false); setSelectedScribeId(''); }}
-              className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
               Cancel
             </button>
           </div>
@@ -751,16 +751,16 @@ export default function ShowStaffPanel({
         {/* Invite a scribe — first/last/email only; backend issues a token */}
         {showInviteForm && (
           <form onSubmit={sendInvite} className="mt-3 space-y-3">
-            <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
               Invite a Scribe
             </p>
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               We&apos;ll generate an invite link. The scribe opens the link,
               picks a password, and lands ready to score this show.
             </p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>First Name</label>
                 <input
                   required
                   className={`${inputClass} w-full`}
@@ -770,7 +770,7 @@ export default function ShowStaffPanel({
                 />
               </div>
               <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>Last Name</label>
                 <input
                   required
                   className={`${inputClass} w-full`}
@@ -781,7 +781,7 @@ export default function ShowStaffPanel({
               </div>
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>Email</label>
               <input
                 required
                 type="email"
@@ -798,7 +798,7 @@ export default function ShowStaffPanel({
                 type="submit"
                 disabled={busy}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}
+                style={{ backgroundColor: 'var(--accent)' }}
               >
                 {busy ? 'Sending…' : 'Send invite'}
               </button>
@@ -810,7 +810,7 @@ export default function ShowStaffPanel({
                   setInviteError('');
                 }}
                 className="px-3 py-1 rounded text-sm border"
-                style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+                style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}
               >
                 Cancel
               </button>
@@ -819,19 +819,19 @@ export default function ShowStaffPanel({
         )}
       </section>
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-1" style={{ color: '#2c1810' }}>Gate Stewards</h2>
-        <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Gate Stewards</h2>
+        <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
           Manage the warm-up side of the in-gate: order-of-go and who enters the ring next.
         </p>
 
         {gateStewards.length === 0 && (
-          <p className="text-sm mb-3" style={{ color: '#8b7355' }}>No gate stewards assigned.</p>
+          <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>No gate stewards assigned.</p>
         )}
         <ul className="space-y-1 mb-4">
           {gateStewards.map(s => (
             <li key={s.id} className="flex items-center justify-between text-sm py-1 gap-2">
-              <span style={{ color: '#2c1810' }}>{s.full_name} <span style={{ color: '#8b7355' }}>({s.email})</span></span>
+              <span style={{ color: 'var(--foreground)' }}>{s.full_name} <span style={{ color: 'var(--muted)' }}>({s.email})</span></span>
               <button disabled={busy} onClick={() => setConfirmRemoveStewardId(s.id)}
                 className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
                 Remove
@@ -858,9 +858,9 @@ export default function ShowStaffPanel({
         {stewardInvites.length > 0 && (
           <div
             className="rounded border p-3 mb-3 space-y-2"
-            style={{ borderColor: '#e8d5b7', backgroundColor: '#fdf8eb' }}
+            style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--warning-bg)' }}
           >
-            <p className="text-xs font-medium" style={{ color: '#5c3d1e' }}>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-deep)' }}>
               Pending gate steward invites
             </p>
             <ul className="space-y-1">
@@ -869,9 +869,9 @@ export default function ShowStaffPanel({
                   key={inv.id}
                   className="flex items-center justify-between gap-2 text-sm"
                 >
-                  <span style={{ color: '#2c1810' }}>
+                  <span style={{ color: 'var(--foreground)' }}>
                     {inv.first_name} {inv.last_name}{' '}
-                    <span style={{ color: '#8b7355' }}>({inv.email})</span>
+                    <span style={{ color: 'var(--muted)' }}>({inv.email})</span>
                   </span>
                   <button
                     type="button"
@@ -891,12 +891,12 @@ export default function ShowStaffPanel({
           <div className="flex flex-wrap gap-3">
             {isAdmin && availableGateStewards.length > 0 && (
               <button onClick={() => setShowAssignStewardForm(true)}
-                className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+                className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
                 + Assign existing gate steward
               </button>
             )}
             <button onClick={() => setShowInviteStewardForm(true)}
-              className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+              className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
               + Invite a gate steward
             </button>
           </div>
@@ -913,11 +913,11 @@ export default function ShowStaffPanel({
             <button disabled={busy}
               onClick={() => { if (selectedStewardId) { addGateSteward(selectedStewardId); setSelectedStewardId(''); setShowAssignStewardForm(false); } }}
               className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}>
+              style={{ backgroundColor: 'var(--accent)' }}>
               {busy ? 'Assigning…' : 'Assign'}
             </button>
             <button type="button" onClick={() => { setShowAssignStewardForm(false); setSelectedStewardId(''); }}
-              className="px-3 py-1 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
               Cancel
             </button>
           </div>
@@ -925,16 +925,16 @@ export default function ShowStaffPanel({
 
         {showInviteStewardForm && (
           <form onSubmit={sendStewardInvite} className="mt-3 space-y-3">
-            <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
               Invite a Gate Steward
             </p>
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               We&apos;ll generate an invite link. The gate steward opens the link,
               picks a password, and lands ready to run the gate for this show.
             </p>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>First Name</label>
                 <input
                   required
                   className={`${inputClass} w-full`}
@@ -944,7 +944,7 @@ export default function ShowStaffPanel({
                 />
               </div>
               <div>
-                <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+                <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>Last Name</label>
                 <input
                   required
                   className={`${inputClass} w-full`}
@@ -955,7 +955,7 @@ export default function ShowStaffPanel({
               </div>
             </div>
             <div>
-              <label className="block text-xs mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>Email</label>
               <input
                 required
                 type="email"
@@ -972,7 +972,7 @@ export default function ShowStaffPanel({
                 type="submit"
                 disabled={busy}
                 className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}
+                style={{ backgroundColor: 'var(--accent)' }}
               >
                 {busy ? 'Sending…' : 'Send invite'}
               </button>
@@ -984,7 +984,7 @@ export default function ShowStaffPanel({
                   setStewardInviteError('');
                 }}
                 className="px-3 py-1 rounded text-sm border"
-                style={{ borderColor: '#d4b896', color: '#5a3e2b' }}
+                style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}
               >
                 Cancel
               </button>

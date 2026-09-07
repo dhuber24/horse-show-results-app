@@ -39,11 +39,11 @@ interface Props {
 /** Base score every AQHA/APHA pattern run starts from. */
 const PATTERN_BASE = 70;
 
-const PAD_BG = '#f5ede0';
-const KEY_BG = '#fffdf9';
-const KEY_BORDER = '#d4b896';
-const INK = '#2c1810';
-const MUTED = '#8b7355';
+const PAD_BG = 'var(--bg-subtle)';
+const KEY_BG = 'var(--surface)';
+const KEY_BORDER = 'var(--border)';
+const INK = 'var(--foreground)';
+const MUTED = 'var(--muted)';
 
 function Key({
   label,
@@ -61,7 +61,7 @@ function Key({
   const styles: Record<string, React.CSSProperties> = {
     default: { backgroundColor: KEY_BG, color: INK, borderColor: KEY_BORDER },
     accent: { backgroundColor: INK, color: PAD_BG, borderColor: INK },
-    used: { backgroundColor: '#e8ddd0', color: MUTED, borderColor: KEY_BORDER },
+    used: { backgroundColor: 'var(--border-subtle)', color: MUTED, borderColor: KEY_BORDER },
     ghost: { backgroundColor: 'transparent', color: MUTED, borderColor: KEY_BORDER },
   };
   return (
@@ -121,7 +121,7 @@ export default function TouchScorePad({
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold truncate" style={{ color: INK }}>
             {subject}
-            <span className="ml-2 font-mono text-base" style={{ color: '#8b4513' }}>
+            <span className="ml-2 font-mono text-base" style={{ color: 'var(--accent)' }}>
               {value || '—'}
             </span>
           </span>

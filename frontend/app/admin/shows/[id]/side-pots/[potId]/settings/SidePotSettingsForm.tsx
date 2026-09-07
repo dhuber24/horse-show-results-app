@@ -138,7 +138,7 @@ export default function SidePotSettingsForm({
       {disabled && (
         <div
           className="rounded border px-4 py-3 text-sm"
-          style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+          style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
         >
           This pot is settled. Its payouts were computed from these settings, so they are
           locked.
@@ -214,9 +214,9 @@ export default function SidePotSettingsForm({
           </div>
         </div>
 
-        <div className="space-y-2 pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
+        <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-baseline justify-between gap-2">
-            <label className="text-sm font-medium" style={{ color: '#2c1810' }}>
+            <label className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
               Bundled classes ({selectedClassIds.size} selected)
             </label>
             <input
@@ -227,16 +227,16 @@ export default function SidePotSettingsForm({
             />
           </div>
           {scoringMethod === 'sum_scores' && (
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Showing only pattern and timed classes.
             </p>
           )}
           <div
             className="border rounded overflow-y-auto"
-            style={{ maxHeight: '280px', borderColor: '#e8d5b7' }}
+            style={{ maxHeight: '280px', borderColor: 'var(--border-subtle)' }}
           >
             {filtered.length === 0 ? (
-              <p className="p-3 text-sm" style={{ color: '#8b7355' }}>
+              <p className="p-3 text-sm" style={{ color: 'var(--muted)' }}>
                 No matching classes.
               </p>
             ) : (
@@ -245,7 +245,7 @@ export default function SidePotSettingsForm({
                   <div key={date}>
                     <div
                       className="px-3 py-1.5 text-xs font-medium sticky top-0"
-                      style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}
+                      style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}
                     >
                       {date}
                     </div>
@@ -253,7 +253,7 @@ export default function SidePotSettingsForm({
                       <label
                         key={c.id}
                         className="flex items-center gap-2 px-3 py-1.5 text-sm border-t cursor-pointer hover:bg-gray-50"
-                        style={{ borderColor: '#f0e6d2' }}
+                        style={{ borderColor: 'var(--bg-subtle)' }}
                       >
                         <input
                           type="checkbox"
@@ -262,15 +262,15 @@ export default function SidePotSettingsForm({
                         />
                         <span
                           className="text-xs font-mono px-1.5 py-0.5 rounded"
-                          style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                          style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                         >
                           #{c.class_number}
                         </span>
-                        <span style={{ color: '#2c1810' }}>{c.class_name}</span>
+                        <span style={{ color: 'var(--foreground)' }}>{c.class_name}</span>
                         {c.score_type !== 'placement' && (
                           <span
                             className="text-xs px-1.5 py-0.5 rounded ml-auto"
-                            style={{ backgroundColor: '#dcebd5', color: '#3f6b2f' }}
+                            style={{ backgroundColor: 'var(--success-border)', color: 'var(--success)' }}
                           >
                             {c.score_type === 'pattern' ? 'Pattern' : 'Timed'}
                           </span>
@@ -292,12 +292,12 @@ export default function SidePotSettingsForm({
               disabled={saving || !isDirty}
               title={!isDirty ? 'No changes to save' : undefined}
               className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               {saving ? 'Saving…' : 'Save settings'}
             </button>
             {saved && !isDirty && (
-              <span className="text-sm" style={{ color: '#3f6b2f' }}>
+              <span className="text-sm" style={{ color: 'var(--success)' }}>
                 Saved.
               </span>
             )}

@@ -42,10 +42,10 @@ export default async function ShowReportsPage({
             { label: 'Show Record' },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Show Record
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — what ran, what was placed, what was entered, and what is
           outstanding on paper. Every report is generated from the show&rsquo;s own
           data, so re-running one after a correction gives the corrected record.
@@ -55,17 +55,17 @@ export default async function ShowReportsPage({
       <Link
         href={`/admin/shows/${id}/reports/archive`}
         className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-        style={{ borderColor: '#8b4513', backgroundColor: '#fdf8eb' }}
+        style={{ borderColor: 'var(--accent)', backgroundColor: 'var(--warning-bg)' }}
       >
         <div className="flex items-start gap-3">
           <div className="text-2xl" aria-hidden>
             🗄️
           </div>
           <div>
-            <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
               Retention Bundle
             </h2>
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
               The set APHA asks management to keep for a year (SC-110.J), on one
               printable page. Read the caveats on it — the <em>signed</em> judge&rsquo;s
               cards are paper, and nothing here is that document.
@@ -77,7 +77,7 @@ export default async function ShowReportsPage({
       {!reports ? (
         <div
           className="rounded border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           Couldn&rsquo;t load the report list. Reload the page, and if it keeps happening check
           that you&rsquo;re assigned to this show.
@@ -89,17 +89,17 @@ export default async function ShowReportsPage({
               key={report.slug}
               href={`/admin/shows/${id}/reports/${report.slug}`}
               className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <div className="flex items-start gap-3">
                 <div className="text-2xl" aria-hidden>
                   {reportIcon(report.slug)}
                 </div>
                 <div>
-                  <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+                  <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
                     {report.title}
                   </h2>
-                  <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                  <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                     {report.description}
                   </p>
                 </div>

@@ -14,19 +14,19 @@ export default function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
         <Link
           href={parentCrumb.href!}
           className="text-sm hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           ← Back to {parentCrumb.label}
         </Link>
       )}
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-xs mt-1" style={{ color: '#8b7355' }}>
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-xs mt-1" style={{ color: 'var(--muted)' }}>
         {crumbs.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1">
             {i > 0 && (
-              <span style={{ color: '#d4b896' }} aria-hidden="true">›</span>
+              <span style={{ color: 'var(--border)' }} aria-hidden="true">›</span>
             )}
             {crumb.href ? (
-              <Link href={crumb.href} className="hover:underline" style={{ color: '#8b4513' }}>
+              <Link href={crumb.href} className="hover:underline" style={{ color: 'var(--accent)' }}>
                 {crumb.label}
               </Link>
             ) : (

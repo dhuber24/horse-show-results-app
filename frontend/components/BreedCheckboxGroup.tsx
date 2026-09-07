@@ -25,14 +25,14 @@ export default function BreedCheckboxGroup({ breeds, selectedIds, onChange, labe
 
   return (
     <div>
-      <label className="text-sm block mb-1" style={{ color: '#8b7355' }}>{label}</label>
-      <div className="max-h-44 overflow-y-auto rounded border bg-white p-2" style={{ borderColor: '#d4b896' }}>
+      <label className="text-sm block mb-1" style={{ color: 'var(--muted)' }}>{label}</label>
+      <div className="max-h-44 overflow-y-auto rounded border bg-white p-2" style={{ borderColor: 'var(--border)' }}>
         {breeds.length === 0 ? (
-          <p className="text-sm px-1 py-1" style={{ color: '#8b7355' }}>No breeds available.</p>
+          <p className="text-sm px-1 py-1" style={{ color: 'var(--muted)' }}>No breeds available.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
             {breeds.map((breed) => (
-              <label key={breed.id} className="flex items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-amber-50/60" style={{ color: '#2c1810' }}>
+              <label key={breed.id} className="flex items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-amber-50/60" style={{ color: 'var(--foreground)' }}>
                 <input
                   type="checkbox"
                   checked={selected.has(breed.id)}

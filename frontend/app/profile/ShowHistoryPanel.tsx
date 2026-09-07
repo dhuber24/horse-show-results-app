@@ -34,15 +34,15 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
 
   if (shows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center" style={{ borderColor: '#d4b896' }}>
-        <p className="text-sm font-medium" style={{ color: '#2c1810' }}>No show history yet</p>
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+      <div className="rounded-lg border border-dashed p-6 text-center" style={{ borderColor: 'var(--border)' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>No show history yet</p>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Shows you sign up for appear here, and stay here after the show is over.
         </p>
         <Link
           href="/"
           className="inline-block mt-3 text-xs font-medium hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           Browse upcoming shows →
         </Link>
@@ -53,10 +53,10 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {pastCount} past show{pastCount === 1 ? '' : 's'}
         </p>
-        <label className="flex items-center gap-2 text-xs" style={{ color: '#8b7355' }}>
+        <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
           <input
             type="checkbox"
             checked={includeCurrent}
@@ -72,12 +72,12 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by show or venue"
           className="w-full border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
       )}
 
       {visible.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {filter
             ? `No shows match “${filter}”.`
             : 'Nothing in your history yet — your current shows are still running.'}
@@ -90,28 +90,28 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
               <li
                 key={show.show_id}
                 className="rounded-lg border p-3"
-                style={{ borderColor: '#e8d5b7', backgroundColor: '#fdfbf7' }}
+                style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <Link
                       href={`/shows/${show.show_id}`}
                       className="text-sm font-medium hover:underline"
-                      style={{ color: '#2c1810' }}
+                      style={{ color: 'var(--foreground)' }}
                     >
                       {show.show_name}
                     </Link>
-                    <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                       {formatDateRange(show.start_date, show.end_date)}
                       {show.venue && <> · {show.venue}</>}
                     </p>
-                    <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                       {show.entry_count} class{show.entry_count === 1 ? '' : 'es'}
                       {show.back_number != null && <> · back #{show.back_number}</>}
                       {show.placed_count > 0 && show.best_place != null && (
                         <>
                           {' · '}
-                          <span style={{ color: '#8b4513' }}>
+                          <span style={{ color: 'var(--accent)' }}>
                             best {ordinal(show.best_place)}
                           </span>
                         </>
@@ -128,26 +128,26 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
 
                 <div
                   className="flex flex-wrap gap-3 mt-2 pt-2 border-t"
-                  style={{ borderColor: '#f0e4d0' }}
+                  style={{ borderColor: 'var(--bg-subtle)' }}
                 >
                   <Link
                     href={`/shows/${show.show_id}`}
                     className="text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Show page
                   </Link>
                   <Link
                     href={`/shows/${show.show_id}/results`}
                     className="text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Results
                   </Link>
                   <Link
                     href={`/shows/${show.show_id}/schedule`}
                     className="text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Class schedule
                   </Link>

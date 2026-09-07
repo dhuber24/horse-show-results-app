@@ -34,12 +34,12 @@ export type RegistrationStep = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  active: '#5c3d1e',
-  done: '#2f6b3f',
-  locked: '#c9b394',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  active: 'var(--text-deep)',
+  done: 'var(--success)',
+  locked: 'var(--border)',
 } as const;
 
 export default function RegistrationStepper({
@@ -68,7 +68,7 @@ export default function RegistrationStepper({
               <span
                 aria-hidden
                 className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold border"
-                style={{ borderColor: badgeColor, color: '#fff', backgroundColor: badgeColor }}
+                style={{ borderColor: badgeColor, color: 'var(--surface)', backgroundColor: badgeColor }}
               >
                 {step.done ? '✓' : idx + 1}
               </span>

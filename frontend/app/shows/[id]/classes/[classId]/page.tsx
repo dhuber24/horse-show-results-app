@@ -92,23 +92,23 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
 
   return (
     <main className={`${multiJudge ? 'max-w-5xl' : 'max-w-2xl'} mx-auto p-4 md:p-6`}>
-      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
         ← Back to {show.name}
       </Link>
       <div className="flex items-start justify-between mt-4 mb-2">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
             {cls ? `${cls.class_number} — ${cls.class_name}` : 'Class Results'}
           </h1>
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
             📅 {cls?.class_date} &nbsp;·&nbsp;
-            <span className="font-medium" style={{ color: '#8b4513' }}>{cls?.status}</span>
+            <span className="font-medium" style={{ color: 'var(--accent)' }}>{cls?.status}</span>
           </p>
         </div>
         {canEnterPlacings && (
           <Link href={`/shows/${id}/classes/${classId}/scribe`}
             className="text-sm px-4 py-2 rounded font-medium whitespace-nowrap"
-            style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>
             Enter Placings
           </Link>
         )}
@@ -120,30 +120,30 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
       {canEnterPlacings && results.length > 0 && !isPosted && (
         <div
           className="mt-3 px-3 py-2 rounded text-sm"
-          style={{ backgroundColor: '#faf7f2', border: '1px solid #d4b896', color: '#8b7355' }}
+          style={{ backgroundColor: 'var(--background)', border: '1px solid var(--border)', color: 'var(--muted)' }}
         >
-          ○ <span className="font-medium" style={{ color: '#2c1810' }}>Not posted</span> — these
+          ○ <span className="font-medium" style={{ color: 'var(--foreground)' }}>Not posted</span> — these
           placings are visible to show staff only.{' '}
           <Link
             href={`/shows/${id}/classes/${classId}/scribe`}
             className="font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Post them
           </Link>
         </div>
       )}
 
-      <div className="mt-6 rounded-lg border overflow-hidden" style={{ borderColor: '#d4b896' }}>
+      <div className="mt-6 rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
         {enriched.length === 0 ? (
-          <p className="p-4" style={{ color: '#8b7355' }}>No entries found.</p>
+          <p className="p-4" style={{ color: 'var(--muted)' }}>No entries found.</p>
         ) : (
           <PlacingsTable rows={rows} judgeColumns={judgeColumns} />
         )}
       </div>
 
       {enriched.length > 0 && (
-        <p className="mt-3 text-xs" style={{ color: '#8b7355' }}>
+        <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>
           Tap a column heading to sort.
           {/* Each judge places independently, so the cards can and do disagree.
               The app does not judge and does not combine them into an overall —

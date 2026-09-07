@@ -31,10 +31,10 @@ export interface VerificationCheck {
 }
 
 export const STATUS_PILL: Record<VerificationStatus, { label: string; bg: string; text: string }> = {
-  verified: { label: '✓ Verified', bg: '#d1fae5', text: '#065f46' },
-  stale: { label: '⚠ Changed since', bg: '#fef3c7', text: '#92400e' },
-  unverified: { label: '○ Not checked', bg: '#f5ede0', text: '#8b4513' },
-  not_on_file: { label: '— Nothing on file', bg: '#e5e7eb', text: '#374151' },
+  verified: { label: '✓ Verified', bg: 'var(--success-border)', text: 'var(--success-strong)' },
+  stale: { label: '⚠ Changed since', bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  unverified: { label: '○ Not checked', bg: 'var(--bg-subtle)', text: 'var(--accent)' },
+  not_on_file: { label: '— Nothing on file', bg: 'var(--border-subtle)', text: 'var(--text-deep)' },
 };
 
 /** What staff are told to physically pick up and read. */
@@ -86,13 +86,13 @@ export default function CheckRow({
   return (
     <div
       className="flex items-start justify-between gap-3 py-2 border-t first:border-t-0"
-      style={{ borderColor: '#f0e6d6' }}
+      style={{ borderColor: 'var(--bg-subtle)' }}
     >
       <div className="min-w-0">
-        <div className="text-sm" style={{ color: '#2c1810' }}>
+        <div className="text-sm" style={{ color: 'var(--foreground)' }}>
           <span className="font-medium">{label}</span>
           {check.current_value && (
-            <span className="ml-2 font-mono text-xs" style={{ color: '#5a3e2b' }}>
+            <span className="ml-2 font-mono text-xs" style={{ color: 'var(--text-deep)' }}>
               {check.current_value}
             </span>
           )}
@@ -102,7 +102,7 @@ export default function CheckRow({
             both is the whole point — staff need to know what changed under a
             sign-off they already gave. */}
         {check.status === 'stale' && (
-          <p className="text-xs mt-0.5" style={{ color: '#92400e' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
             Signed off against <span className="font-mono">{check.verified_value}</span>
             {check.verified_by_name ? ` by ${check.verified_by_name}` : ''} — the record has
             changed since. Check the paper again.
@@ -110,7 +110,7 @@ export default function CheckRow({
         )}
 
         {check.status === 'verified' && (
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }} suppressHydrationWarning>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }} suppressHydrationWarning>
             {check.verified_by_name ?? 'Staff'}
             {check.verified_at ? ` · ${formatWhen(check.verified_at)}` : ''}
             {check.note ? ` · ${check.note}` : ''}
@@ -118,7 +118,7 @@ export default function CheckRow({
         )}
 
         {check.status === 'not_on_file' && (
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {MISSING_HINT[check.kind]}
           </p>
         )}
@@ -128,17 +128,17 @@ export default function CheckRow({
             the last day of the show, not today — a card that lapses on the
             Saturday is exactly what the desk is here to catch. */}
         {check.lapsed === true && (
-          <p className="text-xs mt-0.5 font-medium" style={{ color: '#b91c1c' }} suppressHydrationWarning>
+          <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--error)' }} suppressHydrationWarning>
             Lapsed {formatDay(check.expires_at!)} — before the show ends.
           </p>
         )}
         {check.lapsed === false && check.expires_at && (
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }} suppressHydrationWarning>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }} suppressHydrationWarning>
             Current through {formatDay(check.expires_at)}.
           </p>
         )}
         {check.kind === 'exhibitor_membership' && check.current_value && !check.expires_at && (
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             No expiry on file — standing unknown.
           </p>
         )}
@@ -159,7 +159,7 @@ export default function CheckRow({
             disabled={busy}
             title="Remove this sign-off — use when it was recorded against the wrong row"
             className="text-xs hover:underline disabled:opacity-50"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Undo
           </button>
@@ -174,7 +174,7 @@ export default function CheckRow({
                 : MISSING_HINT[check.kind]
             }
             className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513' }}
+            style={{ backgroundColor: 'var(--accent)' }}
           >
             {check.status === 'stale' ? 'Re-verify' : 'I inspected it'}
           </button>

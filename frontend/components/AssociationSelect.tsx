@@ -56,8 +56,8 @@ export default function AssociationSelect({
 /** Small inline marker so a registration row reads as breed vs club at a glance. */
 export function AssociationTypeBadge({ type }: { type: AssociationType }) {
   const style = type === 'club'
-    ? { backgroundColor: '#e0e7ff', color: '#3730a3' }
-    : { backgroundColor: '#f0e8d8', color: '#8b4513' };
+    ? { backgroundColor: 'var(--accent-bg)', color: 'var(--accent-active)' }
+    : { backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' };
   return (
     <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={style}>
       {type === 'club' ? 'Club' : 'Breed'}

@@ -54,12 +54,12 @@ export default function EditUserForm({ user }: Props) {
   };
 
   const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
-  const inputStyle = { borderColor: '#d4b896' };
+  const inputStyle = { borderColor: 'var(--border)' };
 
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>First Name</label>
         <input
           value={firstName}
           onChange={e => setFirstName(e.target.value)}
@@ -68,7 +68,7 @@ export default function EditUserForm({ user }: Props) {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Last Name</label>
         <input
           value={lastName}
           onChange={e => setLastName(e.target.value)}
@@ -77,7 +77,7 @@ export default function EditUserForm({ user }: Props) {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Email</label>
         <input
           type="email"
           value={email}
@@ -87,7 +87,7 @@ export default function EditUserForm({ user }: Props) {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
           AQHA Show-Management Workshop Date
         </label>
         <input
@@ -97,7 +97,7 @@ export default function EditUserForm({ user }: Props) {
           className={inputClass}
           style={inputStyle}
         />
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Used by AQHA validation to confirm at least one assigned manager or secretary is workshop-current within 3 years.
         </p>
       </div>
@@ -107,7 +107,7 @@ export default function EditUserForm({ user }: Props) {
           disabled={saving || !isDirty}
           title={!isDirty ? 'No changes to save' : saving ? 'Saving, please wait…' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

@@ -23,14 +23,14 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
 
   return (
     <div className="mt-6">
-      <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-      <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+      <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
+      <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
         {alreadySignedUp ? 'Update your show sign-up' : 'Sign up for this show'} — {exhibitor.full_name}
       </p>
 
       <div
         className="mt-4 mb-4 rounded-lg border p-3 text-sm"
-        style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         {alreadySignedUp ? (
           <>
@@ -60,11 +60,11 @@ export default function SignupForm({ showId, data }: { showId: string; data: Sig
         }}
       >
         {alreadySignedUp && (
-          <div className="pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
+          <div className="pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
             <Link
               href={`/shows/${showId}/register`}
               className="text-sm font-medium hover:underline"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               Go to my class registration →
             </Link>

@@ -64,9 +64,9 @@ export default function HorseColorForm({ color }: { color?: HorseColor }) {
   };
 
   return (
-    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
       <div>
-        <label className="text-sm" style={{ color: '#8b7355' }}>Name *</label>
+        <label className="text-sm" style={{ color: 'var(--muted)' }}>Name *</label>
         <input
           name="name"
           value={form.name}
@@ -76,7 +76,7 @@ export default function HorseColorForm({ color }: { color?: HorseColor }) {
         />
       </div>
       <div>
-        <label className="text-sm" style={{ color: '#8b7355' }}>Sort Order</label>
+        <label className="text-sm" style={{ color: 'var(--muted)' }}>Sort Order</label>
         <input
           name="sort_order"
           type="number"
@@ -84,7 +84,7 @@ export default function HorseColorForm({ color }: { color?: HorseColor }) {
           onChange={handleChange}
           className="w-full border rounded px-3 py-2 mt-1"
         />
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Lower numbers appear first in dropdowns.
         </p>
       </div>
@@ -94,7 +94,7 @@ export default function HorseColorForm({ color }: { color?: HorseColor }) {
           onClick={handleSave}
           disabled={saving}
           className="px-5 py-2 rounded font-medium disabled:opacity-50"
-          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+          style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
         >
           {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Add Color'}
         </button>

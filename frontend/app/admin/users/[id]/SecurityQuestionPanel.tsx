@@ -48,7 +48,7 @@ export default function SecurityQuestionPanel({ userId }: Props) {
     load();
   };
 
-  if (!status) return <p className="text-sm" style={{ color: '#8b7355' }}>Loading…</p>;
+  if (!status) return <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</p>;
 
   const lockedUntil = status.locked_until ? new Date(status.locked_until) : null;
   const isLocked = lockedUntil !== null && lockedUntil.getTime() > Date.now();
@@ -56,20 +56,20 @@ export default function SecurityQuestionPanel({ userId }: Props) {
   return (
     <div className="space-y-3">
       {!status.has_question && (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           No security question set. This user can&rsquo;t reset their own password &mdash; use Reset Password above.
         </p>
       )}
 
       {status.has_question && (
-        <p className="text-sm" style={{ color: '#5a3e2b' }}>
+        <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
           Security question set{status.set_at ? ` on ${new Date(status.set_at).toLocaleDateString()}` : ''}.
           {status.failed_attempts > 0 && ` ${status.failed_attempts} failed answer${status.failed_attempts === 1 ? '' : 's'}.`}
         </p>
       )}
 
       {isLocked && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           Reset by security question is locked until {lockedUntil!.toLocaleTimeString()}. Resetting their
           password above clears the lock.
         </p>
@@ -81,19 +81,19 @@ export default function SecurityQuestionPanel({ userId }: Props) {
           disabled={loading}
           title="For a user who has forgotten their answer"
           className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
         >
           Clear Security Question
         </button>
       )}
 
       {status.has_question && confirming && (
-        <span className="flex items-center gap-3 text-sm" style={{ color: '#8b1a1a' }}>
+        <span className="flex items-center gap-3 text-sm" style={{ color: 'var(--error-strong)' }}>
           Clear it? They&rsquo;ll set a new one themselves next time they sign in.
           <button onClick={handleClear} disabled={loading} className="font-medium hover:underline disabled:opacity-50">
             {loading ? 'Clearing…' : 'Yes, clear'}
           </button>
-          <button onClick={() => setConfirming(false)} className="hover:underline" style={{ color: '#8b7355' }}>
+          <button onClick={() => setConfirming(false)} className="hover:underline" style={{ color: 'var(--muted)' }}>
             Cancel
           </button>
         </span>

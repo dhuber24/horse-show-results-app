@@ -52,14 +52,14 @@ export default function ChangePasswordForm() {
     return (
       <div className="space-y-3">
         {success && (
-          <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+          <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
             Password changed successfully.
           </p>
         )}
         <button
           onClick={() => setOpen(true)}
           className="px-4 py-2 rounded-lg text-sm font-medium transition"
-          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
         >
           Change Password
         </button>
@@ -70,7 +70,7 @@ export default function ChangePasswordForm() {
   return (
     <div className="space-y-3">
       {success && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
           Password changed successfully.
         </p>
       )}
@@ -80,7 +80,7 @@ export default function ChangePasswordForm() {
         { name: 'confirm_password', label: 'Confirm New Password' },
       ].map((field) => (
         <div key={field.name}>
-          <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{field.label}</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{field.label}</label>
           <input
             name={field.name}
             type="password"
@@ -88,12 +88,12 @@ export default function ChangePasswordForm() {
             onChange={handleChange}
             placeholder="••••••••"
             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-            style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
           />
         </div>
       ))}
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -102,7 +102,7 @@ export default function ChangePasswordForm() {
           onClick={handleSubmit}
           disabled={loading}
           className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
         >
           {loading ? 'Changing...' : 'Save New Password'}
         </button>
@@ -114,7 +114,7 @@ export default function ChangePasswordForm() {
           }}
           disabled={loading}
           className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-          style={{ color: '#8b7355' }}
+          style={{ color: 'var(--muted)' }}
         >
           Cancel
         </button>

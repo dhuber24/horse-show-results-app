@@ -28,10 +28,10 @@ export default async function SidePotSettingsPage({
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
         <Breadcrumbs crumbs={potCrumbs(id, show.name, pot, 'Settings')} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Settings
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {pot.name} — buy-in, payback, scoring, and the classes this pot spans.
         </p>
       </div>

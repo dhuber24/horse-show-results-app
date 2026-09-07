@@ -65,7 +65,7 @@ export default function HiPointEditor({
         <button
           onClick={() => setCreating(true)}
           className="px-4 py-2 rounded text-sm font-medium"
-          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+          style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
         >
           + Add a division
         </button>
@@ -268,7 +268,7 @@ function DivisionForm({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
@@ -403,7 +403,7 @@ function DivisionForm({
           onClick={save}
           disabled={busy}
           className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+          style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
         >
           {busy ? 'Saving…' : 'Save division'}
         </button>
@@ -418,7 +418,7 @@ function DivisionForm({
         {division &&
           (confirmingDelete ? (
             <span className="flex items-center gap-2 ml-auto">
-              <span className="text-xs" style={{ color: '#5c3d1e' }}>
+              <span className="text-xs" style={{ color: 'var(--text-deep)' }}>
                 Delete {division.name}?
               </span>
               <button

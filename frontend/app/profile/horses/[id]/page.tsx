@@ -58,17 +58,17 @@ export default async function ExhibitorHorsePage({
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Link href="/profile?tab=horses" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+        <Link href="/profile?tab=horses" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
           {'<- Back to My Horses'}
         </Link>
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           {horse.name}
           {horse.barn_name && (
-            <span className="ml-2 text-lg font-normal" style={{ color: '#8b7355' }}>&ldquo;{horse.barn_name}&rdquo;</span>
+            <span className="ml-2 text-lg font-normal" style={{ color: 'var(--muted)' }}>&ldquo;{horse.barn_name}&rdquo;</span>
           )}
         </h1>
         {!isOwner && (
-          <p className="text-sm mt-2 px-3 py-2 rounded" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+          <p className="text-sm mt-2 px-3 py-2 rounded" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
             View only - only the registered owner can modify this horse.
           </p>
         )}

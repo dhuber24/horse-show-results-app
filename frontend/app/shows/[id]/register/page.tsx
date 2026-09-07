@@ -68,14 +68,14 @@ export default async function RegisterShowPage({ params }: { params: Promise<{ i
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
         ← Back to Show
       </Link>
 
       {!data ? (
         <div
           className="mt-6 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error ?? 'Registration is not available for this show right now.'}
         </div>

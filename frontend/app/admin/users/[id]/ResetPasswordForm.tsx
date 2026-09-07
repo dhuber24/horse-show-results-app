@@ -32,14 +32,14 @@ export default function ResetPasswordForm({ userId }: Props) {
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>New Password</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>New Password</label>
         <input
           type="password"
           value={password}
           onChange={e => setPassword(e.target.value)}
           placeholder="Min 8 characters"
           className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
       </div>
       <div className="flex items-center gap-3">
@@ -48,7 +48,7 @@ export default function ResetPasswordForm({ userId }: Props) {
           disabled={saving || password.length < 8}
           title={password.length < 8 ? 'Password must be at least 8 characters' : saving ? 'Saving, please wait…' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Resetting…' : 'Reset Password'}
         </button>

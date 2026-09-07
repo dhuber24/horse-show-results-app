@@ -8,7 +8,7 @@ interface Status {
 }
 
 const inputClass = 'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none';
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' };
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' };
 
 export default function SecurityQuestionForm() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -86,30 +86,30 @@ export default function SecurityQuestionForm() {
 
   return (
     <div className="space-y-3">
-      <p className="text-sm" style={{ color: '#8b7355' }}>
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
         Lets you reset your own password if you forget it. Pick something only you would know &mdash; anyone
         who can answer it can take over your account.
       </p>
 
       {success && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
           {success}
         </p>
       )}
 
       {status && !open && (
-        <div className="rounded-lg px-3 py-2" style={{ backgroundColor: '#f5efe4' }}>
+        <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--bg-subtle)' }}>
           {hasQuestion ? (
             <>
-              <p className="text-sm font-medium" style={{ color: '#2c1810' }}>{status.question}</p>
+              <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{status.question}</p>
               {status.set_at && (
-                <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                   Set {new Date(status.set_at).toLocaleDateString()}
                 </p>
               )}
             </>
           ) : (
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               No security question set. Without one, only an administrator can reset your password.
             </p>
           )}
@@ -121,7 +121,7 @@ export default function SecurityQuestionForm() {
           <button
             onClick={() => { setOpen(true); setConfirmingRemove(false); }}
             className="px-4 py-2 rounded-lg text-sm font-medium transition"
-            style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
           >
             {hasQuestion ? 'Change Security Question' : 'Set Security Question'}
           </button>
@@ -129,18 +129,18 @@ export default function SecurityQuestionForm() {
             <button
               onClick={() => setConfirmingRemove(true)}
               className="text-sm hover:underline"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Remove
             </button>
           )}
           {hasQuestion && confirmingRemove && (
-            <span className="flex items-center gap-2 text-sm" style={{ color: '#8b1a1a' }}>
+            <span className="flex items-center gap-2 text-sm" style={{ color: 'var(--error-strong)' }}>
               Remove it? You&rsquo;ll need an administrator to reset your password.
               <button onClick={handleRemove} disabled={loading} className="font-medium hover:underline disabled:opacity-50">
                 Yes, remove
               </button>
-              <button onClick={() => setConfirmingRemove(false)} className="hover:underline" style={{ color: '#8b7355' }}>
+              <button onClick={() => setConfirmingRemove(false)} className="hover:underline" style={{ color: 'var(--muted)' }}>
                 Cancel
               </button>
             </span>
@@ -151,7 +151,7 @@ export default function SecurityQuestionForm() {
       {open && (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Question</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Question</label>
             <input
               name="question"
               type="text"
@@ -163,7 +163,7 @@ export default function SecurityQuestionForm() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Answer</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Answer</label>
             {/* Shown in the clear on purpose: this is the one chance to check
                 what was typed, and it is never displayed again afterwards. */}
             <input
@@ -175,12 +175,12 @@ export default function SecurityQuestionForm() {
               className={inputClass}
               style={inputStyle}
             />
-            <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
               Capitalization and extra spaces don&rsquo;t matter when you answer it later.
             </p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Current Password</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Current Password</label>
             <input
               name="current_password"
               type="password"
@@ -192,7 +192,7 @@ export default function SecurityQuestionForm() {
             />
           </div>
           {error && (
-            <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+            <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
               {error}
             </p>
           )}
@@ -201,7 +201,7 @@ export default function SecurityQuestionForm() {
               onClick={handleSave}
               disabled={loading}
               className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
             >
               {loading ? 'Saving…' : 'Save Security Question'}
             </button>
@@ -209,7 +209,7 @@ export default function SecurityQuestionForm() {
               onClick={reset}
               disabled={loading}
               className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Cancel
             </button>

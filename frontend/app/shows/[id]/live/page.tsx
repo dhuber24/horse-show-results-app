@@ -49,11 +49,11 @@ export default async function ShowLiveHubPage({ params }: { params: Promise<{ id
             key={tile.slug}
             href={`/shows/${id}/${tile.slug}`}
             className="block p-5 rounded-lg border transition hover:shadow-md hover:bg-amber-50"
-            style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
+            style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
           >
             <div className="text-3xl mb-2" aria-hidden="true">{tile.icon}</div>
-            <div className="font-semibold text-lg" style={{ color: '#2c1810' }}>{tile.title}</div>
-            <div className="text-sm mt-1" style={{ color: '#8b7355' }}>{tile.description}</div>
+            <div className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{tile.title}</div>
+            <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{tile.description}</div>
           </Link>
         ))}
       </div>

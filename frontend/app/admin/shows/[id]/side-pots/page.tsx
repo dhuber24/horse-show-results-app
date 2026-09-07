@@ -31,10 +31,10 @@ export default async function SidePotsPage({
             { label: 'Side Pots' },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Side Pots
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — optional money pools spanning several classes. Buy-ins are collected
           per pot and stay out of the exhibitor&rsquo;s show bill.
         </p>

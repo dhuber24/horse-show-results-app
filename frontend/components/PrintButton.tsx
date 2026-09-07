@@ -13,7 +13,7 @@ export default function PrintButton({ label = '🖨 Print' }: { label?: string }
       type="button"
       onClick={() => window.print()}
       className="px-3 py-2 rounded text-sm font-medium border"
-      style={{ borderColor: '#d4b896', color: '#8b4513', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
     >
       {label}
     </button>

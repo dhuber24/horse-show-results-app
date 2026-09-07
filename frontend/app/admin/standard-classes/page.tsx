@@ -55,10 +55,10 @@ export default async function StandardClassesPage() {
         <Breadcrumbs
           crumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Class Codes' }]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Association Class Codes
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Load an association&rsquo;s approved class list. The file is compared
           against what is already stored and you approve the changes before
           anything is written.
@@ -68,7 +68,7 @@ export default async function StandardClassesPage() {
       {catalogs.length === 0 ? (
         <p
           className="rounded border p-4 text-sm"
-          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
         >
           No breed show types are configured, so there is no catalog to load.
         </p>

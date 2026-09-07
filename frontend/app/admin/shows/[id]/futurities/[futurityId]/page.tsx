@@ -123,7 +123,7 @@ export default async function FuturityPage({
       {futurity.fee_tiers.length === 0 && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           <strong>No entry fee categories yet.</strong> A futurity prices each class by
           the entrant&rsquo;s category, so entries are refused until at least one is set

@@ -387,21 +387,21 @@ export default function ScoredScribeForm({
             <Link
               href={`/shows/${showId}/classes/${prevClass.id}/scribe`}
               className="font-medium hover:underline min-h-[44px] flex items-center"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               ← {prevClass.class_number}
             </Link>
           ) : (
             <span />
           )}
-          <span style={{ color: '#8b7355' }}>
+          <span style={{ color: 'var(--muted)' }}>
             Class {classIndex + 1} of {classes.length}
           </span>
           {nextClass ? (
             <Link
               href={`/shows/${showId}/classes/${nextClass.id}/scribe`}
               className="font-medium hover:underline min-h-[44px] flex items-center"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               {nextClass.class_number} →
             </Link>
@@ -432,7 +432,7 @@ export default function ScoredScribeForm({
         total={activeEntries.length}
       />
 
-      <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
+      <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
         {judgingSystem
           ? `Scored on the ${judgingSystem.name} card. Open a card to mark the ${judgingSystem.unit_label.toLowerCase()}s and penalties; the total comes back onto this sheet.`
           : labels.helper}
@@ -453,13 +453,13 @@ export default function ScoredScribeForm({
       )}
 
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm" style={{ color: '#8b7355' }}>
+        <span className="text-sm" style={{ color: 'var(--muted)' }}>
           {placedCount} of {activeEntries.length} recorded
           {dqEntries.length > 0 && ` · ${dqEntries.length} DQ`}
         </span>
         {confirmClear ? (
           <span className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: '#5c3d1e' }}>
+            <span className="text-xs" style={{ color: 'var(--text-deep)' }}>
               Clear {cards.length > 1 ? `${activeCard.label}'s` : 'all'} scores?
             </span>
             <button
@@ -476,7 +476,7 @@ export default function ScoredScribeForm({
               type="button"
               onClick={() => setConfirmClear(false)}
               className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Cancel
             </button>
@@ -486,7 +486,7 @@ export default function ScoredScribeForm({
             type="button"
             onClick={() => setConfirmClear(true)}
             className="text-xs hover:underline"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Clear all
           </button>
@@ -495,26 +495,26 @@ export default function ScoredScribeForm({
 
       <table className="w-full border-collapse mb-4">
         <thead>
-          <tr className="text-left" style={{ borderBottom: '2px solid #d4b896' }}>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
+          <tr className="text-left" style={{ borderBottom: '2px solid var(--border)' }}>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               Back #
             </th>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               Exhibitor
             </th>
             <th
               className="py-2 pr-4 text-sm font-semibold hidden md:table-cell"
-              style={{ color: '#2c1810' }}
+              style={{ color: 'var(--foreground)' }}
             >
               Horse
             </th>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               {labels.column}
             </th>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               Result
             </th>
-            <th className="py-2 text-sm font-semibold" style={{ color: '#2c1810' }}>
+            <th className="py-2 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               Place
             </th>
           </tr>
@@ -532,23 +532,23 @@ export default function ScoredScribeForm({
                 ref={(el) => { rowRefs.current[i] = el; }}
                 onClick={() => setSelectedIndex(i)}
                 style={{
-                  borderBottom: '1px solid #e8ddd0',
+                  borderBottom: '1px solid var(--border-subtle)',
                   backgroundColor: isSelected
-                    ? '#f5ede0'
+                    ? 'var(--bg-subtle)'
                     : isTied
-                      ? '#fffbeb'
+                      ? 'var(--warning-bg)'
                       : undefined,
                   cursor: 'pointer',
-                  outline: isSelected ? '2px solid #8b4513' : undefined,
+                  outline: isSelected ? '2px solid var(--accent)' : undefined,
                 }}
               >
-                <td className="py-4 pr-4 font-medium text-base" style={{ color: '#2c1810' }}>
+                <td className="py-4 pr-4 font-medium text-base" style={{ color: 'var(--foreground)' }}>
                   {entry.back_number ?? '—'}
                 </td>
-                <td className="py-4 pr-4 text-base" style={{ color: '#2c1810' }}>
+                <td className="py-4 pr-4 text-base" style={{ color: 'var(--foreground)' }}>
                   {entry.exhibitorName}
                 </td>
-                <td className="py-4 pr-4 hidden md:table-cell" style={{ color: '#8b7355' }}>
+                <td className="py-4 pr-4 hidden md:table-cell" style={{ color: 'var(--muted)' }}>
                   {entry.horseName}
                 </td>
                 <td className="py-4 pr-4">
@@ -570,9 +570,9 @@ export default function ScoredScribeForm({
                       }
                       className="w-28 min-h-[44px] border rounded-lg px-2 text-center text-lg disabled:opacity-40"
                       style={{
-                        borderColor: isSelected ? '#8b4513' : '#d4b896',
-                        backgroundColor: '#fffdf9',
-                        color: cell.score === '' ? '#bbb' : '#2c1810',
+                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                        backgroundColor: 'var(--surface)',
+                        color: cell.score === '' ? 'var(--text-dimmed)' : 'var(--foreground)',
                       }}
                     >
                       {cell.score === '' ? 'Card' : cell.score}
@@ -594,8 +594,8 @@ export default function ScoredScribeForm({
                     }
                     className="w-28 min-h-[44px] border rounded-lg px-2 text-center text-lg disabled:opacity-40"
                     style={{
-                      borderColor: isSelected ? '#8b4513' : '#d4b896',
-                      backgroundColor: '#fffdf9',
+                      borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                      backgroundColor: 'var(--surface)',
                     }}
                     placeholder={labels.placeholder}
                   />
@@ -618,9 +618,9 @@ export default function ScoredScribeForm({
                     onClick={(e) => e.stopPropagation()}
                     className="min-h-[44px] border rounded-lg px-2 text-sm"
                     style={{
-                      borderColor: cell.outcome === 'placed' ? '#d4b896' : '#fca5a5',
-                      backgroundColor: cell.outcome === 'placed' ? '#fffdf9' : '#fef2f2',
-                      color: '#2c1810',
+                      borderColor: cell.outcome === 'placed' ? 'var(--border)' : 'var(--error-border)',
+                      backgroundColor: cell.outcome === 'placed' ? 'var(--surface)' : 'var(--error-bg)',
+                      color: 'var(--foreground)',
                     }}
                   >
                     {RESULT_OUTCOMES.map((o) => (
@@ -635,7 +635,7 @@ export default function ScoredScribeForm({
                     <span
                       className="font-medium text-base"
                       style={{
-                        color: place === undefined ? '#bbb' : '#2c1810',
+                        color: place === undefined ? 'var(--text-dimmed)' : 'var(--foreground)',
                       }}
                     >
                       {place ?? '—'}
@@ -644,9 +644,9 @@ export default function ScoredScribeForm({
                       <span
                         className="text-xs font-semibold px-2 py-0.5 rounded"
                         style={{
-                          backgroundColor: '#fef3c7',
-                          color: '#92400e',
-                          border: '1px solid #fcd34d',
+                          backgroundColor: 'var(--warning-bg)',
+                          color: 'var(--warning)',
+                          border: '1px solid var(--warning-border)',
                         }}
                       >
                         TIE
@@ -663,7 +663,7 @@ export default function ScoredScribeForm({
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setCell(entry.id, { tiebreak: e.target.value })}
                         className="w-16 min-h-[44px] border rounded-lg px-2 text-center text-sm"
-                        style={{ borderColor: '#fcd34d', backgroundColor: '#fffdf9' }}
+                        style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--surface)' }}
                         placeholder="1st?"
                         title="Order the judge called between the tied entries — 1 is the higher of them. Neither score changes."
                       />
@@ -677,32 +677,32 @@ export default function ScoredScribeForm({
             <tr
               key={entry.id}
               style={{
-                borderBottom: '1px solid #e8ddd0',
-                backgroundColor: '#f9f9f9',
+                borderBottom: '1px solid var(--border-subtle)',
+                backgroundColor: 'var(--surface)',
               }}
             >
-              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>
+              <td className="py-4 pr-4 text-sm" style={{ color: 'var(--text-dimmed)' }}>
                 {entry.back_number ?? '—'}
               </td>
-              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>
+              <td className="py-4 pr-4 text-sm" style={{ color: 'var(--text-dimmed)' }}>
                 {entry.exhibitorName}
               </td>
-              <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: '#bbb' }}>
+              <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: 'var(--text-dimmed)' }}>
                 {entry.horseName}
               </td>
-              <td className="py-4 pr-4" style={{ color: '#bbb' }}>
+              <td className="py-4 pr-4" style={{ color: 'var(--text-dimmed)' }}>
                 —
               </td>
-              <td className="py-4 pr-4" style={{ color: '#bbb' }}>
+              <td className="py-4 pr-4" style={{ color: 'var(--text-dimmed)' }}>
                 —
               </td>
               <td className="py-4">
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded"
                   style={{
-                    backgroundColor: '#fee2e2',
-                    color: '#991b1b',
-                    border: '1px solid #fca5a5',
+                    backgroundColor: 'var(--error-bg)',
+                    color: 'var(--error-strong)',
+                    border: '1px solid var(--error-border)',
                   }}
                 >
                   DQ

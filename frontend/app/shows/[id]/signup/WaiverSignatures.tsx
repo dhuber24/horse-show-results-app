@@ -16,11 +16,11 @@ import { useRouter } from 'next/navigation';
  */
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  accent: '#8b4513',
-  border: '#d4b896',
-  borderSoft: '#e8d5b7',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  accent: 'var(--accent)',
+  border: 'var(--border)',
+  borderSoft: 'var(--border-subtle)',
 } as const;
 
 type Signature = {
@@ -140,7 +140,7 @@ export default function WaiverSignatures({
       {error && (
         <p
           className="mt-3 text-sm px-3 py-2 rounded border"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
         >
           {error}
         </p>
@@ -153,7 +153,7 @@ export default function WaiverSignatures({
             <li
               key={waiver.id}
               className="rounded-lg border p-3"
-              style={{ borderColor: COLORS.border, backgroundColor: '#ffffff' }}
+              style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -171,7 +171,7 @@ export default function WaiverSignatures({
                     )}
                   </p>
                   {waiver.signature && (
-                    <p className="text-xs mt-0.5" style={{ color: '#065f46' }} suppressHydrationWarning>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--success-strong)' }} suppressHydrationWarning>
                       ✓ Signed
                       {waiver.signature.signed_by_guardian ? ' by guardian' : ''}
                       {' — '}
@@ -196,7 +196,7 @@ export default function WaiverSignatures({
                 <div className="mt-3 space-y-3">
                   <div
                     className="rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto"
-                    style={{ borderColor: COLORS.borderSoft, backgroundColor: '#faf7f2', color: COLORS.text }}
+                    style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--background)', color: COLORS.text }}
                   >
                     {waiver.body}
                   </div>

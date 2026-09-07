@@ -17,13 +17,13 @@ export default function ReportTable({ report }: { report: Report }) {
       <>
         <div
           className="rounded-lg border border-dashed p-6 text-center"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         >
-          <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+          <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
             Nothing to report yet
           </p>
           {report.notes.length > 0 && (
-            <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+            <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
               {report.notes[0]}
             </p>
           )}
@@ -36,24 +36,24 @@ export default function ReportTable({ report }: { report: Report }) {
     <>
       {/* Wide reports scroll inside their own container rather than pushing the
           page sideways. Several of these carry a dozen columns. */}
-      <div className="overflow-x-auto rounded-lg border" style={{ borderColor: '#d4b896' }}>
-        <table className="w-full text-sm" style={{ backgroundColor: '#ffffff' }}>
+      <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+        <table className="w-full text-sm" style={{ backgroundColor: 'var(--surface)' }}>
           <thead>
-            <tr style={{ backgroundColor: '#faf7f2' }}>
+            <tr style={{ backgroundColor: 'var(--background)' }}>
               {report.columns.map((column) => (
                 <th
                   key={column.key}
                   className={`px-3 py-2 font-semibold whitespace-nowrap ${
                     column.align === 'right' ? 'text-right' : 'text-left'
                   }`}
-                  style={{ color: '#5d4a37' }}
+                  style={{ color: 'var(--text-deep)' }}
                 >
                   {column.label}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+          <tbody className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
             {report.rows.map((row, index) => (
               <tr key={index}>
                 {report.columns.map((column) => (
@@ -62,7 +62,7 @@ export default function ReportTable({ report }: { report: Report }) {
                     className={`px-3 py-2 ${column.align === 'right' ? 'text-right' : 'text-left'} ${
                       column.is_money ? 'tabular-nums' : ''
                     }`}
-                    style={{ color: column.is_money ? '#2c1810' : '#5d4a37' }}
+                    style={{ color: column.is_money ? 'var(--foreground)' : 'var(--text-deep)' }}
                   >
                     {formatReportCell(row[column.key], column)}
                   </td>
@@ -72,14 +72,14 @@ export default function ReportTable({ report }: { report: Report }) {
           </tbody>
           {hasTotals && (
             <tfoot>
-              <tr style={{ backgroundColor: '#faf7f2' }}>
+              <tr style={{ backgroundColor: 'var(--background)' }}>
                 {report.columns.map((column) => (
                   <th
                     key={column.key}
                     className={`px-3 py-2.5 font-semibold ${
                       column.align === 'right' ? 'text-right' : 'text-left'
                     } ${column.is_money ? 'tabular-nums' : ''}`}
-                    style={{ color: '#2c1810' }}
+                    style={{ color: 'var(--foreground)' }}
                   >
                     {report.totals[column.key] === undefined
                       ? ''
@@ -95,7 +95,7 @@ export default function ReportTable({ report }: { report: Report }) {
       {report.notes.length > 0 && (
         <div
           className="mt-4 rounded border px-4 py-3 text-sm space-y-1.5"
-          style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+          style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
         >
           {report.notes.map((note, index) => (
             <p key={index}>{note}</p>

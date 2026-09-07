@@ -79,7 +79,7 @@ export default function ReportActions({
         onClick={download}
         disabled={rowCount === 0}
         className="px-3 py-2 rounded text-sm font-medium border disabled:opacity-50"
-        style={{ borderColor: '#d4b896', color: '#8b4513', backgroundColor: '#ffffff' }}
+        style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
         title={rowCount === 0 ? 'Nothing to export yet' : 'Download as CSV'}
       >
         ⬇ CSV
@@ -88,7 +88,7 @@ export default function ReportActions({
         onClick={() => window.print()}
         disabled={rowCount === 0}
         className="px-3 py-2 rounded text-sm font-medium border disabled:opacity-50"
-        style={{ borderColor: '#d4b896', color: '#8b4513', backgroundColor: '#ffffff' }}
+        style={{ borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' }}
         title={rowCount === 0 ? 'Nothing to print yet' : 'Print this report'}
       >
         🖨 Print

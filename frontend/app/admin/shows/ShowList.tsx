@@ -70,7 +70,7 @@ export default function ShowList({ initialShows, role }: { initialShows: Show[];
   return (
     <section className="space-y-4">
       {/* Status tabs */}
-      <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: '#d4b896' }}>
+      <div className="flex flex-wrap gap-1 border-b" style={{ borderColor: 'var(--border)' }}>
         {STATUS_TABS.map((tab) => {
           const count = counts[tab] ?? 0;
           const active = statusTab === tab;
@@ -80,12 +80,12 @@ export default function ShowList({ initialShows, role }: { initialShows: Show[];
               onClick={() => setStatusTab(tab)}
               className={`text-sm px-3 py-2 -mb-px border-b-2 transition-colors ${active ? 'font-semibold' : 'hover:bg-amber-50'}`}
               style={{
-                borderColor: active ? '#2c1810' : 'transparent',
-                color: active ? '#2c1810' : '#8b7355',
+                borderColor: active ? 'var(--foreground)' : 'transparent',
+                color: active ? 'var(--foreground)' : 'var(--muted)',
               }}
             >
               {tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase()}
-              <span className="ml-1.5 text-xs" style={{ color: active ? '#8b4513' : '#a89478' }}>
+              <span className="ml-1.5 text-xs" style={{ color: active ? 'var(--accent)' : 'var(--text-dimmed)' }}>
                 {count}
               </span>
             </button>
@@ -100,30 +100,30 @@ export default function ShowList({ initialShows, role }: { initialShows: Show[];
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full border rounded px-3 py-2 text-sm"
-        style={{ borderColor: '#d4b896' }}
+        style={{ borderColor: 'var(--border)' }}
       />
 
       {/* List */}
       {shows.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>{emptyLabel}</p>
+        <p style={{ color: 'var(--muted)' }}>{emptyLabel}</p>
       ) : filtered.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No shows match your filters.</p>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>No shows match your filters.</p>
       ) : (
         <ul className="space-y-3">
           {filtered.map((show) => (
             <li
               key={show.id}
               className="flex items-center justify-between gap-4 p-4 rounded-lg border"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <Link href={`/admin/shows/${show.id}`} className="flex-1 min-w-0 hover:opacity-80">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold" style={{ color: '#2c1810' }}>{show.name}</span>
+                  <span className="font-semibold" style={{ color: 'var(--foreground)' }}>{show.name}</span>
                   <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusStyle(show.status)}`}>
                     {show.status}
                   </span>
                 </div>
-                <div className="text-sm mt-0.5" style={{ color: '#8b7355' }}>
+                <div className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
                   {show.venue ? `${show.venue} · ` : ''}{show.start_date} – {show.end_date}
                 </div>
                 {deleteError?.id === show.id && (
@@ -133,7 +133,7 @@ export default function ShowList({ initialShows, role }: { initialShows: Show[];
               <div className="flex items-center gap-3 shrink-0 flex-wrap justify-end">
                 {confirmDeleteId === show.id ? (
                   <>
-                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {show.name}?</span>
+                    <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Delete {show.name}?</span>
                     <button
                       onClick={() => handleDelete(show)}
                       disabled={deleting}
@@ -145,7 +145,7 @@ export default function ShowList({ initialShows, role }: { initialShows: Show[];
                       onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
                       disabled={deleting}
                       className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Cancel
                     </button>

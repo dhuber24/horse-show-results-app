@@ -36,8 +36,8 @@ export default async function FeeSchedulePage({ params }: { params: Promise<{ id
           { label: show.name, href: `/admin/shows/${id}` },
           { label: 'Fee Schedule' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Fee Schedule</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Fee Schedule</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — fees the show charges exhibitors. Payment is collected at the show;
           amounts here are informational.
         </p>
@@ -49,15 +49,15 @@ export default async function FeeSchedulePage({ params }: { params: Promise<{ id
             key={tile.href}
             href={tile.href}
             className="block p-6 rounded-lg border transition-colors hover:bg-amber-50"
-            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >
             <div className="flex items-start gap-4">
               <div className="text-3xl" aria-hidden>{tile.icon}</div>
               <div>
-                <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+                <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
                   {tile.title}
                 </h2>
-                <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                   {tile.description}
                 </p>
               </div>

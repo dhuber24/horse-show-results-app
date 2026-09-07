@@ -25,13 +25,13 @@ export type ExistingSecretary = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
 
 type SecretaryMode = 'pick' | 'create';
@@ -219,7 +219,7 @@ export default function Step1Client({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -435,7 +435,7 @@ export default function Step1Client({
           type="button"
           onClick={() => router.push('/admin/shows')}
           className="text-sm rounded px-3 py-2 border"
-          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
         >
           Cancel
         </button>
@@ -444,7 +444,7 @@ export default function Step1Client({
           disabled={busy}
           onClick={submit}
           className="text-sm rounded px-4 py-2 disabled:opacity-50"
-          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+          style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
         >
           {busy ? 'Creating…' : 'Create show & continue →'}
         </button>
@@ -480,7 +480,7 @@ function ModeButton({
       className="text-sm rounded px-3 py-1.5 border"
       style={{
         borderColor: active ? COLORS.warn : COLORS.border,
-        backgroundColor: active ? COLORS.warnSoft : '#fff',
+        backgroundColor: active ? COLORS.warnSoft : 'var(--surface)',
         color: active ? COLORS.warn : COLORS.text,
         fontWeight: active ? 600 : 400,
       }}

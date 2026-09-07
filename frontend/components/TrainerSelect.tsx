@@ -164,14 +164,14 @@ export default function TrainerSelect({
         disabled
         value=""
         className="w-full border rounded px-3 py-2 text-sm"
-        style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
       >
         <option value="">Loading trainers...</option>
       </select>
     );
   }
 
-  const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
+  const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 
   return (
     <div>
@@ -220,7 +220,7 @@ export default function TrainerSelect({
             className="w-full border rounded px-3 py-2 text-sm"
             style={inputStyle}
           />
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             First name, last name, and email are required. If this trainer is already in the registry, those three fields will link this horse to the existing trainer.
           </p>
         </div>

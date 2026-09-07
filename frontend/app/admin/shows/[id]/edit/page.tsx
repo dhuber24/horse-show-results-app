@@ -73,10 +73,10 @@ export default async function EditShowDetailsPage({
         />
 
         <div className="space-y-2">
-          <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
             Show Staff
           </h2>
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             Everyone who works this show. Managers and secretaries run setup and the
             registration desk; scribes enter placings; gate stewards run the in-gate.
           </p>

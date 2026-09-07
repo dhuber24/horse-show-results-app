@@ -33,14 +33,14 @@ export default async function AdminVenuesPage() {
           { label: 'Venues' },
         ]} />
         <div className="flex items-center justify-between mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>
             Venues
           </h1>
           {(role === 'ADMIN' || role === 'SHOW_MANAGER') && (
             <Link
               href="/admin/venues/new"
               className="text-sm px-4 py-2 rounded font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               + Add New Venue
             </Link>
@@ -49,7 +49,7 @@ export default async function AdminVenuesPage() {
       </div>
 
       {venues.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No venues yet.</p>
+        <p style={{ color: 'var(--muted)' }}>No venues yet.</p>
       ) : role === 'ADMIN' || role === 'SHOW_MANAGER' ? (
         <VenueList initialVenues={venues} currentUserId={user?.id} role={role} />
       ) : (
@@ -59,10 +59,10 @@ export default async function AdminVenuesPage() {
               <Link
                 href={`/admin/venues/${venue.id}`}
                 className="block p-4 rounded-lg border transition-colors hover:bg-amber-50"
-                style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
               >
-                <div className="font-semibold" style={{ color: '#2c1810' }}>{venue.name}</div>
-                <div className="text-sm mt-0.5" style={{ color: '#8b7355' }}>
+                <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{venue.name}</div>
+                <div className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
                   {[venue.address, venue.city, venue.state].filter(Boolean).join(', ') || 'No address'}
                 </div>
               </Link>

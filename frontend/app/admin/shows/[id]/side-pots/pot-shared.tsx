@@ -99,9 +99,9 @@ export interface Payout {
 }
 
 export const STATUS_BADGE: Record<Status, { label: string; bg: string; fg: string }> = {
-  open: { label: 'Open', bg: '#dcebd5', fg: '#3f6b2f' },
-  closed: { label: 'Closed', bg: '#f0e8d8', fg: '#8b4513' },
-  settled: { label: 'Settled', bg: '#d4d4d4', fg: '#404040' },
+  open: { label: 'Open', bg: 'var(--success-border)', fg: 'var(--success)' },
+  closed: { label: 'Closed', bg: 'var(--bg-subtle)', fg: 'var(--accent)' },
+  settled: { label: 'Settled', bg: 'var(--border)', fg: 'var(--text-deep)' },
 };
 
 export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -191,7 +191,7 @@ export function BackToPot({
       <Link
         href={`/admin/shows/${showId}/side-pots/${pot.id}`}
         className="text-sm hover:underline"
-        style={{ color: '#8b4513' }}
+        style={{ color: 'var(--accent)' }}
       >
         ← Back to {pot.name}
       </Link>

@@ -17,10 +17,10 @@ export default async function NewUserPage() {
           { label: 'Users', href: '/admin/users' },
           { label: 'New User' },
         ]} />
-        <h1 className="text-3xl font-bold mt-2" style={{ color: '#2c1810' }}>Add User</h1>
+        <h1 className="text-3xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Add User</h1>
       </div>
 
-      <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+      <div className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         <CreateUserForm />
       </div>
     </main>

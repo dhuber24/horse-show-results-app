@@ -78,12 +78,12 @@ export default function CancelRegistration({
     return (
       <section
         className="mt-4 rounded-lg border p-4 text-sm"
-        style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
       >
-        <h2 className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>
+        <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
           Need to withdraw from this show?
         </h2>
-        <p style={{ color: '#5d4a37' }}>
+        <p style={{ color: 'var(--text-deep)' }}>
           {typeof cancellation.days_until_show === 'number' && cancellation.days_until_show >= 0
             ? `The show starts in ${cancellation.days_until_show} ${
                 cancellation.days_until_show === 1 ? 'day' : 'days'
@@ -95,7 +95,7 @@ export default function CancelRegistration({
         <Link
           href={`/shows/${showId}/contact`}
           className="inline-block mt-2 font-medium hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           Message the show office →
         </Link>
@@ -106,12 +106,12 @@ export default function CancelRegistration({
   return (
     <section
       className="mt-4 rounded-lg border p-4"
-      style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
     >
-      <h2 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+      <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
         Cancel my registration
       </h2>
-      <p className="text-sm mt-1" style={{ color: '#5d4a37' }}>
+      <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
         {deadlineText
           ? `You can cancel yourself until ${deadlineText}. After that the show office has to do it.`
           : 'You can cancel yourself while the show is more than two weeks away.'}
@@ -120,7 +120,7 @@ export default function CancelRegistration({
       {error && (
         <div
           className="mt-3 rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
@@ -130,7 +130,7 @@ export default function CancelRegistration({
         <div className="mt-3 space-y-3">
           <div
             className="rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+            style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
           >
             This drops{' '}
             {entryCount > 0
@@ -140,7 +140,7 @@ export default function CancelRegistration({
             Anything you have already paid stays on your account for the office to refund.
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: '#5d4a37' }}>
+            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
               Reason (optional — the show office sees this)
             </label>
             <input
@@ -148,7 +148,7 @@ export default function CancelRegistration({
               onChange={(e) => setReason(e.target.value)}
               maxLength={500}
               className="w-full px-3 py-2 rounded border text-sm"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff', color: '#2c1810' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
             />
           </div>
           <div className="flex items-center gap-3">
@@ -157,7 +157,7 @@ export default function CancelRegistration({
               onClick={handleCancel}
               disabled={working}
               className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: '#b91c1c' }}
+              style={{ backgroundColor: 'var(--error)' }}
             >
               {working ? 'Cancelling…' : 'Yes, cancel my registration'}
             </button>
@@ -169,7 +169,7 @@ export default function CancelRegistration({
               }}
               disabled={working}
               className="text-sm hover:underline disabled:opacity-50"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Keep my registration
             </button>
@@ -180,7 +180,7 @@ export default function CancelRegistration({
           type="button"
           onClick={() => setConfirming(true)}
           className="mt-3 px-4 py-2 rounded border text-sm font-medium"
-          style={{ borderColor: '#b91c1c', color: '#b91c1c', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--error)', color: 'var(--error)', backgroundColor: 'var(--surface)' }}
         >
           Cancel my registration
         </button>

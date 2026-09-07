@@ -182,7 +182,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
     setConfirmDeleteId(null);
   };
 
-  if (loading) return <p className="text-sm" style={{ color: '#8b7355' }}>Loading...</p>;
+  if (loading) return <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading...</p>;
 
   const visibleDocs = filterType ? docs.filter((d) => d.document_type === filterType) : docs;
 
@@ -192,7 +192,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
         value={filterType}
         onChange={(e) => setFilterType(e.target.value)}
         className="border rounded px-3 py-2 text-sm"
-        style={{ borderColor: '#d4b896', color: '#2c1810' }}
+        style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
       >
         <option value="">All documents ({docs.length})</option>
         {DOC_TYPES.map((t) => {
@@ -202,7 +202,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
       </select>
 
       {visibleDocs.length === 0 ? (
-        <p className="text-sm" style={{ color: '#a89070' }}>
+        <p className="text-sm" style={{ color: 'var(--text-dimmed)' }}>
           {filterType ? 'No documents of this type on file.' : 'No documents on file.'}
         </p>
       ) : (
@@ -211,32 +211,32 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
             const wantsAssociation = ASSOCIATION_LINKED_TYPES.has(doc.document_type);
             const typeLabel = DOC_TYPES.find((t) => t.value === doc.document_type)?.label;
             return (
-              <li key={doc.id} className="flex items-start justify-between rounded p-3 border" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
+              <li key={doc.id} className="flex items-start justify-between rounded p-3 border" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     {!filterType && typeLabel && (
-                      <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0e4d0', color: '#5c3d1e' }}>
+                      <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}>
                         {typeLabel}
                       </span>
                     )}
                     {doc.association_code && (
-                      <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0e4d0', color: '#8b4513' }}>
+                      <span className="text-xs font-mono font-semibold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                         {doc.association_code}
                       </span>
                     )}
-                    <span className="text-sm font-medium truncate" style={{ color: '#2c1810' }}>
+                    <span className="text-sm font-medium truncate" style={{ color: 'var(--foreground)' }}>
                       {doc.original_filename}
                     </span>
                     <ExpiryBadge expiry={doc.expiry_date} />
                   </div>
-                  <div className="text-xs mt-1 flex flex-wrap gap-x-3" style={{ color: '#8b7355' }}>
+                  <div className="text-xs mt-1 flex flex-wrap gap-x-3" style={{ color: 'var(--muted)' }}>
                     {doc.issue_date && <span>Issued: {formatDate(doc.issue_date)}</span>}
                     {doc.expiry_date && <span>Expires: {formatDate(doc.expiry_date)}</span>}
                     <span>{formatSize(doc.file_size)}</span>
                   </div>
                   {wantsAssociation && !doc.association_id && associationOptions.length > 0 && (
                     <div className="mt-2 flex items-center gap-2">
-                      <label className="text-xs" style={{ color: '#8b4513' }}>Tag association:</label>
+                      <label className="text-xs" style={{ color: 'var(--accent)' }}>Tag association:</label>
                       <select
                         disabled={taggingId === doc.id}
                         defaultValue=""
@@ -255,13 +255,13 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                   <a
                     href={`/api/exhibitors/${exhibitorId}/documents/${doc.id}/download`}
                     className="text-xs font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Download
                   </a>
                   {confirmDeleteId === doc.id ? (
                     <span className="flex items-center gap-2">
-                      <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove?</span>
+                      <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Remove?</span>
                       <button
                         onClick={() => handleDelete(doc.id)}
                         disabled={deletingId === doc.id}
@@ -272,7 +272,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                       <button
                         onClick={() => setConfirmDeleteId(null)}
                         className="text-xs hover:underline"
-                        style={{ color: '#8b7355' }}
+                        style={{ color: 'var(--muted)' }}
                       >
                         Cancel
                       </button>
@@ -293,12 +293,12 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
       )}
 
       {showForm ? (
-        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
-          <p className="text-sm font-semibold" style={{ color: '#2c1810' }}>Upload Document</p>
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Upload Document</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Document Type *</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Document Type *</label>
               <select
                 value={form.document_type}
                 onChange={async (e) => {
@@ -318,7 +318,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
             </div>
             {showTypeNeeded && (
               <div className="sm:col-span-2">
-                <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Association *</label>
+                <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Association *</label>
                 <select
                   value={form.association_id}
                   onChange={async (e) => {
@@ -336,7 +336,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
               </div>
             )}
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Issue Date</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Issue Date</label>
               <input
                 type="date"
                 value={form.issue_date}
@@ -349,7 +349,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Expiry Date</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Expiry Date</label>
               <input
                 type="date"
                 value={form.expiry_date}
@@ -362,10 +362,10 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>File * (PDF or image, max 10 MB)</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>File * (PDF or image, max 10 MB)</label>
               <label
                 className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-6 cursor-pointer transition-colors hover:bg-amber-50/40"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 <input
                   type="file"
@@ -378,11 +378,11 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
                   className="sr-only"
                 />
                 {file ? (
-                  <span className="text-sm font-medium text-center" style={{ color: '#2c1810' }}>{file.name}</span>
+                  <span className="text-sm font-medium text-center" style={{ color: 'var(--foreground)' }}>{file.name}</span>
                 ) : (
                   <>
-                    <span className="text-sm font-medium" style={{ color: '#8b4513' }}>Click to choose a file</span>
-                    <span className="text-xs mt-1" style={{ color: '#a89070' }}>PDF or image - max 10 MB</span>
+                    <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Click to choose a file</span>
+                    <span className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>PDF or image - max 10 MB</span>
                   </>
                 )}
               </label>
@@ -391,19 +391,19 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
           {!error && file && !uploading && !canUpload(form, file) && (
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Complete required dropdowns to auto-upload this file.
             </p>
           )}
           {uploading && (
-            <p className="text-xs" style={{ color: '#8b7355' }}>Uploading...</p>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>Uploading...</p>
           )}
 
           <div className="flex gap-2">
             <button
               onClick={() => { setShowForm(false); setForm(emptyUpload); setFile(null); setError(null); }}
               className="px-4 py-2 rounded text-sm border"
-              style={{ borderColor: '#d4b896', color: '#8b7355' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
             >
               Cancel
             </button>
@@ -413,7 +413,7 @@ export default function ExhibitorDocuments({ exhibitorId, initialDocuments, onDo
         <button
           onClick={() => setShowForm(true)}
           className="text-sm font-medium hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           + Upload Document
         </button>

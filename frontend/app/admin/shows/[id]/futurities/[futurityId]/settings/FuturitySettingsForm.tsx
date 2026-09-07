@@ -89,7 +89,7 @@ export default function FuturitySettingsForm({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -98,7 +98,7 @@ export default function FuturitySettingsForm({
       {ok && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#3f6b2f', backgroundColor: '#f1f7ee', color: '#3f6b2f' }}
+          style={{ borderColor: 'var(--success)', backgroundColor: 'var(--success-bg)', color: 'var(--success)' }}
         >
           {ok}
         </div>
@@ -125,7 +125,7 @@ export default function FuturitySettingsForm({
         onClick={save}
         disabled={busy}
         className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-        style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+        style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
       >
         {busy ? 'Saving…' : 'Save settings'}
       </button>

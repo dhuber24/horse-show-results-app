@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  warn: '#5c3d1e',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
 } as const;
 
 export default function AcceptInviteClient({ token }: { token: string }) {
@@ -56,7 +56,7 @@ export default function AcceptInviteClient({ token }: { token: string }) {
     return (
       <div
         className="rounded border px-3 py-3 text-sm"
-        style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee', color: '#1f4e1f' }}
+        style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
       >
         Account created. Redirecting you to sign in…
       </div>
@@ -68,7 +68,7 @@ export default function AcceptInviteClient({ token }: { token: string }) {
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -106,7 +106,7 @@ export default function AcceptInviteClient({ token }: { token: string }) {
         type="submit"
         disabled={busy}
         className="text-sm rounded px-4 py-2 disabled:opacity-50"
-        style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+        style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
       >
         {busy ? 'Creating account…' : 'Accept invite & create account'}
       </button>

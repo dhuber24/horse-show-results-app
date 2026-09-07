@@ -61,21 +61,21 @@ export default function RegisterForm({ next }: { next?: string }) {
         { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },
       ].map((field) => (
         <div key={field.name}>
-          <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{field.label}</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{field.label}</label>
           <input name={field.name} type={field.type} placeholder={field.placeholder}
             value={(form as any)[field.name]} onChange={handleChange}
             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-            style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }} />
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }} />
         </div>
       ))}
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
       <button onClick={handleSubmit} disabled={loading}
         className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>
         {loading ? 'Creating account...' : 'Create Account'}
       </button>
     </div>

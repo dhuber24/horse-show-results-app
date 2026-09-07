@@ -35,10 +35,10 @@ function expiryStatus(expiry: string | null): ExpiryStatus {
 }
 
 const EXPIRY_STYLE: Record<ExpiryStatus, { color: string; label: string }> = {
-  expired: { color: '#b91c1c', label: 'Expired' },
-  soon: { color: '#a16207', label: 'Expiring soon' },
-  valid: { color: '#166534', label: 'Current' },
-  undated: { color: '#8b7355', label: 'No expiry on file' },
+  expired: { color: 'var(--error)', label: 'Expired' },
+  soon: { color: 'var(--warning)', label: 'Expiring soon' },
+  valid: { color: 'var(--success-strong)', label: 'Current' },
+  undated: { color: 'var(--muted)', label: 'No expiry on file' },
 };
 
 function formatDate(d: string | null) {
@@ -155,14 +155,14 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
     setError(err.detail || 'Failed to delete affiliation.');
   };
 
-  const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
+  const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 
   return (
     <div className="space-y-5">
-      <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
-        <h3 className="font-semibold text-sm" style={{ color: '#2c1810' }}>Add Affiliation</h3>
+      <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
+        <h3 className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>Add Affiliation</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
             Association
             <select
               value={form.association_id}
@@ -176,7 +176,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
               ))}
             </select>
           </label>
-          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
             Member Number
             <input
               value={form.member_number}
@@ -185,7 +185,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
               style={inputStyle}
             />
           </label>
-          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
             Status
             <select
               value={form.status}
@@ -198,7 +198,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
               <option value="non_pro">Non Pro</option>
             </select>
           </label>
-          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+          <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
             Expires (optional)
             <input
               type="date"
@@ -214,26 +214,26 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
           disabled={saving || !form.association_id || !form.member_number.trim()}
           title={!form.association_id ? 'Choose an association first' : !form.member_number.trim() ? 'Enter your member number' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Adding...' : 'Add Affiliation'}
         </button>
       </section>
 
       {affiliations.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No affiliations on file yet.</p>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>No affiliations on file yet.</p>
       ) : (
         <ul className="space-y-2">
           {affiliations.map((a) => {
             const status = expiryStatus(a.expires_at);
             const style = EXPIRY_STYLE[status];
             return (
-              <li key={a.id} className="border rounded p-4" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+              <li key={a.id} className="border rounded p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
                 {editingId === a.id ? (
                   <div className="space-y-3">
-                    <p className="text-sm font-medium" style={{ color: '#2c1810' }}>{a.association_name} ({a.association_code})</p>
+                    <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{a.association_name} ({a.association_code})</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
                         Member Number
                         <input
                           value={editForm.member_number}
@@ -242,7 +242,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
                           style={inputStyle}
                         />
                       </label>
-                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
                         Status
                         <select
                           value={editForm.status}
@@ -255,7 +255,7 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
                           <option value="non_pro">Non Pro</option>
                         </select>
                       </label>
-                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: '#5a4632' }}>
+                      <label className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-deep)' }}>
                         Expires
                         <input
                           type="date"
@@ -267,23 +267,23 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
                       </label>
                     </div>
                     <div className="flex gap-3">
-                      <button onClick={handleSaveEdit} className="text-sm font-medium" style={{ color: '#8b4513' }}>Save</button>
-                      <button onClick={() => setEditingId(null)} className="text-sm" style={{ color: '#8b7355' }}>Cancel</button>
+                      <button onClick={handleSaveEdit} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Save</button>
+                      <button onClick={() => setEditingId(null)} className="text-sm" style={{ color: 'var(--muted)' }}>Cancel</button>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2">
-                        <span className="font-medium text-sm" style={{ color: '#2c1810' }}>{a.association_name}</span>
-                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                        <span className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>{a.association_name}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                           {a.association_code}
                         </span>
-                        <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: '#eef6ee', color: '#166534' }}>
+                        <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
                           {STATUS_LABEL[a.status]}
                         </span>
                       </div>
-                      <p className="text-sm" style={{ color: '#5a4632' }}>
+                      <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
                         Member #{a.member_number}
                       </p>
                       <p className="text-xs" style={{ color: style.color }}>
@@ -291,12 +291,12 @@ export default function TrainerAffiliationsPanel({ initialAffiliations }: Props)
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <button onClick={() => startEdit(a)} className="text-sm font-medium" style={{ color: '#8b4513' }}>Edit</button>
+                      <button onClick={() => startEdit(a)} className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Edit</button>
                       {confirmDeleteId === a.id ? (
                         <span className="flex items-center gap-2">
-                          <span className="text-xs" style={{ color: '#8b7355' }}>Remove?</span>
+                          <span className="text-xs" style={{ color: 'var(--muted)' }}>Remove?</span>
                           <button onClick={() => handleDelete(a.id)} className="text-xs text-red-600 hover:underline">Yes</button>
-                          <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                          <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>Cancel</button>
                         </span>
                       ) : (
                         <button onClick={() => setConfirmDeleteId(a.id)} className="text-sm text-red-600">Remove</button>

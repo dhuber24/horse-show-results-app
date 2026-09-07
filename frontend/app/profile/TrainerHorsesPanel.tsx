@@ -37,8 +37,8 @@ export default function TrainerHorsesPanel({ horses: initialHorses }: { horses: 
 
   if (horses.length === 0) {
     return (
-      <div className="rounded-lg border p-4" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf7f2' }}>
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+      <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           No horses are linked to your trainer profile yet. When exhibitors select you from the Trainer dropdown on a horse profile, that horse will appear here.
         </p>
       </div>
@@ -47,24 +47,24 @@ export default function TrainerHorsesPanel({ horses: initialHorses }: { horses: 
 
   return (
     <div>
-      <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+      <ul className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
         {horses.map((horse) => (
           <li key={horse.id} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: '#2c1810' }}>
+              <div className="font-medium text-sm flex items-center flex-wrap gap-1.5" style={{ color: 'var(--foreground)' }}>
                 {horse.name}
                 {horse.sex && (
-                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                     {horse.sex}
                   </span>
                 )}
                 {horse.is_solid_paint_bred && (
-                  <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+                  <span className="text-xs px-1.5 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
                     SPB
                   </span>
                 )}
               </div>
-              <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: '#8b7355' }}>
+              <div className="text-xs mt-1 flex flex-wrap gap-x-2 gap-y-1" style={{ color: 'var(--muted)' }}>
                 {horse.owner_exhibitor_name && <span>Owner: {horse.owner_exhibitor_name}</span>}
                 {horse.breed_name && <span>{horse.breed_name}</span>}
                 {coatDescription(horse.color_name, horse.pattern_name) && (
@@ -76,7 +76,7 @@ export default function TrainerHorsesPanel({ horses: initialHorses }: { horses: 
             <div className="shrink-0">
               {confirmRemoveId === horse.id ? (
                 <span className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: '#8b7355' }}>Not your horse?</span>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>Not your horse?</span>
                   <button
                     onClick={() => handleRemove(horse.id)}
                     disabled={removingId === horse.id}
@@ -87,7 +87,7 @@ export default function TrainerHorsesPanel({ horses: initialHorses }: { horses: 
                   <button
                     onClick={() => setConfirmRemoveId(null)}
                     className="text-xs hover:underline"
-                    style={{ color: '#8b7355' }}
+                    style={{ color: 'var(--muted)' }}
                   >
                     Cancel
                   </button>

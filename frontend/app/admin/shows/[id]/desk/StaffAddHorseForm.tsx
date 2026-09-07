@@ -120,24 +120,24 @@ export default function StaffAddHorseForm({
     setError(typeof detail === 'string' ? detail : detail?.message ?? 'Could not create the horse.');
   };
 
-  const inputStyle = { borderColor: '#d4b896' };
+  const inputStyle = { borderColor: 'var(--border)' };
 
   return (
-    <div className="mt-2 rounded border p-3 space-y-3" style={{ borderColor: '#d4b896', backgroundColor: '#fffdf9' }}>
+    <div className="mt-2 rounded border p-3 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
       <div className="flex items-center justify-between">
-        <h5 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+        <h5 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
           Add a horse for {exhibitorName}
         </h5>
-        <button type="button" onClick={onCancel} className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+        <button type="button" onClick={onCancel} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
           Cancel
         </button>
       </div>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         {exhibitorName} will own this horse and it will appear on their profile.
       </p>
 
       <div className="grid sm:grid-cols-2 gap-2">
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Registered name *
           <input
             name="name" value={form.name} onChange={handleChange}
@@ -145,21 +145,21 @@ export default function StaffAddHorseForm({
             className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
           />
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Barn name
           <input
             name="barn_name" value={form.barn_name} onChange={handleChange}
             className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
           />
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Foaling date
           <input
             name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange}
             className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
           />
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Sex
           <select
             name="sex" value={form.sex} onChange={handleChange}
@@ -169,7 +169,7 @@ export default function StaffAddHorseForm({
             {SEXES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Breed
           <select
             name="breed_id" value={form.breed_id} onChange={handleChange}
@@ -179,7 +179,7 @@ export default function StaffAddHorseForm({
             {breeds.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Color
           <select
             name="color_id" value={form.color_id} onChange={handleChange}
@@ -189,14 +189,14 @@ export default function StaffAddHorseForm({
             {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Sire
           <input
             name="sire_name" value={form.sire_name} onChange={handleChange}
             className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
           />
         </label>
-        <label className="text-xs" style={{ color: '#8b7355' }}>
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Dam
           <input
             name="dam_name" value={form.dam_name} onChange={handleChange}
@@ -205,8 +205,8 @@ export default function StaffAddHorseForm({
         </label>
       </div>
 
-      <div className="pt-2 border-t" style={{ borderColor: '#f0e6d6' }}>
-        <p className="text-xs font-semibold mb-1.5" style={{ color: '#8b4513' }}>Registrations</p>
+      <div className="pt-2 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
+        <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--accent)' }}>Registrations</p>
         {regs.length > 0 && (
           <ul className="space-y-1 mb-2">
             {regs.map((r) => {
@@ -215,7 +215,7 @@ export default function StaffAddHorseForm({
                 <li
                   key={r.association_id}
                   className="flex items-center justify-between text-sm px-2 py-1 rounded"
-                  style={{ backgroundColor: '#f0e8d8', color: '#5a3e2b' }}
+                  style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
                 >
                   <span>
                     <span className="font-mono font-semibold">{assoc?.code ?? '—'}</span>
@@ -254,7 +254,7 @@ export default function StaffAddHorseForm({
             type="button"
             onClick={addReg}
             className="text-sm px-3 py-1.5 rounded border hover:bg-amber-50"
-            style={{ borderColor: '#d4b896', color: '#8b4513' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
           >
             Add
           </button>
@@ -268,7 +268,7 @@ export default function StaffAddHorseForm({
         onClick={submit}
         disabled={saving}
         className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513' }}
+        style={{ backgroundColor: 'var(--accent)' }}
       >
         {saving ? 'Creating…' : 'Create horse'}
       </button>

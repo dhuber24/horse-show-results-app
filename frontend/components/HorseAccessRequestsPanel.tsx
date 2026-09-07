@@ -96,7 +96,7 @@ export default function HorseAccessRequestsPanel({
       {error && (
         <div
           className="rounded border p-2 text-xs"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
@@ -104,15 +104,15 @@ export default function HorseAccessRequestsPanel({
       {waitingOnMe.length > 0 && (
         <section
           className="rounded-lg border p-3"
-          style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb' }}
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
         >
-          <h3 className="text-sm font-semibold" style={{ color: '#92400e' }}>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--warning)' }}>
             Waiting on you
           </h3>
           <ul className="mt-2 space-y-2">
             {waitingOnMe.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs" style={{ color: '#92400e' }}>
+                <span className="text-xs" style={{ color: 'var(--warning)' }}>
                   {r.kind === 'transfer'
                     ? `${r.requested_by_name} is transferring ${r.horse_name} to you`
                     : `${r.requested_by_name} wants to add ${r.horse_name} to their profile`}
@@ -125,7 +125,7 @@ export default function HorseAccessRequestsPanel({
                     onClick={() => respond(r.id, 'approve')}
                     disabled={respondingId === r.id}
                     className="text-xs font-medium px-2.5 py-1 rounded disabled:opacity-50"
-                    style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
+                    style={{ backgroundColor: 'var(--success-strong)', color: 'var(--success-bg)' }}
                   >
                     {respondingId === r.id ? 'Saving…' : r.kind === 'transfer' ? 'Accept' : 'Approve'}
                   </button>
@@ -133,7 +133,7 @@ export default function HorseAccessRequestsPanel({
                     onClick={() => respond(r.id, 'decline')}
                     disabled={respondingId === r.id}
                     className="text-xs hover:underline disabled:opacity-50"
-                    style={{ color: '#92400e' }}
+                    style={{ color: 'var(--warning)' }}
                   >
                     Decline
                   </button>
@@ -147,26 +147,26 @@ export default function HorseAccessRequestsPanel({
       {sentByMe.length > 0 && (
         <section
           className="rounded-lg border p-3"
-          style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
         >
-          <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
             Waiting on someone else
           </h3>
           <ul className="mt-2 space-y-2">
             {sentByMe.map((r) => (
               <li key={r.id} className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs" style={{ color: '#5d4a37' }}>
+                <span className="text-xs" style={{ color: 'var(--text-deep)' }}>
                   {r.kind === 'transfer'
                     ? `${r.horse_name} → ${r.approver_name}`
                     : `${r.horse_name} · asked ${r.approver_name}`}
                   {r.email_sent === false && (
-                    <span style={{ color: '#b45309' }}> · email didn&apos;t send</span>
+                    <span style={{ color: 'var(--warning)' }}> · email didn&apos;t send</span>
                   )}
                 </span>
                 {confirmCancelId === r.id ? (
                   <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs" style={{ color: '#5d4a37' }}>Cancel it?</span>
+                    <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Cancel it?</span>
                     <button
                       onClick={() => cancel(r.id)}
                       disabled={cancellingId === r.id}
@@ -177,7 +177,7 @@ export default function HorseAccessRequestsPanel({
                     <button
                       onClick={() => setConfirmCancelId(null)}
                       className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Keep
                     </button>
@@ -188,7 +188,7 @@ export default function HorseAccessRequestsPanel({
                       <button
                         onClick={() => setLinkShownId(linkShownId === r.id ? null : r.id)}
                         className="text-xs font-medium hover:underline"
-                        style={{ color: '#8b4513' }}
+                        style={{ color: 'var(--accent)' }}
                       >
                         {linkShownId === r.id ? 'Hide link' : 'Show link'}
                       </button>
@@ -196,7 +196,7 @@ export default function HorseAccessRequestsPanel({
                     <button
                       onClick={() => setConfirmCancelId(r.id)}
                       className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Cancel request
                     </button>

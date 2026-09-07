@@ -47,27 +47,27 @@ export default async function AdminVenuePage({ params }: { params: Promise<{ id:
           { label: 'Venues', href: '/admin/venues' },
           { label: venue.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           {canEdit ? 'Edit Venue' : 'Venue Details'}
         </h1>
       </div>
 
-      <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
+      <div className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         {canEdit ? (
           <EditVenueForm venue={venue} />
         ) : (
           <dl className="space-y-2 text-sm">
-            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>Name: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.name}</dd></div>
-            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>Address: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.address || '—'}</dd></div>
-            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>City: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.city || '—'}</dd></div>
-            <div><dt className="font-semibold inline" style={{ color: '#2c1810' }}>State: </dt><dd className="inline" style={{ color: '#5c3d1e' }}>{venue.state || '—'}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: 'var(--foreground)' }}>Name: </dt><dd className="inline" style={{ color: 'var(--text-deep)' }}>{venue.name}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: 'var(--foreground)' }}>Address: </dt><dd className="inline" style={{ color: 'var(--text-deep)' }}>{venue.address || '—'}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: 'var(--foreground)' }}>City: </dt><dd className="inline" style={{ color: 'var(--text-deep)' }}>{venue.city || '—'}</dd></div>
+            <div><dt className="font-semibold inline" style={{ color: 'var(--foreground)' }}>State: </dt><dd className="inline" style={{ color: 'var(--text-deep)' }}>{venue.state || '—'}</dd></div>
           </dl>
         )}
       </div>
 
       {isAdmin && (
-        <div className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Show Secretaries for this Venue</h2>
+        <div className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Show Secretaries for this Venue</h2>
           <VenueAdminPanel
             venueId={id}
             initialAdmins={panelData.admins}

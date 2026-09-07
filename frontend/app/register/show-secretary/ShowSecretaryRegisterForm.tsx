@@ -187,7 +187,7 @@ export default function ShowSecretaryRegisterForm() {
           { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },
         ].map((field) => (
           <div key={field.name}>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{field.label}</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{field.label}</label>
             <input
               name={field.name}
               type={field.type}
@@ -196,7 +196,7 @@ export default function ShowSecretaryRegisterForm() {
               onChange={handleChange}
               onBlur={field.name === 'email' ? handleEmailBlur : undefined}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
           </div>
         ))}
@@ -205,41 +205,41 @@ export default function ShowSecretaryRegisterForm() {
       {/* Show type certifications */}
       <div>
         <div className="mb-3">
-          <p className="text-sm font-semibold" style={{ color: '#2c1810' }}>Show Type Certifications</p>
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Show Type Certifications</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             Select the show type(s) you are certified for and enter your Secretary ID for each.
           </p>
         </div>
         {associations.length === 0 ? (
-          <p className="text-xs" style={{ color: '#8b7355' }}>Loading show types…</p>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading show types…</p>
         ) : (
           <div className="space-y-3">
             {associations.map((st) => {
               const checked = !!certifications[st.id];
               const isApha = st.code === 'APHA';
               return (
-                <div key={st.id} className="rounded-lg border p-3" style={{ borderColor: checked ? '#8b4513' : '#d4b896', backgroundColor: checked ? '#fdf6ee' : '#faf7f2' }}>
+                <div key={st.id} className="rounded-lg border p-3" style={{ borderColor: checked ? 'var(--accent)' : 'var(--border)', backgroundColor: checked ? 'var(--bg-subtle)' : 'var(--background)' }}>
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleAssociation(st)}
                       className="w-4 h-4 rounded"
-                      style={{ accentColor: '#8b4513' }}
+                      style={{ accentColor: 'var(--accent)' }}
                     />
-                    <span className="text-sm font-medium" style={{ color: '#2c1810' }}>{st.name}</span>
-                    <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: '#e8d5b7', color: '#5c3d1e' }}>
+                    <span className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>{st.name}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
                       {st.code}
                     </span>
                     {isApha && (
-                      <span className="text-xs" style={{ color: '#8b7355' }}>— Show Management Certification required</span>
+                      <span className="text-xs" style={{ color: 'var(--muted)' }}>— Show Management Certification required</span>
                     )}
                   </label>
 
                   {checked && (
                     <div className="mt-2 ml-6 space-y-2">
                       <div>
-                        <label className="block text-xs font-medium mb-1" style={{ color: '#5c3d1e' }}>
+                        <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
                           {st.code} Secretary ID
                         </label>
                         <input
@@ -248,7 +248,7 @@ export default function ShowSecretaryRegisterForm() {
                           value={certifications[st.id].secretary_id_number}
                           onChange={(e) => handleSecretaryId(st.id, e.target.value)}
                           className="w-full border rounded-lg px-3 py-1.5 text-sm focus:outline-none"
-                          style={{ borderColor: '#c9a67a', backgroundColor: '#ffffff' }}
+                          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
                         />
                       </div>
 
@@ -262,14 +262,14 @@ export default function ShowSecretaryRegisterForm() {
           </div>
         )}
         {selectedCount === 0 && (
-          <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
             No certifications selected — you can add them later from your profile.
           </p>
         )}
       </div>
 
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -279,7 +279,7 @@ export default function ShowSecretaryRegisterForm() {
         disabled={loading || aphaBlocksSubmit}
         title={submitDisabledReason}
         className="w-full py-2 rounded-lg font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
       >
         {loading ? 'Creating account…' : 'Create Show Secretary Account'}
       </button>
@@ -290,7 +290,7 @@ export default function ShowSecretaryRegisterForm() {
 function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }) {
   if (cert.status === 'idle') {
     return (
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         Enter your email above to verify your APHA Show Management Certification.
         {required && ' This certification is required for APHA-sanctioned shows.'}
       </p>
@@ -299,7 +299,7 @@ function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }
 
   if (cert.status === 'checking') {
     return (
-      <p className="text-xs" style={{ color: '#8b7355' }}>Checking APHA certification…</p>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>Checking APHA certification…</p>
     );
   }
 
@@ -309,7 +309,7 @@ function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }
       : '';
     if (cert.expired) {
       return (
-        <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#fef2f2', color: '#991b1b' }}>
+        <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
           <span className="font-semibold">⚠ Certification expired</span>
           {expLabel && <span className="ml-1">— {expLabel}</span>}
           {required && <span className="block mt-0.5">An active APHA Show Management Certification is required. Please renew before managing APHA shows.</span>}
@@ -317,7 +317,7 @@ function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }
       );
     }
     return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#f0fdf4', color: '#166534' }}>
+      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
         <span className="font-semibold">✓ APHA Show Management Certification verified</span>
         {expLabel && <span className="ml-1">— {expLabel}</span>}
       </div>
@@ -326,7 +326,7 @@ function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }
 
   if (cert.status === 'not-found') {
     return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: '#fef2f2', color: '#991b1b' }}>
+      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
         <span className="font-semibold">✗ Not found in APHA certified list</span>
         {required && (
           <span className="block mt-0.5">
@@ -343,9 +343,9 @@ function AphaCertBadge({ cert, required }: { cert: AphaCert; required: boolean }
 
   // error
   return (
-    <p className="text-xs" style={{ color: '#8b7355' }}>
+    <p className="text-xs" style={{ color: 'var(--muted)' }}>
       Could not reach the APHA certification list.{' '}
-      <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: '#8b4513' }}>
+      <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer" className="underline" style={{ color: 'var(--accent)' }}>
         Verify manually
       </a>
       .

@@ -83,8 +83,8 @@ export interface SearchMatch {
 /** Breed registries and club memberships are different things, so they read
  *  differently: breed numbers are the horse's identity, club numbers are opt-in. */
 export const REG_CHIP_STYLES: Record<AssociationType, { backgroundColor: string; color: string }> = {
-  breed: { backgroundColor: '#f0e8d8', color: '#8b4513' },
-  club: { backgroundColor: '#e0e7ff', color: '#3730a3' },
+  breed: { backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' },
+  club: { backgroundColor: 'var(--accent-bg)', color: 'var(--accent-active)' },
 };
 
 export function RegChips({ registrations }: { registrations: HorseRegistrationBrief[] }) {
@@ -125,33 +125,33 @@ export function SearchResultList({
   actionLabel: string;
 }) {
   return (
-    <ul className="divide-y rounded border" style={{ borderColor: '#e8d5b7', backgroundColor: '#ffffff' }}>
+    <ul className="divide-y rounded border" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
       {results.map((match) => {
         const alreadyOnProfile = existingIds.has(match.horse_id);
         const detail = [match.sex, match.breed_name, match.owner_name && `owner: ${match.owner_name}`]
           .filter(Boolean) as string[];
         return (
-          <li key={match.horse_id} className="flex flex-wrap items-center justify-between gap-2 p-3" style={{ borderColor: '#f0e4d0' }}>
+          <li key={match.horse_id} className="flex flex-wrap items-center justify-between gap-2 p-3" style={{ borderColor: 'var(--bg-subtle)' }}>
             <div className="min-w-0">
-              <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+              <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
                 {match.horse_name}
                 {match.barn_name && (
-                  <span className="font-normal ml-1.5" style={{ color: '#8b7355' }}>&ldquo;{match.barn_name}&rdquo;</span>
+                  <span className="font-normal ml-1.5" style={{ color: 'var(--muted)' }}>&ldquo;{match.barn_name}&rdquo;</span>
                 )}
               </p>
               {detail.length > 0 && (
-                <p className="text-xs" style={{ color: '#8b7355' }}>{detail.join(' · ')}</p>
+                <p className="text-xs" style={{ color: 'var(--muted)' }}>{detail.join(' · ')}</p>
               )}
               <div className="mt-1"><RegChips registrations={match.registrations} /></div>
             </div>
             {alreadyOnProfile ? (
-              <span className="text-xs shrink-0" style={{ color: '#8b7355' }}>Already on your profile</span>
+              <span className="text-xs shrink-0" style={{ color: 'var(--muted)' }}>Already on your profile</span>
             ) : (
               <button
                 onClick={() => onSelect(match.horse_id)}
                 disabled={busyId !== null}
                 className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50 shrink-0"
-                style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
+                style={{ backgroundColor: 'var(--success-strong)', color: 'var(--success-bg)' }}
               >
                 {busyId === match.horse_id ? 'Adding...' : actionLabel}
               </button>

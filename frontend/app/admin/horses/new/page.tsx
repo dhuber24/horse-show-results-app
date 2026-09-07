@@ -22,7 +22,7 @@ export default async function NewHorsePage() {
           { label: 'Horses', href: '/admin/horses' },
           { label: 'New Horse' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>New Horse</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>New Horse</h1>
       </div>
 
       <NewHorseForm

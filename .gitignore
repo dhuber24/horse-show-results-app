@@ -10,3 +10,7 @@ docs/sources/
 # Test artifacts
 .pytest_cache/
 coverage/
+
+# Supplied brand master package (~9.7MB of PNG/SVG masters). The subset the
+# app serves is committed under frontend/public/brand and frontend/public/icons.
+GaitDesk-Brand/

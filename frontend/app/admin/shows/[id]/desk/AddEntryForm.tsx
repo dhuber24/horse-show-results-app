@@ -201,7 +201,7 @@ export default function AddEntryForm({
           : 'On which horse…';
 
   return (
-    <div className="rounded border p-3 space-y-2" style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}>
+    <div className="rounded border p-3 space-y-2" style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}>
       <div className="flex flex-wrap gap-2">
         {exhibitor ? (
           <select
@@ -311,14 +311,14 @@ export default function AddEntryForm({
       )}
 
       {needsNoviceDeclaration && (
-        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: '#d4b896', backgroundColor: '#fffdf7' }}>
+        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
           <input
             type="checkbox"
             checked={noviceDeclared}
             onChange={(e) => setNoviceDeclared(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0"
           />
-          <span style={{ color: '#5a3e2b' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+          <span style={{ color: 'var(--text-deep)' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
         </label>
       )}
 

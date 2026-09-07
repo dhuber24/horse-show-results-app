@@ -13,17 +13,17 @@ import { outcomeLabel, outcomeShort } from '@/lib/result-outcomes';
 
 // Standard US horse show placement ribbon colors
 const RIBBON_COLORS: Record<number, { main: string; dark: string; text: string }> = {
-  1: { main: '#2563eb', dark: '#1e3a8a', text: '#ffffff' },
-  2: { main: '#dc2626', dark: '#7f1d1d', text: '#ffffff' },
-  3: { main: '#facc15', dark: '#a16207', text: '#1a1a1a' },
-  4: { main: '#f1f5f9', dark: '#94a3b8', text: '#1e293b' },
-  5: { main: '#f472b6', dark: '#9d174d', text: '#ffffff' },
-  6: { main: '#16a34a', dark: '#14532d', text: '#ffffff' },
-  7: { main: '#7c3aed', dark: '#3b0764', text: '#ffffff' },
-  8: { main: '#b45309', dark: '#451a03', text: '#ffffff' },
+  1: { main: 'var(--accent)', dark: 'var(--accent-active)', text: 'var(--surface)' },
+  2: { main: 'var(--error)', dark: 'var(--error-strong)', text: 'var(--surface)' },
+  3: { main: 'var(--warning)', dark: 'var(--warning)', text: 'var(--foreground)' },
+  4: { main: 'var(--accent-bg)', dark: 'var(--text-dimmed)', text: 'var(--foreground)' },
+  5: { main: 'var(--accent-light)', dark: 'var(--error-strong)', text: 'var(--surface)' },
+  6: { main: 'var(--success)', dark: 'var(--success-strong)', text: 'var(--surface)' },
+  7: { main: 'var(--accent)', dark: 'var(--accent-active)', text: 'var(--surface)' },
+  8: { main: 'var(--warning)', dark: 'var(--warning-strong)', text: 'var(--surface)' },
 };
 
-const DEFAULT_RIBBON = { main: '#6b7280', dark: '#1f2937', text: '#ffffff' };
+const DEFAULT_RIBBON = { main: 'var(--muted)', dark: 'var(--foreground)', text: 'var(--surface)' };
 
 function placeOrdinal(n: number) {
   if (n === 1) return '1st';
@@ -121,8 +121,8 @@ function sameKey(a: SortKey, b: SortKey): boolean {
   return a.judge === b.judge;
 }
 
-const INK = '#2c1810';
-const MUTED = '#8b7355';
+const INK = 'var(--foreground)';
+const MUTED = 'var(--muted)';
 
 export default function PlacingsTable({
   rows,
@@ -208,7 +208,7 @@ export default function PlacingsTable({
       type="button"
       onClick={() => toggle(key)}
       className={`w-full text-left font-semibold hover:underline ${extraClass}`}
-      style={{ color: '#f5ede0' }}
+      style={{ color: 'var(--bg-subtle)' }}
       title="Sort by this column"
     >
       {label}
@@ -220,7 +220,7 @@ export default function PlacingsTable({
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
-          <tr style={{ backgroundColor: INK, color: '#f5ede0' }}>
+          <tr style={{ backgroundColor: INK, color: 'var(--bg-subtle)' }}>
             <th className="py-3 px-4 text-left text-sm" aria-sort={ariaSort('back')}>
               {headerButton('back', 'Back #')}
             </th>
@@ -238,14 +238,14 @@ export default function PlacingsTable({
                   <th
                     key={col.key}
                     className="py-3 px-3 text-center text-sm whitespace-nowrap"
-                    style={{ borderLeft: '1px solid #5c3d1e' }}
+                    style={{ borderLeft: '1px solid var(--text-deep)' }}
                     aria-sort={ariaSort({ judge: col.key })}
                   >
                     {headerButton(
                       { judge: col.key },
                       <>
                         {col.shortLabel && (
-                          <span className="block text-xs font-normal" style={{ color: '#d4b896' }}>
+                          <span className="block text-xs font-normal" style={{ color: 'var(--border)' }}>
                             {col.shortLabel}
                           </span>
                         )}
@@ -258,13 +258,13 @@ export default function PlacingsTable({
                 {judgeColumns.length > 1 && (
                   <th
                     className="py-3 px-3 text-center text-sm whitespace-nowrap"
-                    style={{ borderLeft: '1px solid #5c3d1e' }}
+                    style={{ borderLeft: '1px solid var(--text-deep)' }}
                     aria-sort={ariaSort('consensus')}
                   >
                     {headerButton(
                       'consensus',
                       <>
-                        <span className="block text-xs font-normal" style={{ color: '#d4b896' }}>
+                        <span className="block text-xs font-normal" style={{ color: 'var(--border)' }}>
                           avg
                         </span>
                         Across cards
@@ -282,8 +282,8 @@ export default function PlacingsTable({
             <tr
               key={entry.id}
               style={{
-                backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf7f2',
-                borderTop: '1px solid #d4b896',
+                backgroundColor: i % 2 === 0 ? 'var(--surface)' : 'var(--background)',
+                borderTop: '1px solid var(--border)',
               }}
             >
               <td className="py-2 px-4 font-medium" style={{ color: INK }}>
@@ -303,12 +303,12 @@ export default function PlacingsTable({
                       <td
                         key={col.key}
                         className="py-2 px-3 text-center"
-                        style={{ borderLeft: '1px solid #e8ddd0' }}
+                        style={{ borderLeft: '1px solid var(--border-subtle)' }}
                       >
                         {result && result.place != null ? (
                           <span className="inline-flex flex-col items-center">
                             <Ribbon place={result.place} />
-                            <span className="text-xs font-semibold" style={{ color: '#8b4513' }}>
+                            <span className="text-xs font-semibold" style={{ color: 'var(--accent)' }}>
                               {placeOrdinal(result.place)}
                               {result.is_tie && (
                                 <span className="font-normal" style={{ color: MUTED }}> (T)</span>
@@ -327,13 +327,13 @@ export default function PlacingsTable({
                           // and this judge filed a decision.
                           <span
                             className="inline-block text-xs font-semibold px-2 py-1 rounded"
-                            style={{ backgroundColor: '#f3ede3', color: MUTED }}
+                            style={{ backgroundColor: 'var(--bg-subtle)', color: MUTED }}
                             title={result.outcome_note || outcomeLabel(result.outcome)}
                           >
                             {outcomeShort(result.outcome) || '—'}
                           </span>
                         ) : (
-                          <span style={{ color: '#c9bba6' }}>—</span>
+                          <span style={{ color: 'var(--border)' }}>—</span>
                         )}
                       </td>
                     );
@@ -341,7 +341,7 @@ export default function PlacingsTable({
                   {judgeColumns.length > 1 && (
                     <td
                       className="py-2 px-3 text-center text-sm"
-                      style={{ borderLeft: '1px solid #e8ddd0', color: MUTED }}
+                      style={{ borderLeft: '1px solid var(--border-subtle)', color: MUTED }}
                     >
                       {Number.isFinite(meanPlace[entry.id])
                         ? meanPlace[entry.id].toFixed(2).replace(/\.00$/, '')

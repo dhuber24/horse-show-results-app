@@ -69,9 +69,9 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
     <section className="space-y-4">
 
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
           All Horses
-          <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
+          <span className="ml-2 text-sm font-normal" style={{ color: 'var(--muted)' }}>
             {hasFilters ? `${filtered.length} of ${horses.length}` : horses.length}
           </span>
         </h2>
@@ -79,7 +79,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
           <button
             onClick={() => { setSearch(''); setSexFilter(''); setBreedFilter(''); }}
             className="text-xs hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Clear filters
           </button>
@@ -95,13 +95,13 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
         <select
           value={sexFilter}
           onChange={(e) => setSexFilter(e.target.value)}
           className="border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         >
           <option value="">All sexes</option>
           <option value="Mare">Mare</option>
@@ -113,7 +113,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
             value={breedFilter}
             onChange={(e) => setBreedFilter(e.target.value)}
             className="border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
           >
             <option value="">All breeds</option>
             {breeds.map((b) => <option key={b} value={b}>{b}</option>)}
@@ -123,32 +123,32 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
 
       {/* Results */}
       {horses.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No horses yet.</p>
+        <p style={{ color: 'var(--muted)' }}>No horses yet.</p>
       ) : filtered.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No horses match your filters.</p>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>No horses match your filters.</p>
       ) : (
         <ul className="space-y-2">
           {filtered.map((horse) => (
             <li
               key={horse.id}
               className="flex items-center justify-between p-4 rounded-lg border"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <div>
-                <div className="font-semibold" style={{ color: '#2c1810' }}>
+                <div className="font-semibold" style={{ color: 'var(--foreground)' }}>
                   {horse.name}
                   {horse.barn_name && (
-                    <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
+                    <span className="ml-2 text-sm font-normal" style={{ color: 'var(--muted)' }}>
                       &ldquo;{horse.barn_name}&rdquo;
                     </span>
                   )}
                   {horse.sex && (
-                    <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                    <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                       {horse.sex}
                     </span>
                   )}
                 </div>
-                <div className="text-sm mt-0.5 flex flex-wrap gap-x-3" style={{ color: '#8b7355' }}>
+                <div className="text-sm mt-0.5 flex flex-wrap gap-x-3" style={{ color: 'var(--muted)' }}>
                   {(horse.owner_exhibitor_name || horse.owner_name) && (
                     <span>Owner: {horse.owner_exhibitor_name ?? horse.owner_name}</span>
                   )}
@@ -164,7 +164,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
               <div className="flex items-center gap-3 ml-4 shrink-0 flex-wrap justify-end">
                 {confirmDeleteId === horse.id ? (
                   <>
-                    <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {horse.name}?</span>
+                    <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Delete {horse.name}?</span>
                     <button
                       onClick={() => handleDelete(horse)}
                       disabled={deleting}
@@ -176,7 +176,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
                       onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
                       disabled={deleting}
                       className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Cancel
                     </button>
@@ -189,7 +189,7 @@ export default function HorseList({ horses: initialHorses }: { horses: Horse[] }
                     <Link
                       href={`/admin/horses/${horse.id}`}
                       className="text-sm font-medium hover:underline"
-                      style={{ color: '#8b4513' }}
+                      style={{ color: 'var(--accent)' }}
                     >
                       Edit →
                     </Link>

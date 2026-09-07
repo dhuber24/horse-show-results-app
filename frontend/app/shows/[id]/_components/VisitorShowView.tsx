@@ -33,10 +33,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div
       className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3 py-3 border-b last:border-b-0"
-      style={{ borderColor: '#e8d5b7' }}
+      style={{ borderColor: 'var(--border-subtle)' }}
     >
-      <div className="text-sm font-medium sm:w-40 shrink-0" style={{ color: '#8b7355' }}>{label}</div>
-      <div className="text-sm" style={{ color: '#2c1810' }}>{children}</div>
+      <div className="text-sm font-medium sm:w-40 shrink-0" style={{ color: 'var(--muted)' }}>{label}</div>
+      <div className="text-sm" style={{ color: 'var(--foreground)' }}>{children}</div>
     </div>
   );
 }
@@ -52,13 +52,13 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href="/" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+      <Link href="/" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
         ← Back to Shows
       </Link>
 
-      <div className="mt-4 mb-6 pb-4 border-b" style={{ borderColor: '#d4b896' }}>
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+      <div className="mt-4 mb-6 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.venue && <>📍 {show.venue} &nbsp;·&nbsp; </>}
           📅 {show.start_date} – {show.end_date}
         </p>
@@ -68,21 +68,21 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
               <span
                 key={a.show_type_id}
                 className="text-xs font-mono font-semibold px-2 py-0.5 rounded"
-                style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                 title={a.show_type_name}
               >
                 {a.show_type_code}
               </span>
             ))}
-            <span className="text-xs self-center" style={{ color: '#8b7355' }}>
+            <span className="text-xs self-center" style={{ color: 'var(--muted)' }}>
               points eligible in select classes
             </span>
           </div>
         )}
       </div>
 
-      <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Event Details</h2>
-      <div className="rounded-lg border px-4" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Event Details</h2>
+      <div className="rounded-lg border px-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         <Row label="Show name">{show.name}</Row>
         {show.venue && <Row label="Venue">📍 {show.venue}</Row>}
         <Row label="Dates">{formatDate(show.start_date)} – {formatDate(show.end_date)}</Row>
@@ -104,12 +104,12 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
       <Link
         href={`/shows/${showId}/details`}
         className="mt-6 block rounded-lg border p-4 transition hover:bg-amber-50"
-        style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}
+        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
       >
-        <div className="font-semibold" style={{ color: '#2c1810' }}>
+        <div className="font-semibold" style={{ color: 'var(--foreground)' }}>
           Show details &amp; show bill →
         </div>
-        <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+        <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
           Judges, the class schedule, and the full fee schedule. No account needed.
         </div>
       </Link>
@@ -119,10 +119,10 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
           <Link
             href={registerHref}
             className="rounded-lg border p-4 text-center transition hover:opacity-90"
-            style={{ backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }}
+            style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }}
           >
             <div className="font-semibold">Register for this show</div>
-            <div className="text-xs mt-0.5" style={{ color: '#f0e8d8' }}>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--bg-subtle)' }}>
               You&apos;ll create an account first
             </div>
           </Link>
@@ -131,9 +131,9 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
           // saying so beats a disabled control they have to hover to understand.
           <div
             className="rounded-lg border p-4 text-center"
-            style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#8b7355' }}
+            style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
-            <div className="font-semibold" style={{ color: '#5d4a37' }}>Registration is closed</div>
+            <div className="font-semibold" style={{ color: 'var(--text-deep)' }}>Registration is closed</div>
             <div className="text-xs mt-0.5">Message the show office to ask about entries</div>
           </div>
         )}
@@ -141,18 +141,18 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
         <Link
           href={`/shows/${showId}/contact`}
           className="rounded-lg border p-4 text-center transition hover:bg-amber-50"
-          style={{ backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#5c3d1e' }}
+          style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
         >
           <div className="font-semibold">Contact show staff</div>
-          <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             Ask a question — no account needed
           </div>
         </Link>
       </div>
 
-      <p className="text-sm mt-4 text-center" style={{ color: '#8b7355' }}>
+      <p className="text-sm mt-4 text-center" style={{ color: 'var(--muted)' }}>
         Already have an account?{' '}
-        <Link href={signInHref} className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+        <Link href={signInHref} className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
           Sign in
         </Link>
       </p>

@@ -24,12 +24,12 @@ interface Props {
 }
 
 const inputCls = 'w-full border rounded-lg px-3 py-2 text-sm focus:outline-none';
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' };
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>{label}</label>
+      <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>{label}</label>
       {children}
     </div>
   );
@@ -37,7 +37,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wide pt-2" style={{ color: '#8b7355' }}>
+    <p className="text-xs font-semibold uppercase tracking-wide pt-2" style={{ color: 'var(--muted)' }}>
       {children}
     </p>
   );
@@ -132,7 +132,7 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
   return (
     <div className="space-y-5">
       {success && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
           Profile updated successfully.
         </p>
       )}
@@ -155,22 +155,22 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
           </Field>
         </div>
         {emailChanged && (
-          <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: '#fdf6e7', border: '1px solid #e8c97a' }}>
-            <p className="text-sm" style={{ color: '#8b5a00' }}>
+          <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: 'var(--warning-bg)', border: '1px solid var(--warning-border)' }}>
+            <p className="text-sm" style={{ color: 'var(--warning-strong)' }}>
               This is also the email you log in with. Confirm your password to change it.
             </p>
             <input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
               placeholder="Current password" autoComplete="current-password"
-              className={inputCls} style={{ ...inputStyle, backgroundColor: '#ffffff' }} />
+              className={inputCls} style={{ ...inputStyle, backgroundColor: 'var(--surface)' }} />
           </div>
         )}
-        <p className="text-xs" style={{ color: '#a89070' }}>Member since {memberSince}</p>
+        <p className="text-xs" style={{ color: 'var(--text-dimmed)' }}>Member since {memberSince}</p>
       </div>
 
       {exhibitor && (
         <>
           {/* Contact */}
-          <div className="space-y-3 border-t pt-4" style={{ borderColor: '#f0e4d0' }}>
+          <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--bg-subtle)' }}>
             <SectionHeading>Contact</SectionHeading>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Phone">
@@ -205,7 +205,7 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
           </div>
 
           {/* Emergency Contact */}
-          <div className="space-y-3 border-t pt-4" style={{ borderColor: '#f0e4d0' }}>
+          <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--bg-subtle)' }}>
             <SectionHeading>Emergency Contact</SectionHeading>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Name">
@@ -220,8 +220,8 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
           </div>
 
           {/* Parent / Guardian */}
-          <div className="space-y-3 border-t pt-4" style={{ borderColor: '#f0e4d0' }}>
-            <SectionHeading>Parent / Guardian <span className="font-normal normal-case tracking-normal" style={{ color: '#a89070' }}>(youth exhibitors)</span></SectionHeading>
+          <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--bg-subtle)' }}>
+            <SectionHeading>Parent / Guardian <span className="font-normal normal-case tracking-normal" style={{ color: 'var(--text-dimmed)' }}>(youth exhibitors)</span></SectionHeading>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Name">
                 <input name="parent_guardian_name" value={exForm.parent_guardian_name} onChange={handleEx}
@@ -237,14 +237,14 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
       )}
 
       {error && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>{error}</p>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>{error}</p>
       )}
 
       <button
         onClick={handleSave}
         disabled={loading}
         className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
       >
         {loading ? 'Saving...' : 'Save Changes'}
       </button>

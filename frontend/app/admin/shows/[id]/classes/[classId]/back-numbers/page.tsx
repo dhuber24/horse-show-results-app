@@ -32,10 +32,10 @@ export default async function BackNumbersPage({ params }: { params: Promise<{ id
           { label: show.name, href: `/admin/shows/${id}` },
           { label: 'Back Numbers' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Back Numbers
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {cls?.class_number} — {cls?.class_name}
         </p>
       </div>

@@ -11,7 +11,7 @@ export default function NewShowTypePage() {
           { label: 'Show Types', href: '/admin/shows/types' },
           { label: 'New Show Type' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Add Show Type</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Add Show Type</h1>
       </div>
       <ShowTypeForm />
     </main>

@@ -77,7 +77,7 @@ export default function ClassListCsvButton({
       disabled={classes.length === 0}
       title={classes.length === 0 ? 'No classes have been posted yet' : undefined}
       className="text-sm font-medium px-4 py-2 rounded border disabled:opacity-50"
-      style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
     >
       {downloaded ? '✓ Saved' : 'Download class list (CSV)'}
     </button>

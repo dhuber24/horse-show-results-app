@@ -66,18 +66,18 @@ export default function RespondToRequest({
       <div
         className="rounded-lg border p-5"
         style={{
-          borderColor: approvedNow ? '#86efac' : '#d4b896',
-          backgroundColor: approvedNow ? '#f0fdf4' : '#faf7f2',
+          borderColor: approvedNow ? 'var(--success-border)' : 'var(--border)',
+          backgroundColor: approvedNow ? 'var(--success-bg)' : 'var(--background)',
         }}
       >
-        <h1 className="text-xl font-bold" style={{ color: approvedNow ? '#065f46' : '#2c1810' }}>
+        <h1 className="text-xl font-bold" style={{ color: approvedNow ? 'var(--success-strong)' : 'var(--foreground)' }}>
           {approvedNow
             ? isTransfer
               ? `${request.horse_name} is yours`
               : `${request.requested_by_name} can now show ${request.horse_name}`
             : 'Nothing changed'}
         </h1>
-        <p className="text-sm mt-2" style={{ color: approvedNow ? '#15803d' : '#5d4a37' }}>
+        <p className="text-sm mt-2" style={{ color: approvedNow ? 'var(--success)' : 'var(--text-deep)' }}>
           {approvedNow
             ? isTransfer
               ? 'The horse is on your profile and you are the owner of record. Its documents and registrations came with it.'
@@ -88,7 +88,7 @@ export default function RespondToRequest({
           <Link
             href="/profile?tab=horses"
             className="text-sm font-medium px-3 py-2 rounded"
-            style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+            style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
           >
             Go to my horses
           </Link>
@@ -98,14 +98,14 @@ export default function RespondToRequest({
   }
 
   return (
-    <div className="rounded-lg border p-5" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
-      <h1 className="text-xl font-bold" style={{ color: '#2c1810' }}>
+    <div className="rounded-lg border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+      <h1 className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
         {isTransfer
           ? `${request.requested_by_name} wants to transfer ${request.horse_name} to you`
           : `${request.requested_by_name} wants to add ${request.horse_name} to their profile`}
       </h1>
 
-      <p className="text-sm mt-3" style={{ color: '#5d4a37' }}>
+      <p className="text-sm mt-3" style={{ color: 'var(--text-deep)' }}>
         {isTransfer ? (
           <>
             Accepting makes you the owner of record for <strong>{request.horse_name}</strong> and puts
@@ -124,7 +124,7 @@ export default function RespondToRequest({
       {request.message && (
         <blockquote
           className="mt-3 text-sm border-l-2 pl-3 py-1"
-          style={{ borderColor: '#d4b896', color: '#5d4a37' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}
         >
           {request.message}
         </blockquote>
@@ -135,7 +135,7 @@ export default function RespondToRequest({
           onClick={() => respond('approve')}
           disabled={busy !== null}
           className="px-4 py-2 rounded font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#166534' }}
+          style={{ backgroundColor: 'var(--success-strong)' }}
         >
           {busy === 'approve' ? 'Saving…' : isTransfer ? 'Accept the horse' : 'Approve'}
         </button>
@@ -143,13 +143,13 @@ export default function RespondToRequest({
           onClick={() => respond('decline')}
           disabled={busy !== null}
           className="px-4 py-2 rounded font-medium border disabled:opacity-50"
-          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
         >
           {busy === 'decline' ? 'Saving…' : 'Decline'}
         </button>
       </div>
 
-      <p className="text-xs mt-3" style={{ color: '#8b7355' }}>
+      <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
         Nothing changes unless you choose. This link expires{' '}
         {new Date(request.expires_at).toLocaleDateString('en-US', {
           month: 'long',
@@ -162,7 +162,7 @@ export default function RespondToRequest({
       {error && (
         <div
           className="mt-4 rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>

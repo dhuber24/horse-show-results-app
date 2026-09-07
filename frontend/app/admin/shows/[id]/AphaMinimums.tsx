@@ -13,11 +13,11 @@ import { AphaShowMinimums } from '@/lib/apha';
  */
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  bg: '#faf6f0',
-  body: '#5c3d1e',
-  bad: '#b42318',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  bg: 'var(--background)',
+  body: 'var(--text-deep)',
+  bad: 'var(--error)',
 } as const;
 
 function Found({ names, emptyIsBad }: { names: string[]; emptyIsBad: boolean }) {

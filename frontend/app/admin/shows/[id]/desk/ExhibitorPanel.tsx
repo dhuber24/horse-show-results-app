@@ -359,7 +359,7 @@ export default function ExhibitorPanel({
                   at staff would be noise on every row. */}
               {exhibitor.preferred_back_number != null
                 && exhibitor.preferred_back_number !== exhibitor.back_number && (
-                <p className="text-xs mt-1 text-center" style={{ color: '#92400e' }}>
+                <p className="text-xs mt-1 text-center" style={{ color: 'var(--warning)' }}>
                   asked for {exhibitor.preferred_back_number}
                 </p>
               )}
@@ -370,7 +370,7 @@ export default function ExhibitorPanel({
               disabled={!backNumberDirty || busy.has('back-number')}
               title={backNumberDirty ? undefined : 'The number on screen is the one on file'}
               className="px-3 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: COLORS.accent, color: '#ffffff' }}
+              style={{ backgroundColor: COLORS.accent, color: 'var(--surface)' }}
             >
               {busy.has('back-number') ? 'Saving…' : 'Save'}
             </button>
@@ -386,7 +386,7 @@ export default function ExhibitorPanel({
               {potCount} side pot{potCount === 1 ? '' : 's'}
             </span>
           )}
-          <span style={{ color: exhibitor.paperwork_outstanding > 0 ? '#92400e' : '#2f6b3f' }}>
+          <span style={{ color: exhibitor.paperwork_outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
             {exhibitor.paperwork_outstanding > 0
               ? `${exhibitor.paperwork_outstanding} paperwork check${exhibitor.paperwork_outstanding === 1 ? '' : 's'} outstanding`
               : 'Paperwork all checked'}
@@ -395,7 +395,7 @@ export default function ExhibitorPanel({
               owing alone cannot answer "how much have they already given us?",
               which is the question being asked when somebody is standing at
               the counter with a chequebook. */}
-          <span style={{ color: exhibitor.balance_cents > 0 ? '#b42318' : COLORS.muted }}>
+          <span style={{ color: exhibitor.balance_cents > 0 ? 'var(--error)' : COLORS.muted }}>
             {formatMoney(exhibitor.billed_cents)} billed · {formatMoney(exhibitor.net_paid_cents)} paid
             {' · '}
             {formatMoney(exhibitor.balance_cents)} owing
@@ -439,7 +439,7 @@ export default function ExhibitorPanel({
         )}
 
         {alerts.length > 0 && (
-          <div className="mt-3 rounded px-3 py-2 text-sm" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+          <div className="mt-3 rounded px-3 py-2 text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
             {alerts.map((c, i) => (
               <p key={`${c.code}-${i}`}>⚠ {c.message}</p>
             ))}
@@ -450,7 +450,7 @@ export default function ExhibitorPanel({
       {error && (
         <p
           className="text-sm px-3 py-2 rounded border"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
         >
           {error}
         </p>
@@ -561,7 +561,7 @@ export default function ExhibitorPanel({
                       <p className="text-sm font-medium" style={{ color: COLORS.text }}>
                         {pot.name}
                         {settled && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#e5e7eb', color: '#374151' }}>
+                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
                             settled
                           </span>
                         )}
@@ -578,7 +578,7 @@ export default function ExhibitorPanel({
                       className="text-xs font-medium px-3 py-1.5 rounded border shrink-0 disabled:opacity-50"
                       style={
                         isIn
-                          ? { backgroundColor: COLORS.accent, borderColor: COLORS.accent, color: '#ffffff' }
+                          ? { backgroundColor: COLORS.accent, borderColor: COLORS.accent, color: 'var(--surface)' }
                           : { backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.accent }
                       }
                     >
@@ -600,8 +600,8 @@ export default function ExhibitorPanel({
             className="text-xs font-medium px-2 py-1 rounded-full"
             style={
               exhibitor.paperwork_outstanding === 0
-                ? { backgroundColor: '#d1fae5', color: '#065f46' }
-                : { backgroundColor: '#fef3c7', color: '#92400e' }
+                ? { backgroundColor: 'var(--success-border)', color: 'var(--success-strong)' }
+                : { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }
             }
           >
             {exhibitor.paperwork_outstanding === 0
@@ -650,7 +650,7 @@ export default function ExhibitorPanel({
               <div
                 key={horse.horse_id}
                 className="rounded border p-3"
-                style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}
+                style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
               >
                 <p className="text-sm font-medium mb-1" style={{ color: COLORS.text }}>
                   {horse.horse_name}
@@ -700,7 +700,7 @@ export default function ExhibitorPanel({
 
                       <div
                         className="flex items-center justify-between gap-2 pt-2 border-t"
-                        style={{ borderColor: '#f0e6d6' }}
+                        style={{ borderColor: 'var(--bg-subtle)' }}
                       >
                         <span className="text-xs uppercase tracking-wide" style={{ color: COLORS.accent }}>
                           Registration papers
@@ -808,7 +808,7 @@ export default function ExhibitorPanel({
         {editingContact ? (
           <div
             className="rounded border p-2 space-y-2"
-            style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}
+            style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
           >
             <div className="flex flex-wrap gap-2">
               <input
@@ -844,7 +844,7 @@ export default function ExhibitorPanel({
                     : undefined
                 }
                 className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}
+                style={{ backgroundColor: 'var(--accent)' }}
               >
                 {busy.has('emergency-contact') ? 'Saving…' : 'Save contact'}
               </button>
@@ -863,7 +863,7 @@ export default function ExhibitorPanel({
                   disabled={busy.has('emergency-contact')}
                   title="Remove the contact from their profile"
                   className="text-xs hover:underline ml-auto disabled:opacity-50"
-                  style={{ color: '#b42318' }}
+                  style={{ color: 'var(--error)' }}
                 >
                   Clear
                 </button>
@@ -886,13 +886,13 @@ export default function ExhibitorPanel({
             </button>
           </p>
         ) : (
-          <div className="text-sm rounded px-2 py-1.5" style={{ backgroundColor: '#fef3c7', color: '#92400e' }}>
+          <div className="text-sm rounded px-2 py-1.5" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
             No emergency contact on this profile.{' '}
             <button
               type="button"
               onClick={startEditingContact}
               className="font-medium underline"
-              style={{ color: '#92400e' }}
+              style={{ color: 'var(--warning)' }}
             >
               Take one now
             </button>{' '}
@@ -961,9 +961,9 @@ export default function ExhibitorPanel({
           {confirmCancel ? (
             <div
               className="rounded-lg border p-3 space-y-2"
-              style={{ borderColor: '#fecaca', backgroundColor: '#fef2f2' }}
+              style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)' }}
             >
-              <p style={{ color: '#991b1b' }}>
+              <p style={{ color: 'var(--error-strong)' }}>
                 Cancel {exhibitor.exhibitor_name}&rsquo;s registration? This drops their{' '}
                 {exhibitor.entries.length} class
                 {exhibitor.entries.length === 1 ? '' : 'es'}, their stalls, shavings and camping,
@@ -977,7 +977,7 @@ export default function ExhibitorPanel({
                 placeholder="Reason (optional)"
                 aria-label="Cancellation reason"
                 className="w-full border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: COLORS.border, backgroundColor: '#ffffff', color: COLORS.text }}
+                style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)', color: COLORS.text }}
               />
               <div className="flex items-center gap-3">
                 <button
@@ -985,7 +985,7 @@ export default function ExhibitorPanel({
                   onClick={cancelRegistration}
                   disabled={busy.has('cancel-registration')}
                   className="text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
-                  style={{ backgroundColor: '#b42318', color: '#ffffff' }}
+                  style={{ backgroundColor: 'var(--error)', color: 'var(--surface)' }}
                 >
                   {busy.has('cancel-registration') ? 'Cancelling…' : 'Yes, cancel registration'}
                 </button>
@@ -1022,7 +1022,7 @@ export default function ExhibitorPanel({
           <div className="text-sm">
             {confirmRemove ? (
               <span className="flex items-center gap-2 flex-wrap">
-                <span style={{ color: '#5c3d1e' }}>
+                <span style={{ color: 'var(--text-deep)' }}>
                   Take {exhibitor.exhibitor_name} off this show&rsquo;s roster?
                 </span>
                 <button
@@ -1030,7 +1030,7 @@ export default function ExhibitorPanel({
                   onClick={removeFromRoster}
                   disabled={busy.has('remove-roster')}
                   className="text-sm font-medium px-3 py-1 rounded disabled:opacity-50"
-                  style={{ backgroundColor: '#b42318', color: '#ffffff' }}
+                  style={{ backgroundColor: 'var(--error)', color: 'var(--surface)' }}
                 >
                   {busy.has('remove-roster') ? 'Removing…' : 'Yes, remove'}
                 </button>

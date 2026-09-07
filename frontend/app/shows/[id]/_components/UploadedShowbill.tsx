@@ -71,7 +71,7 @@ export default function UploadedShowbill({
         <a
           href={`${fileHref}?download=1`}
           className="text-sm font-medium px-4 py-2 rounded"
-          style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
         >
           ⬇ Download show bill
         </a>
@@ -80,14 +80,14 @@ export default function UploadedShowbill({
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm font-medium px-4 py-2 rounded border"
-          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
         >
           Open in a new tab
         </a>
         {actions}
       </div>
 
-      <p className="text-xs mb-3" style={{ color: '#8b7355' }}>
+      <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
         {showName}&rsquo;s own show bill
         {uploaded ? `, uploaded ${uploaded}` : ''} — {doc.original_filename} (
         {formatBytes(doc.file_size)}). Classes, fees and judges may have changed
@@ -96,7 +96,7 @@ export default function UploadedShowbill({
 
       <div
         className="rounded-lg border overflow-hidden"
-        style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
       >
         {isImage ? (
           /* eslint-disable-next-line @next/next/no-img-element */
@@ -120,21 +120,21 @@ export default function UploadedShowbill({
           <Link
             href={`/shows/${showId}/schedule`}
             className="hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Class schedule as entered →
           </Link>
           <Link
             href={`/shows/${showId}/details`}
             className="hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Show details and fee schedule →
           </Link>
           <Link
             href={`/shows/${showId}/contact`}
             className="hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Message the show office →
           </Link>

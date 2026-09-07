@@ -39,10 +39,10 @@ type ShowGroup = {
 };
 
 const STATUS_BADGE: Record<string, { label: string; bgColor: string; textColor: string }> = {
-  ACTIVE:    { label: 'In Progress',           bgColor: '#fef3c7', textColor: '#92400e' },
-  PUBLISHED: { label: 'Open for Registration', bgColor: '#dbeafe', textColor: '#1e40af' },
-  COMPLETED: { label: 'Completed',             bgColor: '#f3f4f6', textColor: '#6b7280' },
-  DRAFT:     { label: 'Draft',                 bgColor: '#f3f4f6', textColor: '#6b7280' },
+  ACTIVE:    { label: 'In Progress',           bgColor: 'var(--success-bg)', textColor: 'var(--success-strong)' },
+  PUBLISHED: { label: 'Open for Registration', bgColor: 'var(--accent-bg)', textColor: 'var(--accent-hover)' },
+  COMPLETED: { label: 'Completed',             bgColor: 'var(--bg-subtle)', textColor: 'var(--muted)' },
+  DRAFT:     { label: 'Draft',                 bgColor: 'var(--bg-subtle)', textColor: 'var(--muted)' },
 };
 
 const SHOW_ORDER: Record<string, number> = { ACTIVE: 0, PUBLISHED: 1, DRAFT: 2, COMPLETED: 3 };
@@ -83,30 +83,30 @@ export default async function DashboardPage() {
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Show Entries</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>My Show Entries</h1>
           {data.exhibitor && (
-            <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{data.exhibitor.full_name}</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{data.exhibitor.full_name}</p>
           )}
         </div>
         <Link
           href="/my-shows"
           className="text-sm font-medium px-3 py-2 rounded border"
-          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
         >
           My Shows &amp; bills →
         </Link>
       </div>
 
       {!hasEntries ? (
-        <div className="rounded-lg border p-6 text-center" style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}>
-          <p className="text-lg mb-1" style={{ color: '#2c1810' }}>No entries yet</p>
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+        <div className="rounded-lg border p-6 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
+          <p className="text-lg mb-1" style={{ color: 'var(--foreground)' }}>No entries yet</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             Contact the show secretary to be added to classes.
           </p>
           <Link
             href="/"
             className="inline-block mt-4 text-sm font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Browse upcoming shows →
           </Link>
@@ -156,9 +156,9 @@ function ShowGroups({ entries }: { entries: EntryRow[] }) {
   return (
     <div className="space-y-8">
       {newCount > 0 && (
-        <div className="rounded-lg border px-4 py-3 flex items-center gap-3" style={{ borderColor: '#bfdbfe', backgroundColor: '#eff6ff' }}>
+        <div className="rounded-lg border px-4 py-3 flex items-center gap-3" style={{ borderColor: 'var(--accent-border)', backgroundColor: 'var(--accent-bg)' }}>
           <span className="text-blue-600 text-lg">📋</span>
-          <p className="text-sm" style={{ color: '#1e40af' }}>
+          <p className="text-sm" style={{ color: 'var(--accent-hover)' }}>
             {/* Still only counts entries from the last seven days — that window is what
                 makes this a transient notice rather than a permanent restatement of the
                 entry count. It just isn't worth saying out loud: "4 new classes" is the
@@ -170,7 +170,7 @@ function ShowGroups({ entries }: { entries: EntryRow[] }) {
 
       {upcoming.length > 0 && (
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8b7355' }}>
+          <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--muted)' }}>
             Active &amp; Upcoming
           </h2>
           <ShowList groups={upcoming} sevenDaysAgo={sevenDaysAgo} />
@@ -179,7 +179,7 @@ function ShowGroups({ entries }: { entries: EntryRow[] }) {
 
       {past.length > 0 && (
         <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#8b7355' }}>
+          <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--muted)' }}>
             Past Shows
           </h2>
           <ShowList groups={past} sevenDaysAgo={sevenDaysAgo} />
@@ -204,18 +204,18 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
   const sorted = [...show.entries].sort((a, b) => (a.class_number ?? 0) - (b.class_number ?? 0));
 
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: '#d4b896' }}>
+    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
       {/* Show header */}
-      <div className="px-4 py-3 flex items-start justify-between gap-3" style={{ backgroundColor: '#faf4ec' }}>
+      <div className="px-4 py-3 flex items-start justify-between gap-3" style={{ backgroundColor: 'var(--background)' }}>
         <div className="min-w-0">
           <Link
             href={`/shows/${show.show_id}`}
             className="font-semibold hover:underline leading-snug block"
-            style={{ color: '#2c1810' }}
+            style={{ color: 'var(--foreground)' }}
           >
             {show.show_name}
           </Link>
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {formatDateRange(show.show_start_date, show.show_end_date)}
             {show.show_venue && <> · {show.show_venue}</>}
           </p>
@@ -226,14 +226,14 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
             <Link
               href={`/shows/${show.show_id}`}
               className="text-xs font-medium px-2.5 py-1 rounded border"
-              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             >
               Show details
             </Link>
             <Link
               href={`/shows/${show.show_id}/schedule`}
               className="text-xs font-medium px-2.5 py-1 rounded border"
-              style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
             >
               Full class schedule
             </Link>
@@ -241,7 +241,7 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
               <Link
                 href={`/shows/${show.show_id}/register`}
                 className="text-xs font-medium px-2.5 py-1 rounded"
-                style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+                style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
               >
                 Manage registration
               </Link>
@@ -257,7 +257,7 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
       </div>
 
       {/* Entry rows */}
-      <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+      <ul className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
         {sorted.map((entry) => (
           <EntryRow key={entry.entry_id} entry={entry} sevenDaysAgo={sevenDaysAgo} />
         ))}
@@ -280,10 +280,10 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
         className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-amber-50"
       >
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium" style={{ color: '#2c1810' }}>
+          <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
             {entry.class_number} — {entry.class_name}
           </div>
-          <div className="text-xs mt-0.5 flex items-center flex-wrap gap-x-2 gap-y-1" style={{ color: '#8b7355' }}>
+          <div className="text-xs mt-0.5 flex items-center flex-wrap gap-x-2 gap-y-1" style={{ color: 'var(--muted)' }}>
             {entry.horse_name && <span>🐴 {entry.horse_name}</span>}
             {entry.back_number != null ? (
               <span>#{entry.back_number}</span>
@@ -293,7 +293,7 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
             {isNew && (
               <span
                 className="px-1.5 py-0.5 rounded text-xs font-medium"
-                style={{ backgroundColor: '#dbeafe', color: '#1e40af' }}
+                style={{ backgroundColor: 'var(--accent-border)', color: 'var(--accent-hover)' }}
               >
                 New
               </span>
@@ -304,16 +304,16 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
           {entry.is_disqualified ? (
             <span
               className="text-xs font-bold px-2 py-0.5 rounded"
-              style={{ backgroundColor: '#fee2e2', color: '#b91c1c' }}
+              style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error)' }}
             >
               DQ
             </span>
           ) : entry.place != null ? (
             <div>
-              <div className="text-2xl font-bold leading-none" style={{ color: '#8b4513' }}>
+              <div className="text-2xl font-bold leading-none" style={{ color: 'var(--accent)' }}>
                 {ordinal(entry.place)}{entry.is_tie ? 'T' : ''}
               </div>
-              <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>place</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>place</div>
             </div>
           ) : outcomeLabel(entry.outcome) ? (
             // Not "Pending". The judge answered — it just was not a placing, and
@@ -321,14 +321,14 @@ function EntryRow({ entry, sevenDaysAgo }: { entry: EntryRow; sevenDaysAgo: Date
             // is the one thing this box must not do.
             <span
               className="text-xs font-semibold px-2 py-0.5 rounded"
-              style={{ backgroundColor: '#fef2f2', color: '#991b1b' }}
+              style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
             >
               {outcomeLabel(entry.outcome)}
             </span>
           ) : (
             <span
               className="text-xs px-2 py-0.5 rounded"
-              style={{ backgroundColor: '#f5f5f4', color: '#78716c' }}
+              style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)' }}
             >
               Pending
             </span>

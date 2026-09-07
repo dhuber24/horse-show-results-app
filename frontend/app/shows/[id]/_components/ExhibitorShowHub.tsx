@@ -160,20 +160,20 @@ export default function ExhibitorShowHub({
             className="block p-5 rounded-lg border transition hover:shadow-md"
             style={
               tile.primary
-                ? { backgroundColor: '#8b4513', borderColor: '#8b4513' }
-                : { backgroundColor: '#ffffff', borderColor: '#d4b896' }
+                ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' }
+                : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }
             }
           >
             <div className="text-3xl mb-2" aria-hidden="true">{tile.icon}</div>
             <div
               className="font-semibold text-lg"
-              style={{ color: tile.primary ? '#ffffff' : '#2c1810' }}
+              style={{ color: tile.primary ? 'var(--surface)' : 'var(--foreground)' }}
             >
               {tile.title}
             </div>
             <div
               className="text-sm mt-1"
-              style={{ color: tile.primary ? '#f0e8d8' : '#8b7355' }}
+              style={{ color: tile.primary ? 'var(--bg-subtle)' : 'var(--muted)' }}
             >
               {tile.description}
             </div>

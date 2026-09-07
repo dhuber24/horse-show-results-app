@@ -29,8 +29,8 @@ interface Props {
 
 const emptyForm: FormState = { first_name: '', last_name: '', private_phone: '', phone: '', email: '' };
 
-const inputStyle = { borderColor: '#d4b896', backgroundColor: '#faf7f2' } as const;
-const labelStyle = { color: '#5a4632' } as const;
+const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
+const labelStyle = { color: 'var(--text-deep)' } as const;
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -53,7 +53,7 @@ function FieldRow({
         {label}
       </label>
       {children}
-      {hint && <span className="text-xs" style={{ color: '#8b7355' }}>{hint}</span>}
+      {hint && <span className="text-xs" style={{ color: 'var(--muted)' }}>{hint}</span>}
     </div>
   );
 }
@@ -105,9 +105,9 @@ export default function TrainersManager({ initialTrainers }: Props) {
 
   return (
     <div className="space-y-6">
-      <section className="border rounded-lg p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
+      <section className="border rounded-lg p-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="font-semibold" style={{ color: '#2c1810' }}>Trainers</h2>
+          <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Trainers</h2>
           {!isAdding && (
             <button
               onClick={() => {
@@ -115,7 +115,7 @@ export default function TrainersManager({ initialTrainers }: Props) {
                 setIsAdding(true);
               }}
               className="px-4 py-2 rounded text-sm font-medium"
-              style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
             >
               Add Trainer
             </button>
@@ -142,7 +142,7 @@ export default function TrainersManager({ initialTrainers }: Props) {
               </FieldRow>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={handleCreate} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>Add Trainer</button>
+              <button onClick={handleCreate} className="px-4 py-2 rounded text-sm font-medium" style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>Add Trainer</button>
               <button
                 onClick={() => {
                   setForm(emptyForm);
@@ -150,7 +150,7 @@ export default function TrainersManager({ initialTrainers }: Props) {
                   setIsAdding(false);
                 }}
                 className="text-sm font-medium hover:underline"
-                style={{ color: '#8b7355' }}
+                style={{ color: 'var(--muted)' }}
               >
                 Cancel
               </button>
@@ -160,60 +160,60 @@ export default function TrainersManager({ initialTrainers }: Props) {
       </section>
 
       <section className="space-y-2">
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>All Trainers ({sorted.length})</h2>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>All Trainers ({sorted.length})</h2>
         {sorted.length === 0 ? (
-          <p className="text-sm" style={{ color: '#8b7355' }}>No trainers yet.</p>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>No trainers yet.</p>
         ) : (
           <ul className="space-y-2">
             {sorted.map((trainer) => (
-              <li key={trainer.id} className="border rounded p-4" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+              <li key={trainer.id} className="border rounded p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <p className="font-medium" style={{ color: '#2c1810' }}>{trainer.name}</p>
-                    <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1" style={{ color: '#5a4632' }}>
+                    <p className="font-medium" style={{ color: 'var(--foreground)' }}>{trainer.name}</p>
+                    <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1" style={{ color: 'var(--text-deep)' }}>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>Public phone:</dt>
-                        <dd className="inline">{trainer.phone || <span style={{ color: '#8b7355' }}>—</span>}</dd>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Public phone:</dt>
+                        <dd className="inline">{trainer.phone || <span style={{ color: 'var(--muted)' }}>—</span>}</dd>
                       </div>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>Public email:</dt>
-                        <dd className="inline">{trainer.email || <span style={{ color: '#8b7355' }}>—</span>}</dd>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Public email:</dt>
+                        <dd className="inline">{trainer.email || <span style={{ color: 'var(--muted)' }}>—</span>}</dd>
                       </div>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>Private phone:</dt>
-                        <dd className="inline">{trainer.private_phone || <span style={{ color: '#8b7355' }}>—</span>}</dd>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Private phone:</dt>
+                        <dd className="inline">{trainer.private_phone || <span style={{ color: 'var(--muted)' }}>—</span>}</dd>
                       </div>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>User account:</dt>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>User account:</dt>
                         <dd className="inline">
                           {trainer.user_id ? (
-                            <Link href={`/admin/users/${trainer.user_id}`} className="underline" style={{ color: '#8b4513' }}>
+                            <Link href={`/admin/users/${trainer.user_id}`} className="underline" style={{ color: 'var(--accent)' }}>
                               {trainer.user_email ?? 'View user'}
                             </Link>
                           ) : (
-                            <span style={{ color: '#8b7355' }}>Not linked</span>
+                            <span style={{ color: 'var(--muted)' }}>Not linked</span>
                           )}
                         </dd>
                       </div>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>Horses:</dt>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Horses:</dt>
                         <dd className="inline">{trainer.horse_count}</dd>
                       </div>
                       <div>
-                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: '#8b7355' }}>Created:</dt>
+                        <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Created:</dt>
                         <dd className="inline">{formatDate(trainer.created_at)}</dd>
                       </div>
                     </dl>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    <Link href={`/admin/trainers/${trainer.id}`} className="text-sm font-medium underline" style={{ color: '#8b4513' }}>
+                    <Link href={`/admin/trainers/${trainer.id}`} className="text-sm font-medium underline" style={{ color: 'var(--accent)' }}>
                       Manage
                     </Link>
                     {confirmDeleteId === trainer.id ? (
                       <span className="flex items-center gap-2">
-                        <span className="text-xs" style={{ color: '#8b7355' }}>Delete?</span>
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>Delete?</span>
                         <button onClick={() => handleDelete(trainer.id)} className="text-xs text-red-600 hover:underline">Yes</button>
-                        <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                        <button onClick={() => setConfirmDeleteId(null)} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>Cancel</button>
                       </span>
                     ) : (
                       <button onClick={() => setConfirmDeleteId(trainer.id)} className="text-sm text-red-600">Delete</button>

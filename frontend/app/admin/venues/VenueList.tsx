@@ -39,7 +39,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
   };
 
   if (venues.length === 0) {
-    return <p style={{ color: '#8b7355' }}>No venues yet.</p>;
+    return <p style={{ color: 'var(--muted)' }}>No venues yet.</p>;
   }
 
   return (
@@ -54,11 +54,11 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
         <li
           key={venue.id}
           className="flex items-center justify-between p-4 rounded-lg border"
-          style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
         >
           <div>
-            <div className="font-semibold" style={{ color: '#2c1810' }}>{venue.name}</div>
-            <div className="text-sm mt-0.5" style={{ color: '#8b7355' }}>
+            <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{venue.name}</div>
+            <div className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
               {[venue.address, venue.city, venue.state].filter(Boolean).join(', ') || 'No address'}
             </div>
             {deleteError?.id === venue.id && (
@@ -68,7 +68,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
           <div className="flex items-center gap-3 ml-4 shrink-0 flex-wrap justify-end">
             {confirmDeleteId === venue.id ? (
               <>
-                <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {venue.name}?</span>
+                <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Delete {venue.name}?</span>
                 <button
                   onClick={() => handleDelete(venue)}
                   disabled={deleting}
@@ -80,7 +80,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
                   onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
                   disabled={deleting}
                   className="text-xs hover:underline"
-                  style={{ color: '#8b7355' }}
+                  style={{ color: 'var(--muted)' }}
                 >
                   Cancel
                 </button>
@@ -91,7 +91,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
                   <Link
                     href={`/admin/venues/${venue.id}`}
                     className="text-sm font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Edit →
                   </Link>
@@ -99,7 +99,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
                   <Link
                     href={`/admin/venues/${venue.id}`}
                     className="text-sm font-medium hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     View →
                   </Link>

@@ -71,7 +71,7 @@ export default function EditProfileForm({ user }: Props) {
   return (
     <div className="space-y-4">
       {success && (
-        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#f0fdf0', color: '#166534' }}>
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
           Profile updated successfully.
         </p>
       )}
@@ -79,30 +79,30 @@ export default function EditProfileForm({ user }: Props) {
       {editing ? (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Full Name</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Full Name</label>
             <input
               name="full_name"
               type="text"
               value={form.full_name}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: '#2c1810' }}>Email</label>
+            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>Email</label>
             <input
               name="email"
               type="email"
               value={form.email}
               onChange={handleChange}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-              style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
           </div>
           {emailChanged && (
-            <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: '#fdf6e7', border: '1px solid #e8c97a' }}>
-              <p className="text-sm" style={{ color: '#8b5a00' }}>
+            <div className="space-y-2 rounded-lg p-3" style={{ backgroundColor: 'var(--warning-bg)', border: '1px solid var(--warning-border)' }}>
+              <p className="text-sm" style={{ color: 'var(--warning-strong)' }}>
                 This is also the email you log in with. Confirm your password to change it.
               </p>
               <input
@@ -112,12 +112,12 @@ export default function EditProfileForm({ user }: Props) {
                 placeholder="Current password"
                 autoComplete="current-password"
                 className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
-                style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
               />
             </div>
           )}
           {error && (
-            <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a' }}>
+            <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
               {error}
             </p>
           )}
@@ -126,14 +126,14 @@ export default function EditProfileForm({ user }: Props) {
               onClick={handleSave}
               disabled={loading}
               className="px-4 py-2 rounded-lg text-sm font-medium transition disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
             >
               {loading ? 'Saving...' : 'Save Changes'}
             </button>
             <button
               onClick={handleCancel}
               className="px-4 py-2 rounded-lg text-sm font-medium transition"
-              style={{ backgroundColor: '#f5ede0', color: '#2c1810', border: '1px solid #d4b896' }}
+              style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
             >
               Cancel
             </button>
@@ -142,21 +142,21 @@ export default function EditProfileForm({ user }: Props) {
       ) : (
         <div className="space-y-3">
           <div className="grid grid-cols-[120px_1fr] gap-y-3 text-sm">
-            <span className="font-medium" style={{ color: '#8b7355' }}>Name</span>
-            <span style={{ color: '#2c1810' }}>{user.full_name}</span>
-            <span className="font-medium" style={{ color: '#8b7355' }}>Email</span>
-            <span style={{ color: '#2c1810' }}>{user.email}</span>
-            <span className="font-medium" style={{ color: '#8b7355' }}>Role</span>
-            <span className="capitalize" style={{ color: '#2c1810' }}>
+            <span className="font-medium" style={{ color: 'var(--muted)' }}>Name</span>
+            <span style={{ color: 'var(--foreground)' }}>{user.full_name}</span>
+            <span className="font-medium" style={{ color: 'var(--muted)' }}>Email</span>
+            <span style={{ color: 'var(--foreground)' }}>{user.email}</span>
+            <span className="font-medium" style={{ color: 'var(--muted)' }}>Role</span>
+            <span className="capitalize" style={{ color: 'var(--foreground)' }}>
               {user.role.replace('_', ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
             </span>
-            <span className="font-medium" style={{ color: '#8b7355' }}>Member since</span>
-            <span style={{ color: '#2c1810' }}>{memberSince}</span>
+            <span className="font-medium" style={{ color: 'var(--muted)' }}>Member since</span>
+            <span style={{ color: 'var(--foreground)' }}>{memberSince}</span>
           </div>
           <button
             onClick={() => setEditing(true)}
             className="mt-1 px-4 py-2 rounded-lg text-sm font-medium transition"
-            style={{ backgroundColor: '#f5ede0', color: '#2c1810', border: '1px solid #d4b896' }}
+            style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
           >
             Edit
           </button>

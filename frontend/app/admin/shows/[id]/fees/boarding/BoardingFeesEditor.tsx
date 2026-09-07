@@ -255,15 +255,15 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
   };
 
   return (
-    <section className="rounded-lg border p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+    <section className="rounded-lg border p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>Boarding &amp; other fees</h2>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Boarding &amp; other fees</h2>
         <div className="flex gap-2">
           {fees.length === 0 && (
             <button
               onClick={seedDefaults}
               className="text-xs px-3 py-1.5 rounded border hover:bg-amber-50"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               Seed common fees
             </button>
@@ -272,23 +272,23 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
             <button
               onClick={() => setShowAddForm(true)}
               className="text-xs px-3 py-1.5 rounded border hover:bg-amber-50"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               + Add fee
             </button>
           )}
         </div>
       </div>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         Stalls, campsites, shavings, late entry, cross-entry surcharges, etc.
       </p>
       {error && <p className="text-xs text-red-600">{error}</p>}
       {fees.length === 0 ? (
-        <p className="text-sm italic" style={{ color: '#8b7355' }}>
+        <p className="text-sm italic" style={{ color: 'var(--muted)' }}>
           No boarding fees yet. Use &ldquo;Seed common fees&rdquo; to start with a typical set.
         </p>
       ) : (
-        <ul className="divide-y" style={{ borderColor: '#e8d5b7' }}>
+        <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
           {fees.map((fee) => {
             const draft = drafts[fee.id] ?? draftFromFee(fee);
             const reservedCount = fee.reserved_count ?? 0;
@@ -314,16 +314,16 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                   value={draft.label}
                   onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, label: e.target.value } }))}
                   className="flex-1 min-w-[140px] border rounded px-2 py-1 text-sm"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 />
                 <div className="relative w-24">
-                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
                   <input
                     inputMode="decimal"
                     value={draft.amount}
                     onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, amount: e.target.value } }))}
                     className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                    style={{ borderColor: invalid ? '#fca5a5' : '#d4b896' }}
+                    style={{ borderColor: invalid ? 'var(--error-border)' : 'var(--border)' }}
                   />
                 </div>
                 {/* Locked once anybody has booked against this row. A booked
@@ -341,14 +341,14 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                       : undefined
                   }
                   className="border rounded px-2 py-1 text-sm disabled:opacity-50"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 >
                   {BOARDING_UNIT_OPTIONS.map((u) => (
                     <option key={u} value={u}>{UNIT_LABELS[u]}</option>
                   ))}
                 </select>
                 {reservedCount > 0 && (
-                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
                     {reservedCount} reserved
                   </span>
                 )}
@@ -356,7 +356,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                   onClick={() => saveRow(fee)}
                   disabled={busyId === fee.id || invalid || !dirty}
                   className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
-                  style={{ color: '#8b4513' }}
+                  style={{ color: 'var(--accent)' }}
                 >
                   {busyId === fee.id ? '…' : 'Save'}
                 </button>
@@ -367,13 +367,13 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                         price that no longer exists cannot be billed — but it is
                         also the route the unit-change error sends staff down,
                         so say the number out loud before they take it. */}
-                    <span style={{ color: '#5c3d1e' }}>
+                    <span style={{ color: 'var(--text-deep)' }}>
                       {reservedCount > 0
                         ? `Remove? ${reservedCount} exhibitor reservation${reservedCount === 1 ? '' : 's'} will be dropped.`
                         : 'Remove?'}
                     </span>
                     <button onClick={() => removeRow(fee)} className="text-red-600 hover:underline" disabled={busyId === fee.id}>Yes</button>
-                    <button onClick={() => setConfirmDeleteId(null)} className="hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+                    <button onClick={() => setConfirmDeleteId(null)} className="hover:underline" style={{ color: 'var(--muted)' }}>Cancel</button>
                   </span>
                 ) : (
                   <button onClick={() => setConfirmDeleteId(fee.id)} className="text-xs text-red-600 hover:underline">
@@ -383,22 +383,22 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
               </div>
               {canHaveEarlyRate(draft.unit) && (
                 <div className="flex items-center flex-wrap gap-2 mt-1.5 pl-1">
-                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
                     Early rate
                   </span>
                   <div className="relative w-24">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
                     <input
                       inputMode="decimal"
                       placeholder="0.00"
                       value={draft.early}
                       onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, early: e.target.value } }))}
                       className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                      style={{ borderColor: '#d4b896' }}
+                      style={{ borderColor: 'var(--border)' }}
                       aria-label={`Early rate for ${fee.label}`}
                     />
                   </div>
-                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
                     if reserved by
                   </span>
                   <input
@@ -406,7 +406,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                     value={draft.earlyDeadline}
                     onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, earlyDeadline: e.target.value } }))}
                     className="border rounded px-2 py-1 text-sm"
-                    style={{ borderColor: '#d4b896' }}
+                    style={{ borderColor: 'var(--border)' }}
                     aria-label={`Early rate deadline for ${fee.label}`}
                   />
                   {'error' in early && (
@@ -423,7 +423,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                       its own set. */}
                   {canHaveMinimumQuantity(draft.unit) && (
                     <>
-                      <span className="text-xs" style={{ color: '#8b7355' }}>
+                      <span className="text-xs" style={{ color: 'var(--muted)' }}>
                         · minimum
                       </span>
                       <input
@@ -434,7 +434,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
                         value={draft.minQuantity}
                         onChange={(e) => setDrafts((prev) => ({ ...prev, [fee.id]: { ...draft, minQuantity: e.target.value } }))}
                         className="w-20 border rounded px-2 py-1 text-sm"
-                        style={{ borderColor: '#d4b896' }}
+                        style={{ borderColor: 'var(--border)' }}
                         aria-label={`Minimum quantity for ${fee.label}`}
                         title="The fewest an exhibitor may reserve once they reserve any of this line. Blank means no minimum."
                       />
@@ -448,32 +448,32 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
         </ul>
       )}
       {showAddForm && (
-        <div className="rounded border p-3 space-y-2" style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}>
-          <p className="text-xs font-semibold" style={{ color: '#2c1810' }}>New boarding fee</p>
+        <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--foreground)' }}>New boarding fee</p>
           <div className="flex flex-wrap gap-2 items-end">
             <input
               placeholder="Label (e.g. Tack stall)"
               value={newRow.label}
               onChange={(e) => setNewRow((p) => ({ ...p, label: e.target.value }))}
               className="flex-1 min-w-[160px] border rounded px-2 py-1 text-sm"
-              style={{ borderColor: '#d4b896' }}
+              style={{ borderColor: 'var(--border)' }}
             />
             <div className="relative w-24">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
               <input
                 inputMode="decimal"
                 placeholder="0.00"
                 value={newRow.amount}
                 onChange={(e) => setNewRow((p) => ({ ...p, amount: e.target.value }))}
                 className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               />
             </div>
             <select
               value={newRow.unit}
               onChange={(e) => setNewRow((p) => ({ ...p, unit: e.target.value as Unit }))}
               className="border rounded px-2 py-1 text-sm"
-              style={{ borderColor: '#d4b896' }}
+              style={{ borderColor: 'var(--border)' }}
             >
               {BOARDING_UNIT_OPTIONS.map((u) => (
                 <option key={u} value={u}>{UNIT_LABELS[u]}</option>
@@ -483,40 +483,40 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
               onClick={addNew}
               disabled={adding}
               className="px-3 py-1.5 text-sm rounded font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               {adding ? 'Adding…' : 'Add'}
             </button>
             <button
               onClick={() => { setShowAddForm(false); setNewRow({ code: '', label: '', amount: '', unit: 'per_stall', early: '', earlyDeadline: '', minQuantity: '' }); }}
               className="text-xs hover:underline"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Cancel
             </button>
           </div>
           {canHaveEarlyRate(newRow.unit) && (
             <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-xs" style={{ color: '#8b7355' }}>Early rate (optional)</span>
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>Early rate (optional)</span>
               <div className="relative w-24">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
                 <input
                   inputMode="decimal"
                   placeholder="0.00"
                   value={newRow.early}
                   onChange={(e) => setNewRow((p) => ({ ...p, early: e.target.value }))}
                   className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                   aria-label="Early rate for the new fee"
                 />
               </div>
-              <span className="text-xs" style={{ color: '#8b7355' }}>if reserved by</span>
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>if reserved by</span>
               <input
                 type="date"
                 value={newRow.earlyDeadline}
                 onChange={(e) => setNewRow((p) => ({ ...p, earlyDeadline: e.target.value }))}
                 className="border rounded px-2 py-1 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
                 aria-label="Early rate deadline for the new fee"
               />
             </div>

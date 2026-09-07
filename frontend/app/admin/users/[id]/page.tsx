@@ -101,11 +101,11 @@ export default async function UserDetailPage({
           { label: 'Users', href: '/admin/users' },
           { label: user.full_name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           {user.full_name}
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{user.email}</p>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs" style={{ color: '#b0956e' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{user.email}</p>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs" style={{ color: 'var(--text-dimmed)' }}>
           <span>Joined {new Date(user.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
           <span>Last login: {user.last_login_at ? new Date(user.last_login_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Never'}</span>
           <span>
@@ -117,8 +117,8 @@ export default async function UserDetailPage({
       </div>
 
       {user.role === 'TRAINER' ? (
-        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Trainer Profile</h2>
+        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Trainer Profile</h2>
           {trainer ? (
             <AdminTrainerDetail
               trainer={trainer}
@@ -126,44 +126,44 @@ export default async function UserDetailPage({
               initialHorses={trainerHorses}
             />
           ) : (
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               No trainer registry row is linked to this account.
             </p>
           )}
         </section>
       ) : (
-        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Profile</h2>
+        <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Profile</h2>
           <EditUserForm user={user} />
         </section>
       )}
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Role</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Role</h2>
         <ChangeRoleForm user={user} />
       </section>
 
       {user.role === 'EXHIBITOR' && (
-        <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Horses</h2>
+        <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Horses</h2>
           {!exhibitor ? (
-            <p className="text-sm" style={{ color: '#8b7355' }}>No exhibitor profile linked to this account.</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>No exhibitor profile linked to this account.</p>
           ) : exhibitorHorses.length === 0 ? (
-            <p className="text-sm" style={{ color: '#8b7355' }}>No horses registered to this exhibitor.</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>No horses registered to this exhibitor.</p>
           ) : (
-            <ul className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+            <ul className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
               {exhibitorHorses.map((horse: any) => (
                 <li key={horse.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
                   <div>
-                    <div className="font-medium text-sm" style={{ color: '#2c1810' }}>
+                    <div className="font-medium text-sm" style={{ color: 'var(--foreground)' }}>
                       {horse.name}
                       {horse.sex && (
-                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f5ede0', color: '#8b4513' }}>
+                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                           {horse.sex}
                         </span>
                       )}
                     </div>
-                    <div className="text-xs mt-0.5 flex gap-x-2" style={{ color: '#8b7355' }}>
+                    <div className="text-xs mt-0.5 flex gap-x-2" style={{ color: 'var(--muted)' }}>
                       {horse.breed_name && <span>{horse.breed_name}</span>}
                       {coatDescription(horse.color_name, horse.pattern_name) && (
                                               <span>{coatDescription(horse.color_name, horse.pattern_name)}</span>
@@ -174,7 +174,7 @@ export default async function UserDetailPage({
                   <Link
                     href={`/admin/horses/${horse.id}`}
                     className="text-sm ml-4 shrink-0 hover:underline"
-                    style={{ color: '#8b4513' }}
+                    style={{ color: 'var(--accent)' }}
                   >
                     Edit →
                   </Link>
@@ -185,22 +185,22 @@ export default async function UserDetailPage({
         </section>
       )}
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Reset Password</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Reset Password</h2>
         <ResetPasswordForm userId={user.id} />
       </section>
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#2c1810' }}>Security Question</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Security Question</h2>
         <SecurityQuestionPanel userId={user.id} />
       </section>
 
-      <section className="p-5 rounded-lg border" style={{ borderColor: '#fca5a5', backgroundColor: '#fff9f9' }}>
-        <h2 className="text-base font-semibold mb-3" style={{ color: '#991b1b' }}>Danger Zone</h2>
+      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)' }}>
+        <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--error-strong)' }}>Danger Zone</h2>
         <DeleteUserButton userId={user.id} userName={user.full_name} />
       </section>
 
-      <p className="text-xs font-mono" style={{ color: '#8b7355' }}>ID: {user.id}</p>
+      <p className="text-xs font-mono" style={{ color: 'var(--muted)' }}>ID: {user.id}</p>
     </main>
   );
 }

@@ -63,7 +63,7 @@ export default function WaiverRow({
   };
 
   return (
-    <div className="py-2 border-t first:border-t-0" style={{ borderColor: '#f0e6d6' }}>
+    <div className="py-2 border-t first:border-t-0" style={{ borderColor: 'var(--bg-subtle)' }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm" style={{ color: COLORS.text }}>
@@ -92,8 +92,8 @@ export default function WaiverRow({
             className="text-xs font-medium px-2 py-1 rounded-full whitespace-nowrap"
             style={
               signed
-                ? { backgroundColor: '#d1fae5', color: '#065f46' }
-                : { backgroundColor: '#f5ede0', color: '#8b4513' }
+                ? { backgroundColor: 'var(--success-border)', color: 'var(--success-strong)' }
+                : { backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }
             }
           >
             {signed ? '✓ Signed' : '○ Not signed'}
@@ -115,7 +115,7 @@ export default function WaiverRow({
                 type="button"
                 onClick={() => setRecording(true)}
                 className="text-xs font-medium px-2.5 py-1 rounded text-white"
-                style={{ backgroundColor: '#8b4513' }}
+                style={{ backgroundColor: 'var(--accent)' }}
               >
                 Record paper signature
               </button>
@@ -125,7 +125,7 @@ export default function WaiverRow({
       </div>
 
       {recording && !signed && (
-        <div className="mt-2 rounded border p-2 space-y-2" style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}>
+        <div className="mt-2 rounded border p-2 space-y-2" style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}>
           <label className="block">
             <span className="text-xs" style={{ color: COLORS.muted }}>Name as signed on the blank</span>
             <input
@@ -160,7 +160,7 @@ export default function WaiverRow({
               disabled={busy || !signedName.trim()}
               title={!signedName.trim() ? 'Type the name as it appears on the blank' : undefined}
               className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               {busy ? 'Saving…' : 'Save signature'}
             </button>

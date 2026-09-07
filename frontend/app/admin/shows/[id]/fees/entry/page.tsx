@@ -45,9 +45,9 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
         ]} />
         <div className="flex items-center gap-2 mt-2">
           <span className="text-2xl" aria-hidden>🎟️</span>
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Entry Fees</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Entry Fees</h1>
         </div>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           The office charge, any fee the show adds per exhibitor, horse or judge,
           and what each class costs to enter.
         </p>

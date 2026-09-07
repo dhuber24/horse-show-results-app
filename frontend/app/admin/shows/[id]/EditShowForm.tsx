@@ -51,12 +51,12 @@ interface ShowCategory {
 }
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
 
 // Who runs the show is not a detail of the show record — it is the staff roster,
@@ -167,7 +167,7 @@ export default function EditShowForm({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -176,7 +176,7 @@ export default function EditShowForm({
       {success && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee', color: '#1f4e1f' }}
+          style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
         >
           {success}
         </div>
@@ -373,7 +373,7 @@ export default function EditShowForm({
         {selectedShowType?.code === 'AQHA' && (
           <div
             className="border rounded p-3 space-y-3"
-            style={{ borderColor: '#e8d5b7', backgroundColor: '#faf6f0' }}
+            style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}
           >
             <label className="block">
               <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
@@ -441,7 +441,7 @@ export default function EditShowForm({
             onClick={handleSave}
             disabled={saving}
             className="text-sm rounded px-4 py-2 disabled:opacity-50"
-            style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+            style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
           >
             {saving ? 'Saving…' : 'Save show details'}
           </button>

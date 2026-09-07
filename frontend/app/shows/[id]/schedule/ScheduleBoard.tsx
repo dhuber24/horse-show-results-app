@@ -56,9 +56,9 @@ function todayIso(): string {
 }
 
 const LIVE_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  in_progress: { label: '🟢 In the ring', bg: '#d1fae5', text: '#065f46' },
-  up_next: { label: 'Up next', bg: '#fef3c7', text: '#92400e' },
-  done: { label: 'Done', bg: '#e5e7eb', text: '#374151' },
+  in_progress: { label: '🟢 In the ring', bg: 'var(--success-border)', text: 'var(--success-strong)' },
+  up_next: { label: 'Up next', bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  done: { label: 'Done', bg: 'var(--border-subtle)', text: 'var(--text-deep)' },
 };
 
 /** The gate's on-deck rule, mirrored for display: within a day and ring, the
@@ -261,7 +261,7 @@ export default function ScheduleBoard({
     <div className="overflow-x-auto -mx-1 px-1">
       <table className="w-full text-xs border-collapse">
         <thead>
-          <tr style={{ color: '#8b4513' }}>
+          <tr style={{ color: 'var(--accent)' }}>
             <th className="text-left font-semibold py-1 pr-3 whitespace-nowrap">Back #</th>
             <th className="text-left font-semibold py-1 pr-3">Exhibitor</th>
             <th className="text-left font-semibold py-1 pr-3">Horse</th>
@@ -272,18 +272,18 @@ export default function ScheduleBoard({
         </thead>
         <tbody>
           {entries.map(e => (
-            <tr key={e.id} className="border-t" style={{ borderColor: '#f0e6d6' }}>
-              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap" style={{ color: '#2c1810' }}>
+            <tr key={e.id} className="border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
+              <td className="py-1.5 pr-3 font-semibold whitespace-nowrap" style={{ color: 'var(--foreground)' }}>
                 {e.back_number ?? '—'}
                 {e.is_disqualified && (
-                  <span className="ml-1 font-normal" style={{ color: '#b91c1c' }}>DQ</span>
+                  <span className="ml-1 font-normal" style={{ color: 'var(--error)' }}>DQ</span>
                 )}
               </td>
-              <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{e.exhibitor_name}</td>
-              <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>{e.horse_name || '—'}</td>
-              <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{e.owner_name || '—'}</td>
-              <td className="py-1.5 pr-3" style={{ color: '#8b7355' }}>{e.sire_name || '—'}</td>
-              <td className="py-1.5" style={{ color: '#8b7355' }}>{e.dam_name || '—'}</td>
+              <td className="py-1.5 pr-3" style={{ color: 'var(--text-deep)' }}>{e.exhibitor_name}</td>
+              <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>{e.horse_name || '—'}</td>
+              <td className="py-1.5 pr-3" style={{ color: 'var(--text-deep)' }}>{e.owner_name || '—'}</td>
+              <td className="py-1.5 pr-3" style={{ color: 'var(--muted)' }}>{e.sire_name || '—'}</td>
+              <td className="py-1.5" style={{ color: 'var(--muted)' }}>{e.dam_name || '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -302,8 +302,8 @@ export default function ScheduleBoard({
               onClick={() => setActiveDay(day)}
               className="shrink-0 text-sm font-medium px-3 py-1.5 rounded-full border transition"
               style={day === activeDay
-                ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-                : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+                ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+                : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               {formatDayShort(day)}
             </button>
@@ -314,7 +314,7 @@ export default function ScheduleBoard({
       <div className="mb-4 space-y-2">
         <div className="relative">
           <label htmlFor="schedule-search" className="sr-only">Search the schedule</label>
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#8b7355' }}>🔍</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: 'var(--muted)' }}>🔍</span>
           <input
             id="schedule-search"
             type="search"
@@ -322,7 +322,7 @@ export default function ScheduleBoard({
             onChange={e => setQuery(e.target.value)}
             placeholder="Search by horse, exhibitor, owner, sire, dam, back # or class…"
             className="w-full rounded-lg border pl-9 pr-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff', color: '#2c1810' }}
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
           />
         </div>
 
@@ -338,8 +338,8 @@ export default function ScheduleBoard({
                 : favoritesOnly ? 'Show all classes' : 'Show only starred classes'}
               className="text-sm font-medium px-3 py-1.5 rounded-full border transition disabled:opacity-50"
               style={favoritesOnly
-                ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-                : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+                ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+                : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               ★ Favorites{favorites.size > 0 ? ` (${favorites.size})` : ''}
             </button>
@@ -357,15 +357,15 @@ export default function ScheduleBoard({
                   : registeredOnly ? 'Show all classes' : "Show only classes you're entered in"}
                 className="text-sm font-medium px-3 py-1.5 rounded-full border transition disabled:opacity-50"
                 style={registeredOnly
-                  ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-                  : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }}
+                  ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+                  : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
               >
                 🐴 Registered{registered.size > 0 ? ` (${registered.size})` : ''}
               </button>
             )}
           </div>
 
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             {searching
               ? (shown.length === 0
                 ? 'No matches.'
@@ -380,7 +380,7 @@ export default function ScheduleBoard({
       </div>
 
       {shown.length === 0 && (
-        <p style={{ color: '#8b7355' }}>
+        <p style={{ color: 'var(--muted)' }}>
           {searching
             ? 'Nothing matches that search.'
             : favoritesOnly && registeredOnly
@@ -397,7 +397,7 @@ export default function ScheduleBoard({
         {grouped.map(group => (
           <section key={group.key}>
             {(spanAllDays || showRingHeaders) && (
-              <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#8b4513' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--accent)' }}>
                 {spanAllDays ? formatDayLong(group.key) : group.key}
               </h3>
             )}
@@ -419,7 +419,7 @@ export default function ScheduleBoard({
                   <li
                     key={cls.id}
                     className="rounded-lg border overflow-hidden"
-                    style={{ backgroundColor: '#ffffff', borderColor: isFav ? '#8b4513' : '#d4b896' }}
+                    style={{ backgroundColor: 'var(--surface)', borderColor: isFav ? 'var(--accent)' : 'var(--border)' }}
                   >
                     <div className="flex items-stretch">
                       <button
@@ -430,7 +430,7 @@ export default function ScheduleBoard({
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="font-semibold" style={{ color: '#2c1810' }}>
+                            <div className="font-semibold" style={{ color: 'var(--foreground)' }}>
                               {cls.class_number} — {cls.class_name}
                               {/* Marked on the programme, not just missing from
                                   the entry form. Somebody reading the schedule
@@ -440,7 +440,7 @@ export default function ScheduleBoard({
                               {cls.entered_by_qualification && (
                                 <span
                                   className="ml-2 align-middle text-xs font-normal px-1.5 py-0.5 rounded"
-                                  style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                                  style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
                                   title="The top two from each qualifying class are called back to this one — there is nothing to enter."
                                 >
                                   by qualification
@@ -448,9 +448,9 @@ export default function ScheduleBoard({
                               )}
                             </div>
                             {meta && (
-                              <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>{meta}</div>
+                              <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{meta}</div>
                             )}
-                            <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                            <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                               {cls.entry_count} {cls.entry_count === 1 ? 'entry' : 'entries'}
                               {cls.placed_count > 0 && ' · results posted'}
                             </div>
@@ -462,7 +462,7 @@ export default function ScheduleBoard({
                                 {badge.label}
                               </span>
                             )}
-                            <span aria-hidden="true" className="text-xs" style={{ color: '#8b4513' }}>
+                            <span aria-hidden="true" className="text-xs" style={{ color: 'var(--accent)' }}>
                               {isOpen ? '▲' : '▼'}
                             </span>
                           </div>
@@ -475,7 +475,7 @@ export default function ScheduleBoard({
                         aria-pressed={isFav}
                         title={isFav ? 'Remove from my classes' : 'Track this class'}
                         className="px-3 shrink-0 text-lg transition hover:bg-amber-50 border-l"
-                        style={{ borderColor: '#f0e6d6', color: isFav ? '#8b4513' : '#c4ab8a' }}
+                        style={{ borderColor: 'var(--bg-subtle)', color: isFav ? 'var(--accent)' : 'var(--border)' }}
                       >
                         <span aria-hidden="true">{isFav ? '★' : '☆'}</span>
                         <span className="sr-only">
@@ -489,22 +489,22 @@ export default function ScheduleBoard({
                     {!isOpen && hits.length > 0 && (
                       <ul className="px-4 pb-3 -mt-1 space-y-0.5">
                         {hits.map(e => (
-                          <li key={e.id} className="text-xs" style={{ color: '#5a3e2b' }}>
+                          <li key={e.id} className="text-xs" style={{ color: 'var(--text-deep)' }}>
                             {e.back_number != null && (
-                              <span className="font-semibold" style={{ color: '#8b4513' }}>#{e.back_number} · </span>
+                              <span className="font-semibold" style={{ color: 'var(--accent)' }}>#{e.back_number} · </span>
                             )}
                             {e.horse_name || '—'}
-                            <span style={{ color: '#8b7355' }}> · {e.exhibitor_name}</span>
-                            {e.owner_name && <span style={{ color: '#8b7355' }}> · owner {e.owner_name}</span>}
+                            <span style={{ color: 'var(--muted)' }}> · {e.exhibitor_name}</span>
+                            {e.owner_name && <span style={{ color: 'var(--muted)' }}> · owner {e.owner_name}</span>}
                           </li>
                         ))}
                       </ul>
                     )}
 
                     {isOpen && (
-                      <div className="px-4 pb-4 border-t pt-3" style={{ borderColor: '#f0e6d6' }}>
+                      <div className="px-4 pb-4 border-t pt-3" style={{ borderColor: 'var(--bg-subtle)' }}>
                         {entries.length === 0 ? (
-                          <p className="text-sm" style={{ color: '#8b7355' }}>No entries yet.</p>
+                          <p className="text-sm" style={{ color: 'var(--muted)' }}>No entries yet.</p>
                         ) : (
                           renderEntryTable(entries)
                         )}
@@ -512,7 +512,7 @@ export default function ScheduleBoard({
                         <Link
                           href={`/shows/${showId}/classes/${cls.id}`}
                           className="inline-block text-sm mt-3 hover:underline"
-                          style={{ color: '#8b4513' }}
+                          style={{ color: 'var(--accent)' }}
                         >
                           {cls.placed_count > 0 ? 'View results' : 'View class'} →
                         </Link>

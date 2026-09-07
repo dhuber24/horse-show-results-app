@@ -34,20 +34,20 @@ function StatTile({
   emphasis?: 'owed' | 'paid';
 }) {
   const valueColor =
-    emphasis === 'owed' ? '#b42318' : emphasis === 'paid' ? '#2f6b3f' : '#2c1810';
+    emphasis === 'owed' ? 'var(--error)' : emphasis === 'paid' ? 'var(--success)' : 'var(--foreground)';
   return (
     <div
       className="rounded-lg border p-4"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: '#8b7355' }}>
+      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
         {label}
       </p>
       <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: valueColor }}>
         {value}
       </p>
       {detail && (
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           {detail}
         </p>
       )}
@@ -79,13 +79,13 @@ export default async function ShowFinancialsPage({
       <main className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
         <div>
           {crumbs}
-          <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+          <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
             Financials
           </h1>
         </div>
         <div
           className="rounded border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           Couldn&rsquo;t load the financials for this show. Reload the page, and if it keeps
           happening check that you&rsquo;re assigned to this show.
@@ -106,10 +106,10 @@ export default async function ShowFinancialsPage({
 
       <div>
         {crumbs}
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Financials
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — what the show has billed, collected, and is still owed.
         </p>
       </div>
@@ -120,7 +120,7 @@ export default async function ShowFinancialsPage({
         <Link
           href={`/admin/shows/${id}/financials/exhibitors`}
           className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-          style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
         >
           <div className="flex items-start gap-3">
             <div className="text-2xl" aria-hidden>
@@ -129,19 +129,19 @@ export default async function ShowFinancialsPage({
             <div>
               <h2
                 className="text-lg font-semibold flex items-center flex-wrap gap-2"
-                style={{ color: '#2c1810' }}
+                style={{ color: 'var(--foreground)' }}
               >
                 Exhibitors
                 {totals.accounts_outstanding > 0 && (
                   <span
                     className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ backgroundColor: '#b42318', color: '#ffffff' }}
+                    style={{ backgroundColor: 'var(--error)', color: 'var(--surface)' }}
                   >
                     {totals.accounts_outstanding} owing
                   </span>
                 )}
               </h2>
-              <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+              <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                 What each exhibitor owes, their itemized bill, and recording what they paid.
               </p>
             </div>
@@ -151,17 +151,17 @@ export default async function ShowFinancialsPage({
         <Link
           href={`/admin/shows/${id}/financials/reports`}
           className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-          style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
         >
           <div className="flex items-start gap-3">
             <div className="text-2xl" aria-hidden>
               📈
             </div>
             <div>
-              <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+              <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
                 Reports
               </h2>
-              <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+              <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                 Revenue, balances, registrations, payments, and fees sold — with CSV and print.
               </p>
             </div>
@@ -171,7 +171,7 @@ export default async function ShowFinancialsPage({
 
       <div
         className="rounded border px-4 py-3 text-sm"
-        style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         The app doesn&rsquo;t process payments. Amounts billed come from the show&rsquo;s own fee
         schedule, and payments are what your office records collecting at the desk — cash,
@@ -179,7 +179,7 @@ export default async function ShowFinancialsPage({
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
           Money
         </h2>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -217,7 +217,7 @@ export default async function ShowFinancialsPage({
           />
         </div>
         {totals.credit_cents > 0 && (
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Outstanding counts only what is owed. The {formatMoney(totals.credit_cents)} in
             overpayments is deliberately not netted off it — one exhibitor paying twice
             doesn&rsquo;t reduce what anyone else owes.
@@ -227,23 +227,23 @@ export default async function ShowFinancialsPage({
 
       {financials.side_pots.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
             Side pots
           </h2>
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Pot money is tracked separately and is not part of any exhibitor&rsquo;s bill or
             balance above — buy-ins are collected per pot, not on the show bill.
           </p>
-          <div className="overflow-x-auto rounded-lg border" style={{ borderColor: '#d4b896' }}>
-            <table className="w-full text-sm" style={{ backgroundColor: '#ffffff' }}>
+          <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+            <table className="w-full text-sm" style={{ backgroundColor: 'var(--surface)' }}>
               <thead>
-                <tr style={{ backgroundColor: '#faf7f2' }}>
+                <tr style={{ backgroundColor: 'var(--background)' }}>
                   {['Side pot', 'Status', 'Paid entries', 'Buy-ins', 'Payout pool', 'Show keeps'].map(
                     (h, i) => (
                       <th
                         key={h}
                         className={`px-3 py-2 font-semibold ${i === 0 || i === 1 ? 'text-left' : 'text-right'}`}
-                        style={{ color: '#5d4a37' }}
+                        style={{ color: 'var(--text-deep)' }}
                       >
                         {h}
                       </th>
@@ -251,25 +251,25 @@ export default async function ShowFinancialsPage({
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+              <tbody className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
                 {financials.side_pots.map((pot) => (
                   <tr key={pot.side_pot_id}>
-                    <td className="px-3 py-2" style={{ color: '#2c1810' }}>
+                    <td className="px-3 py-2" style={{ color: 'var(--foreground)' }}>
                       {pot.name}
                     </td>
-                    <td className="px-3 py-2" style={{ color: '#8b7355' }}>
+                    <td className="px-3 py-2" style={{ color: 'var(--muted)' }}>
                       {pot.status}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: '#5d4a37' }}>
+                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--text-deep)' }}>
                       {pot.paid_count} / {pot.entry_count}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: '#2c1810' }}>
+                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--foreground)' }}>
                       {formatMoney(pot.buy_ins_cents)}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: '#5d4a37' }}>
+                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--text-deep)' }}>
                       {formatMoney(pot.payout_pool_cents)}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: '#5d4a37' }}>
+                    <td className="px-3 py-2 text-right tabular-nums" style={{ color: 'var(--text-deep)' }}>
                       {formatMoney(pot.retained_cents)}
                     </td>
                   </tr>
@@ -277,8 +277,8 @@ export default async function ShowFinancialsPage({
               </tbody>
             </table>
           </div>
-          <p className="text-sm" style={{ color: '#8b7355' }}>
-            <Link href={`/admin/shows/${id}/side-pots`} className="underline" style={{ color: '#8b4513' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
+            <Link href={`/admin/shows/${id}/side-pots`} className="underline" style={{ color: 'var(--accent)' }}>
               Manage side pots
             </Link>
           </p>

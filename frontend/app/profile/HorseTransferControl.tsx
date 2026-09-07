@@ -82,7 +82,7 @@ export default function HorseTransferControl({
   if (sent) {
     return (
       <div className="mt-3 space-y-2">
-        <p className="text-xs" style={{ color: '#5d4a37' }}>
+        <p className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Transfer request sent for <strong>{horseName}</strong>. You stay the owner until{' '}
           {sent.approver_name} accepts.
         </p>
@@ -94,7 +94,7 @@ export default function HorseTransferControl({
         <button
           onClick={() => { setSent(null); setOpen(false); setTargetId(''); setNote(''); }}
           className="text-xs hover:underline"
-          style={{ color: '#8b7355' }}
+          style={{ color: 'var(--muted)' }}
         >
           Done
         </button>
@@ -107,7 +107,7 @@ export default function HorseTransferControl({
       <button
         onClick={() => setOpen(true)}
         className="text-xs font-medium hover:underline"
-        style={{ color: '#8b4513' }}
+        style={{ color: 'var(--accent)' }}
         title={`Transfer ownership of ${horseName} to another registered user`}
       >
         Transfer ownership
@@ -118,19 +118,19 @@ export default function HorseTransferControl({
   return (
     <div
       className="mt-3 w-full rounded border p-3 space-y-2"
-      style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
     >
-      <p className="text-xs" style={{ color: '#5d4a37' }}>
+      <p className="text-xs" style={{ color: 'var(--text-deep)' }}>
         Transfer <strong>{horseName}</strong> to another registered user. They have to accept before
         anything changes.
       </p>
-      <label className="text-xs block" style={{ color: '#8b7355' }}>
+      <label className="text-xs block" style={{ color: 'var(--muted)' }}>
         New owner
         <select
           value={targetId}
           onChange={(e) => setTargetId(e.target.value)}
           className="mt-1 w-full border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         >
           <option value="">Select a registered user…</option>
           {people.map((p) => (
@@ -138,7 +138,7 @@ export default function HorseTransferControl({
           ))}
         </select>
       </label>
-      <label className="text-xs block" style={{ color: '#8b7355' }}>
+      <label className="text-xs block" style={{ color: 'var(--muted)' }}>
         Note (optional)
         <input
           value={note}
@@ -146,7 +146,7 @@ export default function HorseTransferControl({
           maxLength={500}
           placeholder="e.g. sold at the June sale — congratulations!"
           className="mt-1 w-full border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
       </label>
       <div className="flex flex-wrap items-center gap-2">
@@ -154,7 +154,7 @@ export default function HorseTransferControl({
           onClick={submit}
           disabled={sending || !targetId}
           className="px-3 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
           title={!targetId ? 'Choose who is receiving this horse' : undefined}
         >
           {sending ? 'Sending…' : 'Send transfer request'}
@@ -162,17 +162,17 @@ export default function HorseTransferControl({
         <button
           onClick={() => { setOpen(false); setError(null); }}
           className="text-xs hover:underline"
-          style={{ color: '#8b7355' }}
+          style={{ color: 'var(--muted)' }}
         >
           Cancel
         </button>
       </div>
       {people.length === 0 && (
-        <p className="text-xs" style={{ color: '#8b7355' }}>
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
           Loading registered users…
         </p>
       )}
-      {error && <p className="text-xs" style={{ color: '#991b1b' }}>{error}</p>}
+      {error && <p className="text-xs" style={{ color: 'var(--error-strong)' }}>{error}</p>}
     </div>
   );
 }

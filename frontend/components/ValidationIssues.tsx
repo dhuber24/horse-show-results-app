@@ -27,13 +27,13 @@ export type ValidationResult = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#e8d5b7',
-  bg: '#fffaf3',
-  ok: '#2f6b3f',
-  error: '#b42318',
-  warning: '#92400e',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border-subtle)',
+  bg: 'var(--surface)',
+  ok: 'var(--success)',
+  error: 'var(--error)',
+  warning: 'var(--warning)',
 } as const;
 
 export default function ValidationIssues({

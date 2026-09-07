@@ -15,10 +15,10 @@ export default async function ShowResultsPage({ params }: { params: Promise<{ id
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <ShowHubHeader show={show} backHref={`/shows/${id}/live`} backLabel="Back to Show Menu" />
 
-      <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Results</h2>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Results</h2>
 
       {visible.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No classes have been posted yet.</p>
+        <p style={{ color: 'var(--muted)' }}>No classes have been posted yet.</p>
       ) : (
         <ResultsSearch showId={id} classes={visible} resultsIndex={resultsIndex} />
       )}

@@ -33,11 +33,11 @@ export default async function NewHorsePage({
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Link href="/profile?tab=horses" className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+        <Link href="/profile?tab=horses" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
           {'<- Back to My Horses'}
         </Link>
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Add a Horse</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Add a Horse</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           A horse needs a registered name and an owner. Everything else can be skipped and filled in later.
         </p>
       </div>

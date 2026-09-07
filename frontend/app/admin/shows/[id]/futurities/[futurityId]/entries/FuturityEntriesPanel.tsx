@@ -48,7 +48,7 @@ export default function FuturityEntriesPanel({
       {futurity.fee_tiers.length === 0 ? (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           <strong>No entry fee categories set up.</strong> A futurity prices each
           class by the entrant&rsquo;s category, so entries are refused until at
@@ -58,7 +58,7 @@ export default function FuturityEntriesPanel({
         <button
           onClick={() => setAdding(true)}
           className="px-4 py-2 rounded text-sm font-medium"
-          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+          style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
         >
           + Enter a horse
         </button>
@@ -190,7 +190,7 @@ function EntryRow({
               refused: the office is taking a paper form across a counter, and
               blocking the entry would not produce the sire's name. */}
           {entry.missing_horse_details.length > 0 && (
-            <span className="block text-xs" style={{ color: '#922' }}>
+            <span className="block text-xs" style={{ color: 'var(--error-strong)' }}>
               missing {entry.missing_horse_details.join(', ')}
             </span>
           )}
@@ -251,7 +251,7 @@ function EntryRow({
         <td className="py-2 pr-3">
           {formatDate(entry.entered_at)}
           {entry.is_late && (
-            <span className="ml-1 text-xs" style={{ color: '#922' }}>
+            <span className="ml-1 text-xs" style={{ color: 'var(--error-strong)' }}>
               late
             </span>
           )}
@@ -290,7 +290,7 @@ function EntryRow({
       </tr>
       {error && (
         <tr>
-          <td colSpan={8} className="pb-2 text-xs" style={{ color: '#922' }}>
+          <td colSpan={8} className="pb-2 text-xs" style={{ color: 'var(--error-strong)' }}>
             {error}
           </td>
         </tr>
@@ -376,7 +376,7 @@ function AddEntryForm({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
@@ -504,7 +504,7 @@ function AddEntryForm({
           onClick={submit}
           disabled={busy}
           className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: COLORS.text, color: '#f5ede0' }}
+          style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
         >
           {busy ? 'Entering…' : 'Enter'}
         </button>

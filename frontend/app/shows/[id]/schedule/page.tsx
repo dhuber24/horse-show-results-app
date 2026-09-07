@@ -51,10 +51,10 @@ export default async function ShowSchedulePage({ params }: { params: Promise<{ i
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <ShowHubHeader show={show} backHref={back.backHref} backLabel={back.backLabel} />
 
-      <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Class Schedule</h2>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Class Schedule</h2>
 
       {visible.length === 0 ? (
-        <p style={{ color: '#8b7355' }}>No classes have been posted yet.</p>
+        <p style={{ color: 'var(--muted)' }}>No classes have been posted yet.</p>
       ) : (
         <ScheduleBoard
           showId={id}

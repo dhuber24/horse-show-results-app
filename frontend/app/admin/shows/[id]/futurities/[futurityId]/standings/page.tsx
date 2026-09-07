@@ -102,7 +102,7 @@ export default async function FuturityStandingsPage({
                             </span>
                           )}
                           {row.missing_class_numbers.length > 0 && (
-                            <span className="block" style={{ color: '#922' }}>
+                            <span className="block" style={{ color: 'var(--error-strong)' }}>
                               still needs{' '}
                               {row.missing_class_numbers
                                 .map((n) => (n.includes('(any)') ? n : `#${n}`))

@@ -167,11 +167,11 @@ export interface Standings {
 }
 
 export const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  accent: '#8b4513',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  accent: 'var(--accent)',
 } as const;
 
 export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -297,7 +297,7 @@ export function PricedClassWarning({
   return (
     <div
       className="rounded border px-3 py-2 text-sm"
-      style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+      style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
     >
       <strong>
         {priced.length === 1 ? 'One class carries' : `${priced.length} classes carry`} their
@@ -311,7 +311,7 @@ export function PricedClassWarning({
           <Link
             href={`/admin/shows/${showId}/classes`}
             className="underline"
-            style={{ color: '#922' }}
+            style={{ color: 'var(--error-strong)' }}
           >
             #{c.class_number}
           </Link>

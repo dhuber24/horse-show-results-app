@@ -16,9 +16,9 @@ import { useMemo, useState } from 'react';
  * goes into the sheet, which autosaves as it always did.
  */
 
-const INK = '#2c1810';
-const MUTED = '#8b7355';
-const BORDER = '#d4b896';
+const INK = 'var(--foreground)';
+const MUTED = 'var(--muted)';
+const BORDER = 'var(--border)';
 
 export interface JudgingPenalty {
   id: string;
@@ -223,7 +223,7 @@ export default function JudgeCardPanel({
   return (
     <div
       className="mb-4 rounded-lg border p-4"
-      style={{ borderColor: BORDER, backgroundColor: '#fffdf9' }}
+      style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
     >
       <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
         <div>
@@ -244,7 +244,7 @@ export default function JudgeCardPanel({
       {system.notes && (
         <p
           className="text-xs mb-3 px-2 py-1.5 rounded"
-          style={{ backgroundColor: '#faf7f2', color: MUTED, border: `1px solid #e8ddd0` }}
+          style={{ backgroundColor: 'var(--background)', color: MUTED, border: `1px solid var(--border-subtle)` }}
         >
           {system.notes}
         </p>
@@ -264,7 +264,7 @@ export default function JudgeCardPanel({
               value={value}
               onChange={(e) => setScore(i, e.target.value)}
               className="w-16 min-h-[44px] border rounded-lg px-1 text-center text-base"
-              style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+              style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
               placeholder="0"
             />
           </label>
@@ -282,7 +282,7 @@ export default function JudgeCardPanel({
               type="button"
               onClick={() => addPenalty(p)}
               className="text-xs px-2 py-1 rounded border hover:underline"
-              style={{ borderColor: BORDER, color: '#8b4513' }}
+              style={{ borderColor: BORDER, color: 'var(--accent)' }}
               title={p.value != null ? `${p.value} points` : `${p.min_value}–${p.max_value} points`}
             >
               + {p.code ?? p.label}
@@ -312,7 +312,7 @@ export default function JudgeCardPanel({
                   value={p.label}
                   onChange={(e) => setPenalty(i, { label: e.target.value })}
                   className="flex-1 min-w-[10rem] min-h-[44px] border rounded-lg px-2 text-sm"
-                  style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+                  style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
                   placeholder="What the judge called"
                 />
                 <input
@@ -321,7 +321,7 @@ export default function JudgeCardPanel({
                   value={p.value}
                   onChange={(e) => setPenalty(i, { value: e.target.value })}
                   className="w-20 min-h-[44px] border rounded-lg px-2 text-center text-sm"
-                  style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+                  style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
                   placeholder="pts"
                 />
                 <input
@@ -330,7 +330,7 @@ export default function JudgeCardPanel({
                   value={p.sequence}
                   onChange={(e) => setPenalty(i, { sequence: e.target.value })}
                   className="w-20 min-h-[44px] border rounded-lg px-2 text-center text-sm"
-                  style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+                  style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
                   placeholder={`${system.unit_label} #`}
                   title={`Which ${system.unit_label.toLowerCase()} it happened on. Leave blank for the run as a whole.`}
                 />
@@ -338,7 +338,7 @@ export default function JudgeCardPanel({
                   type="button"
                   onClick={() => removePenalty(i)}
                   className="text-xs hover:underline"
-                  style={{ color: '#991b1b' }}
+                  style={{ color: 'var(--error-strong)' }}
                 >
                   Remove
                 </button>
@@ -350,7 +350,7 @@ export default function JudgeCardPanel({
 
       <div
         className="flex items-center gap-4 flex-wrap p-3 rounded mb-3"
-        style={{ backgroundColor: '#faf7f2', border: `1px solid #e8ddd0` }}
+        style={{ backgroundColor: 'var(--background)', border: `1px solid var(--border-subtle)` }}
       >
         <div>
           <p className="text-xs" style={{ color: MUTED }}>
@@ -370,7 +370,7 @@ export default function JudgeCardPanel({
             value={override}
             onChange={(e) => setOverride(e.target.value)}
             className="w-24 min-h-[44px] border rounded-lg px-2 text-center"
-            style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+            style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
             placeholder="—"
             title="Use the judge's own number instead of the card's arithmetic. Recorded in the audit history."
           />
@@ -385,7 +385,7 @@ export default function JudgeCardPanel({
               value={overrideReason}
               onChange={(e) => setOverrideReason(e.target.value)}
               className="min-h-[44px] border rounded-lg px-2 text-sm"
-              style={{ borderColor: BORDER, backgroundColor: '#ffffff' }}
+              style={{ borderColor: BORDER, backgroundColor: 'var(--surface)' }}
               placeholder="What the judge said"
             />
           </label>
@@ -394,7 +394,7 @@ export default function JudgeCardPanel({
           <p className="text-xs" style={{ color: MUTED }}>
             Score
           </p>
-          <p className="text-2xl font-bold leading-none" style={{ color: '#8b4513' }}>
+          <p className="text-2xl font-bold leading-none" style={{ color: 'var(--accent)' }}>
             {effective ?? '—'}
           </p>
         </div>
@@ -403,7 +403,7 @@ export default function JudgeCardPanel({
       {error && (
         <div
           className="mb-3 px-3 py-2 rounded text-sm"
-          style={{ backgroundColor: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5' }}
+          style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid var(--error-border)' }}
         >
           <p>⚠ {error}</p>
           {issues.length > 0 && (
@@ -422,7 +422,7 @@ export default function JudgeCardPanel({
           onClick={() => void save()}
           disabled={saving}
           className="min-h-[44px] px-5 rounded-lg font-semibold text-sm disabled:opacity-50"
-          style={{ backgroundColor: INK, color: '#f5ede0' }}
+          style={{ backgroundColor: INK, color: 'var(--bg-subtle)' }}
         >
           {saving ? 'Saving…' : 'Save card'}
         </button>

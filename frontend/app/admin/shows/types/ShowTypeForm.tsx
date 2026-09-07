@@ -79,9 +79,9 @@ export default function ShowTypeForm({ showType }: { showType?: ShowType }) {
   };
 
   return (
-    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+    <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
       <div>
-        <label className="text-sm" style={{ color: '#8b7355' }}>Code *</label>
+        <label className="text-sm" style={{ color: 'var(--muted)' }}>Code *</label>
         <input
           name="code"
           value={form.code}
@@ -91,7 +91,7 @@ export default function ShowTypeForm({ showType }: { showType?: ShowType }) {
         />
       </div>
       <div>
-        <label className="text-sm" style={{ color: '#8b7355' }}>Name *</label>
+        <label className="text-sm" style={{ color: 'var(--muted)' }}>Name *</label>
         <input
           name="name"
           value={form.name}
@@ -101,7 +101,7 @@ export default function ShowTypeForm({ showType }: { showType?: ShowType }) {
         />
       </div>
       <div>
-        <label className="text-sm" style={{ color: '#8b7355' }}>Config (JSON)</label>
+        <label className="text-sm" style={{ color: 'var(--muted)' }}>Config (JSON)</label>
         <textarea
           name="config"
           value={form.config}
@@ -110,7 +110,7 @@ export default function ShowTypeForm({ showType }: { showType?: ShowType }) {
           className="w-full border rounded px-3 py-2 font-mono text-sm"
           placeholder='{}'
         />
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Optional per-type configuration (e.g. rule overrides). Leave as {'{}'} for now.
         </p>
       </div>
@@ -120,7 +120,7 @@ export default function ShowTypeForm({ showType }: { showType?: ShowType }) {
           onClick={handleSave}
           disabled={saving}
           className="px-5 py-2 rounded font-medium disabled:opacity-50"
-          style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+          style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
         >
           {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Show Type'}
         </button>

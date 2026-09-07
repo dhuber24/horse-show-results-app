@@ -71,7 +71,7 @@ export default function AddExhibitorForm({
   };
 
   return (
-    <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: COLORS.border, backgroundColor: '#fffdf9' }}>
+    <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold" style={{ color: COLORS.text }}>Add someone to this show</h3>
         <button type="button" onClick={onCancel} className="text-xs hover:underline" style={{ color: COLORS.muted }}>

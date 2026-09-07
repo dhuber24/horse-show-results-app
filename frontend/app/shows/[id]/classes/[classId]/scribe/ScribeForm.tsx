@@ -321,17 +321,17 @@ export default function ScribeForm({
             <Link
               href={`/shows/${showId}/classes/${prevClass.id}/scribe`}
               className="font-medium hover:underline min-h-[44px] flex items-center"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               ← {prevClass.class_number}
             </Link>
           ) : <span />}
-          <span style={{ color: '#8b7355' }}>Class {classIndex + 1} of {classes.length}</span>
+          <span style={{ color: 'var(--muted)' }}>Class {classIndex + 1} of {classes.length}</span>
           {nextClass ? (
             <Link
               href={`/shows/${showId}/classes/${nextClass.id}/scribe`}
               className="font-medium hover:underline min-h-[44px] flex items-center"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               {nextClass.class_number} →
             </Link>
@@ -363,26 +363,26 @@ export default function ScribeForm({
 
       {/* Progress */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm" style={{ color: '#8b7355' }}>
+        <span className="text-sm" style={{ color: 'var(--muted)' }}>
           {placedCount} of {activeEntries.length} placed
           {dqEntries.length > 0 && ` · ${dqEntries.length} DQ`}
         </span>
         {confirmClear ? (
           <span className="flex items-center gap-2">
-            <span className="text-xs" style={{ color: '#5c3d1e' }}>
+            <span className="text-xs" style={{ color: 'var(--text-deep)' }}>
               Clear {cards.length > 1 ? `${activeCard.label}'s` : 'all'} placings?
             </span>
             <button type="button" onClick={() => { setConfirmClear(false); handleClearAll(); }}
               className="text-xs text-red-600 hover:underline">Yes</button>
             <button type="button" onClick={() => setConfirmClear(false)}
-              className="text-xs hover:underline" style={{ color: '#8b7355' }}>Cancel</button>
+              className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>Cancel</button>
           </span>
         ) : (
           <button
             type="button"
             onClick={() => setConfirmClear(true)}
             className="text-xs hover:underline"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Clear all
           </button>
@@ -391,12 +391,12 @@ export default function ScribeForm({
 
       <table className="w-full border-collapse mb-4">
         <thead>
-          <tr className="text-left" style={{ borderBottom: '2px solid #d4b896' }}>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Back #</th>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Exhibitor</th>
-            <th className="py-2 pr-4 text-sm font-semibold hidden md:table-cell" style={{ color: '#2c1810' }}>Horse</th>
-            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: '#2c1810' }}>Result</th>
-            <th className="py-2 text-sm font-semibold" style={{ color: '#2c1810' }}>Place</th>
+          <tr className="text-left" style={{ borderBottom: '2px solid var(--border)' }}>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Back #</th>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Exhibitor</th>
+            <th className="py-2 pr-4 text-sm font-semibold hidden md:table-cell" style={{ color: 'var(--foreground)' }}>Horse</th>
+            <th className="py-2 pr-4 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Result</th>
+            <th className="py-2 text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Place</th>
           </tr>
         </thead>
         <tbody>
@@ -410,17 +410,17 @@ export default function ScribeForm({
                 ref={(el) => { rowRefs.current[i] = el; }}
                 onClick={() => setSelectedIndex(i)}
                 style={{
-                  borderBottom: '1px solid #e8ddd0',
-                  backgroundColor: isSelected ? '#f5ede0' : tied ? '#fffbeb' : undefined,
+                  borderBottom: '1px solid var(--border-subtle)',
+                  backgroundColor: isSelected ? 'var(--bg-subtle)' : tied ? 'var(--warning-bg)' : undefined,
                   cursor: 'pointer',
-                  outline: isSelected ? '2px solid #8b4513' : undefined,
+                  outline: isSelected ? '2px solid var(--accent)' : undefined,
                 }}
               >
-                <td className="py-4 pr-4 font-medium text-base" style={{ color: '#2c1810' }}>
+                <td className="py-4 pr-4 font-medium text-base" style={{ color: 'var(--foreground)' }}>
                   {entry.back_number ?? '—'}
                 </td>
-                <td className="py-4 pr-4 text-base" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
-                <td className="py-4 pr-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
+                <td className="py-4 pr-4 text-base" style={{ color: 'var(--foreground)' }}>{entry.exhibitorName}</td>
+                <td className="py-4 pr-4 hidden md:table-cell" style={{ color: 'var(--muted)' }}>{entry.horseName}</td>
                 <td className="py-4 pr-4">
                   {/* Flat equitation words its disqualification as "should not
                       be placed" — a state a blank place number cannot express,
@@ -431,9 +431,9 @@ export default function ScribeForm({
                     onClick={(e) => e.stopPropagation()}
                     className="min-h-[44px] border rounded-lg px-2 text-sm"
                     style={{
-                      borderColor: outcome === 'placed' ? '#d4b896' : '#fca5a5',
-                      backgroundColor: outcome === 'placed' ? '#fffdf9' : '#fef2f2',
-                      color: '#2c1810',
+                      borderColor: outcome === 'placed' ? 'var(--border)' : 'var(--error-border)',
+                      backgroundColor: outcome === 'placed' ? 'var(--surface)' : 'var(--error-bg)',
+                      color: 'var(--foreground)',
                     }}
                   >
                     {OUTCOME_CHOICES.map((o) => (
@@ -463,15 +463,15 @@ export default function ScribeForm({
                       }
                       className="w-20 min-h-[44px] border rounded-lg px-2 text-center text-lg"
                       style={{
-                        borderColor: isSelected ? '#8b4513' : '#d4b896',
-                        backgroundColor: '#fffdf9',
+                        borderColor: isSelected ? 'var(--accent)' : 'var(--border)',
+                        backgroundColor: 'var(--surface)',
                       }}
                       placeholder="—"
                     />
                     {tied && (
                       <span
                         className="text-xs font-semibold px-2 py-0.5 rounded"
-                        style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+                        style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
                       >
                         TIE
                       </span>
@@ -482,15 +482,15 @@ export default function ScribeForm({
             );
           })}
           {dqEntries.map((entry) => (
-            <tr key={entry.id} style={{ borderBottom: '1px solid #e8ddd0', backgroundColor: '#f9f9f9' }}>
-              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>{entry.back_number ?? '—'}</td>
-              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>{entry.exhibitorName}</td>
-              <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: '#bbb' }}>{entry.horseName}</td>
-              <td className="py-4 pr-4 text-sm" style={{ color: '#bbb' }}>—</td>
+            <tr key={entry.id} style={{ borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
+              <td className="py-4 pr-4 text-sm" style={{ color: 'var(--text-dimmed)' }}>{entry.back_number ?? '—'}</td>
+              <td className="py-4 pr-4 text-sm" style={{ color: 'var(--text-dimmed)' }}>{entry.exhibitorName}</td>
+              <td className="py-4 pr-4 text-sm hidden md:table-cell" style={{ color: 'var(--text-dimmed)' }}>{entry.horseName}</td>
+              <td className="py-4 pr-4 text-sm" style={{ color: 'var(--text-dimmed)' }}>—</td>
               <td className="py-4">
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded"
-                  style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}
+                  style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid var(--error-border)' }}
                 >
                   DQ
                 </span>
@@ -503,7 +503,7 @@ export default function ScribeForm({
       {gapsIn(places).length > 0 && (
         <div
           className="mb-3 px-3 py-2 rounded text-sm"
-          style={{ backgroundColor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}
+          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)', border: '1px solid var(--warning-border)' }}
         >
           ⚠ Place gap — missing: {gapsIn(places).join(', ')}
         </div>

@@ -33,10 +33,10 @@ export default async function SidePotEntriesPage({
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
         <Breadcrumbs crumbs={potCrumbs(id, show.name, pot, 'Side Pot Entries')} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Side Pot Entries
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {pot.name} — {formatCents(pot.entry_fee_cents)} per exhibitor. Exhibitors join the
           pot at the show level, so one entry here covers every bundled class.
         </p>

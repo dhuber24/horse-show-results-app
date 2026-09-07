@@ -49,7 +49,7 @@ export default function DeleteFuturityButton({
       {error && <p className="text-red-600 text-sm mb-1">{error}</p>}
       {confirming ? (
         <div className="flex items-center gap-2">
-          <span className="text-xs" style={{ color: '#5c3d1e' }}>
+          <span className="text-xs" style={{ color: 'var(--text-deep)' }}>
             Delete {name}?
           </span>
           <button
@@ -63,7 +63,7 @@ export default function DeleteFuturityButton({
             onClick={() => setConfirming(false)}
             disabled={working}
             className="text-xs hover:underline"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Cancel
           </button>

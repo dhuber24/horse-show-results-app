@@ -54,18 +54,18 @@ export default function VenueAdminPanel({
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {admins.length === 0 && (
-        <p className="text-sm" style={{ color: '#8b7355' }}>No Secretaries assigned to this venue.</p>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>No Secretaries assigned to this venue.</p>
       )}
 
       <ul className="space-y-1">
         {admins.map(a => (
           <li key={a.id} className="flex items-center justify-between text-sm py-1 flex-wrap gap-2">
-            <span style={{ color: '#2c1810' }}>
-              {a.full_name} <span style={{ color: '#8b7355' }}>({a.email})</span>
+            <span style={{ color: 'var(--foreground)' }}>
+              {a.full_name} <span style={{ color: 'var(--muted)' }}>({a.email})</span>
             </span>
             {confirmRemoveId === a.id ? (
               <span className="flex items-center gap-2">
-                <span className="text-xs" style={{ color: '#5c3d1e' }}>Remove {a.full_name}?</span>
+                <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Remove {a.full_name}?</span>
                 <button
                   disabled={busy}
                   onClick={() => { remove(a.id); setConfirmRemoveId(null); }}
@@ -76,7 +76,7 @@ export default function VenueAdminPanel({
                 <button
                   onClick={() => setConfirmRemoveId(null)}
                   className="text-xs hover:underline"
-                  style={{ color: '#8b7355' }}
+                  style={{ color: 'var(--muted)' }}
                 >
                   Cancel
                 </button>
@@ -100,7 +100,7 @@ export default function VenueAdminPanel({
             value={selectedUserId}
             onChange={(e) => setSelectedUserId(e.target.value)}
             className="border rounded px-2 py-1 text-sm flex-1"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
           >
             <option value="" disabled>Select a Show Secretary to add…</option>
             {available.map(u => (
@@ -113,13 +113,13 @@ export default function VenueAdminPanel({
               if (selectedUserId) { add(selectedUserId); setSelectedUserId(''); }
             }}
             className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-            style={{ backgroundColor: '#8b4513' }}
+            style={{ backgroundColor: 'var(--accent)' }}
           >
             Add
           </button>
         </div>
       ) : (
-        <p className="text-xs" style={{ color: '#8b7355' }}>
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
           No additional Secretaries available. Create one in{' '}
           <Link href="/admin/users" className="underline">User Management</Link>.
         </p>

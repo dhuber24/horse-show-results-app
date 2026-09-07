@@ -70,7 +70,7 @@ export default function RegistrationSection({
   return (
     <section
       className="mt-4 rounded-lg border overflow-hidden"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       <button
         type="button"
@@ -81,27 +81,27 @@ export default function RegistrationSection({
           locked ? lockedReason : open ? `Hide ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`
         }
         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left disabled:cursor-not-allowed"
-        style={{ backgroundColor: open ? '#faf4ec' : '#ffffff' }}
+        style={{ backgroundColor: open ? 'var(--background)' : 'var(--surface)' }}
       >
         <span className="flex items-center gap-3 min-w-0">
           <span
             aria-hidden="true"
             className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-semibold"
             style={{
-              backgroundColor: done ? '#2f6b3f' : locked ? '#e8d5b7' : '#5c3d1e',
-              color: done || !locked ? '#fff' : '#a08a6e',
+              backgroundColor: done ? 'var(--success)' : locked ? 'var(--border-subtle)' : 'var(--text-deep)',
+              color: done || !locked ? 'var(--surface)' : 'var(--text-dimmed)',
             }}
           >
             {done ? '✓' : step}
           </span>
           <span className="min-w-0">
-            <span className="block font-semibold" style={{ color: locked ? '#a08a6e' : '#2c1810' }}>
+            <span className="block font-semibold" style={{ color: locked ? 'var(--text-dimmed)' : 'var(--foreground)' }}>
               <span aria-hidden="true" className="mr-1.5">
                 {icon}
               </span>
               {title}
             </span>
-            <span className="block text-xs mt-0.5" style={{ color: '#8b7355' }}>
+            <span className="block text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
               {locked ? lockedReason : summary}
             </span>
           </span>
@@ -110,7 +110,7 @@ export default function RegistrationSection({
           <span
             className="text-sm shrink-0 transition-transform"
             aria-hidden="true"
-            style={{ color: '#8b4513', transform: open ? 'rotate(90deg)' : 'none' }}
+            style={{ color: 'var(--accent)', transform: open ? 'rotate(90deg)' : 'none' }}
           >
             ▶
           </span>
@@ -118,20 +118,20 @@ export default function RegistrationSection({
       </button>
 
       {open && (
-        <div className="px-4 pb-4 pt-1 border-t" style={{ borderColor: '#f0e4d0' }}>
+        <div className="px-4 pb-4 pt-1 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
           {children}
 
           {(onBack || onNext || footerNote) && (
             <div
               className="mt-4 pt-3 border-t flex flex-wrap items-center gap-3"
-              style={{ borderColor: '#f0e4d0' }}
+              style={{ borderColor: 'var(--bg-subtle)' }}
             >
               {onBack ? (
                 <button
                   type="button"
                   onClick={onBack}
                   className="text-sm rounded px-3 py-2 border"
-                  style={{ borderColor: '#d4b896', color: '#2c1810', backgroundColor: '#fff' }}
+                  style={{ borderColor: 'var(--border)', color: 'var(--foreground)', backgroundColor: 'var(--surface)' }}
                 >
                   ← Back
                 </button>
@@ -147,12 +147,12 @@ export default function RegistrationSection({
                     disabled={Boolean(nextDisabledReason)}
                     title={nextDisabledReason ?? undefined}
                     className="text-sm rounded px-4 py-2 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: '#5c3d1e' }}
+                    style={{ backgroundColor: 'var(--text-deep)' }}
                   >
                     {nextLabel ?? 'Next'} →
                   </button>
                   {nextDisabledReason && (
-                    <span className="text-xs text-right" style={{ color: '#b45309' }}>
+                    <span className="text-xs text-right" style={{ color: 'var(--warning)' }}>
                       {nextDisabledReason}
                     </span>
                   )}

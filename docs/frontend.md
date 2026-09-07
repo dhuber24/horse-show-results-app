@@ -64,6 +64,16 @@ A flat list could not be read as "what will this weekend cost me". A bag of shav
 
 A unit belonging to no group lands in **Other charges** rather than disappearing: a fee the show published and this list has never heard of is still one somebody will be asked for at the desk. Class entry fees are not here at all — they are per class and are printed with the classes, which the footnote says.
 
+### The Registration Wizard Is Read On A Phone
+
+`/shows/[id]/register` is filled in on a phone, in a barn aisle, usually one-handed. Two rules follow from that and apply to everything under `frontend/app/shows/[id]/register/` and to the shared `ReservationFields`:
+
+**A field description is one short line.** Not a sentence explaining the rule behind the field, and never a second sentence repeating something already on screen. Where the *why* genuinely matters — an APHA rule citation, where a derived minimum came from, what a championship class is — it rides on the element's `title` and the visible line states only what changes what the reader does. A hint that has to wrap three times at 390px is one nobody reads at any width.
+
+**Nothing is stated twice on the same screen.** Step one carried a checklist of every profile row with its hint underneath, directly above a form with the same labels, the same asterisks and two of the same hints word for word; what is outstanding is now one line, and the boxes are the form. The shavings ban is stated once at the top of the sign-up form and once against the bedding quantity — the two places it changes a decision — and nowhere else.
+
+Layout carries as much of this as the copy does. A row pairing text with a fixed-width control (`ReservationFields`' fee rows: two steppers, an input and a noun, ~200px of it) must stack below `sm`, or the text is wrung out in a column barely wider than a word — and the longest text in that row is the secretary's own `notes`, which no amount of editing here touches.
+
 ### Required Fields Are Marked In The Field
 
 `ProfileStep` puts the asterisk on the label and in the placeholder, not in a list above the form. A list of field names is something the reader has to hold in their head while looking at boxes that all look alike, and it grows into a paragraph nobody reads.
@@ -71,6 +81,98 @@ A unit belonging to no group lands in **Other charges** rather than disappearing
 Pressing the step's own **Save & continue** with a required box empty outlines exactly those boxes (two-pixel red border, tinted background, `aria-invalid`), names how many are outstanding in a line under the form, and moves focus to the first — an outline eight fields down is below the fold as often as not. The outline clears per field as it is typed into, so the red goes away at the moment it stops being true rather than on the next press.
 
 **The button is never disabled.** A disabled button with nothing pointing at the reason is the same dead end read a different way, which is the reasoning behind the `title`-on-disabled convention taken one step further: where a control can explain itself by acting, let it act.
+
+## Colour And Brand
+
+The app is **GaitDesk**. The supplied brand package arrives as a
+`GaitDesk-Brand/` folder at the repo root and is **gitignored** — 9.7 MB of
+masters that every clone and every Render Docker build would otherwise carry.
+The subset the app actually serves is committed, under `frontend/public/brand/`
+and `frontend/public/icons/`. Keep the master package wherever the brand work
+is stored; nothing in the build reads it.
+
+### Never write a hex literal in a component
+
+Every colour comes from a CSS custom property defined once in
+`frontend/app/globals.css`. Before the rebrand there were **3,418 hardcoded hex
+values across 238 files** and the token block that already existed was read by
+nothing, so changing the theme colour meant a 238-file sweep. Inline
+`style={{ color: 'var(--muted)' }}` is the house style — the tokens work in a
+`style` prop, so a component keeps its structure and still themes centrally.
+
+The five brand colours come from the supplied package's `README.md`. Since
+that package is not in the repo, this table is the in-repo record of them:
+
+| Role | Name | Hex |
+|---|---|---|
+| Primary | Ink | `#1A1C20` |
+| Accent | Ribbon Blue | `#2B5CB8` |
+| Dark ground | Slate | `#12141A` |
+| Page ground | Warm Paper | `#F6F4F0` |
+| On dark | Blue Light | `#7FA8EA` |
+
+Everything else in `globals.css` is derived to fill roles the brand sheet does
+not name — a neutral ramp from Paper to Ink, and the three status families.
+Every text token is AA or better on both `#F6F4F0` and `#FFFFFF`;
+`--border-strong` is held at 3:1 so form-control edges satisfy WCAG 1.4.11.
+**Changing the theme is an edit to `globals.css` and nothing else** — that is
+the whole point of the migration, so do not reintroduce a literal.
+
+### Two places a `var()` will not work
+
+- **`viewport.themeColor` in `app/layout.tsx`** and `theme_color` in
+  `public/manifest.json` are read by browser chrome before any stylesheet
+  applies, so both hold the literal `#2B5CB8` and must be kept in step.
+- Any colour handed to a non-CSS consumer — a canvas API, a charting library,
+  an SVG presentation *attribute* (`fill="..."` rather than `style`). There are
+  none today, and the sweep was only safe because of that.
+
+### Info folds into the accent
+
+The pre-rebrand palette used blue for *info* states. Ribbon Blue is now the
+brand accent, so a separate info blue is indistinguishable from ordinary
+chrome; `--accent` carries both and warning/success take the semantic load.
+
+### One status scheme, four call sites
+
+`PUBLISHED` is accent (an invitation), `ACTIVE` is success (live now),
+`COMPLETED`/`DRAFT` are muted (done). The map is duplicated in `app/ShowList.tsx`,
+`app/shows/[id]/_components/ShowHubHeader.tsx`, `app/dashboard/page.tsx` and
+`lib/my-shows.ts`; they disagreed before the rebrand — `ACTIVE` was green in two
+and amber in the other two — which read as harmless while the whole app was warm
+and read as a *warning badge* the moment the ground turned blue. They now agree.
+Consolidating the four into one module is worthwhile follow-up; until then,
+change all four.
+
+### Logo sizing is a brand constraint, not a layout preference
+
+The lockup is 1.91:1 because the horse mark is tall (256×360, so 0.71:1), and
+every stated minimum is a **width**: 180px for the lockup, 120px for
+`-no-tagline`, 140px stacked, 48px for the mark alone. Below the lockup minimum
+the tagline closes up into a smudge; below 48px the mark's mane strokes merge,
+and the brand sheet says to use the thickened favicon PNGs between 32 and 48px
+rather than scaling the mark down. The nav therefore pairs the mark with the
+separate 4:1 **wordmark** file rather than shrinking the lockup — the full
+lockup at its minimum would force a ~118px navbar. Login uses the lockup at
+220px, where the tagline is legible. The home page uses the **mark alone** above
+the Welcome heading at `w-16` (64px wide), since the navbar there already
+carries the name; the brand sheet's clear space is half a head width, which is
+what the 32px `mb-8` under it is for.
+
+**The nav mark is sized by height (`h-12`), so it renders ~34px wide** — under
+the 48px minimum. Left as-is deliberately: correcting it means either a ~75px
+navbar or swapping in a favicon PNG, and neither is obviously worth it at the
+size it is actually read. Size the mark by **width** anywhere else.
+
+Prefer the PNGs. Every SVG in the package is ~102–205KB because each one embeds
+the whole traced document and merely crops the viewBox, so the "wordmark" SVG
+still carries the horse geometry. The 400w PNGs are 10–28KB.
+
+### The service worker cache name is part of the rebrand
+
+`public/sw.js` sets `CACHE_NAME` and deletes every cache that does not match it
+on activate. It was bumped to `gaitdesk-v1` so returning users are not served the
+pre-rebrand shell. Bump it again on any future change to cached branding.
 
 ## Important Routes
 
@@ -98,7 +200,7 @@ Pressing the step's own **Save & continue** with a required box empty outlines e
 | `/dashboard` | Exhibitor entries dashboard ("My Show Entries") — per-show buttons to the show page and full class schedule |
 | `/my-shows` | Exhibitor "My Shows": itemized bill per show (classes, NSBA sanction, office charge, stalls/shavings/camping). No roll-up across shows — the office collects per show, against a back number, so the total lives on each show's Details page. This is what the navbar **My Shows** button opens |
 | `/horse-requests/[token]` | Approve or decline a horse link / ownership transfer. **A session is required, as the approver** — four branches: 401 offers sign-in carrying `?next=` back here, 403 explains who has to open it, 404 is a bad or withdrawn link, 200 is the decision card. The token names the request; it does not authorize the answer |
-| `/profile` | User account, memberships, horses, and show history tabbed view (`?tab=account|memberships|horses|history`) |
+| `/profile` | User account, memberships (association memberships **and** competition cards), horses, and show history tabbed view (`?tab=account|memberships|horses|history`) |
 | `/profile/horses/new` | Add-a-horse wizard (static segment, wins over `[id]`); seeds from `?name=` / `?association_id=&registration_number=` |
 | `/profile/horses/[id]` | Exhibitor horse record in four tabs — Details, People (owner/trainer/riders), Health & Documentation, Associations (`?section=details\|people\|health\|associations` selects a tab, plus the legacy `documents` alias for `health`) |
 | `/api/exhibitors/me` | Resolve exhibitor profile from signed-in user |
@@ -153,15 +255,20 @@ Pressing the step's own **Save & continue** with a required box empty outlines e
 | `/admin` | Admin landing |
 | `/admin/shows` | Admin/manager/secretary show list |
 | `/admin/shows/[id]` | Show management dashboard, including AQHA approval/validation card for AQHA shows |
-| `/admin/shows/[id]/setup` | Setup hub — the eight-step checklist, each row linking to its step |
-| `/admin/shows/[id]/setup/showbill` | **Setup Step 8** — which show bill exhibitors see: the one the app generates from this show's records (the default), or a PDF/image the show uploads in its place. Uploading and publishing are two separate presses, and the uploaded radio is disabled with a `title` until a file is on record — the affordance, not the enforcement; `PUT /shows/{id}/showbill-source` 422s regardless |
+| `/admin/shows/[id]/setup` | Setup hub — the nine-step checklist, each row linking to its step |
+| `/admin/shows/[id]/setup/showbill` | **Setup Step 9** — which show bill exhibitors see: **Showbill generated by GaitDesk** (the default, drawn from this show's own records) or **Our own show bill, uploaded** (a PDF/image in its place). Both controls sit on the option they belong to: an **Upload** / **Replace** button beside the uploaded option — which replaced a whole section below the choice, a heading and a paragraph of accepted formats for what is one button and one line about the file — and **Preview the show bill as exhibitors will see it** beside the generated one. Uploading and publishing are still two separate presses, and the uploaded radio is disabled with a `title` until a file is on record — the affordance, not the enforcement; `PUT /shows/{id}/showbill-source` 422s regardless |
+| `/admin/shows/[id]/setup/judges` | **Setup Step 2** — picks judges from the `judges` registry and assigns them to this show |
+| `/admin/shows/[id]/setup/lodging` | **Setup Step 3: Lodging & Boarding** — the stall / shavings / camping fee slots and the outside-shavings policy |
+| `/admin/shows/[id]/setup/fees` | **Setup Step 4: Show Fees** — the **Class Fees** box (`ShowChargesEditor`) and nothing else. The Club Sanctioned Fees box went to Step 6 and the "Save & continue to Classes" button went with it: once the sanctioning amounts moved it wrote nothing, since every class fee saves a row at a time |
+| `/admin/shows/[id]/setup/sanctioning` | **Setup Step 6: Sanctioning** — all three questions a club sanction asks, on one screen: which clubs, what each charges and how, and which classes each one approves. The rate carries a **unit** picked from the same list Step 4 offers — per class entered (the default), per exhibitor, per horse, or either of the last two times the judge panel (`show_sanctioning.fee_unit`, migration 133) — and the row states what the pair will actually charge, including that a per-judge fee charges nothing while no judges are assigned. Every unit counts that club's approved classes only. Each club's class list has two views — **All (n)** and **Ticked (n)** — with the text filter narrowing whichever is showing, so the list somebody ticked can be read back as a list instead of hunted for down a 172-row schedule. After the Class Builder because two of the three need a schedule. One Save for the step; offers **Skip — no club sanctioning** |
 | `/admin/shows/[id]/edit` | **Setup Step 1** — show details plus `ShowStaffPanel`: managers, secretaries, scribes, gate stewards. Who runs the show is set beside its name and dates, not on a screen of its own |
 | `/admin/shows/[id]/staff` | Redirects to `/edit` |
-| `/admin/shows/[id]/classes` | **Setup Step 6** — class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import. Renders inside `StepLayout`; the route is unchanged so per-class deep links still work |
+| `/admin/shows/[id]/classes` | **Setup Step 5: Class Builder** — class list, reorder, Schedule Builder (division × section matrix), APHA/AQHA standard-class import. Renders inside `StepLayout`; the route is unchanged so per-class deep links still work. It carried two notices at the top, to Sanctioned Classes and Judging Cards; both are steps of their own now (6 and 8), which the stepper shows and the Next link walks into |
 | `/admin/shows/[id]/reports` | **Show Record** — the report registry that is not about money: results, class summary, entry cards, judges' cards, compliance, eligibility declarations. Its own tile rather than a link under Financials, because none of it is money and it is what the office sends an association |
 | `/admin/shows/[id]/reports/[slug]` | One show report, drawn by the shared `ReportTable` |
 | `/admin/shows/[id]/reports/archive` | The **retention bundle** (SC-110.J) — four reports on one printable page, with the caveats stating that the *signed* judge's cards are paper and nothing here is that document |
-| `/admin/shows/[id]/classes/judging` | **Judging Cards** — which card each scored class is marked on, and what each card asks the judge for. Its own screen for the same reason Sanctioned Classes is: the wizard builds the schedule a cell at a time, and this is a per-class designation made once the schedule exists. Only `pattern` and `time` classes appear — a rail class is placed, not scored |
+| `/admin/shows/[id]/classes/judging` | **Setup Step 8: Judge Cards** — which card each scored class is marked on, and what each card asks the judge for. A step rather than a notice on the Class Builder: it is a per-class designation made once the schedule exists, and the screen is the only place the card shapes are explained. Only `pattern` and `time` classes appear — a rail class is placed, not scored. Route unchanged, the same way Step 1 stays on `/edit`. Offers **Skip — score by total**, since leaving a class unset is a supported answer |
+| `/admin/shows/[id]/classes/sanctioning` | Redirects to `/setup/sanctioning` — Sanctioned Classes is part of Step 6 now |
 | `/admin/shows/[id]/desk` | **Registration Desk** — one screen, one exhibitor at a time: back number, class entries, side pot buy-ins, paperwork check-in, and their running balance. Second tab is the by-class program listing, where an expanded class can be filled without leaving the screen. Replaces `/entries`, `/check-in`, and `/back-numbers`, which all redirect here |
 | `/admin/shows/[id]/entries` | Redirects to `/desk` |
 | `/admin/shows/[id]/check-in` | Redirects to `/desk` |
@@ -171,7 +278,7 @@ Pressing the step's own **Save & continue** with a required box empty outlines e
 | `/admin/shows/[id]/side-pots/[potId]/settings` | Buy-in, payback, scoring, eligibility, and the bundled class picker |
 | `/admin/shows/[id]/side-pots/[potId]/entries` | Side Pot Entries: add an exhibitor from the show roster, and see who is in |
 | `/admin/shows/[id]/side-pots/[potId]/standings` | Live ranking, projected payouts, Settle, and the frozen payout sheet |
-| `/admin/shows/[id]/futurities` | **Setup Step 7** — futurity list and **+ Add futurity**. Renders inside `StepLayout`; the route is unchanged, so the dashboard's Futurities tile still reaches it |
+| `/admin/shows/[id]/futurities` | **Setup Step 7** — futurity list and **+ Add futurity**. Renders inside `StepLayout`; the route is unchanged, so the dashboard's Futurities tile still reaches it. Offers **Skip — no futurity at this show** while the show has none: most shows run none, and a tick that never goes green otherwise reads as a job forgotten |
 | `/admin/shows/[id]/futurities/[futurityId]` | Futurity hub: pricing tiles, the entry form as it will be published, and buttons to the four working screens |
 | `/admin/shows/[id]/futurities/[futurityId]/settings` | The whole entry form — deadline, fees, categories, membership, classes, notices, release. Renders `FuturityForm`, the same component the create form uses |
 | `/admin/shows/[id]/futurities/[futurityId]/entries` | Enroll a horse, pick its category, record a membership bought and who is showing; flags horses missing the details the form asks for |
@@ -288,9 +395,10 @@ Horse registration UI splits the two kinds:
 - `MyHorsesPanel`'s add form renders two labelled sections, **Breed Registrations** and **Club Memberships**, each with its own picker and number field (`Reg #` vs `Member #`).
 - The edit forms (`EditMyHorseForm`, admin `EditHorseForm` / `NewHorseForm`) use the shared `components/AssociationSelect.tsx`, which renders `<optgroup>`s for Breed Registries / Clubs, plus `AssociationTypeBadge` on each saved row.
 - Registration chips on horse cards are colour-coded by type and sorted breed-first, since the breed number is the horse's primary identity at a show.
-- `ExhibitorMembershipPanel` composes registrations and document-certificate management in one surface.
+- `ExhibitorMembershipPanel` composes registrations, document-certificate management and **Competition Cards** on the Memberships tab. It holds the registration list in its own state and hands it down, because the cards section reads it: a card is issued to a member, so filing an APHA membership has to make the card picker appear without a page reload.
 - `ExhibitorDocuments` supports association-tagged membership cards via nullable `show_type_id`.
-- `ExhibitorRegistrations` remains the association membership number editor.
+- `ExhibitorRegistrations` remains the association membership number editor. **The expiry field is required on a breed association and optional on a club** — the label, the red border and the refusal all follow `association_type` off the row (falling back to the `/api/associations` lookup). Each membership also shows its own standing (Current / Expires soon / Lapsed / no expiry on file) with an inline **Add expiry** control that `PATCH`es, since rows filed before the rule carry none. As always the screen lock is not the enforcement: `POST` and `PATCH` refuse the blank regardless.
+- `ExhibitorCompetitionCards` is the Competition Cards box below it (migration 134). **It asks for a year, never a date**: every APHA card expires 31 December, so the expiry is derived and printed rather than typed, and each card carries a one-press *Renew for &lt;next year&gt;*. The card picker only offers associations in `lib/competition-cards.ts`'s `CARD_DIVISIONS_BY_ASSOCIATION` — currently APHA alone — which mirrors `backend/competition_cards.py`; keep the two in step.
 
 ## Association Class Pickers
 

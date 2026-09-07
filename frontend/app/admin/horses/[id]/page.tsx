@@ -25,10 +25,10 @@ export default async function AdminHorsePage({ params }: { params: Promise<{ id:
           { label: 'Horses', href: '/admin/horses' },
           { label: horse.name },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           {horse.name}
           {horse.barn_name && (
-            <span className="ml-2 text-lg font-normal" style={{ color: '#8b7355' }}>
+            <span className="ml-2 text-lg font-normal" style={{ color: 'var(--muted)' }}>
               &ldquo;{horse.barn_name}&rdquo;
             </span>
           )}

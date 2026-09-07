@@ -84,22 +84,22 @@ export default function BackNumberForm({ showId, classId, entries }: {
       <div className="flex gap-3 mb-6">
         <button onClick={handleAutoAssign} disabled={autoAssigning}
           className="px-4 py-2 rounded font-medium text-sm transition disabled:opacity-50"
-          style={{ backgroundColor: '#f5ede0', color: '#8b4513', border: '1px solid #d4b896' }}>
+          style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)', border: '1px solid var(--border)' }}>
           {autoAssigning ? 'Assigning...' : 'Auto-Assign 1, 2, 3...'}
         </button>
       </div>
 
       {hasDuplicates && (
         <div className="mb-4 p-3 rounded text-sm"
-          style={{ backgroundColor: '#fdf0f0', color: '#8b1a1a', border: '1px solid #f5c0c0' }}>
+          style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)', border: '1px solid var(--error-border)' }}>
           Duplicate back numbers detected: <strong>{[...duplicates].join(', ')}</strong>. Please fix before saving.
         </div>
       )}
 
-      <div className="rounded-lg border overflow-hidden mb-4" style={{ borderColor: '#d4b896' }}>
+      <div className="rounded-lg border overflow-hidden mb-4" style={{ borderColor: 'var(--border)' }}>
         <table className="w-full">
           <thead>
-            <tr style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}>
+            <tr style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}>
               <th className="py-3 px-4 text-left text-sm font-semibold">Exhibitor</th>
               <th className="py-3 px-4 text-left text-sm font-semibold hidden md:table-cell">Horse</th>
               <th className="py-3 px-4 text-left text-sm font-semibold">Back #</th>
@@ -111,9 +111,9 @@ export default function BackNumberForm({ showId, classId, entries }: {
               const isDupe = val !== '' && duplicates.has(val);
               return (
                 <tr key={entry.id}
-                  style={{ backgroundColor: i % 2 === 0 ? '#ffffff' : '#faf7f2', borderTop: '1px solid #d4b896' }}>
-                  <td className="py-3 px-4" style={{ color: '#2c1810' }}>{entry.exhibitorName}</td>
-                  <td className="py-3 px-4 hidden md:table-cell" style={{ color: '#8b7355' }}>{entry.horseName}</td>
+                  style={{ backgroundColor: i % 2 === 0 ? 'var(--surface)' : 'var(--background)', borderTop: '1px solid var(--border)' }}>
+                  <td className="py-3 px-4" style={{ color: 'var(--foreground)' }}>{entry.exhibitorName}</td>
+                  <td className="py-3 px-4 hidden md:table-cell" style={{ color: 'var(--muted)' }}>{entry.horseName}</td>
                   <td className="py-3 px-4">
                     <input
                       type="number"
@@ -122,8 +122,8 @@ export default function BackNumberForm({ showId, classId, entries }: {
                       onChange={(e) => setNumbers((prev) => ({ ...prev, [entry.id]: e.target.value }))}
                       className="w-20 border rounded px-2 py-1 text-sm text-center"
                       style={{
-                        borderColor: isDupe ? '#e53e3e' : '#d4b896',
-                        backgroundColor: isDupe ? '#fff5f5' : '#faf7f2',
+                        borderColor: isDupe ? 'var(--error)' : 'var(--border)',
+                        backgroundColor: isDupe ? 'var(--error-bg)' : 'var(--background)',
                       }}
                       placeholder="--"
                     />
@@ -138,8 +138,8 @@ export default function BackNumberForm({ showId, classId, entries }: {
       {message && (
         <div className="mb-4 p-3 rounded text-sm"
           style={{
-            backgroundColor: message.type === 'success' ? '#f0f7f0' : '#fdf0f0',
-            color: message.type === 'success' ? '#2d6a2d' : '#8b1a1a',
+            backgroundColor: message.type === 'success' ? 'var(--success-bg)' : 'var(--error-bg)',
+            color: message.type === 'success' ? 'var(--success)' : 'var(--error-strong)',
           }}>
           {message.text}
         </div>
@@ -147,7 +147,7 @@ export default function BackNumberForm({ showId, classId, entries }: {
 
       <button onClick={handleSave} disabled={saving || hasDuplicates}
         className="px-6 py-2 rounded font-medium transition disabled:opacity-50"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}>
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}>
         {saving ? 'Saving...' : 'Save Back Numbers'}
       </button>
     </div>

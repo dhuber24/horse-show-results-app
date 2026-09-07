@@ -27,13 +27,13 @@ export default async function ShowMessagesPage({ params }: { params: Promise<{ i
           { label: show.name, href: `/admin/shows/${id}` },
           { label: 'Messages' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Messages</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>{show.name}</p>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Messages</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{show.name}</p>
       </div>
 
       <div
         className="rounded border px-4 py-3 text-sm"
-        style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         Questions sent from this show&rsquo;s public page, including from people who don&rsquo;t
         have an account. Nothing is emailed out — reply from your own mail client using the

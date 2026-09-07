@@ -21,8 +21,8 @@ export default async function JudgesPage({ params }: { params: Promise<{ id: str
           { label: show.name, href: `/admin/shows/${id}` },
           { label: 'Judges' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Judges</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Judges</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — pick the judges officiating this show.
         </p>
       </div>

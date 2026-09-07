@@ -14,26 +14,26 @@ export default async function AdminBreedsPage() {
           { label: 'Horses', href: '/admin/horses' },
           { label: 'Breeds' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Breeds</h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Breeds</h1>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Manage the breed options available when adding or editing a horse.
         </p>
       </div>
 
       <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Add Breed</h2>
+        <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Add Breed</h2>
         <BreedForm />
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>
+        <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>
           All Breeds
-          <span className="ml-2 text-sm font-normal" style={{ color: '#8b7355' }}>
+          <span className="ml-2 text-sm font-normal" style={{ color: 'var(--muted)' }}>
             ({breeds.length})
           </span>
         </h2>
         {breeds.length === 0 ? (
-          <p style={{ color: '#8b7355' }}>No breeds yet.</p>
+          <p style={{ color: 'var(--muted)' }}>No breeds yet.</p>
         ) : (
           <ul className="space-y-2">
             {breeds.map((b: any) => (
@@ -41,13 +41,13 @@ export default async function AdminBreedsPage() {
                 <Link
                   href={`/admin/horses/breeds/${b.id}`}
                   className="flex items-center justify-between p-4 rounded-lg border transition-colors hover:bg-amber-50"
-                  style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
                 >
                   <div>
-                    <div className="font-semibold" style={{ color: '#2c1810' }}>{b.name}</div>
-                    <div className="text-xs mt-0.5" style={{ color: '#8b7355' }}>Sort: {b.sort_order}</div>
+                    <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{b.name}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Sort: {b.sort_order}</div>
                   </div>
-                  <span className="text-sm ml-4 shrink-0" style={{ color: '#8b4513' }}>Edit →</span>
+                  <span className="text-sm ml-4 shrink-0" style={{ color: 'var(--accent)' }}>Edit →</span>
                 </Link>
               </li>
             ))}

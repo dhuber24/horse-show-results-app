@@ -39,8 +39,8 @@ export default function ApprovalLinkCallout({
   };
 
   return (
-    <div className="rounded border p-3 space-y-2" style={{ borderColor: '#86efac', backgroundColor: '#f0fdf4' }}>
-      <p className="text-xs" style={{ color: '#166534' }}>
+    <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)' }}>
+      <p className="text-xs" style={{ color: 'var(--success-strong)' }}>
         {emailSent
           ? `We emailed the approval link to ${approverName}.`
           : `We couldn't email ${approverName}, so send them this link yourself.`}{' '}
@@ -53,14 +53,14 @@ export default function ApprovalLinkCallout({
           value={url}
           onFocus={(e) => e.currentTarget.select()}
           className="flex-1 min-w-0 border rounded px-2 py-1.5 text-xs font-mono"
-          style={{ borderColor: '#86efac', backgroundColor: '#ffffff', color: '#166534' }}
+          style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--surface)', color: 'var(--success-strong)' }}
           aria-label="Approval link"
         />
         <button
           type="button"
           onClick={copy}
           className="px-3 py-1.5 rounded text-xs font-medium shrink-0"
-          style={{ backgroundColor: '#166534', color: '#f0fdf4' }}
+          style={{ backgroundColor: 'var(--success-strong)', color: 'var(--success-bg)' }}
         >
           {copied ? 'Copied' : 'Copy'}
         </button>

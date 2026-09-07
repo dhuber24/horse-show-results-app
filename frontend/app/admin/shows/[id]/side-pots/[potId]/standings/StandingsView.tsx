@@ -79,8 +79,8 @@ function StandingsTable({
 }) {
   if (!standings || standings.standings.length === 0) {
     return (
-      <section className="border rounded-lg p-4" style={{ borderColor: '#d4b896' }}>
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+      <section className="border rounded-lg p-4" style={{ borderColor: 'var(--border)' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {standings === null
             ? 'Standings will appear once the bundled classes have results.'
             : 'Nobody is in this pot yet, so there is nothing to rank.'}
@@ -90,28 +90,28 @@ function StandingsTable({
   }
 
   return (
-    <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+    <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
           {settled ? 'Final ranking' : 'Live ranking'}
         </h2>
         {!settled && (
           <button
             onClick={onRefresh}
             className="text-xs hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Refresh
           </button>
         )}
       </div>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         {SCORING_LABEL[pot.scoring_method]}. {ELIGIBILITY_LABEL[pot.eligibility_rule]}.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b" style={{ borderColor: '#e8d5b7' }}>
+            <tr className="border-b" style={{ borderColor: 'var(--border-subtle)' }}>
               <th className="text-left py-1">Place</th>
               <th className="text-left py-1">Back #</th>
               <th className="text-left py-1">Exhibitor</th>
@@ -135,8 +135,8 @@ function StandingsTable({
                   key={s.show_entry_id}
                   className="border-b"
                   style={{
-                    borderColor: '#f0e6d2',
-                    color: s.is_eligible ? '#2c1810' : '#999',
+                    borderColor: 'var(--bg-subtle)',
+                    color: s.is_eligible ? 'var(--foreground)' : 'var(--text-dimmed)',
                   }}
                 >
                   <td className="py-1">{s.is_eligible ? s.place ?? '—' : 'DQ'}</td>
@@ -144,13 +144,13 @@ function StandingsTable({
                   <td className="py-1">
                     {s.exhibitor_name ?? '—'}
                     {!s.is_eligible && s.missing_class_ids.length > 0 && (
-                      <span className="text-xs ml-2" style={{ color: '#b45309' }}>
+                      <span className="text-xs ml-2" style={{ color: 'var(--warning)' }}>
                         Missing {s.missing_class_ids.length} class
                         {s.missing_class_ids.length === 1 ? '' : 'es'}
                       </span>
                     )}
                     {!s.paid && (
-                      <span className="text-xs ml-2" style={{ color: '#b45309' }}>
+                      <span className="text-xs ml-2" style={{ color: 'var(--warning)' }}>
                         Unpaid
                       </span>
                     )}
@@ -171,7 +171,7 @@ function StandingsTable({
           </tbody>
         </table>
       </div>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         Payout pool: {formatCents(standings.payout_pool_cents)} of{' '}
         {formatCents(standings.total_pool_cents)} in paid buy-ins.
         {settled && ' The payouts below are what was written when the pot settled.'}
@@ -225,16 +225,16 @@ function SettlePanel({
   return (
     <section
       className="border rounded-lg p-4 space-y-2"
-      style={{ borderColor: '#d4b896', backgroundColor: '#fffaf0' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
-      <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+      <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
         Settle pot
       </h2>
-      <p className="text-sm" style={{ color: '#5c3d1e' }}>
+      <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
         Freezes the ranking above, writes the payouts, and locks the pot. This cannot be
         undone.
       </p>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         {paidCount} {paidCount === 1 ? 'entry' : 'entries'} in the pool · {eligibleCount}{' '}
         eligible for a payout
       </p>
@@ -245,7 +245,7 @@ function SettlePanel({
             onClick={handleSettle}
             disabled={working}
             className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-            style={{ backgroundColor: '#7c3a0c', color: '#fff' }}
+            style={{ backgroundColor: 'var(--warning-strong)', color: 'var(--surface)' }}
           >
             {working ? 'Settling…' : 'Yes, settle'}
           </button>
@@ -253,7 +253,7 @@ function SettlePanel({
             onClick={() => setConfirming(false)}
             disabled={working}
             className="text-sm hover:underline"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Cancel
           </button>
@@ -262,7 +262,7 @@ function SettlePanel({
         <button
           onClick={() => setConfirming(true)}
           className="px-4 py-2 rounded text-sm font-medium border"
-          style={{ borderColor: '#7c3a0c', color: '#7c3a0c' }}
+          style={{ borderColor: 'var(--warning-strong)', color: 'var(--warning-strong)' }}
         >
           Settle pot…
         </button>
@@ -273,14 +273,14 @@ function SettlePanel({
 
 function PayoutsTable({ payouts }: { payouts: Payout[] }) {
   return (
-    <section className="border rounded-lg p-4 space-y-2" style={{ borderColor: '#d4b896' }}>
-      <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+    <section className="border rounded-lg p-4 space-y-2" style={{ borderColor: 'var(--border)' }}>
+      <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
         Payouts (frozen)
       </h2>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b" style={{ borderColor: '#e8d5b7' }}>
+            <tr className="border-b" style={{ borderColor: 'var(--border-subtle)' }}>
               <th className="text-left py-1">Place</th>
               <th className="text-left py-1">Back #</th>
               <th className="text-left py-1">Exhibitor</th>
@@ -290,7 +290,7 @@ function PayoutsTable({ payouts }: { payouts: Payout[] }) {
           </thead>
           <tbody>
             {payouts.map((p) => (
-              <tr key={p.id} className="border-b" style={{ borderColor: '#f0e6d2' }}>
+              <tr key={p.id} className="border-b" style={{ borderColor: 'var(--bg-subtle)' }}>
                 <td className="py-1">{p.place}</td>
                 <td className="py-1 font-mono">#{p.back_number ?? '—'}</td>
                 <td className="py-1">
@@ -298,7 +298,7 @@ function PayoutsTable({ payouts }: { payouts: Payout[] }) {
                   {p.tiebreaker_notes && (
                     <span
                       className="text-xs ml-2"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                       title={p.tiebreaker_notes}
                     >
                       (tied)

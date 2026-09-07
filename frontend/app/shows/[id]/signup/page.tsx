@@ -34,14 +34,14 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
         ← Back to Show
       </Link>
 
       {!data ? (
         <div
           className="mt-6 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error ?? 'Sign-up is not available for this show right now.'}
         </div>
@@ -52,20 +52,20 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
            The same component the registration screen uses, so somebody who
            arrived by this door fills the gaps in and carries straight on. */
         <div className="mt-6">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{data.show.name}</h1>
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{data.show.name}</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
             First, your profile — {data.exhibitor.full_name}
           </p>
           <div
             className="mt-4 mb-4 rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+            style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
           >
             The show office needs your details before it can hold a stall for you. Fill these in
             and stalls, shavings and camping open up.
           </div>
           <div
             className="rounded-lg border p-4"
-            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >
             <ProfileStep profile={data.profile} />
           </div>
@@ -73,7 +73,7 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
             <Link
               href={`/shows/${id}/register`}
               className="hover:underline"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               Or do the whole thing on one screen →
             </Link>

@@ -36,7 +36,7 @@ export default function JudgeTabs({
 
   return (
     <div className="mb-4">
-      <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#8b7355' }}>
+      <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--muted)' }}>
         Judge&apos;s card
       </p>
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Judge's card">
@@ -54,9 +54,9 @@ export default function JudgeTabs({
               onClick={() => onSelect(card.key)}
               className="min-h-[44px] px-3 rounded-lg border text-left disabled:opacity-50"
               style={{
-                borderColor: isActive ? '#8b4513' : '#d4b896',
-                backgroundColor: isActive ? '#8b4513' : '#fffdf9',
-                color: isActive ? '#ffffff' : '#2c1810',
+                borderColor: isActive ? 'var(--accent)' : 'var(--border)',
+                backgroundColor: isActive ? 'var(--accent)' : 'var(--surface)',
+                color: isActive ? 'var(--surface)' : 'var(--foreground)',
                 borderWidth: isActive ? 2 : 1,
               }}
             >
@@ -65,7 +65,7 @@ export default function JudgeTabs({
               </span>
               <span
                 className="block text-xs leading-tight"
-                style={{ color: isActive ? '#f5ede0' : complete ? '#065f46' : '#8b7355' }}
+                style={{ color: isActive ? 'var(--bg-subtle)' : complete ? 'var(--success-strong)' : 'var(--muted)' }}
               >
                 {complete ? `✓ ${filled} of ${total}` : `${filled} of ${total} placed`}
               </span>

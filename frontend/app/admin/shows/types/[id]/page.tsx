@@ -15,7 +15,7 @@ export default async function EditShowTypePage({ params }: { params: Promise<{ i
           { label: 'Show Types', href: '/admin/shows/types' },
           { label: showType?.name ?? 'Edit Show Type' },
         ]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>Edit Show Type</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Edit Show Type</h1>
       </div>
       <ShowTypeForm showType={showType} />
     </main>

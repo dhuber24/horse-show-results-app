@@ -7,10 +7,10 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 type ShowStatus = 'DRAFT' | 'PUBLISHED' | 'ACTIVE' | 'COMPLETED';
 
 const STATUS_STYLES: Record<ShowStatus, { bg: string; text: string }> = {
-  DRAFT:     { bg: '#f5ede0', text: '#8b7355' },
-  PUBLISHED: { bg: '#fef3c7', text: '#92400e' },
-  ACTIVE:    { bg: '#d1fae5', text: '#065f46' },
-  COMPLETED: { bg: '#dbeafe', text: '#1e40af' },
+  DRAFT:     { bg: 'var(--bg-subtle)', text: 'var(--muted)' },
+  PUBLISHED: { bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  ACTIVE:    { bg: 'var(--success-border)', text: 'var(--success-strong)' },
+  COMPLETED: { bg: 'var(--accent-border)', text: 'var(--accent-hover)' },
 };
 
 const STATUS_OPTIONS: { value: ShowStatus; label: string; warning: string }[] = [
@@ -130,14 +130,14 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, s
           {currentStatus}
         </span>
 
-        <label className="text-sm flex items-center gap-2" style={{ color: '#8b7355' }}>
+        <label className="text-sm flex items-center gap-2" style={{ color: 'var(--muted)' }}>
           Change to:
           <select
             value={targetStatus}
             onChange={(e) => { setTargetStatus(e.target.value as ShowStatus | ''); setError(null); }}
             disabled={saving}
             className="border rounded px-2 py-1 text-sm"
-            style={{ borderColor: '#d4b896', color: '#2c1810' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
           >
             <option value="">Select status…</option>
             {STATUS_OPTIONS
@@ -153,14 +153,14 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, s
           disabled={saving || !targetStatus || targetStatus === currentStatus}
           title={!targetStatus ? 'Select a target status first.' : saving ? 'Saving, please wait…' : undefined}
           className="text-sm px-3 py-1 rounded font-medium border transition-colors hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-          style={{ borderColor: '#8b4513', color: '#8b4513' }}
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
         >
           Apply
         </button>
       </div>
 
       {error && (
-        <p className="text-sm" style={{ color: '#dc2626' }}>{error}</p>
+        <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>
       )}
 
       {pendingStatus && pendingOption && (

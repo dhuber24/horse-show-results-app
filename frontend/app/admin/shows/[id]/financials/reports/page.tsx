@@ -42,10 +42,10 @@ export default async function FinancialReportsPage({
             { label: 'Reports' },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Reports
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — every report is built from the same figures as the Financials screen.
         </p>
       </div>
@@ -53,13 +53,13 @@ export default async function FinancialReportsPage({
       {!reports ? (
         <div
           className="rounded border p-4 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           Couldn&rsquo;t load the report list. Reload the page, and if it keeps happening check
           that you&rsquo;re assigned to this show.
         </div>
       ) : reports.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           No reports are available yet.
         </p>
       ) : (
@@ -69,17 +69,17 @@ export default async function FinancialReportsPage({
               key={report.slug}
               href={`/admin/shows/${id}/financials/reports/${report.slug}`}
               className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <div className="flex items-start gap-3">
                 <div className="text-2xl" aria-hidden>
                   {reportIcon(report.slug)}
                 </div>
                 <div>
-                  <h2 className="font-semibold" style={{ color: '#2c1810' }}>
+                  <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
                     {report.title}
                   </h2>
-                  <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                  <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                     {report.description}
                   </p>
                 </div>

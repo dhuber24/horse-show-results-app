@@ -93,8 +93,8 @@ const emptyForm = {
 const emptyOwner = { mode: 'self' as OwnerMode, firstName: '', lastName: '', email: '' };
 const emptyNewReg = { association_id: '', association_type: null as AssociationType | null, registration_number: '' };
 
-const PRIMARY_BUTTON = { backgroundColor: '#2c1810', color: '#f5ede0' };
-const PANEL_STYLE = { borderColor: '#d4b896', backgroundColor: '#ffffff' };
+const PRIMARY_BUTTON = { backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' };
+const PANEL_STYLE = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' };
 
 interface Props {
   exhibitorId: string;
@@ -114,7 +114,7 @@ interface Props {
 
 function StepBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: '#f0e4d0', color: '#8b7355' }}>
+    <span className="text-xs px-1.5 py-0.5 rounded font-medium" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)' }}>
       {children}
     </span>
   );
@@ -123,10 +123,10 @@ function StepBadge({ children }: { children: React.ReactNode }) {
 function ReviewRow({ label, value, skipped }: { label: string; value?: React.ReactNode; skipped?: boolean }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-2 py-1.5">
-      <span className="text-xs uppercase tracking-wide" style={{ color: '#a89070' }}>{label}</span>
+      <span className="text-xs uppercase tracking-wide" style={{ color: 'var(--text-dimmed)' }}>{label}</span>
       {skipped
-        ? <span className="text-sm italic" style={{ color: '#a89070' }}>Skipped</span>
-        : <span className="text-sm text-right" style={{ color: '#2c1810' }}>{value}</span>}
+        ? <span className="text-sm italic" style={{ color: 'var(--text-dimmed)' }}>Skipped</span>
+        : <span className="text-sm text-right" style={{ color: 'var(--foreground)' }}>{value}</span>}
     </div>
   );
 }
@@ -452,12 +452,12 @@ export default function AddHorseWizard({
   const docFieldHint = (key: string) => {
     if (!docExtraction) return null;
     if (docLowConfidence.includes(key)) {
-      return <span className="text-xs ml-1" style={{ color: '#b45309' }}>· check this</span>;
+      return <span className="text-xs ml-1" style={{ color: 'var(--warning)' }}>· check this</span>;
     }
     if (asText(docExtractedFields[key])) {
-      return <span className="text-xs ml-1" style={{ color: '#7a8b55' }}>· read from document</span>;
+      return <span className="text-xs ml-1" style={{ color: 'var(--success)' }}>· read from document</span>;
     }
-    return <span className="text-xs ml-1" style={{ color: '#a89070' }}>· not on the document</span>;
+    return <span className="text-xs ml-1" style={{ color: 'var(--text-dimmed)' }}>· not on the document</span>;
   };
 
   /** Documents need a horse_id, so the queue is flushed only after creation.
@@ -578,8 +578,8 @@ export default function AddHorseWizard({
   return (
     <div className="border rounded-lg p-4 space-y-4" style={PANEL_STYLE}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-sm font-semibold" style={{ color: '#2c1810' }}>{step.label}</span>
-        <span className="text-xs" style={{ color: '#8b7355' }}>Step {safeIndex + 1} of {steps.length}</span>
+        <span className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{step.label}</span>
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>Step {safeIndex + 1} of {steps.length}</span>
       </div>
 
       {/* Step indicator — cleared steps stay reachable so answers can be revised. */}
@@ -596,8 +596,8 @@ export default function AddHorseWizard({
                 aria-current={active ? 'step' : undefined}
                 className="px-2.5 py-1 rounded text-xs font-medium border disabled:opacity-50 disabled:cursor-not-allowed"
                 style={active
-                  ? { backgroundColor: '#2c1810', color: '#f5ede0', borderColor: '#2c1810' }
-                  : { backgroundColor: '#ffffff', color: '#8b7355', borderColor: '#d4b896' }}
+                  ? { backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)', borderColor: 'var(--foreground)' }
+                  : { backgroundColor: 'var(--surface)', color: 'var(--muted)', borderColor: 'var(--border)' }}
               >
                 {i + 1}. {s.label}
               </button>
@@ -609,34 +609,34 @@ export default function AddHorseWizard({
       {/* ---- Step 1: Owner (required) ---- */}
       {step.key === 'owner' && (
         <div className="space-y-3">
-          <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Is this your horse? *</p>
+          <p className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>Is this your horse? *</p>
           <div className="space-y-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="ownerMode" checked={owner.mode === 'self'} onChange={() => handleOwnerMode('self')} className="h-4 w-4" />
-              <span className="text-sm" style={{ color: '#2c1810' }}>I own this horse</span>
+              <span className="text-sm" style={{ color: 'var(--foreground)' }}>I own this horse</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="radio" name="ownerMode" checked={owner.mode === 'ride'} onChange={() => handleOwnerMode('ride')} className="h-4 w-4" />
-              <span className="text-sm" style={{ color: '#2c1810' }}>I ride this horse, but do not own it</span>
+              <span className="text-sm" style={{ color: 'var(--foreground)' }}>I ride this horse, but do not own it</span>
             </label>
           </div>
 
           {owner.mode === 'ride' && !manualEntry && (
-            <div className="space-y-3 pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
-              <p className="text-xs" style={{ color: '#8b7355' }}>
+            <div className="space-y-3 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>
                 Search for the horse and its owner first — if they&rsquo;re already in the app, adding them
                 here keeps everyone on the same record.
               </p>
               <div className="flex flex-wrap gap-2 items-end">
                 <div className="flex-1 min-w-[180px]">
-                  <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Horse name or registration #</label>
+                  <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Horse name or registration #</label>
                   <input
                     value={rideQuery}
                     onChange={(e) => setRideQuery(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleRideSearch(); }}
                     placeholder="e.g. Fancy Little Gun"
                     className="w-full border rounded px-3 py-2 text-sm"
-                    style={{ borderColor: '#d4b896' }}
+                    style={{ borderColor: 'var(--border)' }}
                   />
                 </div>
                 <button onClick={handleRideSearch} disabled={rideSearching} className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50" style={PRIMARY_BUTTON}>
@@ -654,7 +654,7 @@ export default function AddHorseWizard({
                 />
               )}
 
-              {rideMessage && <p className="text-xs" style={{ color: '#8b4513' }}>{rideMessage}</p>}
+              {rideMessage && <p className="text-xs" style={{ color: 'var(--accent)' }}>{rideMessage}</p>}
 
               {rideResults && (
                 <button
@@ -667,7 +667,7 @@ export default function AddHorseWizard({
                     }
                   }}
                   className="text-xs font-medium hover:underline"
-                  style={{ color: '#2c1810' }}
+                  style={{ color: 'var(--foreground)' }}
                 >
                   Not in the app? Enter the owner details -&gt;
                 </button>
@@ -676,18 +676,18 @@ export default function AddHorseWizard({
           )}
 
           {owner.mode === 'ride' && manualEntry && (
-            <div className="space-y-2 pt-2 border-t" style={{ borderColor: '#e8d5b7' }}>
+            <div className="space-y-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Horse Owner *</p>
-                <button onClick={() => { setManualEntry(false); setStepError(null); }} className="text-xs hover:underline" style={{ color: '#8b7355' }}>
+                <p className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>Horse Owner *</p>
+                <button onClick={() => { setManualEntry(false); setStepError(null); }} className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
                   &lt;- Back to search
                 </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <input placeholder="Owner first name *" value={owner.firstName} onChange={(e) => setOwner((p) => ({ ...p, firstName: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
-                <input placeholder="Owner last name *" value={owner.lastName} onChange={(e) => setOwner((p) => ({ ...p, lastName: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
-                <input type="email" placeholder="Owner email *" value={owner.email} onChange={(e) => setOwner((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm sm:col-span-2" style={{ borderColor: '#d4b896' }} />
-                <p className="text-xs sm:col-span-2" style={{ color: '#8b7355' }}>
+                <input placeholder="Owner first name *" value={owner.firstName} onChange={(e) => setOwner((p) => ({ ...p, firstName: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
+                <input placeholder="Owner last name *" value={owner.lastName} onChange={(e) => setOwner((p) => ({ ...p, lastName: e.target.value }))} className="border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
+                <input type="email" placeholder="Owner email *" value={owner.email} onChange={(e) => setOwner((p) => ({ ...p, email: e.target.value }))} className="border rounded px-3 py-2 text-sm sm:col-span-2" style={{ borderColor: 'var(--border)' }} />
+                <p className="text-xs sm:col-span-2" style={{ color: 'var(--muted)' }}>
                   If the owner already has an account, we&rsquo;ll ask them to confirm you ride
                   this horse, and it joins your list once they approve.
                 </p>
@@ -700,24 +700,24 @@ export default function AddHorseWizard({
       {/* ---- Step 2: Horse (name required, rest optional) ---- */}
       {step.key === 'horse' && (
         <div className="space-y-3">
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Only the registered name is required — everything else can be added later from the horse&rsquo;s own page.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="col-span-full">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Registered name *</label>
-              <input name="name" placeholder="Name on the association papers" maxLength={200} value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
-              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Registered name *</label>
+              <input name="name" placeholder="Name on the association papers" maxLength={200} value={form.name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
+              <p className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>
                 This is what the horse is entered and published under.
               </p>
             </div>
             <div className="col-span-full">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Barn name</label>
-              <input name="barn_name" placeholder="Stable or call name" maxLength={200} value={form.barn_name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Barn name</label>
+              <input name="barn_name" placeholder="Stable or call name" maxLength={200} value={form.barn_name} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Sex</label>
-              <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Sex</label>
+              <select name="sex" value={form.sex} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
                 <option value="">- Not specified -</option>
                 <option value="Mare">Mare</option>
                 <option value="Gelding">Gelding</option>
@@ -725,40 +725,40 @@ export default function AddHorseWizard({
               </select>
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Foaling Date</label>
-              <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Foaling Date</label>
+              <input name="foaling_date" type="date" value={form.foaling_date} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Sire</label>
-              <input name="sire_name" value={form.sire_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Sire</label>
+              <input name="sire_name" value={form.sire_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Dam</label>
-              <input name="dam_name" value={form.dam_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }} />
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Dam</label>
+              <input name="dam_name" value={form.dam_name} onChange={handleChange} maxLength={200} placeholder="Registered name" className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }} />
             </div>
             <div className="col-span-full">
               <BreedCheckboxGroup breeds={breeds} selectedIds={form.breed_ids} onChange={(breed_ids) => setForm((prev) => ({ ...prev, breed_ids }))} />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Color</label>
-              <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Color</label>
+              <select name="color_id" value={form.color_id} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
                 <option value="">- Not specified -</option>
                 {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>Pattern</label>
-              <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: '#d4b896' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>Pattern</label>
+              <select name="pattern_id" value={form.pattern_id} onChange={handleChange} className="w-full border rounded px-3 py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
                 <option value="">- Not specified -</option>
                 {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-              <p className="text-xs mt-1" style={{ color: '#a89070' }}>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>
                 A Paint has both — the papers say something like &ldquo;Bay Tobiano&rdquo;.
               </p>
             </div>
             <div className="flex items-center gap-2 col-span-full">
               <input type="checkbox" id="spb_new" checked={form.is_solid_paint_bred} onChange={(e) => setForm((prev) => ({ ...prev, is_solid_paint_bred: e.target.checked }))} className="h-4 w-4" />
-              <label htmlFor="spb_new" className="text-sm" style={{ color: '#8b7355' }}>Solid Paint-Bred (SPB)</label>
+              <label htmlFor="spb_new" className="text-sm" style={{ color: 'var(--muted)' }}>Solid Paint-Bred (SPB)</label>
             </div>
           </div>
         </div>
@@ -768,10 +768,10 @@ export default function AddHorseWizard({
       {step.key === 'trainer' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Trainer</p>
+            <p className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>Trainer</p>
             <StepBadge>Optional</StepBadge>
           </div>
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Pick a trainer already in the app, or add a new one by name and email. Leave it blank if the horse has no trainer.
           </p>
           <TrainerSelect
@@ -796,10 +796,10 @@ export default function AddHorseWizard({
       {step.key === 'health' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Health Records</p>
+            <p className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>Health Records</p>
             <StepBadge>Optional</StepBadge>
           </div>
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Coggins, vaccination records, and health certificates. These upload once the
             horse is created, so they stay listed here until you finish the wizard.
           </p>
@@ -807,7 +807,7 @@ export default function AddHorseWizard({
           {pendingDocs.length > 0 && (
             <ul className="space-y-1">
               {pendingDocs.map((d) => (
-                <li key={d.key} className="flex items-center justify-between p-2 rounded text-sm" style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+                <li key={d.key} className="flex items-center justify-between p-2 rounded text-sm" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                   <span className="min-w-0">
                     <span className="font-semibold mr-2">
                       {DOC_TYPES.find((t) => t.value === d.document_type)?.label}
@@ -823,23 +823,23 @@ export default function AddHorseWizard({
             </ul>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
             <div className="sm:col-span-2 pt-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
                 Document Type{docFieldHint('document_type')}
               </label>
               <select
                 value={docDraft.document_type}
                 onChange={(e) => setDocDraft((p) => ({ ...p, document_type: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 <option value="">Select...</option>
                 {HEALTH_DOC_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
                 Issue Date{docFieldHint('issue_date')}
               </label>
               <input
@@ -847,11 +847,11 @@ export default function AddHorseWizard({
                 value={docDraft.issue_date}
                 onChange={(e) => setDocDraft((p) => ({ ...p, issue_date: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               />
             </div>
             <div>
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
                 Expiry Date{docFieldHint('expiry_date')}
               </label>
               <input
@@ -859,14 +859,14 @@ export default function AddHorseWizard({
                 value={docDraft.expiry_date}
                 onChange={(e) => setDocDraft((p) => ({ ...p, expiry_date: e.target.value }))}
                 className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               />
               {docDerivedExpiry && (
                 <button
                   type="button"
                   onClick={() => setDocDraft((p) => ({ ...p, expiry_date: docDerivedExpiry }))}
                   className="text-xs mt-1 hover:underline text-left"
-                  style={{ color: '#8b4513' }}
+                  style={{ color: 'var(--accent)' }}
                 >
                   No expiry printed. Use {docDerivedExpiry} — 12 months from the{' '}
                   {docTestDate} blood draw?
@@ -874,10 +874,10 @@ export default function AddHorseWizard({
               )}
             </div>
             <div className="sm:col-span-2">
-              <label className="text-xs block mb-1" style={{ color: '#8b7355' }}>File (PDF or image, max 10 MB)</label>
+              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>File (PDF or image, max 10 MB)</label>
               <label
                 className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-5 cursor-pointer transition-colors hover:bg-amber-50/40"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 <input
                   type="file"
@@ -886,11 +886,11 @@ export default function AddHorseWizard({
                   className="sr-only"
                 />
                 {docFile ? (
-                  <span className="text-sm font-medium text-center break-all" style={{ color: '#2c1810' }}>{docFile.name}</span>
+                  <span className="text-sm font-medium text-center break-all" style={{ color: 'var(--foreground)' }}>{docFile.name}</span>
                 ) : (
                   <>
-                    <span className="text-sm font-medium" style={{ color: '#8b4513' }}>Click to choose a file</span>
-                    <span className="text-xs mt-1" style={{ color: '#a89070' }}>PDF or image - max 10 MB</span>
+                    <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Click to choose a file</span>
+                    <span className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>PDF or image - max 10 MB</span>
                   </>
                 )}
               </label>
@@ -903,30 +903,30 @@ export default function AddHorseWizard({
           </div>
 
           {docReading && (
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Reading the document to fill in the dates...
             </p>
           )}
 
           {docExtraction && (
-            <div className="rounded border p-3 space-y-2" style={{ borderColor: '#d9c9a8', backgroundColor: '#fdfaf4' }}>
-              <p className="text-xs font-semibold" style={{ color: '#5c3d1e' }}>
+            <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
                 Read from the document — check it before adding
               </p>
               {reviewWarnings(docExtractedFields).map((warning) => (
                 <p
                   key={warning}
                   className="text-xs font-medium rounded px-2 py-1.5"
-                  style={{ color: '#7f1d1d', backgroundColor: '#fee2e2' }}
+                  style={{ color: 'var(--error-strong)', backgroundColor: 'var(--error-bg)' }}
                 >
                   {warning}
                 </p>
               ))}
               {docExtraction.notes && (
-                <p className="text-xs" style={{ color: '#b45309' }}>{docExtraction.notes}</p>
+                <p className="text-xs" style={{ color: 'var(--warning)' }}>{docExtraction.notes}</p>
               )}
               {docLowConfidence.length > 0 && (
-                <p className="text-xs" style={{ color: '#b45309' }}>
+                <p className="text-xs" style={{ color: 'var(--warning)' }}>
                   Hard to read: {docLowConfidence.map((k) => FIELD_LABELS[k] ?? k).join(', ')}.
                 </p>
               )}
@@ -934,17 +934,17 @@ export default function AddHorseWizard({
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
                   {docDetails.map(([key, value]) => (
                     <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
-                      <dt className="shrink-0" style={{ color: '#8b7355' }}>
+                      <dt className="shrink-0" style={{ color: 'var(--muted)' }}>
                         {FIELD_LABELS[key] ?? key}:
                       </dt>
-                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: '#2c1810' }}>
+                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: 'var(--foreground)' }}>
                         {value}
                       </dd>
                     </div>
                   ))}
                 </dl>
               )}
-              <p className="text-xs" style={{ color: '#a89070' }}>
+              <p className="text-xs" style={{ color: 'var(--text-dimmed)' }}>
                 These details are shown so you can verify the document is the right one. Only the
                 type and dates above are saved.
               </p>
@@ -959,7 +959,7 @@ export default function AddHorseWizard({
       {step.key === 'registrations' && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <p className="text-xs font-medium" style={{ color: '#2c1810' }}>Registrations &amp; Memberships</p>
+            <p className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>Registrations &amp; Memberships</p>
             <StepBadge>Optional</StepBadge>
           </div>
           {(['breed', 'club'] as AssociationType[]).map((kind) => {
@@ -968,10 +968,10 @@ export default function AddHorseWizard({
             if (!queued.length && !options.length) return null;
             return (
               <div key={kind} className="space-y-2">
-                <p className="text-xs font-medium pt-2" style={{ color: '#2c1810' }}>
+                <p className="text-xs font-medium pt-2" style={{ color: 'var(--foreground)' }}>
                   {kind === 'breed' ? 'Breed Registrations' : 'Club Memberships'}
                 </p>
-                <p className="text-xs" style={{ color: '#8b7355' }}>
+                <p className="text-xs" style={{ color: 'var(--muted)' }}>
                   {kind === 'breed'
                     ? 'Registry numbers issued for this horse (AQHA, APHA, ...).'
                     : 'Club membership numbers carried by this horse (NSBA, WSCA, ...).'}
@@ -1002,7 +1002,7 @@ export default function AddHorseWizard({
                           registration_number: newReg.association_type === kind ? newReg.registration_number : '',
                         })}
                         className="w-full border rounded px-3 py-2 text-sm"
-                        style={{ borderColor: '#d4b896' }}
+                        style={{ borderColor: 'var(--border)' }}
                       >
                         <option value="">{kind === 'breed' ? 'Breed registry...' : 'Club...'}</option>
                         {options.map((a) => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
@@ -1014,7 +1014,7 @@ export default function AddHorseWizard({
                         onChange={(e) => setNewReg((p) => ({ ...p, association_type: kind, registration_number: e.target.value }))}
                         placeholder={kind === 'breed' ? 'Reg #' : 'Member #'}
                         className="w-full border rounded px-3 py-2 text-sm"
-                        style={{ borderColor: '#d4b896' }}
+                        style={{ borderColor: 'var(--border)' }}
                       />
                     </div>
                     <button
@@ -1038,10 +1038,10 @@ export default function AddHorseWizard({
       {/* ---- Step 5: Review ---- */}
       {step.key === 'review' && (
         <div className="space-y-3">
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Check it over. Anything skipped can be filled in later from the horse&rsquo;s page.
           </p>
-          <div className="rounded border divide-y px-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#ffffff' }}>
+          <div className="rounded border divide-y px-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
             <ReviewRow label="Owner" value={ownerSummary} />
             <ReviewRow label="Registered Name" value={form.name.trim()} />
             <ReviewRow label="Barn Name" value={form.barn_name.trim()} skipped={!form.barn_name.trim()} />
@@ -1077,7 +1077,7 @@ export default function AddHorseWizard({
 
       {pendingApproval && (
         <div className="space-y-2">
-          <p className="text-sm" style={{ color: '#2c1810' }}>
+          <p className="text-sm" style={{ color: 'var(--foreground)' }}>
             <strong>{pendingApproval.horseName}</strong> was added, and{' '}
             {pendingApproval.approverName} has been asked to confirm you ride it. It
             joins your horses once they approve.
@@ -1091,7 +1091,7 @@ export default function AddHorseWizard({
       )}
 
       {/* Footer nav */}
-      <div className="flex flex-wrap items-center gap-2 pt-1 border-t" style={{ borderColor: '#e8d5b7' }}>
+      <div className="flex flex-wrap items-center gap-2 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="flex flex-wrap gap-2 pt-3">
           {pendingApproval ? null : createdHorseId ? (
             <Link
@@ -1104,7 +1104,7 @@ export default function AddHorseWizard({
           ) : (
             <>
               {safeIndex > 0 && (
-                <button onClick={goBack} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+                <button onClick={goBack} className="px-4 py-2 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
                   Back
                 </button>
               )}
@@ -1118,14 +1118,14 @@ export default function AddHorseWizard({
                 </button>
               )}
               {!isLast && step.optional && !stepHasData(step.key) && (
-                <button onClick={() => goTo(safeIndex + 1)} className="px-4 py-2 rounded text-sm border" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+                <button onClick={() => goTo(safeIndex + 1)} className="px-4 py-2 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
                   Skip
                 </button>
               )}
             </>
           )}
         </div>
-        <button onClick={onCancel} className="ml-auto mt-3 text-xs hover:underline" style={{ color: '#8b7355' }}>
+        <button onClick={onCancel} className="ml-auto mt-3 text-xs hover:underline" style={{ color: 'var(--muted)' }}>
           {createdHorseId || pendingApproval ? 'Back to My Horses' : 'Cancel'}
         </button>
       </div>

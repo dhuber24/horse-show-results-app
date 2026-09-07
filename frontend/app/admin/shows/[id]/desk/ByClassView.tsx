@@ -137,7 +137,7 @@ export default function ByClassView({
               type="button"
               onClick={() => setExpanded(new Set(desk.classes.map((c) => c.id)))}
               className="px-2 py-1 rounded border hover:bg-amber-50"
-              style={{ borderColor: COLORS.border, color: '#5a3e2b' }}
+              style={{ borderColor: COLORS.border, color: 'var(--text-deep)' }}
             >
               Expand all
             </button>
@@ -145,7 +145,7 @@ export default function ByClassView({
               type="button"
               onClick={() => setExpanded(new Set())}
               className="px-2 py-1 rounded border hover:bg-amber-50"
-              style={{ borderColor: COLORS.border, color: '#5a3e2b' }}
+              style={{ borderColor: COLORS.border, color: 'var(--text-deep)' }}
             >
               Collapse all
             </button>
@@ -193,7 +193,7 @@ export default function ByClassView({
                       <span>{cls.class_number} — {cls.class_name}</span>
                       <span className="text-sm font-normal" style={{ color: COLORS.muted }}>({countLabel})</span>
                       {cls.status === 'CLOSED' && (
-                        <span className="text-xs font-normal px-1.5 py-0.5 rounded" style={{ backgroundColor: '#e5e7eb', color: '#374151' }}>
+                        <span className="text-xs font-normal px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
                           closed
                         </span>
                       )}
@@ -241,7 +241,7 @@ export default function ByClassView({
                                     {row.apha_division && (
                                       <span
                                         className="ml-2 text-xs px-1.5 py-0.5 rounded whitespace-nowrap"
-                                        style={{ backgroundColor: '#e8d5b7', color: '#5c3d1e' }}
+                                        style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}
                                       >
                                         {row.apha_division.replace(/_/g, ' ')}
                                       </span>
@@ -258,7 +258,7 @@ export default function ByClassView({
                                   <td className="py-1.5 pr-3" style={{ color: COLORS.text }}>
                                     {row.horse_name ?? '(horse removed)'}
                                   </td>
-                                  <td className="py-1.5 pr-3" style={{ color: '#5a3e2b' }}>{row.owner_name || '—'}</td>
+                                  <td className="py-1.5 pr-3" style={{ color: 'var(--text-deep)' }}>{row.owner_name || '—'}</td>
                                   <td className="py-1.5 pr-3" style={{ color: COLORS.muted }}>{row.sire_name || '—'}</td>
                                   <td className="py-1.5 pr-3" style={{ color: COLORS.muted }}>{row.dam_name || '—'}</td>
                                 </tr>

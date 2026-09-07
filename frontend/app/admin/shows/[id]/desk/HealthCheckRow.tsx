@@ -31,16 +31,16 @@ const HEALTH_PILL: Record<
   HorseHealthCheck['status'],
   { label: string; bg: string; text: string }
 > = {
-  valid: { label: '✓ Current', bg: '#d1fae5', text: '#065f46' },
-  missing: { label: '✕ Nothing on file', bg: '#fee2e2', text: '#991b1b' },
-  undated: { label: '⚠ No date', bg: '#fef3c7', text: '#92400e' },
-  expired: { label: '✕ Out of date', bg: '#fee2e2', text: '#991b1b' },
+  valid: { label: '✓ Current', bg: 'var(--success-border)', text: 'var(--success-strong)' },
+  missing: { label: '✕ Nothing on file', bg: 'var(--error-bg)', text: 'var(--error-strong)' },
+  undated: { label: '⚠ No date', bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  expired: { label: '✕ Out of date', bg: 'var(--error-bg)', text: 'var(--error-strong)' },
 };
 
 const INSPECTION_PILL = {
-  verified: { label: '✓ Inspected', bg: '#d1fae5', text: '#065f46' },
-  stale: { label: '⚠ Changed since', bg: '#fef3c7', text: '#92400e' },
-  unverified: { label: '○ Not inspected', bg: '#f5ede0', text: '#8b4513' },
+  verified: { label: '✓ Inspected', bg: 'var(--success-border)', text: 'var(--success-strong)' },
+  stale: { label: '⚠ Changed since', bg: 'var(--warning-bg)', text: 'var(--warning)' },
+  unverified: { label: '○ Not inspected', bg: 'var(--bg-subtle)', text: 'var(--accent)' },
 } as const;
 
 function formatWhen(iso: string) {
@@ -103,7 +103,7 @@ export default function HealthCheckRow({
   };
 
   return (
-    <div className="py-2 border-t first:border-t-0" style={{ borderColor: '#f0e6d6' }}>
+    <div className="py-2 border-t first:border-t-0" style={{ borderColor: 'var(--bg-subtle)' }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium" style={{ color: COLORS.text }}>
@@ -111,7 +111,7 @@ export default function HealthCheckRow({
           </div>
           <p
             className="text-xs mt-0.5"
-            style={{ color: check.status === 'valid' ? COLORS.muted : '#991b1b' }}
+            style={{ color: check.status === 'valid' ? COLORS.muted : 'var(--error-strong)' }}
           >
             {check.message}
             {check.expiry_date && check.status !== 'missing' ? ` (${check.expiry_date})` : ''}
@@ -119,7 +119,7 @@ export default function HealthCheckRow({
           {check.attested && (
             // Say plainly that the app is not holding this document. The next
             // show has not seen that paper and will flag the horse again.
-            <p className="text-xs mt-0.5" style={{ color: '#92400e' }}>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
               Not uploaded — this show is covered by the office having seen it.
             </p>
           )}
@@ -130,7 +130,7 @@ export default function HealthCheckRow({
           )}
 
           {inspection.status === 'stale' && (
-            <p className="text-xs mt-0.5" style={{ color: '#92400e' }}>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
               The documents on file have changed since this was signed off
               {inspection.verified_by_name ? ` by ${inspection.verified_by_name}` : ''}. Look again.
             </p>
@@ -204,7 +204,7 @@ export default function HealthCheckRow({
                 disabled={busy}
                 title={`Records that you have physically inspected this horse's ${check.label.toLowerCase()} — on paper or on screen`}
                 className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-                style={{ backgroundColor: '#8b4513' }}
+                style={{ backgroundColor: 'var(--accent)' }}
               >
                 {inspection.status === 'stale' ? 'Re-inspect' : 'I inspected it'}
               </button>
@@ -216,7 +216,7 @@ export default function HealthCheckRow({
       {recording && (
         <div
           className="mt-2 rounded border p-2"
-          style={{ borderColor: COLORS.borderSoft, backgroundColor: '#fffdf9' }}
+          style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
         >
           <label className="block text-xs" style={{ color: COLORS.text }}>
             Expiry date printed on the document
@@ -239,7 +239,7 @@ export default function HealthCheckRow({
               onClick={submit}
               disabled={busy}
               className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               {busy ? 'Saving…' : expiry ? 'Record inspection' : 'Record without a date'}
             </button>

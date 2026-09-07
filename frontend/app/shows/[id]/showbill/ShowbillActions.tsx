@@ -28,7 +28,7 @@ export default function ShowbillActions({
         type="button"
         onClick={() => window.print()}
         className="text-sm font-medium px-4 py-2 rounded"
-        style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+        style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
       >
         ⬇ Download / print show bill
       </button>

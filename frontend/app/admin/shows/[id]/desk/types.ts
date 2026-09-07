@@ -184,15 +184,15 @@ export interface ProfileHorse {
 }
 
 export const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  accent: '#8b4513',
-  border: '#d4b896',
-  borderSoft: '#f0e6d6',
-  surface: '#ffffff',
-  surfaceSoft: '#faf7f2',
-  dark: '#2c1810',
-  onDark: '#f5ede0',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  accent: 'var(--accent)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  surface: 'var(--surface)',
+  surfaceSoft: 'var(--background)',
+  dark: 'var(--foreground)',
+  onDark: 'var(--bg-subtle)',
 } as const;
 
 /** The paperwork problems, not the unfinished sign-offs. A lapsed Coggins is
