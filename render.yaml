@@ -1,0 +1,73 @@
+# Render Blueprint for GaitDesk.
+#
+# Create a Blueprint from this file in the Render dashboard. Render prompts for
+# every `sync: false` value; never add production credentials to this file.
+#
+# Before the first deploy, set the three URL values to the temporary Render
+# service URLs. After custom domains are verified, replace them with:
+#   API_URL / NEXT_PUBLIC_API_URL: https://api.yourdomain.com
+#   CORS_ORIGINS: https://yourdomain.com,https://www.yourdomain.com
+#   AUTH_URL / PUBLIC_APP_URL: https://yourdomain.com
+services:
+  - type: web
+    name: gaitdesk-api
+    runtime: docker
+    plan: 0.5c-512mb
+    region: ohio
+    dockerfilePath: ./backend/Dockerfile.production
+    dockerContext: ./backend
+    healthCheckPath: /health/ready
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_STARTTLS
+        value: "true"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - type: web
+    name: gaitdesk-web
+    runtime: docker
+    plan: 0.5c-512mb
+    region: ohio
+    dockerfilePath: ./frontend/Dockerfile.production
+    dockerContext: ./frontend
+    autoDeployTrigger: commit
+    envVars:
+      # API_URL is used by server-side requests; NEXT_PUBLIC_API_URL is bundled
+      # into browser code, so both must be the public HTTPS API URL.
+      - key: API_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        fromService:
+          name: gaitdesk-api
+          type: web
+          envVarKey: INTERNAL_API_KEY
+      # Auth.js reads AUTH_SECRET; it is intentionally separate from the API key.
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: AUTH_URL
+        sync: false

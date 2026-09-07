@@ -1,0 +1,31 @@
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# NEXT_PUBLIC_* values are embedded in browser bundles by Next.js. Render makes
+# configured service variables available as Docker build arguments, and this is
+# intentionally the only build-time value accepted here because it is public.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+COPY package*.json .
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
+
+# Render supplies PORT at runtime. The fallback keeps direct local use simple.
+CMD ["sh", "-c", "npm run start -- -p ${PORT:-3000}"]
