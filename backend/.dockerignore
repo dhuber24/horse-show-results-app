@@ -1,0 +1,29 @@
+# The production image is built with `COPY . .`, and the build context is the
+# filesystem rather than git — so anything gitignored still rides along unless
+# it is named here.
+
+# Host-compiled bytecode. The host interpreter is Python 3.9 and the image is
+# 3.12, so these are unusable inside it (a mismatched magic number is ignored
+# rather than executed) — but they bloat the layer and confuse anyone who finds
+# them there.
+# The `**/` prefix is required: Docker matches a bare `__pycache__/` at the
+# context root only, so the nested ones under routers/, rules/, imports/ and
+# extraction/ would still be copied.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Never bake credentials into an image.
+.env
+.env.*
+!.env.example
+
+# The test suite runs against the repo (see CLAUDE.md), not against the
+# production image.
+tests/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+.venv/
+venv/

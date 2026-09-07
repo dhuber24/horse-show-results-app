@@ -26,9 +26,12 @@ repository. It deliberately contains names and non-secret defaults only.
 
    | Variable | Initial value |
    | --- | --- |
-   | `API_URL`, `NEXT_PUBLIC_API_URL` | `https://gaitdesk-api.onrender.com` |
+   | `API_URL` | `https://gaitdesk-api.onrender.com` |
    | `CORS_ORIGINS` | `https://gaitdesk-web.onrender.com` |
    | `AUTH_URL`, `PUBLIC_APP_URL` | `https://gaitdesk-web.onrender.com` |
+
+   `AUTH_URL` is not optional: Auth.js v5 infers `trustHost` from its presence,
+   so leaving it unset breaks every sign-in.
 
    Use the actual URLs displayed by Render if it assigns a different hostname.
    Set `DATABASE_URL` to Neon’s connection string. The backend accepts both
@@ -56,7 +59,7 @@ When DNS has verified, update the variables and redeploy both services:
 
 | Variable | Production value |
 | --- | --- |
-| `API_URL`, `NEXT_PUBLIC_API_URL` | `https://api.yourdomain.com` |
+| `API_URL` | `https://api.yourdomain.com` |
 | `CORS_ORIGINS` | `https://yourdomain.com,https://www.yourdomain.com` |
 | `AUTH_URL`, `PUBLIC_APP_URL` | `https://yourdomain.com` |
 
@@ -120,6 +123,27 @@ the gap a rename leaves.
 A 503 here means Render will not promote the deploy. That is the intent: a
 release that arrives before its migration should fail rather than replace a
 working one.
+
+## Which variables actually do something
+
+Worth knowing before debugging a symptom against the wrong setting.
+
+- **`API_URL` is the only API address the deployed app reads.** Every backend
+  request is made server-side — from an `app/api/` route handler or a server
+  component — so there is no `NEXT_PUBLIC_API_URL` in the Blueprint and no
+  public copy in the bundle. `lib/api.ts` keeps it as a fallback purely for a
+  standalone `npm run dev`.
+- **`CORS_ORIGINS` is a guard, not a live setting.** It follows from the point
+  above: no browser calls the API directly, so CORS is never exercised in normal
+  operation. A failure here will not present as a CORS error, because there are
+  no cross-origin browser requests to fail. Keep the value correct anyway.
+- **`INTERNAL_API_KEY` is shared by both services** via `fromService`, so it
+  cannot drift. `AUTH_SECRET` is deliberately a different value; regenerating it
+  invalidates every session.
+- **SMTP is optional and silent.** `mailer.py` returns `None` when `SMTP_HOST`
+  is unset and never raises, and every flow that mails a link also returns the
+  link. The variables it reads are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+  `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`.
 
 ## Operations
 

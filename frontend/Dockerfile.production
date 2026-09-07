@@ -2,11 +2,13 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# NEXT_PUBLIC_* values are embedded in browser bundles by Next.js. Render makes
-# configured service variables available as Docker build arguments, and this is
-# intentionally the only build-time value accepted here because it is public.
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# No NEXT_PUBLIC_* build argument is accepted, and that is deliberate rather
+# than an omission. Nothing in the browser bundle calls the API: every backend
+# request is made server-side, either from an app/api/ route handler or from a
+# server component, both reading API_URL at runtime. NEXT_PUBLIC_API_URL
+# survives only as a fallback in lib/api.ts for a standalone `npm run dev`,
+# which never goes through this image. Baking it in here would inline a value
+# no browser code reads and imply the browser talks to the API directly.
 
 COPY package*.json .
 RUN npm ci

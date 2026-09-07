@@ -5,7 +5,7 @@
 #
 # Before the first deploy, set the three URL values to the temporary Render
 # service URLs. After custom domains are verified, replace them with:
-#   API_URL / NEXT_PUBLIC_API_URL: https://api.yourdomain.com
+#   API_URL: https://api.yourdomain.com
 #   CORS_ORIGINS: https://yourdomain.com,https://www.yourdomain.com
 #   AUTH_URL / PUBLIC_APP_URL: https://yourdomain.com
 services:
@@ -23,6 +23,10 @@ services:
         sync: false
       - key: INTERNAL_API_KEY
         generateValue: true
+      # A guard rather than a load-bearing setting: no browser calls this API
+      # directly (the web service makes every request server-side), so CORS is
+      # not exercised in normal operation. Keep it correct anyway — it is what
+      # stops another origin's page scripting the API if that ever changes.
       - key: CORS_ORIGINS
         sync: false
       - key: PUBLIC_APP_URL
@@ -55,11 +59,11 @@ services:
     dockerContext: ./frontend
     autoDeployTrigger: commit
     envVars:
-      # API_URL is used by server-side requests; NEXT_PUBLIC_API_URL is bundled
-      # into browser code, so both must be the public HTTPS API URL.
+      # Every backend request is made server-side, so this one runtime value is
+      # the whole of it. There is deliberately no NEXT_PUBLIC_API_URL: no
+      # browser code calls the API, so bundling a public copy of this URL would
+      # be config that looks required and does nothing.
       - key: API_URL
-        sync: false
-      - key: NEXT_PUBLIC_API_URL
         sync: false
       - key: INTERNAL_API_KEY
         fromService:
