@@ -12,10 +12,16 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# Strip ssl/sslmode query params and pass ssl via connect_args for asyncpg compatibility
+# Strip libpq-only query params and pass SSL via connect_args for asyncpg
+# compatibility. Neon connection strings can include channel_binding=require,
+# which asyncpg otherwise receives as an unsupported keyword argument.
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 _parsed = urlparse(DATABASE_URL)
-_params = {k: v for k, v in parse_qs(_parsed.query).items() if k not in ("ssl", "sslmode")}
+_params = {
+    k: v
+    for k, v in parse_qs(_parsed.query).items()
+    if k not in ("ssl", "sslmode", "channel_binding")
+}
 _clean_url = urlunparse(_parsed._replace(query=urlencode(_params, doseq=True)))
 _use_ssl = "neon.tech" in DATABASE_URL or os.getenv("DB_SSL", "false").lower() == "true"
 
