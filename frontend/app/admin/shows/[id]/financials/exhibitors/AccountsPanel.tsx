@@ -53,15 +53,15 @@ export default function AccountsPanel({
     return (
       <div
         className="rounded-lg border border-dashed p-6 text-center"
-        style={{ borderColor: '#d4b896' }}
+        style={{ borderColor: 'var(--border)' }}
       >
         {/* Kept in this branch too: an empty roster is exactly when someone
             leaves this screen open waiting for sign-ups to land. */}
         <AutoRefresh />
-        <p className="text-sm font-medium" style={{ color: '#2c1810' }}>
+        <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
           Nobody is registered yet
         </p>
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           Accounts appear here as exhibitors sign up or the office enters them.
         </p>
       </div>
@@ -78,7 +78,7 @@ export default function AccountsPanel({
 
       {/* No heading here — the page title above is the heading. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {accounts.length} account{accounts.length === 1 ? '' : 's'} ·{' '}
           {owingCount === 0 ? 'all settled' : `${owingCount} owing`}
         </p>
@@ -89,7 +89,7 @@ export default function AccountsPanel({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Name or back number"
             className="text-sm px-3 py-1.5 rounded border"
-            style={{ borderColor: '#d4b896', color: '#2c1810' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
           />
           {(['owing', 'settled', 'all'] as Filter[]).map((f) => (
             <button
@@ -98,8 +98,8 @@ export default function AccountsPanel({
               className="text-sm font-medium px-3 py-1.5 rounded-full border transition"
               style={
                 filter === f
-                  ? { backgroundColor: '#8b4513', borderColor: '#8b4513', color: '#ffffff' }
-                  : { backgroundColor: '#ffffff', borderColor: '#d4b896', color: '#8b4513' }
+                  ? { backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }
+                  : { backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }
               }
             >
               {f === 'owing' ? `Owing (${owingCount})` : f === 'settled' ? 'Settled' : 'All'}
@@ -109,7 +109,7 @@ export default function AccountsPanel({
       </div>
 
       {visible.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           Nothing in this view.
         </p>
       ) : (
@@ -152,8 +152,8 @@ function AccountRow({
     <li
       className="rounded-lg border"
       style={{
-        borderColor: owes ? '#e0b4a0' : '#e8d5b7',
-        backgroundColor: owes ? '#fffdfb' : '#fdfbf7',
+        borderColor: owes ? 'var(--error-border)' : 'var(--border-subtle)',
+        backgroundColor: owes ? 'var(--surface)' : 'var(--surface)',
       }}
     >
       <button
@@ -162,11 +162,11 @@ function AccountRow({
         aria-expanded={isOpen}
       >
         <div className="min-w-0">
-          <p className="text-sm font-semibold flex items-center flex-wrap gap-2" style={{ color: '#2c1810' }}>
+          <p className="text-sm font-semibold flex items-center flex-wrap gap-2" style={{ color: 'var(--foreground)' }}>
             {account.back_number !== null && (
               <span
                 className="text-xs font-mono px-1.5 py-0.5 rounded"
-                style={{ backgroundColor: '#f0e4d0', color: '#5d4a37' }}
+                style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
               >
                 #{account.back_number}
               </span>
@@ -175,14 +175,14 @@ function AccountRow({
             {!account.signed_up && (
               <span
                 className="text-xs px-1.5 py-0.5 rounded font-medium"
-                style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}
+                style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)' }}
                 title="Added by the show office — this exhibitor did not complete online sign-up"
               >
                 Office-added
               </span>
             )}
           </p>
-          <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
             {account.entry_count} entr{account.entry_count === 1 ? 'y' : 'ies'} ·{' '}
             {account.horse_count} horse{account.horse_count === 1 ? '' : 's'} ·{' '}
             {account.payments.length} payment{account.payments.length === 1 ? '' : 's'}
@@ -190,40 +190,40 @@ function AccountRow({
         </div>
         <div className="flex items-center gap-5 text-right">
           <div>
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Billed
             </p>
-            <p className="text-sm font-medium tabular-nums" style={{ color: '#2c1810' }}>
+            <p className="text-sm font-medium tabular-nums" style={{ color: 'var(--foreground)' }}>
               {formatMoney(account.bill.total_cents)}
             </p>
           </div>
           <div>
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Paid
             </p>
-            <p className="text-sm font-medium tabular-nums" style={{ color: '#2f6b3f' }}>
+            <p className="text-sm font-medium tabular-nums" style={{ color: 'var(--success)' }}>
               {formatMoney(account.net_paid_cents)}
             </p>
           </div>
           <div>
-            <p className="text-xs" style={{ color: '#8b7355' }}>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
               {overpaid ? 'Credit' : 'Balance'}
             </p>
             <p
               className="text-sm font-bold tabular-nums"
-              style={{ color: owes ? '#b42318' : overpaid ? '#92400e' : '#2f6b3f' }}
+              style={{ color: owes ? 'var(--error)' : overpaid ? 'var(--warning)' : 'var(--success)' }}
             >
               {formatMoney(Math.abs(account.balance_cents))}
             </p>
           </div>
-          <span aria-hidden style={{ color: '#8b7355' }}>
+          <span aria-hidden style={{ color: 'var(--muted)' }}>
             {isOpen ? '▾' : '▸'}
           </span>
         </div>
       </button>
 
       {isOpen && (
-        <div className="px-4 pb-4 space-y-4 border-t pt-3" style={{ borderColor: '#f0e4d0' }}>
+        <div className="px-4 pb-4 space-y-4 border-t pt-3" style={{ borderColor: 'var(--bg-subtle)' }}>
           <BillBreakdown account={account} />
           <PaymentHistory showId={showId} account={account} onChanged={onChanged} />
           <RecordPaymentForm
@@ -241,7 +241,20 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
   const { bill } = account;
   const rows = [
     { label: 'Class entry fees', cents: bill.class_fee_total_cents },
-    { label: 'Club sanction fees', cents: bill.sanction_total_cents },
+    // The per-class clubs only: their money is spread across the class lines
+    // and has no line of its own. A club charging per horse or per exhibitor
+    // is itemised below with its arithmetic, the way the show's own charges
+    // are — the two add up to `sanction_total_cents`.
+    {
+      label: 'Club sanction fees',
+      cents: bill.class_sanction_total_cents ?? bill.sanction_total_cents,
+    },
+    ...(bill.sanction_lines ?? []).map((line) => ({
+      label: `${line.name || line.code} sanction — ${formatMoney(line.amount_cents)} ${unitLabel(
+        line.unit,
+      )}${line.quantity > 1 ? ` × ${line.quantity}` : ''}`,
+      cents: line.line_total_cents,
+    })),
     // No office charge row of its own: since migration 132 it is an ordinary
     // fee row and arrives with the show's other charges below.
     ...bill.reservation_lines.map((line) => ({
@@ -279,24 +292,24 @@ function BillBreakdown({ account }: { account: FinancialAccount }) {
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: '#8b7355' }}>
+      <h3 className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--muted)' }}>
         Bill
       </h3>
       <dl className="text-sm space-y-1">
         {rows.map((row) => (
           <div key={row.label} className="flex justify-between gap-4">
-            <dt style={{ color: '#5d4a37' }}>{row.label}</dt>
-            <dd className="tabular-nums" style={{ color: '#2c1810' }}>
+            <dt style={{ color: 'var(--text-deep)' }}>{row.label}</dt>
+            <dd className="tabular-nums" style={{ color: 'var(--foreground)' }}>
               {formatMoney(row.cents)}
             </dd>
           </div>
         ))}
         <div
           className="flex justify-between gap-4 pt-1.5 mt-1.5 border-t font-semibold"
-          style={{ borderColor: '#f0e4d0' }}
+          style={{ borderColor: 'var(--bg-subtle)' }}
         >
-          <dt style={{ color: '#2c1810' }}>Total billed</dt>
-          <dd className="tabular-nums" style={{ color: '#2c1810' }}>
+          <dt style={{ color: 'var(--foreground)' }}>Total billed</dt>
+          <dd className="tabular-nums" style={{ color: 'var(--foreground)' }}>
             {formatMoney(bill.total_cents)}
           </dd>
         </div>
@@ -320,7 +333,7 @@ function PaymentHistory({
 
   if (account.payments.length === 0) {
     return (
-      <p className="text-sm" style={{ color: '#8b7355' }}>
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
         No payments recorded against this account yet.
       </p>
     );
@@ -341,11 +354,11 @@ function PaymentHistory({
 
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: '#8b7355' }}>
+      <h3 className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: 'var(--muted)' }}>
         Payments
       </h3>
       {error && (
-        <p className="text-xs mb-1.5" style={{ color: '#991b1b' }}>
+        <p className="text-xs mb-1.5" style={{ color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -354,33 +367,33 @@ function PaymentHistory({
           const isRefund = payment.amount_cents < 0;
           return (
             <li key={payment.id} className="flex flex-wrap items-baseline justify-between gap-2">
-              <span style={{ color: '#5d4a37' }}>
+              <span style={{ color: 'var(--text-deep)' }}>
                 {formatReceivedOn(payment.received_on)} ·{' '}
                 {PAYMENT_METHOD_LABELS[payment.method] ?? payment.method}
                 {payment.reference && <> · {payment.reference}</>}
                 {payment.recorded_by_name && (
-                  <span style={{ color: '#8b7355' }}> · {payment.recorded_by_name}</span>
+                  <span style={{ color: 'var(--muted)' }}> · {payment.recorded_by_name}</span>
                 )}
                 {payment.note && (
-                  <span style={{ color: '#8b7355' }}> · {payment.note}</span>
+                  <span style={{ color: 'var(--muted)' }}> · {payment.note}</span>
                 )}
               </span>
               <span className="flex items-center gap-3">
                 <span
                   className="tabular-nums font-medium"
-                  style={{ color: isRefund ? '#92400e' : '#2f6b3f' }}
+                  style={{ color: isRefund ? 'var(--warning)' : 'var(--success)' }}
                 >
                   {isRefund ? '−' : ''}
                   {formatMoney(Math.abs(payment.amount_cents))}
                 </span>
                 {confirmId === payment.id ? (
                   <span className="flex items-center gap-2 text-xs">
-                    <span style={{ color: '#8b7355' }}>Remove?</span>
+                    <span style={{ color: 'var(--muted)' }}>Remove?</span>
                     <button
                       onClick={() => remove(payment.id)}
                       disabled={busy}
                       className="font-medium hover:underline disabled:opacity-50"
-                      style={{ color: '#b42318' }}
+                      style={{ color: 'var(--error)' }}
                     >
                       Yes
                     </button>
@@ -388,7 +401,7 @@ function PaymentHistory({
                       onClick={() => setConfirmId(null)}
                       disabled={busy}
                       className="hover:underline disabled:opacity-50"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       No
                     </button>
@@ -397,7 +410,7 @@ function PaymentHistory({
                   <button
                     onClick={() => setConfirmId(payment.id)}
                     className="text-xs hover:underline"
-                    style={{ color: '#8b7355' }}
+                    style={{ color: 'var(--muted)' }}
                     title="Only for a payment recorded in error. To give money back, record a refund instead."
                   >
                     Remove
@@ -471,15 +484,15 @@ function RecordPaymentForm({
   };
 
   return (
-    <div className="rounded border p-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#ffffff' }}>
+    <div className="rounded border p-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: '#8b7355' }}>
+        <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
           {isRefund ? 'Record a refund' : 'Record a payment'}
         </h3>
         <button
           onClick={() => setIsRefund(!isRefund)}
           className="text-xs hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
           title={
             isRefund
               ? 'Switch back to recording money taken in'
@@ -491,10 +504,10 @@ function RecordPaymentForm({
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        <label className="text-xs" style={{ color: '#5d4a37' }}>
+        <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Amount
           <div className="flex items-center mt-0.5">
-            <span className="px-2 text-sm" style={{ color: '#8b7355' }}>
+            <span className="px-2 text-sm" style={{ color: 'var(--muted)' }}>
               $
             </span>
             <input
@@ -505,18 +518,18 @@ function RecordPaymentForm({
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
               className="w-full text-sm px-2 py-1.5 rounded border tabular-nums"
-              style={{ borderColor: '#d4b896', color: '#2c1810' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             />
           </div>
         </label>
 
-        <label className="text-xs" style={{ color: '#5d4a37' }}>
+        <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Method
           <select
             value={method}
             onChange={(e) => setMethod(e.target.value as PaymentMethod)}
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
-            style={{ borderColor: '#d4b896', color: '#2c1810', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--foreground)', backgroundColor: 'var(--surface)' }}
           >
             {PAYMENT_METHODS.map((m) => (
               <option key={m} value={m}>
@@ -526,7 +539,7 @@ function RecordPaymentForm({
           </select>
         </label>
 
-        <label className="text-xs" style={{ color: '#5d4a37' }}>
+        <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Reference
           <input
             type="text"
@@ -534,24 +547,24 @@ function RecordPaymentForm({
             onChange={(e) => setReference(e.target.value)}
             placeholder="Check #, last 4…"
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
-            style={{ borderColor: '#d4b896', color: '#2c1810' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
           />
         </label>
 
-        <label className="text-xs" style={{ color: '#5d4a37' }}>
+        <label className="text-xs" style={{ color: 'var(--text-deep)' }}>
           Received
           <input
             type="date"
             value={receivedOn}
             onChange={(e) => setReceivedOn(e.target.value)}
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
-            style={{ borderColor: '#d4b896', color: '#2c1810' }}
+            style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
             title="Leave blank for today"
           />
         </label>
       </div>
 
-      <label className="text-xs block mt-2" style={{ color: '#5d4a37' }}>
+      <label className="text-xs block mt-2" style={{ color: 'var(--text-deep)' }}>
         Note
         <input
           type="text"
@@ -559,12 +572,12 @@ function RecordPaymentForm({
           onChange={(e) => setNote(e.target.value)}
           placeholder="Optional"
           className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
-          style={{ borderColor: '#d4b896', color: '#2c1810' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
         />
       </label>
 
       {error && (
-        <p className="text-xs mt-2" style={{ color: '#991b1b' }}>
+        <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
@@ -574,7 +587,7 @@ function RecordPaymentForm({
           onClick={submit}
           disabled={busy || !validAmount}
           className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: isRefund ? '#92400e' : '#2c1810', color: '#f5ede0' }}
+          style={{ backgroundColor: isRefund ? 'var(--warning)' : 'var(--foreground)', color: 'var(--bg-subtle)' }}
           title={!validAmount ? 'Enter an amount greater than zero' : undefined}
         >
           {busy ? 'Saving…' : isRefund ? 'Record refund' : 'Record payment'}
@@ -583,7 +596,7 @@ function RecordPaymentForm({
           <button
             onClick={() => setAmount((owed / 100).toFixed(2))}
             className="text-xs hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Pay balance in full ({formatMoney(owed)})
           </button>

@@ -117,22 +117,69 @@ def fee_rate_cents(fee, booked_on: Optional[date] = None) -> int:
     return fee.early_amount_cents if early_rate_is_open(fee, booked_on) else fee.amount_cents
 
 
+# Which units a club's sanction fee may be charged in (migration 133).
+#
+# The same vocabulary the show's own automatic charges use, minus the one that
+# does not belong to a club: `per_judge_per_entry` is the breed body's own
+# per-entry assessment (APHA SC-125.B and its kin), which lives in the show's
+# own fee catalog, and a club billing per class entered is what `per_entry`
+# already is here.
+#
+# `per_entry` is first because it is the original behaviour and the default:
+# every club priced before migration 133 charges per class it approves, and
+# nothing about that show's money moves.
+CLUB_SANCTION_UNITS = (
+    "per_entry",
+    "per_exhibitor",
+    "per_horse",
+    "per_judge_per_horse",
+    "per_judge_per_exhibitor",
+)
+
+
+def sanction_fee_unit(row) -> str:
+    """How this club's fee is charged, defaulting to the pre-133 behaviour.
+
+    `getattr` rather than a plain read, for the reason `membership_fee_cents`
+    uses one: every test stub and every caller written before the column
+    existed hands over a row without it, and a club that predates the unit must
+    go on billing per class rather than raising.
+    """
+    return getattr(row, "fee_unit", None) or "per_entry"
+
+
+def class_carries_sanction(cls, association_id) -> bool:
+    """Whether this club is one of the clubs that approves this class."""
+    return any(
+        row.association_id == association_id
+        for row in (getattr(cls, "sanctioning", None) or [])
+    )
+
+
 def sanction_rates(show) -> dict:
     """What each club this show carries charges per class it sanctions.
 
-    `{association_id: per_class_fee_cents}`, read off `show_sanctioning` — the
-    amount the manager set in setup Step 3/5 and which the public show bill has
+    `{association_id: fee_amount_cents}`, read off `show_sanctioning` — the
+    amount the manager set in setup Step 6 and which the public show bill has
     always printed as "$2.00 per class". Clubs with no fee set are kept out, so
     a show that enrolled a club without pricing it bills nothing rather than
     zero-value lines.
+
+    **Clubs charging `per_entry` only**, since migration 133. A club charging
+    per horse or per exhibitor is not a rate any class line can carry — it is
+    one charge against the exhibitor however many of that club's classes they
+    entered — and it bills through `sanction_charge_lines` instead. A club
+    reaching both would be charged twice, which is why the filter is here and
+    not at the caller: `class_sanction_cents` is called per class, from two
+    routers, and a filter it has to remember is one somebody will forget.
 
     Migration 080 split clubs out of `show_types`, so "this show is NSBA
     sanctioned" is a `show_sanctioning` row rather than a show type.
     """
     return {
-        s.association_id: s.per_class_fee_cents
+        s.association_id: s.fee_amount_cents
         for s in (show.sanctioning or [])
-        if (s.per_class_fee_cents or 0) > 0
+        if (s.fee_amount_cents or 0) > 0 and sanction_fee_unit(s) == "per_entry"
     }
 
 
@@ -154,6 +201,81 @@ def class_sanction_cents(cls, rates: dict) -> int:
     for row in (getattr(cls, "sanctioning", None) or []):
         total += rates.get(row.association_id, 0)
     return total
+
+
+def sanction_charge_lines(
+    show,
+    entries: Iterable,
+    judge_count: int,
+) -> tuple[list[dict], int]:
+    """The club sanction fees that are charged per exhibitor, not per class.
+
+    Returns (lines, total_cents), one line per club whose `fee_unit` is
+    something other than `per_entry` (migration 133). `per_entry` money is not
+    here: it rides on the class lines through `class_sanction_cents`, which is
+    where an exhibitor looks for it, and putting a club in both lists would
+    charge it twice.
+
+    **Every count is taken over that club's own approved classes and nothing
+    else.** A club sanctions a list of classes, not a schedule
+    (`class_sanctioning`, migration 113), so an "all-day fee per horse" is per
+    horse the exhibitor brought *to that club's classes* — counting the horse
+    they trailered in for one APHA halter class would charge for a relationship
+    that horse does not have. This is the rule migration 131 settled for the
+    breed body's own charges, read from the other side: `charge_lines` counts
+    everything a club has *not* taken on, and this counts what one club has.
+
+    `charge_multiplier` is shared with those charges rather than reimplemented,
+    so "per judge, per horse" cannot come to mean one thing on a show fee and
+    another on a club's. It returns 0 for `per_entry`, which is the second
+    guard on the double-charge above.
+    """
+    entry_list = [e for e in entries if e.class_ is not None]
+
+    lines: list[dict] = []
+    total = 0
+    for row in (show.sanctioning or []):
+        unit = sanction_fee_unit(row)
+        amount = row.fee_amount_cents or 0
+        if unit == "per_entry" or amount <= 0:
+            continue
+        club_entries = [
+            e for e in entry_list if class_carries_sanction(e.class_, row.association_id)
+        ]
+        horse_count = len({e.horse_id for e in club_entries if e.horse_id})
+        quantity = charge_multiplier(
+            unit,
+            horse_count,
+            judge_count,
+            len(club_entries),
+            has_relevant_entries=bool(club_entries),
+        )
+        if quantity <= 0:
+            continue
+        line_total = amount * quantity
+        association = getattr(row, "association", None)
+        lines.append(
+            {
+                "association_id": row.association_id,
+                # Same tolerance `sanction_rates` has always had: a row whose
+                # association went missing is a half-finished registry edit,
+                # and it must not take a bill down with it.
+                "code": association.code if association is not None else "",
+                "name": association.name if association is not None else "",
+                "unit": unit,
+                "amount_cents": amount,
+                # Both counts travel with the line for the reason they do on a
+                # `charge_lines` row: "$45.00 x 4 judges x 1 horse" is checkable
+                # against a paper show bill in a way "$180.00" is not.
+                "horse_count": horse_count,
+                "judge_count": judge_count,
+                "entry_count": len(club_entries),
+                "quantity": quantity,
+                "line_total_cents": line_total,
+            }
+        )
+        total += line_total
+    return lines, total
 
 
 def is_club_sanctioned_class(cls) -> bool:
@@ -455,7 +577,7 @@ def build_bill(
 
     class_lines: list[dict] = []
     class_fee_total = 0
-    sanction_total = 0
+    class_sanction_total = 0
 
     entry_list = list(entries)
     for entry in entry_list:
@@ -476,7 +598,7 @@ def build_bill(
             }
         )
         class_fee_total += cls.entry_fee_cents
-        sanction_total += sanction
+        class_sanction_total += sanction
 
     reservation_lines: list[dict] = []
     reservation_total = 0
@@ -513,10 +635,19 @@ def build_bill(
     # so every caller must eager-load both. An unloaded relationship raises
     # MissingGreenlet in an async request, which is loud; defaulting to "this
     # show has no fees" would silently under-bill an entire show, which is not.
+    judge_count = len(show.judges or [])
     charge_line_list, charge_total = charge_lines(
         show.fees or [],
         entry_list,
-        len(show.judges or []),
+        judge_count,
+    )
+    # The clubs that charge per horse or per exhibitor rather than per class
+    # (migration 133). Their money is club sanction money like any other, so it
+    # totals into `sanction_total_cents` and every screen that reads that figure
+    # keeps footing; `class_sanction_total_cents` is kept beside it so a bill
+    # can print the per-class portion without summing these in the browser.
+    sanction_line_list, sanction_charge_total = sanction_charge_lines(
+        show, entry_list, judge_count
     )
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 
@@ -524,15 +655,18 @@ def build_bill(
         "class_lines": class_lines,
         "reservation_lines": reservation_lines,
         "charge_lines": charge_line_list,
+        "sanction_lines": sanction_line_list,
         "futurity_lines": futurity_line_list,
         "class_fee_total_cents": class_fee_total,
-        "sanction_total_cents": sanction_total,
+        "class_sanction_total_cents": class_sanction_total,
+        "sanction_total_cents": class_sanction_total + sanction_charge_total,
         "reservation_total_cents": reservation_total,
         "charge_total_cents": charge_total,
         "futurity_total_cents": futurity_total,
         "total_cents": (
             class_fee_total
-            + sanction_total
+            + class_sanction_total
+            + sanction_charge_total
             + reservation_total
             + charge_total
             + futurity_total

@@ -7,6 +7,7 @@ import {
   fetchShowFuturitiesPublic,
   fetchShowbill,
 } from '@/lib/api';
+import { unitLabel } from '@/lib/fee-units';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import ShowbillDocument, {
@@ -50,9 +51,9 @@ function formatMoney(cents: number): string {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3 py-3 border-b last:border-b-0"
-      style={{ borderColor: '#e8d5b7' }}>
-      <div className="text-sm font-medium sm:w-40 shrink-0" style={{ color: '#8b7355' }}>{label}</div>
-      <div className="text-sm" style={{ color: '#2c1810' }}>{children}</div>
+      style={{ borderColor: 'var(--border-subtle)' }}>
+      <div className="text-sm font-medium sm:w-40 shrink-0" style={{ color: 'var(--muted)' }}>{label}</div>
+      <div className="text-sm" style={{ color: 'var(--foreground)' }}>{children}</div>
     </div>
   );
 }
@@ -75,8 +76,13 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
     fetchShowFuturitiesPublic(id),
   ]);
 
-  const clubs: { association_id: string; code: string; name: string; per_class_fee_cents: number }[] =
-    show.sanctioning ?? [];
+  const clubs: {
+    association_id: string;
+    code: string;
+    name: string;
+    fee_amount_cents: number;
+    fee_unit: string;
+  }[] = show.sanctioning ?? [];
 
   // DRAFT classes are the secretary's working copy — not on offer yet, and
   // publishing one here would advertise a class that may never run.
@@ -88,9 +94,9 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <ShowHubHeader show={show} backHref={back.backHref} backLabel={back.backLabel} />
 
-      <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>Show Details</h2>
+      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Show Details</h2>
 
-      <div className="rounded-lg border px-4" style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}>
+      <div className="rounded-lg border px-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         <Row label="Show name">{show.name}</Row>
         {show.venue && <Row label="Location">📍 {show.venue}</Row>}
         <Row label="Dates">
@@ -109,7 +115,7 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
               {show.affiliations.map((a: { show_type_id: string; show_type_code: string; show_type_name?: string }) => (
                 <span key={a.show_type_id}
                   className="text-xs font-mono font-semibold px-2 py-0.5 rounded"
-                  style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                  style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                   title={a.show_type_name}>
                   {a.show_type_code}
                 </span>
@@ -127,13 +133,14 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
               {clubs.map((club) => (
                 <li key={club.association_id}>
                   <span className="font-mono font-semibold text-xs px-1.5 py-0.5 rounded mr-1.5"
-                    style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+                    style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                     {club.code}
                   </span>
                   {club.name}
-                  {club.per_class_fee_cents > 0 && (
-                    <span style={{ color: '#8b7355' }}>
-                      {' '}— {formatMoney(club.per_class_fee_cents)} per class
+                  {club.fee_amount_cents > 0 && (
+                    <span style={{ color: 'var(--muted)' }}>
+                      {' '}— {formatMoney(club.fee_amount_cents)}{' '}
+                      {unitLabel(club.fee_unit)}
                     </span>
                   )}
                 </li>
@@ -150,7 +157,7 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>
 
-      <h2 className="text-lg font-semibold mt-6 mb-3" style={{ color: '#2c1810' }}>Show Bill</h2>
+      <h2 className="text-lg font-semibold mt-6 mb-3" style={{ color: 'var(--foreground)' }}>Show Bill</h2>
       {showbill.effective_source === 'uploaded' && showbill.document && (
         <div className="mb-6">
           <UploadedShowbill
@@ -170,7 +177,7 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           silent replacement: the two can disagree, and the reader has to be
           able to see which is which. */}
       {showbill.effective_source === 'uploaded' && showbill.document && (
-        <h3 className="text-base font-semibold mb-2" style={{ color: '#2c1810' }}>
+        <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
           Classes, judges and fees as entered in this app
         </h3>
       )}
@@ -187,10 +194,10 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
         {/* The show's chosen bill with a masthead and a print stylesheet on it.
             Worth its own route even though the content is above: a program
             people carry round the grounds on paper is the point of it. */}
-        <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: '#8b4513' }}>
+        <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: 'var(--accent)' }}>
           Print or save the show bill →
         </Link>
-        <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: '#8b4513' }}>
+        <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: 'var(--accent)' }}>
           Message the show office →
         </Link>
       </div>

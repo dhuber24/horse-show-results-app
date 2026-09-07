@@ -398,7 +398,7 @@ async def _build_show(
         db.add(ShowSanctioning(
             show_id=show.id,
             association_id=associations[code].id,
-            per_class_fee_cents=per_class_cents,
+            fee_amount_cents=per_class_cents,
         ))
 
     for i, (first, last, email, phone) in enumerate(spec.judges):

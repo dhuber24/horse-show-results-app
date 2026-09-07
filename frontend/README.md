@@ -1,6 +1,6 @@
-# Horse Show Results Frontend
+# GaitDesk Frontend
 
-Next.js 15 App Router PWA for the Horse Show Results app.
+Next.js 15 App Router PWA for the GaitDesk app.
 
 ## Local Development
 

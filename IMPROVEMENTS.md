@@ -2,6 +2,276 @@
 
 ## September 2026
 
+### A Card Is A Year's Card
+
+The exhibitor profile could record that somebody was an APHA member and not
+that they were allowed to enter Amateur. Those are different facts, and APHA
+charges for them separately: **Amateur, Novice Amateur, Amateur Walk-Trot,
+Novice Youth and Youth Walk-Trot 11-18 are gated on a competition card**, and
+every one of those cards runs 1 January to 31 December and is bought again every
+year. APHA says it on the amateur page -- "Amateur cards run January
+1-December 31 and must be renewed annually" -- and again, in capitals, on its
+own entry form: "ALL APHA AMATEUR, NOVICE AMATEUR, AMATEUR WALK TROT, NOVICE
+YOUTH AND YOUTH WALK TROT 11-18 CARDS EXPIRE DECEMBER 31ST."
+
+**So the app does not store an expiry date.** It stores the year, and derives
+the 31 December -- the same call it already makes about a horse's age. A date
+box would have accepted 30 June 2026, which is not a card APHA issues, and the
+show office would have read that back off a screen that looked authoritative.
+The noun everybody at the counter uses is "a 2026 Amateur card", so that is what
+the row holds, and **renewing is raising the year** rather than editing a date.
+There is one button on each card that does it.
+
+Two divisions are deliberately missing from the list. Plain **Youth** and
+**Youth Walk-Trot 5-10** are not on APHA's notice -- youth eligibility is age
+and youth membership, not a card -- and adding them for symmetry would have the
+app chasing paperwork nobody issues. For the same reason, **which associations
+issue cards is a map that knows only APHA**. AQHA's card rules have not been
+supplied, and a guessed year-end would be filed here, read at a desk, and found
+out at a gate.
+
+The storage is a table, not columns. Migration 010 had
+`amateur_card_number` / `amateur_card_expiry` / `amateur_novice_codes` on
+`exhibitors` -- one association, one card, and the categories as a
+comma-separated string -- which is the shape migration 117 had to unpick for
+membership numbers, and which cannot describe somebody holding an Amateur card
+and a Novice Amateur card in the same year. Those columns are backfilled and
+left in place, for 117's reason: dropping the only home of somebody's card
+number is data loss, not a migration.
+
+### An Expiry Date Is Half Of A Breed Membership
+
+Shipped alongside, because it is the same gap read from the other side. A
+membership's `expires_at` has been nullable since migration 117, where NULL
+means *unknown* rather than current -- and a breed body's good standing is a
+condition of showing (APHA RG-030). A number filed with no date beside it is one
+the desk can report nothing about, so **a breed membership now requires one**.
+
+A club membership does not, and that asymmetry is the point rather than an
+oversight: several clubs sell a membership at the gate and plenty run to no
+fixed date, so refusing the number over the missing date would lose the number
+too. The rule lives in the router, not in a CHECK, because a CHECK cannot see
+`associations.association_type` -- the same reason `showbill_source` is guarded
+in its own router.
+
+The change needed an edit path it did not have. `exhibitor_registrations` had
+`POST` and `DELETE` and nothing in between, so an APHA row filed before this
+could only satisfy the new rule by being deleted and retyped -- losing the
+number over a missing date, which is exactly the outcome the club exemption
+exists to avoid. `PATCH /exhibitors/{id}/registrations/{reg_id}` closes it, and
+each membership on the profile now shows where it stands with an **Add expiry**
+link where it does not say.
+
+### Registration, Read On A Phone
+
+Tested on a mobile device, the exhibitor's registration screen was small print
+and scrolling. The stalls step alone ran to **4,908 pixels** on a 390px screen.
+
+Three things were wrong, and only two of them were words.
+
+**Step one said everything twice.** Above the details form sat a checklist of
+every profile row with its hint underneath -- six items, thirteen lines --
+directly above a form carrying the same labels, the same red asterisks and, on
+two rows, the same hint text word for word. "Youth and amateur divisions are
+decided by age." appeared twice, a thumb's width apart. What is still needed is
+now one line; the boxes are the form. The collapsed section header already named
+the gaps, and `/shows/[id]/signup` -- which has no such header -- keeps the line
+for that reason.
+
+**The descriptions were explanations.** A field hint said why the rule exists,
+then what it meant for you, and often repeated something already on screen. The
+locked steps were the worst of it, because a locked step's reason renders as its
+one-line subtitle: "Reserve your stalls, shavings and camping above first -- the
+office needs those numbers before you can enter classes" is three lines there,
+and says "Sign up for stalls first". Where the *why* genuinely matters -- APHA
+AM-300.E on a relationship picker, where a bedding minimum came from, what a
+Grand & Reserve callback is -- it moved to the element's `title`, which costs
+nobody a line and is still there for whoever wants it.
+
+**The worst of it was not text at all.** `ReservationFields`' fee rows put the
+label and the show's own notes beside a fixed ~200px stepper, so at 390px the
+text column was about the width of one word: MNSPHC's shavings note -- "Minimum
+2 bags per stall. NO OUTSIDE SHAVINGS ALLOWED. Any and all shavings reserved are
+non-refundable and must be paid for even if not used." -- rendered as some
+fifteen one-word lines. Nothing shortened in this app fixes that, because the
+longest text in the row is typed by the show secretary. The row stacks below
+`sm` now.
+
+Two defects turned up in the screenshots on the way: the membership prompt read
+"...APHA, WSCA, MNSPHC You can still enter" because the backend hint had no full
+stop, and a summary read "1 horse need records".
+
+The stalls step is **3,204 pixels**, down 35%. The step-one form lost a
+screenful. No behaviour changed -- every lock, refusal and figure is the
+backend's and untouched.
+
+### The Classes A Club Approves, Readable As A List
+
+Step 6's class picker could be filtered by number or name and not by the only
+other question anybody asks it: *what have I ticked so far?* On the MNSPHC
+schedule that is twenty-one rows inside a hundred and seventy-two, and the only
+way to see them was to scroll the whole schedule looking for ticks — which is
+also how somebody checking their work against a printed show bill had to do it.
+
+Each club's list now has two views, **All (n)** and **Ticked (n)**, and the text
+filter narrows whichever one is showing, so "Ticked" plus "Pleasure" answers
+"which pleasure classes did I give this club?". The ticked view reads off the
+live selection rather than a snapshot taken when it opened: unticking a class
+there drops the row on the spot, because that *is* what taking it off the club's
+list means, and a row left behind saying it is not approved would be the same
+list disagreeing with itself. **Select** is disabled in the ticked view with a
+reason on it — every row there is ticked already — rather than hidden, since a
+control that vanishes out of a toolbar somebody is using reads as a bug. The
+bulk buttons name what they would act on ("Untick the 21 classes ticked for this
+club"), because "Clear all" clearing eleven of a hundred and seventy-two is the
+one press in this screen nobody can undo. An empty ticked view says so in those
+words rather than "no matching classes", which would read as a broken filter
+over what is really just an unanswered question.
+
+### A Club Charges What It Charges, Not Only Per Class
+
+`show_sanctioning` has carried one number since migration 072: `per_class_fee_cents`,
+the amount a club collects on every entry in every class it approves. That is
+one of the ways a club charges, and the show bills sitting in this repo are full
+of the others — an all-day fee per horse, an assessment per judge per horse, a
+card fee per exhibitor. A secretary who met one had the two choices they had
+before migration 131 scoped the show's own charges: work the arithmetic out by
+hand into a flat per-class amount that is wrong for anyone entering a different
+number of classes, or leave the money off the app and collect it at the desk.
+
+**The fee is now an amount and a unit** (migration 133), which is the pair
+`show_fees` has always been. `show_sanctioning.fee_unit` takes `per_entry` — per
+class entered, the default, and exactly what every club charged before this —
+`per_exhibitor`, `per_horse`, `per_judge_per_horse` or `per_judge_per_exhibitor`.
+The vocabulary is the show's own, and `billing.charge_multiplier` prices both,
+because "per judge, per horse" cannot mean one thing on a drug fee and another
+on a club's. `per_judge_per_entry` is deliberately absent: that unit is the breed
+body's own per-entry assessment (APHA SC-125.B and its kin), it belongs to the
+show's fee catalog, and a club billing per class entered is `per_entry`.
+
+**Every unit counts that club's approved classes and nothing else.** This is
+migration 131's rule read from the other side: the show's own automatic charges
+exclude the classes a club has taken on, and a club's own charge includes only
+those. So a `per_horse` club charges for the horses that entered *its* classes,
+and an exhibitor who trailered in for one breed halter class owes it nothing —
+which is what "sanctioned classes only" on a paper show bill means, and what the
+class list in Step 6 has always been for.
+
+**A club bills through exactly one of two paths, and both ends filter.**
+`sanction_rates` now returns the `per_entry` clubs alone, whose money rides on
+each class line as `sanction_cents` where an exhibitor looks for it;
+`billing.sanction_charge_lines` returns the rest, one itemised charge per
+exhibitor with its arithmetic on the line. A club reaching both would be charged
+twice, so the filter lives in `sanction_rates` rather than at its callers —
+`class_sanction_cents` runs per class from two routers, and a filter a caller has
+to remember is one somebody forgets — and `charge_multiplier` returning 0 for
+`per_entry` is the second guard. `build_bill` gains `sanction_lines` and
+`class_sanction_total_cents`; `sanction_total_cents` is still both halves
+together, so every screen already reading it foots without changing.
+
+**The amount column is renamed.** `per_class_fee_cents` holding "$45 per judge,
+per horse" is the trap migration 112 split `per_judge` to close: the unit says
+what is multiplied, and a column name that contradicts it is the reading
+everybody trusts. It is `fee_amount_cents` now, in the same statement that gave
+it a unit.
+
+Step 6 asks for the unit beside the amount, states what the pair will actually
+charge ("$45.00 × 4 judges = $180.00 for each horse they enter in its 21
+approved classes"), and says outright when a per-judge fee is charging nothing
+because no judges are assigned yet — the same three things the Class Fees box in
+Step 4 does, for the same reason. The show bill and Show Details print the unit
+beside the rate, because "$45.00" against a club's name is a number nobody
+reading a show bill can check.
+
+### The Setup Wizard Is Nine Steps, And Moving On Saves
+
+Show setup was eight steps that each ended in a Save button, with three of its
+questions answered in places that could not answer them.
+
+**Leaving a step saves it.** Every step had a Save button, and walking the
+stepper without pressing it discarded whatever had been typed — silently,
+because moving forward through a numbered flow reads as progress rather than as
+losing a form. `setup/_lib/StepAutosave.tsx` turns that round: a step's client
+registers a `flush`, and every control that leaves the step — the footer's Back /
+Next / Setup hub and the stepper's own step links — awaits it before navigating.
+Two rules make it safe to bolt onto forms that already had Save buttons. **A
+flush that throws stops the navigation**, because the step's own error is on
+screen by then and carrying somebody forward from a 422 is exactly the loss this
+replaces. And **a flush must be a no-op when nothing is dirty** — these fire on
+every press of every step link, so an unconditional write would rewrite a step
+somebody only passed through; each client compares against what the screen
+loaded rather than tracking a flag, since typing a 5 and deleting it again has
+changed nothing. The Save buttons that remain are a second door onto the same
+function.
+
+The one that went is Step 5's **Save & continue to Classes**, and it went
+because it stopped writing anything. Class fees save a row at a time in
+`ShowChargesEditor`; once the sanctioning amounts moved off the step (below),
+the button was a Save that saved nothing, sitting next to a Next link to the
+same destination.
+
+**Club sanctioning is one step, after the schedule exists.** A club sanction is
+three facts — which clubs, what each charges per approved class, which classes
+it approves — and the fee bills only where all three exist. They were on three
+screens: Step 3, a box on the Step 5 fee screen, and a **Sanctioned Classes**
+page hanging off the class list, visited in an order nothing told you. The
+reason they were scattered is that Step 3 came *before* any classes existed, so
+two of the three questions could not be asked there at all. Sanctioning is now
+Step 6, after the Class Builder, and asks all three in the order the answers
+come: tick a club, price it, tick its classes. One Save for the step. Each
+club's row states the arithmetic as it is ticked — "$3.00 × 21 approved classes
+= $63.00 on an entry in every one" — and says outright when a club has classes
+ticked and no fee set, which is the way to have a sanction that charges nobody.
+`/admin/shows/[id]/classes/sanctioning` redirects to the step; it is in
+bookmarks and in a season of links, and a 404 is not how somebody learns a
+screen moved.
+
+**Judge Cards is a step, not a banner.** Which card each scored class is marked
+on was a yellow notice at the top of the class wizard, for the same reason
+Sanctioned Classes was a separate page: it is a per-class designation made once
+the schedule exists. It is Step 8 now, after Futurities, on its own unchanged
+route. The screen is also the only place the card shapes are explained, which a
+secretary choosing between three of them needs in front of them — a banner
+could say none of that; it could only link away from the page somebody had just
+opened. Its tick asks the honest question: green once there is a schedule and
+either nothing on it is scored or something on it has been given a card.
+
+**Optional steps say so.** `StepLayout` takes a `skipLabel`, which renders a
+second, quieter button beside Next. Futurities offers **Skip — no futurity at
+this show** while the show has none (most shows run none, and a tick that never
+goes green otherwise reads as a job forgotten); Sanctioning and Judge Cards
+offer theirs on the same grounds. It goes where Next goes — what it adds is the
+manager being told, on the step, that walking past it is a supported answer.
+
+**Step 6 became Step 5 and is called the Class Builder**, which is what it does:
+pick disciplines, pick divisions, build classes. Its two banners are gone, since
+both now point at steps the stepper shows and the Next link walks into.
+
+**The fee vocabulary says "class", not "entry".** `UNIT_LABEL` renders
+`per_entry` as *per class* and `percent_of_entry` as *% of class fee*. A show fee
+is charged against a class — the word on every show bill and in every
+conversation at the desk — and "per entry" reading down a list next to "per
+judge, per class" was two names for one thing. The column values are untouched:
+`per_entry` is still `per_entry` in the database and in `billing.py`.
+
+**The Show Bill step puts both controls on the option they belong to.** The
+generated bill is now named for what generates it — **Showbill generated by
+GaitDesk** — and carries **Preview the show bill as exhibitors will see it**
+beside it, where before that was a footnote at the foot of the page belonging to
+neither option and needing a clause to explain which bill it opened. **Our own
+show bill, uploaded** carries an **Upload** (or **Replace**) button, and once
+there is a file, one line under the option with its name, size, upload date,
+whether it is published, and View / Remove. That replaced an entire section
+below the choice — a heading, a paragraph of accepted formats (now the button's
+tooltip), a file input and a file card — for what is one button and one line.
+Nothing about the two-press rule changed: uploading still does not publish, and
+the radio is still disabled until a file exists.
+
+The full step order is now Basics & Staff, Judges, Lodging, Fees, Class Builder,
+Sanctioning, Futurities, Judge Cards, Show Bill. What orders it is what each
+step needs to already exist — which is why the three that need a schedule sit
+after the one that builds it.
+
 ### Three Small Things On The Fee Screen
 
 Follow-ups to the entry below, all on the Class Fees box.

@@ -108,7 +108,11 @@ def _revenue_summary(fin: dict) -> dict:
     add(
         "Club sanction fees",
         totals["sanction_total_cents"],
-        "Per-class fee for each club sanctioning the class entered",
+        # Not "per class": since migration 133 a club prices its sanction per
+        # class entered, per horse, per exhibitor or either of the last two
+        # times the judge panel. All of it is counted over the classes that
+        # club approves, which is the half that has never changed.
+        "What each sanctioning club charges, on the classes it approves",
     )
     # The show's own automatic charges, each on its own row — the office charge
     # among them since migration 132 made it an ordinary fee row rather than a
@@ -371,7 +375,7 @@ def _charges_applied(fin: dict) -> dict:
             "in the Revenue Summary.",
         ] if rows else [
             "This show applies no automatic charges. They are set up under "
-            "Other fees in Step 5 of show setup."
+            "Other fees in Step 4 of show setup."
         ],
     }
 

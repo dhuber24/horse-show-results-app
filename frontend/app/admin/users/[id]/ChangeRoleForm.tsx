@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'EXHIBITOR', 'TRAINER'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'JUDGE', 'EXHIBITOR', 'TRAINER'];
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
@@ -11,6 +11,7 @@ const ROLE_LABELS: Record<string, string> = {
   SHOW_SECRETARY: 'Show Secretary',
   SCRIBE: 'Scribe',
   GATE_STEWARD: 'Gate Steward',
+  JUDGE: 'Judge',
   EXHIBITOR: 'Exhibitor',
   TRAINER: 'Trainer',
 };
@@ -53,12 +54,12 @@ export default function ChangeRoleForm({ user }: Props) {
         value={role}
         onChange={e => setRole(e.target.value)}
         className="border rounded px-3 py-2 text-sm focus:outline-none"
-        style={{ borderColor: '#d4b896' }}
+        style={{ borderColor: 'var(--border)' }}
       >
         {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>)}
       </select>
       {showExhibitorWarning && (
-        <p className="text-xs px-3 py-2 rounded border" style={{ borderColor: '#fbbf24', backgroundColor: '#fffbeb', color: '#92400e' }}>
+        <p className="text-xs px-3 py-2 rounded border" style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
           This user has an Exhibitor profile with horses and show entries. Changing their role will remove access to the exhibitor dashboard — their data will remain intact.
         </p>
       )}
@@ -68,7 +69,7 @@ export default function ChangeRoleForm({ user }: Props) {
           disabled={saving || !isDirty}
           title={!isDirty ? 'Select a different role to save' : saving ? 'Saving, please wait…' : undefined}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Saving…' : 'Update Role'}
         </button>

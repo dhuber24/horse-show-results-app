@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
 import {
   CLASS_FEE_EDITOR_UNITS,
   unitLabel,
@@ -17,7 +18,7 @@ import {
  * `per_entry` row like a jackpot is published text only and bills nobody
  * here — the pot's own buy-in is what actually charges anyone.
  *
- * One editor, used by setup Step 5 and the Entry Fees screen, because both
+ * One editor, used by setup Step 4 and the Entry Fees screen, because both
  * were writing the same `show_fees` rows with different vocabulary. There is
  * one place these rows are shaped, and one box they live in — a class fee
  * does not get a second home outside it. `boxed` lets a caller that already
@@ -114,12 +115,12 @@ const QUICK_ADD_PRESETS: {
 ];
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  soft: '#e8d5b7',
-  accent: '#8b4513',
-  panel: '#faf6f0',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  soft: 'var(--border-subtle)',
+  accent: 'var(--accent)',
+  panel: 'var(--background)',
 } as const;
 
 function dollarsFromCents(cents: number): string {
@@ -141,6 +142,21 @@ function codeFromLabel(label: string): string {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .slice(0, 64) || 'charge'
+  );
+}
+
+/** Whether a row's draft differs from what is on file. The per-row Save button
+ *  and the step's autosave read the same test, so a row the button calls
+ *  unchanged is one the autosave leaves alone. An unparseable amount is not
+ *  dirty: there is nothing to write, and the row says so in red already. */
+function isDirty(charge: ShowCharge, draft: Draft): boolean {
+  const cents = centsFromDollars(draft.amount);
+  if (cents === null) return false;
+  return (
+    cents !== charge.amount_cents ||
+    draft.label !== charge.label ||
+    draft.unit !== charge.unit ||
+    (draft.notes.trim() || null) !== (charge.notes ?? null)
   );
 }
 
@@ -186,7 +202,7 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
         ? `${rate} × ${judges} × classes entered${scopeNote}.`
         : `${rate} per judge, per class entered${scopeNote}.`;
     case 'per_entry':
-      return `${rate} published on the show bill only — not billed automatically here.`;
+      return `${rate} per class, published on the show bill only — not billed automatically here.`;
     default:
       return '';
   }
@@ -239,7 +255,7 @@ export default function ShowChargesEditor({
   /** False when a parent already renders the outer "Class Fees" box (Entry
    *  Fees, which also holds the per-class pricing table below this) — skips
    *  this component's own border and top-level heading so there is exactly
-   *  one box, not two. Defaults to true for Step 5, which has no per-class
+   *  one box, not two. Defaults to true for Step 4, which has no per-class
    *  table and owns nothing else to share a box with. */
   boxed?: boolean;
 }) {
@@ -296,16 +312,19 @@ export default function ShowChargesEditor({
   const patchDraft = (charge: ShowCharge, patch: Partial<Draft>) =>
     setDrafts((prev) => ({ ...prev, [charge.id]: { ...draftFor(charge), ...patch } }));
 
-  async function save(charge: ShowCharge) {
+  /** Returns whether the row was written. The step's autosave stops the
+   *  navigation on a false, so the manager sees the error rather than being
+   *  carried forward from it. */
+  async function save(charge: ShowCharge): Promise<boolean> {
     const draft = draftFor(charge);
     if (!draft.label.trim()) {
       setError('A fee needs a name — it is what the exhibitor reads on their bill.');
-      return;
+      return false;
     }
     const cents = centsFromDollars(draft.amount);
     if (cents === null) {
       setError(`Invalid amount for ${draft.label}.`);
-      return;
+      return false;
     }
     setBusyId(charge.id);
     setError(null);
@@ -324,10 +343,11 @@ export default function ShowChargesEditor({
       const updated: ShowCharge = await res.json();
       setCharges((prev) => prev.map((c) => (c.id === charge.id ? updated : c)));
       router.refresh();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? `Failed to save ${draft.label}.`);
+      return true;
     }
+    const err = await res.json().catch(() => ({}));
+    setError(err.detail ?? `Failed to save ${draft.label}.`);
+    return false;
   }
 
   async function remove(charge: ShowCharge) {
@@ -344,15 +364,15 @@ export default function ShowChargesEditor({
     }
   }
 
-  async function add() {
+  async function add(): Promise<boolean> {
     if (!newRow.label.trim()) {
       setError('A fee needs a name — it is what the exhibitor reads on their bill.');
-      return;
+      return false;
     }
     const cents = centsFromDollars(newRow.amount);
     if (cents === null) {
       setError('Invalid amount.');
-      return;
+      return false;
     }
     setAdding(true);
     setError(null);
@@ -391,11 +411,27 @@ export default function ShowChargesEditor({
       setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '' });
       setShowAddForm(false);
       router.refresh();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to add that fee.');
+      return true;
     }
+    const err = await res.json().catch(() => ({}));
+    setError(err.detail ?? 'Failed to add that fee.');
+    return false;
   }
+
+  // Leaving the step writes the rows the manager edited and never pressed Save
+  // on. The open "new fee" form is written too, but only once it has both a
+  // name and an amount typed: a quick-add preset fills the name in on the
+  // press, so saving on the name alone would put a $0 fee on the bill for
+  // anybody who opened the form and thought better of it.
+  useRegisterStepAutosave(async () => {
+    for (const charge of charges) {
+      if (!isDirty(charge, draftFor(charge))) continue;
+      if (!(await save(charge))) throw new Error('A class fee could not be saved.');
+    }
+    if (showAddForm && newRow.label.trim() && newRow.amount.trim()) {
+      if (!(await add())) throw new Error('A class fee could not be added.');
+    }
+  });
 
   const judgePanelMissing =
     judgeCount === 0 && charges.some((c) => usesJudgeCount(c.unit) && c.amount_cents > 0);
@@ -410,10 +446,7 @@ export default function ShowChargesEditor({
             </h2>
           )}
           <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-            Charges this show adds on top of each class&apos;s entry fee — an office or
-            drug fee, an association assessment, an all-day pass, a jackpot/sidepot
-            fee. The automatic ones are billed to everyone who enters a class;
-            nothing here is something the exhibitor picks.
+            Add a custom fee or select one of the predefined fees
           </p>
         </div>
         {!showAddForm && (
@@ -454,7 +487,7 @@ export default function ShowChargesEditor({
       {judgePanelMissing && (
         <p
           className="text-xs rounded border px-3 py-2"
-          style={{ borderColor: '#d9a441', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
+          style={{ borderColor: 'var(--warning)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
         >
           A per-judge fee multiplies by the judges on the panel, and this show has
           none assigned yet — so it is billing nothing.{' '}
@@ -510,7 +543,7 @@ export default function ShowChargesEditor({
             />
             <button
               type="button"
-              onClick={add}
+              onClick={() => void add()}
               disabled={adding}
               className="px-3 py-1.5 text-sm rounded font-medium text-white disabled:opacity-50"
               style={{ backgroundColor: COLORS.accent }}
@@ -559,12 +592,7 @@ export default function ShowChargesEditor({
             const draft = draftFor(charge);
             const cents = centsFromDollars(draft.amount);
             const invalid = cents === null;
-            const dirty =
-              !invalid &&
-              (cents !== charge.amount_cents ||
-                draft.label !== charge.label ||
-                draft.unit !== charge.unit ||
-                (draft.notes.trim() || null) !== (charge.notes ?? null));
+            const dirty = isDirty(charge, draft);
             return (
               <li key={charge.id} className="py-2.5 space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -588,7 +616,7 @@ export default function ShowChargesEditor({
                       onChange={(e) => patchDraft(charge, { amount: e.target.value })}
                       aria-label="Amount"
                       className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                      style={{ borderColor: invalid ? '#fca5a5' : COLORS.border }}
+                      style={{ borderColor: invalid ? 'var(--error-border)' : COLORS.border }}
                     />
                   </div>
                   <BasisSelect
@@ -598,7 +626,7 @@ export default function ShowChargesEditor({
                   />
                   <button
                     type="button"
-                    onClick={() => save(charge)}
+                    onClick={() => void save(charge)}
                     disabled={busyId === charge.id || invalid || !dirty}
                     className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
                     style={{ color: COLORS.accent }}
@@ -655,14 +683,6 @@ export default function ShowChargesEditor({
           })}
         </ul>
       )}
-
-      <p className="text-xs" style={{ color: COLORS.muted }}>
-        {judgeCount === 0
-          ? 'No judges assigned yet.'
-          : `${judgeCount} judge${judgeCount === 1 ? '' : 's'} on the panel.`}{' '}
-        Stalls, shavings and camping are booked by the exhibitor and are set up on
-        the Lodging &amp; Boarding step instead.
-      </p>
     </>
   );
 
@@ -673,7 +693,7 @@ export default function ShowChargesEditor({
   return (
     <section
       className="p-4 rounded-lg border space-y-3"
-      style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
+      style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
     >
       {content}
     </section>

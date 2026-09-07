@@ -13,6 +13,14 @@ type FeeRow = {
   unit: string;
 };
 
+/** Only what the Judge Cards step turns on. A rail class is placed rather than
+ *  scored, so it has no card and does not count towards that step either way. */
+type ClassRow = {
+  id: string;
+  score_type?: string | null;
+  judging_system_id?: string | null;
+};
+
 /** Only the resolved half of `ShowbillOut` is needed here — whether the step is
  *  done turns on what a reader would actually get, not on what the show asked
  *  for. */
@@ -34,7 +42,7 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
       [],
     ),
     getJson<FeeRow[]>(`${API_URL}/shows/${showId}/fees/`, []),
-    getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/classes/`, []),
+    getJson<ClassRow[]>(`${API_URL}/shows/${showId}/classes/`, []),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/futurities/`, []),
     getJson<ShowbillState>(`${API_URL}/shows/${showId}/showbill-document`, {
       effective_source: 'generated',
@@ -42,7 +50,10 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
-  // A show whose only Step 5 money is a class fee — an office fee, a drug fee
+  const scoredClasses = classes.filter(
+    (c) => c.score_type === 'pattern' || c.score_type === 'time',
+  );
+  // A show whose only Step 4 money is a class fee — an office fee, a drug fee
   // per horse, a jackpot line, whatever a manager named — has done the step.
   // Matched by unit rather than by code, because a manager names these
   // themselves and there is no fixed code to look for any more (see
@@ -58,6 +69,8 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
     feesCount: feesDone ? 1 : 0,
     classCount: classes.length,
     futurityCount: futurities.length,
+    scoredClassCount: scoredClasses.length,
+    cardedClassCount: scoredClasses.filter((c) => c.judging_system_id).length,
     // An uploaded bill is a bill on its own; a generated one is only a bill once
     // there is a schedule on it. Every show defaults to the generated option, so
     // marking the step done on arrival would make the tick mean nothing.

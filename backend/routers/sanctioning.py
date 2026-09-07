@@ -206,7 +206,8 @@ def _serialize_show_sanctioning(row: ShowSanctioning) -> dict:
         "association_id": row.association_id,
         "code": row.association.code if row.association else "",
         "name": row.association.name if row.association else "",
-        "per_class_fee_cents": row.per_class_fee_cents,
+        "fee_amount_cents": row.fee_amount_cents,
+        "fee_unit": row.fee_unit,
     }
 
 
@@ -271,7 +272,11 @@ async def replace_show_sanctioning(
             ShowSanctioning(
                 show_id=show_id,
                 association_id=item.association_id,
-                per_class_fee_cents=item.per_class_fee_cents,
+                fee_amount_cents=item.fee_amount_cents,
+                # Validated by the schema against `ClubSanctionUnit`, the same
+                # way a show fee's unit is: what a unit multiplies cannot be
+                # recovered downstream once it is stored wrong.
+                fee_unit=item.fee_unit,
             )
         )
     await db.commit()

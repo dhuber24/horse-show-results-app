@@ -243,7 +243,7 @@ export default function AddClassEntry({
   return (
     <div
       className="rounded border p-3 space-y-2"
-      style={{ borderColor: '#e8d5b7', backgroundColor: '#fffdf9' }}
+      style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
     >
       <div className="flex flex-wrap gap-2">
         <select
@@ -256,7 +256,7 @@ export default function AddClassEntry({
           aria-label="Class"
           title={nothingLeft ? 'You are already entered in every class at this show' : undefined}
           className="flex-1 min-w-[220px] border rounded px-3 py-2 text-sm disabled:opacity-50"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         >
           <option value="">{nothingLeft ? 'No classes left to enter' : 'Add a class…'}</option>
           {classesByDay.map(([day, dayClasses]) => (
@@ -292,7 +292,7 @@ export default function AddClassEntry({
                 : undefined
           }
           className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm disabled:opacity-50"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         >
           <option value="">{horsePlaceholder}</option>
           {selectableHorses.map((h) => (
@@ -307,10 +307,9 @@ export default function AddClassEntry({
       </div>
 
       {enteredCount > 0 && !nothingLeft && (
-        <p className="text-xs" style={{ color: '#8b7355' }}>
-          {enteredCount === 1 ? '1 class is' : `${enteredCount} classes are`} off this list
-          because you are already in {enteredCount === 1 ? 'it' : 'them'} — they are listed
-          above.
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
+          {enteredCount === 1 ? '1 class is' : `${enteredCount} classes are`} off this list —
+          you&apos;re already entered, see above.
         </p>
       )}
 
@@ -320,13 +319,15 @@ export default function AddClassEntry({
           and an exhibitor reading the printed show bill beside the screen has
           no way to tell a rule from a missing class. */}
       {qualificationClasses.length > 0 && (
-        <p className="text-xs" style={{ color: '#8b7355' }}>
+        <p
+          className="text-xs"
+          style={{ color: 'var(--muted)' }}
+          title="A Grand or Reserve Champion class is placed into, not entered: once the qualifying classes have been judged, the top two from each are called back. Enter the qualifying class and the show office takes it from there."
+        >
           {qualificationClasses.length === 1
             ? '1 championship class is'
             : `${qualificationClasses.length} championship classes are`}{' '}
-          not on this list — the top two from each qualifying class are called back to{' '}
-          {qualificationClasses.length === 1 ? 'it' : 'them'}, so there is nothing to enter.
-          Enter the qualifying class and the show office takes it from there.
+          not listed — the show calls back the top two from each qualifying class.
         </p>
       )}
 
@@ -335,11 +336,13 @@ export default function AddClassEntry({
           but it follows from the class they just picked, and a control with
           one correct answer is not a question. */}
       {isApha && activeClass && aphaDivision && (
-        <p className="text-xs" style={{ color: '#5d4a37' }}>
+        <p
+          className="text-xs"
+          style={{ color: 'var(--text-deep)' }}
+          title="Filed on your entry and reported to APHA. It follows from the class's bracket, so there is nothing to choose."
+        >
           Division: <strong>{divisionLabel(aphaDivision)}</strong>
-          <span style={{ color: '#8b7355' }}>
-            {' '}— from this class&apos;s bracket.
-          </span>
+          <span style={{ color: 'var(--muted)' }}> — from the class bracket.</span>
         </p>
       )}
 
@@ -348,39 +351,38 @@ export default function AddClassEntry({
       {missingRelationship && selectedHorse && (
         <p
           className="text-xs rounded border p-2"
-          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
-          APHA asks how you are related to {selectedHorse.name}&apos;s owner on{' '}
-          {divisionLabel(aphaDivision)} entries (AM-300.E, YP-015). Set it once on{' '}
-          <Link href="#registration-horses" className="font-medium underline" style={{ color: '#8b4513' }}>
+          APHA asks how you&apos;re related to {selectedHorse.name}&apos;s owner. Set it once on{' '}
+          <Link href="#registration-horses" className="font-medium underline" style={{ color: 'var(--accent)' }}>
             your horses
           </Link>{' '}
-          and it carries onto every class.
+          — it carries onto every class.
         </p>
       )}
 
       {needsNoviceDeclaration && (
-        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: '#d4b896', backgroundColor: '#fffdf7' }}>
+        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
           <input
             type="checkbox"
             checked={noviceDeclared}
             onChange={(e) => setNoviceDeclared(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0"
           />
-          <span style={{ color: '#5a3e2b' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+          <span style={{ color: 'var(--text-deep)' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
         </label>
       )}
 
       {spbBlocked && (
         <p
           className="text-sm rounded border p-2"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#b91c1c' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
         >
           Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).
         </p>
       )}
 
-      {error && <p className="text-sm" style={{ color: '#b91c1c' }}>{error}</p>}
+      {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
 
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -397,12 +399,12 @@ export default function AddClassEntry({
                   : undefined
           }
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Entering…' : 'Enter class'}
         </button>
         {activeClass && horseId && !spbBlocked && (
-          <span className="text-xs" style={{ color: '#8b7355' }}>
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>
             {activeClass.entry_fee_cents > 0
               ? `${formatMoney(
                   activeClass.entry_fee_cents + activeClass.sanction_cents,

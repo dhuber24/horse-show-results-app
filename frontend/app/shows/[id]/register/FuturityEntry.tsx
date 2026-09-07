@@ -249,28 +249,27 @@ function FuturityCard({
   return (
     <div
       className="rounded-lg border p-3"
-      style={{ borderColor: '#d4b896', backgroundColor: '#fff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="font-medium" style={{ color: '#2c1810' }}>
+        <span className="font-medium" style={{ color: 'var(--foreground)' }}>
           {futurity.name}
         </span>
-        <span className="text-xs" style={{ color: '#8b7355' }}>
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
           {futurity.classes.length} classes
           {deadline && ` · entries close ${deadline}`}
         </span>
       </div>
 
       {futurity.description && (
-        <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
           {futurity.description}
         </p>
       )}
 
       {futurity.is_past_deadline && futurity.late_fee_cents > 0 && (
-        <p className="text-xs mt-1" style={{ color: '#92400e' }}>
-          Entries are past the deadline — a {money(futurity.late_fee_cents)} late fee
-          applies to each class entered.
+        <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
+          Past the deadline — {money(futurity.late_fee_cents)} late fee per class.
         </p>
       )}
 
@@ -280,21 +279,21 @@ function FuturityCard({
             <li
               key={entry.id}
               className="text-sm flex flex-wrap items-center gap-2"
-              style={{ color: '#2c1810' }}
+              style={{ color: 'var(--foreground)' }}
             >
               <span>{entry.horse_name}</span>
               {entry.fee_tier_name && (
-                <span className="text-xs" style={{ color: '#8b7355' }}>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
                   {entry.fee_tier_name}
                 </span>
               )}
               {entry.shown_by_name && (
-                <span className="text-xs" style={{ color: '#8b7355' }}>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
                   shown by {entry.shown_by_name}
                 </span>
               )}
               {entry.membership_option_name && (
-                <span className="text-xs" style={{ color: '#8b7355' }}>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
                   + {entry.membership_option_name}
                 </span>
               )}
@@ -312,7 +311,7 @@ function FuturityCard({
                       onClick={() => setConfirming(null)}
                       disabled={busy}
                       className="text-xs hover:underline"
-                      style={{ color: '#8b7355' }}
+                      style={{ color: 'var(--muted)' }}
                     >
                       Cancel
                     </button>
@@ -331,21 +330,21 @@ function FuturityCard({
       )}
 
       {error && (
-        <p className="text-xs mt-2" style={{ color: '#922' }}>
+        <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}
 
       {!signedUp ? (
-        <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
-          Complete your show sign-up above to enter the futurity.
+        <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
+          Sign up for stalls first.
         </p>
       ) : futurity.fee_tiers.length === 0 ? (
-        <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
-          Entry categories haven&apos;t been published yet — check with the show office.
+        <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
+          Categories not published yet — check with the show office.
         </p>
       ) : available.length === 0 ? (
-        <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
           {horses.length === 0
             ? 'Add a horse to your profile to enter.'
             : 'All your horses are already entered.'}
@@ -354,14 +353,14 @@ function FuturityCard({
         <>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="block">
-              <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
+              <span className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
                 Horse
               </span>
               <select
                 value={horseId}
                 onChange={(e) => setHorseId(e.target.value)}
                 className="border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 <option value="">— pick —</option>
                 {available.map((h) => (
@@ -373,14 +372,14 @@ function FuturityCard({
             </label>
 
             <label className="block">
-              <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
+              <span className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
                 Category
               </span>
               <select
                 value={tierId}
                 onChange={(e) => setTierId(e.target.value)}
                 className="border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               >
                 {futurity.fee_tiers.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -391,7 +390,7 @@ function FuturityCard({
             </label>
 
             <label className="block">
-              <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
+              <span className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
                 Exhibitor, if not you
               </span>
               <input
@@ -399,13 +398,13 @@ function FuturityCard({
                 onChange={(e) => setShownBy(e.target.value)}
                 placeholder="optional"
                 className="border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               />
             </label>
 
             {futurity.membership_options.length > 0 && (
               <label className="block">
-                <span className="block text-xs mb-1" style={{ color: '#8b7355' }}>
+                <span className="block text-xs mb-1" style={{ color: 'var(--muted)' }}>
                   Join the club (optional)
                 </span>
                 {/* Shut off for somebody who has just said they already hold a
@@ -429,7 +428,7 @@ function FuturityCard({
                       : undefined
                   }
                   className="border rounded px-2 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ borderColor: '#d4b896' }}
+                  style={{ borderColor: 'var(--border)' }}
                 >
                   <option value="">— no thanks —</option>
                   {futurity.membership_options.map((m) => (
@@ -443,7 +442,7 @@ function FuturityCard({
 
             <label
               className="flex items-center gap-1.5 pb-2 text-xs"
-              style={{ color: '#2c1810' }}
+              style={{ color: 'var(--foreground)' }}
               title={`The office fee is ${money(futurity.office_fee_member_cents)} for members and ${money(futurity.office_fee_nonmember_cents)} otherwise. Buying a membership above does not make you a member for this weekend's fee.`}
             >
               <input
@@ -464,17 +463,17 @@ function FuturityCard({
               onClick={enter}
               disabled={busy}
               className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               {busy ? 'Entering…' : 'Enter futurity'}
             </button>
           </div>
 
-          <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+          <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
             Office fee per horse: {money(futurity.office_fee_member_cents)} member /{' '}
             {money(futurity.office_fee_nonmember_cents)} non-member.
             {futurity.requires_horse_pedigree &&
-              ' The horse’s date of birth, sire and dam are required — add them on the horse’s profile first.'}
+              ' Date of birth, sire and dam required — add them on the horse’s profile.'}
           </p>
         </>
       )}
@@ -484,11 +483,11 @@ function FuturityCard({
           policy are all published in full on the show bill — and reprinting
           them here buried the four controls somebody came to this screen to
           use. */}
-      <p className="text-xs mt-2" style={{ color: '#8b7355' }}>
+      <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
         <Link
           href={`/shows/${showId}/details#futurities`}
           className="font-medium hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           Full futurity programme — awards, rules, categories and refunds →
         </Link>

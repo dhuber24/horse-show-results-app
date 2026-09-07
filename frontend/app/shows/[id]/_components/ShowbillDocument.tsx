@@ -7,7 +7,7 @@
  * component draws — a stale PDF that disagrees with the app is worse than no
  * PDF, because people trust the one they printed.
  *
- * A show may nonetheless supply its own bill (Setup step 8, migration 127), and
+ * A show may nonetheless supply its own bill (Setup step 9, migration 127), and
  * `UploadedShowbill` renders that. The two do not merge: Show Details prints
  * this one under its own heading whichever the show chose, because it is drawn
  * from the fee list the app actually charges from and an uploaded PDF must not
@@ -41,7 +41,17 @@ export type ShowbillClassRow = {
   sanctioning_codes?: string[] | null;
 };
 
-type Club = { association_id: string; code: string; name: string; per_class_fee_cents: number };
+type Club = {
+  association_id: string;
+  code: string;
+  name: string;
+  fee_amount_cents: number;
+  /** What the amount counts (migration 133): per class entered, per horse, per
+   *  exhibitor, or either of the last two times the judge panel. Printed with
+   *  the rate, because "$45.00" against a club name is a number nobody
+   *  reading a show bill can check. */
+  fee_unit: string;
+};
 type Judge = { id: string; first_name: string; last_name: string };
 type Fee = {
   id: string;
@@ -65,9 +75,9 @@ function FeeGroup({
 }) {
   return (
     <div className="showbill-section">
-      <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>{heading}</h3>
-      <p className="text-xs mb-1" style={{ color: '#8b7355' }}>{note}</p>
-      <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>{children}</div>
+      <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{heading}</h3>
+      <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{note}</p>
+      <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>{children}</div>
     </div>
   );
 }
@@ -87,15 +97,15 @@ function FeeRow({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
-      <div style={{ color: '#2c1810' }}>
+      <div style={{ color: 'var(--foreground)' }}>
         {label}
-        <span className="text-xs" style={{ color: '#8b7355' }}> ({unitText})</span>
-        {notes && <div className="text-xs" style={{ color: '#8b7355' }}>{notes}</div>}
+        <span className="text-xs" style={{ color: 'var(--muted)' }}> ({unitText})</span>
+        {notes && <div className="text-xs" style={{ color: 'var(--muted)' }}>{notes}</div>}
         {early && (
-          <div className="text-xs font-medium" style={{ color: '#15803d' }}>{early}</div>
+          <div className="text-xs font-medium" style={{ color: 'var(--success)' }}>{early}</div>
         )}
       </div>
-      <div className="font-medium whitespace-nowrap" style={{ color: '#2c1810' }}>
+      <div className="font-medium whitespace-nowrap" style={{ color: 'var(--foreground)' }}>
         {formatMoney(amountCents)}
       </div>
     </div>
@@ -136,7 +146,7 @@ function Section({
     <section id={id} className="showbill-section mt-6 first:mt-0 scroll-mt-4">
       <h2
         className="text-sm font-bold uppercase tracking-wider pb-1 mb-3 border-b"
-        style={{ color: '#8b4513', borderColor: '#d4b896' }}
+        style={{ color: 'var(--accent)', borderColor: 'var(--border)' }}
       >
         {title}
       </h2>
@@ -149,10 +159,10 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   return (
     <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-3 py-2">
       <div className="text-xs font-semibold uppercase tracking-wide sm:w-36 shrink-0"
-        style={{ color: '#8b7355' }}>
+        style={{ color: 'var(--muted)' }}>
         {label}
       </div>
-      <div className="text-sm" style={{ color: '#2c1810' }}>{children}</div>
+      <div className="text-sm" style={{ color: 'var(--foreground)' }}>{children}</div>
     </div>
   );
 }
@@ -252,24 +262,24 @@ export default function ShowbillDocument({
   return (
     <article
       className="rounded-lg border p-5 md:p-7"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       {/* Masthead. Repeated from the page header above because the header is
           screen chrome and does not print — the printed sheet has to say which
           show it is on its own. Embedded it would be the third time the show
           name appears in a screenful, so it goes. */}
       {!embedded && (
-        <header className="text-center pb-4 mb-2 border-b-2" style={{ borderColor: '#8b4513' }}>
-          <h1 className="text-3xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-          <p className="text-sm mt-2" style={{ color: '#5d4a37' }}>
+        <header className="text-center pb-4 mb-2 border-b-2" style={{ borderColor: 'var(--accent)' }}>
+          <h1 className="text-3xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-deep)' }}>
             {formatShortDate(show.start_date)}
             {show.end_date !== show.start_date && <> – {formatShortDate(show.end_date)}</>}
           </p>
           {show.venue && (
-            <p className="text-sm mt-0.5" style={{ color: '#5d4a37' }}>{show.venue}</p>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-deep)' }}>{show.venue}</p>
           )}
           {(show.show_type_code || clubs.length > 0) && (
-            <p className="text-xs mt-2 font-mono font-semibold" style={{ color: '#8b4513' }}>
+            <p className="text-xs mt-2 font-mono font-semibold" style={{ color: 'var(--accent)' }}>
               {[show.show_type_code, ...clubs.map((c) => c.code)].filter(Boolean).join(' · ')}
             </p>
           )}
@@ -278,7 +288,7 @@ export default function ShowbillDocument({
 
       {!embedded && (
         <Section title="The show">
-          <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+          <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
             <Fact label="Dates">
               {formatDate(show.start_date)}
               {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
@@ -302,10 +312,11 @@ export default function ShowbillDocument({
                   {clubs.map((club) => (
                     <li key={club.association_id}>
                       {club.name} ({club.code})
-                      {club.per_class_fee_cents > 0 && (
-                        <span style={{ color: '#8b7355' }}>
-                          {' '}— {formatMoney(club.per_class_fee_cents)} per class,
-                          on the classes marked {club.code} below
+                      {club.fee_amount_cents > 0 && (
+                        <span style={{ color: 'var(--muted)' }}>
+                          {' '}— {formatMoney(club.fee_amount_cents)}{' '}
+                          {unitLabel(club.fee_unit)}, on the classes marked{' '}
+                          {club.code} below
                         </span>
                       )}
                     </li>
@@ -321,7 +332,7 @@ export default function ShowbillDocument({
 
       {judges.length > 0 && (
         <Section title={judges.length === 1 ? 'Judge' : 'Judges'}>
-          <ul className="text-sm space-y-1" style={{ color: '#2c1810' }}>
+          <ul className="text-sm space-y-1" style={{ color: 'var(--foreground)' }}>
             {judges.map((j) => <li key={j.id}>{j.first_name} {j.last_name}</li>)}
           </ul>
         </Section>
@@ -329,26 +340,26 @@ export default function ShowbillDocument({
 
       <Section title="Class schedule">
         {days.length === 0 ? (
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             No classes have been posted yet.
           </p>
         ) : (
           <div className="space-y-5">
             {days.map((day) => (
               <div key={day} className="showbill-day">
-                <h3 className="text-sm font-semibold mb-2" style={{ color: '#8b4513' }}>
+                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--accent)' }}>
                   {formatDate(day)}
                 </h3>
-                <table className="w-full text-sm" style={{ color: '#2c1810' }}>
+                <table className="w-full text-sm" style={{ color: 'var(--foreground)' }}>
                   <tbody>
                     {byDay.get(day)!.map((cls, i) => (
                       <tr
                         key={`${cls.class_number}-${i}`}
                         className="border-b last:border-b-0"
-                        style={{ borderColor: '#f0e4d0' }}
+                        style={{ borderColor: 'var(--bg-subtle)' }}
                       >
                         <td className="py-1.5 pr-2 align-top font-mono font-semibold whitespace-nowrap"
-                          style={{ color: '#8b4513' }}>
+                          style={{ color: 'var(--accent)' }}>
                           {cls.class_number}
                         </td>
                         <td className="py-1.5 pr-2 align-top w-full">
@@ -357,13 +368,13 @@ export default function ShowbillDocument({
                             <span
                               key={code}
                               className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
-                              style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                              style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                             >
                               {code}
                             </span>
                           ))}
                           {(cls.discipline_name || cls.division_name || cls.ring_name) && (
-                            <div className="text-xs" style={{ color: '#8b7355' }}>
+                            <div className="text-xs" style={{ color: 'var(--muted)' }}>
                               {[cls.discipline_name, cls.division_name, cls.ring_name]
                                 .filter(Boolean)
                                 .join(' · ')}
@@ -418,12 +429,12 @@ export default function ShowbillDocument({
           ))}
 
           {fees.length === 0 && (
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               No stall, shavings or camping fees have been published for this show.
             </p>
           )}
         </div>
-        <p className="text-xs mt-3" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
           Class entry fees are listed with the classes above. The show office collects payment at
           the show — this app does not take payment.
         </p>
@@ -433,11 +444,11 @@ export default function ShowbillDocument({
         <Section title="Futurities" id="futurities">
           {futurities.map((futurity) => (
             <div key={futurity.id} className="showbill-section mb-4 last:mb-0">
-              <h3 className="font-semibold text-sm" style={{ color: '#2c1810' }}>
+              <h3 className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
                 {futurity.name}
               </h3>
               {futurity.description && (
-                <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                   {futurity.description}
                 </p>
               )}
@@ -447,19 +458,19 @@ export default function ShowbillDocument({
                   the refund rule would be the wrong document to hand somebody
                   at the entry booth. */}
               {futurity.award_notice && (
-                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#2c1810' }}>
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
                   {futurity.award_notice}
                 </p>
               )}
               {futurity.rules_notice && (
-                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#2c1810' }}>
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
                   {futurity.rules_notice}
                 </p>
               )}
 
               {futurity.classes.length > 0 && (
-                <p className="text-sm mt-1" style={{ color: '#2c1810' }}>
-                  <span className="text-xs" style={{ color: '#8b7355' }}>
+                <p className="text-sm mt-1" style={{ color: 'var(--foreground)' }}>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
                     Classes:{' '}
                   </span>
                   {futurity.classes.map((c) => c.class_number).join(', ')}
@@ -470,26 +481,26 @@ export default function ShowbillDocument({
                   what a paper bill prints — a single "futurity fee" number
                   would be wrong for two entrants out of three. */}
               {futurity.entry_instructions && (
-                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: '#8b7355' }}>
+                <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: 'var(--muted)' }}>
                   {futurity.entry_instructions}
                 </p>
               )}
 
               {futurity.fee_tiers.length > 0 && (
-                <ul className="mt-1 text-sm" style={{ color: '#2c1810' }}>
+                <ul className="mt-1 text-sm" style={{ color: 'var(--foreground)' }}>
                   {futurity.fee_tiers.map((tier) => (
                     <li key={tier.id} className="flex items-baseline justify-between gap-3 py-0.5">
                       <span>
                         {tier.name}
                         {tier.description && (
-                          <span className="text-xs" style={{ color: '#8b7355' }}>
+                          <span className="text-xs" style={{ color: 'var(--muted)' }}>
                             {' '}— {tier.description}
                           </span>
                         )}
                       </span>
                       <span className="font-medium whitespace-nowrap">
                         {formatMoney(tier.amount_cents)}
-                        <span className="text-xs font-normal" style={{ color: '#8b7355' }}>
+                        <span className="text-xs font-normal" style={{ color: 'var(--muted)' }}>
                           {' '}/ class
                         </span>
                       </span>
@@ -499,7 +510,7 @@ export default function ShowbillDocument({
               )}
 
               {futurity.membership_options.length > 0 && (
-                <ul className="mt-1 text-sm" style={{ color: '#2c1810' }}>
+                <ul className="mt-1 text-sm" style={{ color: 'var(--foreground)' }}>
                   {futurity.membership_options.map((option) => (
                     <li
                       key={option.id}
@@ -507,7 +518,7 @@ export default function ShowbillDocument({
                     >
                       <span>
                         {option.name}
-                        <span className="text-xs" style={{ color: '#8b7355' }}>
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>
                           {' '}
                           — optional club membership
                         </span>
@@ -520,7 +531,7 @@ export default function ShowbillDocument({
                 </ul>
               )}
 
-              <ul className="mt-1 text-xs" style={{ color: '#8b7355' }}>
+              <ul className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>
                 {futurity.entry_deadline && (
                   <li>
                     Entries close {formatShortDate(futurity.entry_deadline)}
@@ -559,7 +570,7 @@ export default function ShowbillDocument({
       )}
 
       <Section title="Rules & paperwork">
-        <div className="divide-y" style={{ borderColor: '#f0e4d0' }}>
+        <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
           <Fact label="Shavings">
             {show.shavings_ban_outside
               ? 'Outside shavings are not allowed. Bedding must be bought from the show.'
@@ -575,7 +586,7 @@ export default function ShowbillDocument({
         </div>
       </Section>
 
-      <footer className="mt-8 pt-3 border-t text-xs" style={{ borderColor: '#d4b896', color: '#8b7355' }}>
+      <footer className="mt-8 pt-3 border-t text-xs" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
         <p>
           Generated from this show&rsquo;s records on{' '}
           {new Date().toLocaleDateString('en-US', {

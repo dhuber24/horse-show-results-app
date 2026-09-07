@@ -71,9 +71,18 @@ export const AUTOMATIC_FEE_UNITS = [
   'per_judge_per_entry',
 ] as const satisfies readonly FeeUnit[];
 
+/**
+ * What each unit is called on screen.
+ *
+ * A show fee is charged against a *class* — that is the word on every show bill
+ * and in every conversation at the desk. "Entry" is the app's own name for the
+ * row in `entries`, and a manager reading "per entry" next to "per judge, per
+ * class" had two names for one thing. The column values are untouched:
+ * `per_entry` is still `per_entry` in the database and in billing.py.
+ */
 export const UNIT_LABEL: Record<FeeUnit, string> = {
   flat: 'flat',
-  per_entry: 'per entry',
+  per_entry: 'per class',
   per_exhibitor: 'per exhibitor',
   per_horse: 'per horse',
   per_judge_per_horse: 'per judge, per horse',
@@ -85,7 +94,7 @@ export const UNIT_LABEL: Record<FeeUnit, string> = {
   per_stall: 'per stall',
   per_bag: 'per bag',
   per_show: 'per show',
-  percent_of_entry: '% of entry',
+  percent_of_entry: '% of class fee',
 };
 
 export function unitLabel(unit: string): string {
@@ -112,6 +121,34 @@ export const CLASS_FEE_EDITOR_UNITS = [
 
 export function isClassFeeEditorUnit(unit: string): boolean {
   return (CLASS_FEE_EDITOR_UNITS as readonly string[]).includes(unit);
+}
+
+/** How a club's sanction fee is charged (migration 133) — `show_sanctioning.
+ *  fee_unit`, offered in setup Step 6. Mirrors `billing.CLUB_SANCTION_UNITS`.
+ *
+ *  The same words as a show fee's, because they mean the same thing and the
+ *  backend prices both through one `charge_multiplier`. `per_judge_per_entry`
+ *  is the one automatic unit left out: that is the breed body's own per-entry
+ *  assessment (APHA SC-125.B and its kin) and belongs to the show's own fee
+ *  catalog, and a club billing per class entered is what `per_entry` is here.
+ *
+ *  `per_entry` leads, because it is what every club charged before the unit
+ *  existed and is still the ordinary case. Note it is billed here, unlike a
+ *  `per_entry` row in the Class Fees box: what a class entry costs is
+ *  `classes.entry_fee_cents`, but a club's sanction fee is a levy on top of it
+ *  and has always been charged. */
+export const CLUB_SANCTION_UNITS = [
+  'per_entry',
+  'per_exhibitor',
+  'per_horse',
+  'per_judge_per_horse',
+  'per_judge_per_exhibitor',
+] as const satisfies readonly FeeUnit[];
+
+export type ClubSanctionUnit = (typeof CLUB_SANCTION_UNITS)[number];
+
+export function isClubSanctionUnit(unit: string): unit is ClubSanctionUnit {
+  return (CLUB_SANCTION_UNITS as readonly string[]).includes(unit);
 }
 
 /**

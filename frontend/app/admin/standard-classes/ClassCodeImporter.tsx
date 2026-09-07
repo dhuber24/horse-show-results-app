@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export type CatalogSummary = {
@@ -57,15 +57,15 @@ type Result = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
-  link: '#8b4513',
-  added: '#2f6b3f',
-  retired: '#9b2c2c',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
+  link: 'var(--accent)',
+  added: 'var(--success)',
+  retired: 'var(--error-strong)',
 } as const;
 
 function formatDate(iso: string): string {
@@ -77,6 +77,10 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
   const router = useRouter();
   const [showTypeId, setShowTypeId] = useState(catalogs[0]?.show_type_id ?? '');
   const [file, setFile] = useState<File | null>(null);
+  // The native file input is driven by a real button rather than shown raw:
+  // its own "Choose File" control is a small grey chip that reads as page
+  // furniture, and this is the one thing somebody comes to this screen to do.
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourceYear, setSourceYear] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [retire, setRetire] = useState<Set<string>>(new Set());
@@ -160,7 +164,7 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
       {/* ── Pick the association ─────────────────────────────────────────── */}
       <section
         className="rounded border p-4 space-y-4"
-        style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
+        style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
       >
         <div>
           <label
@@ -176,6 +180,10 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
             onChange={(e) => {
               setShowTypeId(e.target.value);
               setFile(null);
+              // Clear the input itself as well: leaving its value behind means
+              // re-picking the same file fires no change event, and the button
+              // would sit there saying no file is chosen.
+              if (fileInputRef.current) fileInputRef.current.value = '';
               reset();
             }}
             className="rounded border px-3 py-2 text-sm"
@@ -224,27 +232,39 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
       {/* ── Upload ───────────────────────────────────────────────────────── */}
       <section
         className="rounded border p-4 space-y-4"
-        style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
+        style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
       >
         <div>
-          <label
-            htmlFor="classfile"
-            className="block text-sm font-medium mb-1"
-            style={{ color: COLORS.text }}
-          >
-            Class list file
-          </label>
           <input
             id="classfile"
+            ref={fileInputRef}
             type="file"
             accept=".pdf,.csv"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
               reset();
             }}
-            className="text-sm"
-            style={{ color: COLORS.text }}
+            className="sr-only"
           />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full rounded px-4 py-3 text-sm font-semibold text-left"
+            style={{ backgroundColor: COLORS.link, color: 'var(--surface)' }}
+          >
+            Select a file to compare and update current codes against existing
+            codes in GaitDesk
+          </button>
+          <p className="text-sm mt-2" style={{ color: COLORS.text }}>
+            {file ? (
+              <>
+                <span style={{ color: COLORS.muted }}>Selected: </span>
+                <span className="font-medium">{file.name}</span>
+              </>
+            ) : (
+              <span style={{ color: COLORS.muted }}>No file chosen yet.</span>
+            )}
+          </p>
           <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
             {catalog?.pdf_supported
               ? `The ${catalog.show_type_code} PDF can be read directly. A CSV with code, name, and division columns also works.`
@@ -283,8 +303,8 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
           className="rounded px-4 py-2 text-sm font-medium border disabled:opacity-50"
           style={{
             borderColor: COLORS.link,
-            backgroundColor: file && !busy ? COLORS.link : '#fff',
-            color: file && !busy ? '#fff' : COLORS.muted,
+            backgroundColor: file && !busy ? COLORS.link : 'var(--surface)',
+            color: file && !busy ? 'var(--surface)' : COLORS.muted,
           }}
         >
           {busy ? 'Reading…' : 'Compare with catalog'}
@@ -294,7 +314,7 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
       {error && (
         <div
           className="rounded border p-3 text-sm"
-          style={{ borderColor: '#e0b4b4', backgroundColor: '#fdf0f0', color: '#7a2c2c' }}
+          style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>
@@ -303,7 +323,7 @@ export default function ClassCodeImporter({ catalogs }: { catalogs: CatalogSumma
       {result && (
         <div
           className="rounded border p-4 text-sm space-y-1"
-          style={{ borderColor: COLORS.border, backgroundColor: '#f4faf5', color: COLORS.warn }}
+          style={{ borderColor: COLORS.border, backgroundColor: 'var(--success-bg)', color: COLORS.warn }}
         >
           <p className="font-medium" style={{ color: COLORS.added }}>
             Catalog updated.
@@ -353,7 +373,7 @@ function PreviewPanel({
   return (
     <section
       className="rounded border p-4 space-y-5"
-      style={{ borderColor: COLORS.border, backgroundColor: '#fff' }}
+      style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
     >
       <div>
         <h2 className="text-lg font-semibold" style={{ color: COLORS.text }}>
@@ -507,8 +527,8 @@ function PreviewPanel({
           className="rounded px-4 py-2 text-sm font-medium border disabled:opacity-50"
           style={{
             borderColor: COLORS.link,
-            backgroundColor: busy || nothingToDo ? '#fff' : COLORS.link,
-            color: busy || nothingToDo ? COLORS.muted : '#fff',
+            backgroundColor: busy || nothingToDo ? 'var(--surface)' : COLORS.link,
+            color: busy || nothingToDo ? COLORS.muted : 'var(--surface)',
           }}
         >
           {busy ? 'Applying…' : 'Apply to catalog'}

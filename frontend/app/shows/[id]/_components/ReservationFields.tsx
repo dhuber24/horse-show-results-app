@@ -88,13 +88,13 @@ const UNIT_GROUPS: { key: string; heading: string; blurb: string; units: string[
   {
     key: 'stalls',
     heading: 'Stalls',
-    blurb: 'How many stalls you need for the whole show.',
+    blurb: 'For the whole show.',
     units: ['per_stall'],
   },
   {
     key: 'bedding',
     heading: 'Shavings',
-    blurb: 'Bags delivered to your stalls.',
+    blurb: 'Delivered to your stalls.',
     units: ['per_bag'],
   },
   {
@@ -132,16 +132,16 @@ const UNIT_NOUN: Record<string, string> = {
 function unitBlurb(units: string[]): string {
   const camping = ['per_night', 'per_day', 'per_show'].filter((u) => units.includes(u));
   if (camping.length > 1) {
-    return 'Check what each line is priced by — nights, days, or one price per spot for the whole show — and count that.';
+    return 'Check what each line is priced by — nights, days or the whole show.';
   }
   if (camping[0] === 'per_show') {
-    return 'Charged once each for the whole show, however long you stay.';
+    return 'One price per spot, however long you stay.';
   }
   if (camping[0] === 'per_day') {
-    return 'Count days, not campers — a Friday-to-Sunday show is three days.';
+    return 'Count days — Friday to Sunday is three.';
   }
   if (camping[0] === 'per_night') {
-    return 'Count nights, not campers — a Friday-to-Sunday show is two nights.';
+    return 'Count nights — Friday to Sunday is two.';
   }
   return '';
 }
@@ -214,22 +214,21 @@ function EarlyRateNote({ fee, noun }: { fee: FeeOption; noun: string }) {
 
   if (fee.early_rate_open) {
     return (
-      <div className="text-xs mt-0.5 font-medium" style={{ color: '#15803d' }}>
-        {formatMoney(fee.early_amount_cents)} per {noun} if you reserve by{' '}
+      <div className="text-xs mt-0.5 font-medium" style={{ color: 'var(--success)' }}>
+        {formatMoney(fee.early_amount_cents)} per {noun} until{' '}
         {formatDeadline(fee.early_deadline)}.
       </div>
     );
   }
   if (fee.rate_cents === fee.early_amount_cents) {
     return (
-      <div className="text-xs mt-0.5" style={{ color: '#15803d' }}>
-        ✓ Early rate held from your reservation — the deadline has passed, but
-        yours still counts.
+      <div className="text-xs mt-0.5" style={{ color: 'var(--success)' }}>
+        ✓ Early rate held — you booked before the deadline.
       </div>
     );
   }
   return (
-    <div className="text-xs mt-0.5" style={{ color: '#a08a6e' }}>
+    <div className="text-xs mt-0.5" style={{ color: 'var(--text-dimmed)' }}>
       Early rate ended {formatDeadline(fee.early_deadline)}.
     </div>
   );
@@ -420,28 +419,27 @@ export default function ReservationFields({
       {show.shavings_ban_outside ? (
         <div
           className="rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
-          <strong>Outside shavings are not allowed at this show.</strong> You&apos;ll need to buy
-          your bedding from the show — order the bags you need below.
+          <strong>Outside shavings aren&apos;t allowed here.</strong> Order your bedding below.
         </div>
       ) : (
         <div
           className="rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#f0fdf4', borderColor: '#86efac', color: '#166534' }}
+          style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success-border)', color: 'var(--success-strong)' }}
         >
-          <strong>You may bring your own shavings to this show.</strong> Ordering bags below is
-          optional — they&apos;ll be waiting at your stall if you&apos;d rather not haul your own.
+          <strong>You may bring your own shavings.</strong> Ordering below is optional — bags are
+          waiting at your stall.
         </div>
       )}
 
       {groups.length === 0 ? (
         <div
           className="mt-4 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+          style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
         >
-          This show hasn&apos;t published stall, shavings, or camping options. Save anyway to tell
-          the office you&apos;re coming, then enter your classes.
+          No stall, shavings or camping options published. Save to tell the office
+          you&apos;re coming.
         </div>
       ) : (
         <div className="mt-4 space-y-4">
@@ -449,10 +447,10 @@ export default function ReservationFields({
             <section
               key={group.key}
               className="rounded-lg border p-4"
-              style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
-              <h3 className="font-semibold" style={{ color: '#2c1810' }}>{group.heading}</h3>
-              <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
+              <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>{group.heading}</h3>
+              <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
                 {group.blurb}
                 {/* Derived from the units actually present, so a show selling
                     camping by the night and a show selling it by the weekend
@@ -466,11 +464,11 @@ export default function ReservationFields({
                 {group.key === 'bedding' && (
                   <span
                     className="font-medium"
-                    style={{ color: show.shavings_ban_outside ? '#92400e' : '#166534' }}
+                    style={{ color: show.shavings_ban_outside ? 'var(--warning)' : 'var(--success-strong)' }}
                   >
                     {show.shavings_ban_outside
-                      ? ' Outside shavings are not allowed — bedding must be bought here.'
-                      : ' Outside shavings are allowed, so this is optional.'}
+                      ? ' Must be bought here.'
+                      : ' Optional — you may bring your own.'}
                   </span>
                 )}
               </p>
@@ -481,16 +479,23 @@ export default function ReservationFields({
                   const floor = floors[fee.id] ?? 0;
                   const atFloor = floor > 0 && qty <= floor;
                   return (
+                    // Stacked on a phone, side by side from `sm` up. The
+                    // stepper is a fixed ~200px, so on a 390px screen the label
+                    // and the show's own notes were being wrung out in a column
+                    // barely wider than a word — a two-line note rendering as
+                    // fifteen one-word lines. Nothing shortened in this file
+                    // fixes that, because the longest text in the row is the
+                    // secretary's `notes` and this screen does not write it.
                     <li
                       key={fee.id}
-                      className="flex items-center justify-between gap-3 rounded border px-3 py-2"
-                      style={{ borderColor: '#e8d5b7', backgroundColor: '#fdfbf7' }}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 rounded border px-3 py-2"
+                      style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
                     >
                       <div className="min-w-0">
-                        <div className="text-sm font-medium" style={{ color: '#2c1810' }}>
+                        <div className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
                           {fee.label}
                         </div>
-                        <div className="text-xs" style={{ color: '#8b7355' }}>
+                        <div className="text-xs" style={{ color: 'var(--muted)' }}>
                           {fee.rate_cents > 0 ? `${formatMoney(fee.rate_cents)} per ${noun}` : 'No charge'}
                           {fee.rate_cents !== fee.amount_cents && (
                             <>
@@ -501,30 +506,33 @@ export default function ReservationFields({
                           {fee.notes && <> · {fee.notes}</>}
                         </div>
                         <EarlyRateNote fee={fee} noun={noun} />
+                        {/* Where the number came from rides on the `title` when
+                            it came from the show's shavings policy rather than a
+                            minimum typed on the fee — the callout at the top of
+                            this form has already said it in full, and on a phone
+                            the two are a thumb's width apart. */}
                         {floor > 0 && (
-                          <div className="text-xs mt-0.5 font-medium" style={{ color: '#92400e' }}>
-                            Required — this show will not take an entry with fewer than {floor}{' '}
-                            {noun}
-                            {floor === 1 ? '' : 's'}.
-                            {/* Where the number came from, when it came from the
-                                show's shavings policy rather than a minimum
-                                somebody typed on the fee. Otherwise the line
-                                quotes a requirement the exhibitor cannot find
-                                printed anywhere on the show bill. */}
-                            {!fee.min_quantity && BEDDING_UNITS.includes(fee.unit) && (
-                              <> Outside shavings aren&apos;t allowed here, so your stalls have to
-                              be bedded with bags bought from the show.</>
-                            )}
+                          <div
+                            className="text-xs mt-0.5 font-medium"
+                            style={{ color: 'var(--warning)' }}
+                            title={
+                              !fee.min_quantity && BEDDING_UNITS.includes(fee.unit)
+                                ? 'Outside shavings are not allowed here, so stalls must be bedded with bags bought from the show.'
+                                : undefined
+                            }
+                          >
+                            At least {floor} {noun}
+                            {floor === 1 ? '' : 's'} required.
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                         <button
                           type="button"
                           onClick={() => setQuantity(fee.id, qty - 1, floor)}
                           disabled={qty === 0 || atFloor}
                           className="w-8 h-8 rounded border text-lg leading-none disabled:opacity-40"
-                          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+                          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
                           title={
                             atFloor
                               ? `This show requires at least ${floor} ${noun}${
@@ -555,14 +563,14 @@ export default function ReservationFields({
                           }
                           onBlur={() => setQuantity(fee.id, qty, floor)}
                           className="w-16 border rounded px-2 py-1.5 text-sm text-center"
-                          style={{ borderColor: '#d4b896' }}
+                          style={{ borderColor: 'var(--border)' }}
                           aria-label={`Number of ${noun}s — ${fee.label}`}
                         />
                         <button
                           type="button"
                           onClick={() => setQuantity(fee.id, qty + 1, floor)}
                           className="w-8 h-8 rounded border text-lg leading-none"
-                          style={{ borderColor: '#d4b896', color: '#5c3d1e', backgroundColor: '#ffffff' }}
+                          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
                           aria-label={`One more ${fee.label}`}
                         >
                           +
@@ -573,7 +581,7 @@ export default function ReservationFields({
                             the number is typed. */}
                         <span
                           className="text-xs w-11 text-left"
-                          style={{ color: '#8b7355' }}
+                          style={{ color: 'var(--muted)' }}
                           aria-hidden
                         >
                           {noun}
@@ -598,15 +606,14 @@ export default function ReservationFields({
           gets missed. */}
       <section
         className="mt-4 rounded-lg border p-4"
-        style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
       >
-        <h3 className="font-semibold" style={{ color: '#2c1810' }}>Stabling requests</h3>
-        <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
-          Who you would like to be stalled near, and anything else about where you go on the
-          grounds. The office reads these while drawing the stall chart — it will do what it can,
-          but nothing here is a promise.
+        <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>Stabling requests</h3>
+        <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
+          Who you&apos;d like to be stalled near. The office does what it can — it&apos;s not a
+          promise.
         </p>
-        <label className="text-xs block" style={{ color: '#8b7355' }}>
+        <label className="text-xs block" style={{ color: 'var(--muted)' }}>
           <span className="sr-only">Stabling requests</span>
           <textarea
             value={stallRequest}
@@ -615,42 +622,42 @@ export default function ReservationFields({
             maxLength={1000}
             placeholder="e.g. please stall me next to my trainer Bob Smith / Willow Creek barn"
             className="w-full border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
           />
         </label>
       </section>
 
       <section
         className="mt-4 rounded-lg border p-4"
-        style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
       >
-        <h3 className="font-semibold" style={{ color: '#2c1810' }}>Arrival &amp; notes</h3>
-        <p className="text-xs mt-0.5 mb-3" style={{ color: '#8b7355' }}>
+        <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>Arrival &amp; notes</h3>
+        <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
           Optional — helps the office plan stall assignments.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="text-xs" style={{ color: '#8b7355' }}>
+          <label className="text-xs" style={{ color: 'var(--muted)' }}>
             Arriving
             <input
               type="date"
               value={arrival}
               onChange={(e) => setArrival(e.target.value)}
               className="mt-1 w-full border rounded px-3 py-2 text-sm"
-              style={{ borderColor: '#d4b896' }}
+              style={{ borderColor: 'var(--border)' }}
             />
           </label>
-          <label className="text-xs" style={{ color: '#8b7355' }}>
+          <label className="text-xs" style={{ color: 'var(--muted)' }}>
             Leaving
             <input
               type="date"
               value={departure}
               onChange={(e) => setDeparture(e.target.value)}
               className="mt-1 w-full border rounded px-3 py-2 text-sm"
-              style={{ borderColor: '#d4b896' }}
+              style={{ borderColor: 'var(--border)' }}
             />
           </label>
         </div>
-        <label className="text-xs block mt-3" style={{ color: '#8b7355' }}>
+        <label className="text-xs block mt-3" style={{ color: 'var(--muted)' }}>
           Notes for the show office
           <textarea
             value={notes}
@@ -659,31 +666,31 @@ export default function ReservationFields({
             maxLength={1000}
             placeholder="e.g. arriving late Friday, hauling in with two others"
             className="mt-1 w-full border rounded px-3 py-2 text-sm"
-            style={{ borderColor: '#d4b896' }}
+            style={{ borderColor: 'var(--border)' }}
           />
         </label>
       </section>
 
       <div
         className="mt-5 rounded-lg border p-4 space-y-3"
-        style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
       >
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-wider" style={{ color: '#8b7355' }}>
+            <div className="text-xs uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
               Stalls, shavings &amp; camping
             </div>
-            <div className="text-xl font-bold" style={{ color: '#2c1810' }}>
+            <div className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
               {formatMoney(reservationTotal)}
             </div>
-            <div className="text-xs" style={{ color: '#8b7355' }}>{totalHint}</div>
+            <div className="text-xs" style={{ color: 'var(--muted)' }}>{totalHint}</div>
           </div>
           <button
             type="submit"
             disabled={saving}
             className="px-4 py-2 rounded font-medium text-white"
             style={{
-              backgroundColor: saving ? '#a89175' : '#8b4513',
+              backgroundColor: saving ? 'var(--text-dimmed)' : 'var(--accent)',
               cursor: saving ? 'not-allowed' : 'pointer',
             }}
           >
@@ -696,7 +703,7 @@ export default function ReservationFields({
       {error && (
         <div
           className="mt-4 rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error}
         </div>

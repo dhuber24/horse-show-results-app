@@ -1,6 +1,6 @@
 # Database
 
-PostgreSQL schema, migrations, and seed templates for Horse Show Results.
+PostgreSQL schema, migrations, and seed templates for GaitDesk.
 
 The active database is hosted on Neon. There is no local Postgres service in `docker-compose.yml`.
 

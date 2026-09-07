@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisions } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import StepLayout from '../setup/_lib/StepLayout';
@@ -75,10 +74,16 @@ async function fetchStandardLibrary(
   };
 }
 
-/** Setup Step 6. Building the schedule is the longest job in setting a show up,
- *  so it sits in the wizard with the rest of it rather than behind its own
- *  dashboard tile. The route is unchanged — deep links into class setup and the
- *  per-class screens still work. */
+/** Setup Step 5: the Class Builder. Building the schedule is the longest job in
+ *  setting a show up, so it sits in the wizard with the rest of it rather than
+ *  behind its own dashboard tile. The route is unchanged — deep links into class
+ *  setup and the per-class screens still work.
+ *
+ *  It carried two yellow notices at the top, one linking to Sanctioned Classes
+ *  and one to Judging Cards. Both are steps of their own now (6 and 8), which
+ *  the stepper above already shows and the Next link already walks into. A
+ *  banner pointing at the next step is a second door, and it sat above the
+ *  three-screen wizard somebody came here to use. */
 export default async function ShowClassesPage({
   params,
 }: {
@@ -88,21 +93,12 @@ export default async function ShowClassesPage({
   const show = await fetchShow(id);
   const stepsInput = await fetchStepCounts(id);
 
-  const [showTypes, disciplines, divisions, classes, clubs] = await Promise.all([
+  const [showTypes, disciplines, divisions, classes] = await Promise.all([
     fetchShowTypes(),
     fetchDisciplines(id),
     fetchDivisions(id),
     fetchClasses(id),
-    fetchAuthed<{ association_id: string; code: string; class_ids: string[] }[]>(
-      `${API_URL}/shows/${id}/classes/sanctioning`,
-      [],
-    ),
   ]);
-  // Only pattern and timed classes are marked on a card — a rail class is
-  // placed, not scored, and has nothing for a judge to write on.
-  const scoredCount = (classes as { score_type?: string }[]).filter(
-    (c) => c.score_type === 'pattern' || c.score_type === 'time',
-  ).length;
   const standardLibrary = await fetchStandardLibrary(
     showTypes,
     show.show_type_id,
@@ -114,52 +110,10 @@ export default async function ShowClassesPage({
       showId={id}
       showName={show.name}
       current="classes"
-      title="Step 6: Classes"
-      subtitle="Three steps: pick disciplines, pick divisions, build classes. If a club sanctions this show, say which of these classes it approves in Sanctioned Classes."
+      title="Step 5: Class Builder"
+      subtitle="Three steps: pick disciplines, pick divisions, build classes. Everything the steps after this one ask about — which classes a club approves, which belong to a futurity, which card each scored class is marked on — is picked from what you build here."
       stepsInput={stepsInput}
     >
-      {clubs.length > 0 && (
-        <div
-          className="rounded border p-3 mb-4 text-sm flex items-center justify-between gap-3 flex-wrap"
-          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
-        >
-          <span>
-            {clubs
-              .map((c) => `${c.code} (${c.class_ids.length} class${c.class_ids.length === 1 ? '' : 'es'})`)
-              .join(', ')}{' '}
-            — a club approves a list of classes, not the whole schedule, and its
-            per-class fee is charged on those classes only.
-          </span>
-          <Link
-            href={`/admin/shows/${id}/classes/sanctioning`}
-            className="underline whitespace-nowrap"
-            style={{ color: '#8b4513' }}
-          >
-            Sanctioned Classes →
-          </Link>
-        </div>
-      )}
-
-      {scoredCount > 0 && (
-        <div
-          className="rounded border p-3 mb-4 text-sm flex items-center justify-between gap-3 flex-wrap"
-          style={{ borderColor: '#d4b896', backgroundColor: '#fdf8eb', color: '#5c3d1e' }}
-        >
-          <span>
-            {scoredCount} scored class{scoredCount === 1 ? '' : 'es'} — say which
-            card each is marked on and the scribe records the maneuvers and
-            penalties the judge calls instead of a worked-out total.
-          </span>
-          <Link
-            href={`/admin/shows/${id}/classes/judging`}
-            className="underline whitespace-nowrap"
-            style={{ color: '#8b4513' }}
-          >
-            Judging Cards →
-          </Link>
-        </div>
-      )}
-
       <ClassWizardClient
         showId={id}
         showStartDate={show.start_date}

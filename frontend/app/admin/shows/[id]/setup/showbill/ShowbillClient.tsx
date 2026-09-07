@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 /**
@@ -12,6 +12,13 @@ import { useRouter } from 'next/navigation';
  * at it without every exhibitor's Show Bill button changing underneath them
  * mid-comparison. Choosing "the one we uploaded" is the second press.
  *
+ * Both presses live on the option they belong to. The upload used to be a
+ * section of its own below the choice — a heading, a paragraph of accepted
+ * formats, a file input and a file card — for what is one button and, once
+ * there is a file, one line about it. Everything that section said is still
+ * said: the formats are the button's tooltip, and the file's name, size, date
+ * and whether it is published sit under the option it publishes.
+ *
  * The radio for the uploaded bill is disabled until a file exists, with a
  * `title` saying why. That is an affordance, not the enforcement: `PUT
  * /shows/{id}/showbill-source` 422s the same case regardless, because a screen
@@ -20,13 +27,17 @@ import { useRouter } from 'next/navigation';
  */
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
+
+const ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp';
+const UPLOAD_HINT =
+  'A PDF, or a JPEG, PNG or WebP image. 10 MB at most. One per show — uploading again replaces it.';
 
 export type ShowbillDocument = {
   id: string;
@@ -69,6 +80,7 @@ export default function ShowbillClient({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const fileHref = `/api/shows/${showId}/showbill-document/file`;
 
@@ -92,7 +104,7 @@ export default function ShowbillClient({
       setSuccessMsg(
         json.effective_source === 'uploaded'
           ? 'The Show Bill button now opens your uploaded show bill.'
-          : 'The Show Bill button now opens the show bill this app builds.',
+          : 'The Show Bill button now opens the show bill GaitDesk generates.',
       );
       router.refresh();
     } catch {
@@ -123,7 +135,7 @@ export default function ShowbillClient({
       setSuccessMsg(
         json.effective_source === 'uploaded'
           ? 'Show bill replaced.'
-          : 'Show bill uploaded. Choose it below to publish it in place of the generated one.',
+          : 'Show bill uploaded. Choose it to publish it in place of the generated one.',
       );
       router.refresh();
     } catch {
@@ -165,7 +177,7 @@ export default function ShowbillClient({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -174,11 +186,27 @@ export default function ShowbillClient({
       {successMsg && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee', color: '#1f4e1f' }}
+          style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
         >
           {successMsg}
         </div>
       )}
+
+      {/* One file input for the whole screen, driven by the Upload button on
+          the option it belongs to. Hidden rather than styled: a bare file
+          input cannot say "Upload" or carry the format hint. */}
+      <input
+        ref={fileInput}
+        type="file"
+        accept={ACCEPT}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          // Clear the input so choosing the same file twice still fires.
+          e.target.value = '';
+          if (file) void upload(file);
+        }}
+      />
 
       <section
         className="p-4 rounded-lg border space-y-4"
@@ -193,50 +221,135 @@ export default function ShowbillClient({
           </p>
         </div>
 
-        <label className="flex gap-3 items-start cursor-pointer">
-          <input
-            type="radio"
-            name="showbill-source"
-            className="mt-1"
-            checked={source === 'generated'}
-            disabled={busy}
-            onChange={() => chooseSource('generated')}
-          />
-          <span>
-            <span className="text-sm font-medium block" style={{ color: COLORS.text }}>
-              The show bill this app builds
+        <div className="flex gap-3 items-start justify-between flex-wrap">
+          <label className="flex gap-3 items-start cursor-pointer flex-1 min-w-[16rem]">
+            <input
+              type="radio"
+              name="showbill-source"
+              className="mt-1"
+              checked={source === 'generated'}
+              disabled={busy}
+              onChange={() => chooseSource('generated')}
+            />
+            <span>
+              <span className="text-sm font-medium block" style={{ color: COLORS.text }}>
+                Showbill generated by GaitDesk
+              </span>
+              <span className="text-xs block mt-0.5" style={{ color: COLORS.muted }}>
+                Drawn from this show&rsquo;s judges, classes, fees and policies, so it updates
+                itself every time you change one of them.
+                {classCount === 0 && ' No classes on the schedule yet, so it is nearly empty.'}
+              </span>
             </span>
-            <span className="text-xs block mt-0.5" style={{ color: COLORS.muted }}>
-              Drawn from this show&rsquo;s judges, classes, fees and policies, so it updates
-              itself every time you change one of them.
-              {classCount === 0 && ' No classes on the schedule yet, so it is nearly empty.'}
-            </span>
-          </span>
-        </label>
+          </label>
+          {/* The preview sits on the option it previews. It opens whichever
+              bill is published, so on the other option it would be describing
+              the file above it — which is what the footnote it replaced, at the
+              foot of the page and belonging to neither, could never make
+              clear. */}
+          <a
+            href={`/shows/${showId}/showbill`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm rounded px-3 py-2 border whitespace-nowrap"
+            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
+          >
+            Preview the show bill as exhibitors will see it
+          </a>
+        </div>
 
-        <label
-          className={`flex gap-3 items-start ${doc ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-          title={doc ? undefined : noFileReason}
-        >
-          <input
-            type="radio"
-            name="showbill-source"
-            className="mt-1"
-            checked={source === 'uploaded'}
-            disabled={busy || !doc}
-            onChange={() => chooseSource('uploaded')}
-          />
-          <span>
-            <span className="text-sm font-medium block" style={{ color: COLORS.text }}>
-              Our own show bill, uploaded
+        <div className="flex gap-3 items-start justify-between flex-wrap">
+          <label
+            className={`flex gap-3 items-start flex-1 min-w-[16rem] ${doc ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+            title={doc ? undefined : noFileReason}
+          >
+            <input
+              type="radio"
+              name="showbill-source"
+              className="mt-1"
+              checked={source === 'uploaded'}
+              disabled={busy || !doc}
+              onChange={() => chooseSource('uploaded')}
+            />
+            <span>
+              <span className="text-sm font-medium block" style={{ color: COLORS.text }}>
+                Our own show bill, uploaded
+              </span>
+              <span className="text-xs block mt-0.5" style={{ color: COLORS.muted }}>
+                {doc
+                  ? 'Published as you supplied it. It will not update when you change classes or fees — replace the file when the show bill changes.'
+                  : noFileReason}
+              </span>
+              {doc && (
+                <span className="text-xs block mt-1" style={{ color: COLORS.muted }}>
+                  <strong style={{ color: COLORS.text }}>{doc.original_filename}</strong>{' '}
+                  · {formatBytes(doc.file_size)}
+                  {formatUploaded(doc.created_at)
+                    ? ` · uploaded ${formatUploaded(doc.created_at)}`
+                    : ''}
+                  {source === 'uploaded' ? ' · published' : ' · on file, not published'} ·{' '}
+                  <a
+                    href={fileHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                    style={{ color: COLORS.warn }}
+                  >
+                    View
+                  </a>
+                  {/* Inline confirmation, not a modal — the repo's delete pattern. */}
+                  {confirmRemove ? (
+                    <>
+                      {' '}·{' '}
+                      <button
+                        type="button"
+                        onClick={removeDocument}
+                        disabled={busy}
+                        className="underline disabled:opacity-50"
+                        style={{ color: 'var(--error-strong)' }}
+                      >
+                        {busy ? 'Removing…' : 'Remove — back to the generated bill'}
+                      </button>{' '}
+                      ·{' '}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(false)}
+                        disabled={busy}
+                        className="underline disabled:opacity-50"
+                        style={{ color: COLORS.muted }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {' '}·{' '}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmRemove(true)}
+                        disabled={busy}
+                        className="underline disabled:opacity-50"
+                        style={{ color: 'var(--error-strong)' }}
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                </span>
+              )}
             </span>
-            <span className="text-xs block mt-0.5" style={{ color: COLORS.muted }}>
-              {doc
-                ? 'Published as you supplied it. It will not update when you change classes or fees — replace the file when the show bill changes.'
-                : noFileReason}
-            </span>
-          </span>
-        </label>
+          </label>
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy}
+            title={UPLOAD_HINT}
+            className="text-sm rounded px-3 py-2 border whitespace-nowrap disabled:opacity-50"
+            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
+          >
+            {busy ? 'Working…' : doc ? 'Replace' : 'Upload'}
+          </button>
+        </div>
 
         <div
           className="rounded border px-3 py-2 text-xs"
@@ -247,119 +360,6 @@ export default function ShowbillClient({
           what an exhibitor is billed.
         </div>
       </section>
-
-      <section
-        className="p-4 rounded-lg border space-y-4"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-      >
-        <div>
-          <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-            Your own show bill
-          </h2>
-          <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
-            A PDF, or a JPEG, PNG or WebP image. 10 MB at most. One per show — uploading
-            again replaces it.
-          </p>
-        </div>
-
-        {doc ? (
-          <div
-            className="rounded border p-3 flex flex-wrap items-center justify-between gap-3"
-            style={{ borderColor: COLORS.border }}
-          >
-            <div>
-              <div className="text-sm font-medium" style={{ color: COLORS.text }}>
-                {doc.original_filename}
-              </div>
-              <div className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                {formatBytes(doc.file_size)}
-                {formatUploaded(doc.created_at) ? ` · uploaded ${formatUploaded(doc.created_at)}` : ''}
-                {source === 'uploaded' ? ' · published' : ' · on file, not published'}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <a
-                href={fileHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm rounded px-3 py-2 border"
-                style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-              >
-                View
-              </a>
-              {/* Inline confirmation, not a modal — the repo's delete pattern. */}
-              {confirmRemove ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={removeDocument}
-                    disabled={busy}
-                    className="text-sm rounded px-3 py-2 disabled:opacity-50"
-                    style={{ backgroundColor: '#c0392b', color: '#fff' }}
-                  >
-                    {busy ? 'Removing…' : 'Remove — back to the generated bill'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConfirmRemove(false)}
-                    disabled={busy}
-                    className="text-sm rounded px-3 py-2 border disabled:opacity-50"
-                    style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
-                  >
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setConfirmRemove(true)}
-                  disabled={busy}
-                  className="text-sm rounded px-3 py-2 border disabled:opacity-50"
-                  style={{ borderColor: COLORS.border, color: '#922', backgroundColor: '#fff' }}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm" style={{ color: COLORS.muted }}>
-            Nothing on file. This show publishes the show bill the app builds.
-          </p>
-        )}
-
-        <label className="block">
-          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-            {doc ? 'Replace it' : 'Upload a show bill'}
-          </span>
-          <input
-            type="file"
-            accept="application/pdf,image/jpeg,image/png,image/webp"
-            disabled={busy}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              // Clear the input so choosing the same file twice still fires.
-              e.target.value = '';
-              if (file) void upload(file);
-            }}
-            className="block w-full text-sm"
-            style={{ color: COLORS.text }}
-          />
-        </label>
-      </section>
-
-      <p className="text-xs" style={{ color: COLORS.muted }}>
-        <a
-          href={`/shows/${showId}/showbill`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline"
-          style={{ color: COLORS.warn }}
-        >
-          Open the show bill as exhibitors see it
-        </a>{' '}
-        — it opens whichever one is published above.
-      </p>
     </div>
   );
 }

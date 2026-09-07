@@ -48,15 +48,15 @@ export type ClassItem = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  bg: '#fff',
-  highlight: '#fef3c7',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
-  done: '#2f6b3f',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  bg: 'var(--surface)',
+  highlight: 'var(--warning-bg)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
+  done: 'var(--success)',
 } as const;
 
 type Step = 1 | 2 | 3;
@@ -128,7 +128,7 @@ export default function ClassWizardClient({
           type="button"
           onClick={backToOverview}
           className="text-sm hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
           ← Back to setup overview
         </button>
@@ -151,7 +151,7 @@ export default function ClassWizardClient({
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -276,8 +276,8 @@ function HubOverview({
               onClick={() => onEdit(item.key)}
               className="w-full flex items-start justify-between gap-3 p-4 rounded-lg border text-left transition-colors hover:bg-amber-50"
               style={{
-                borderColor: item.done ? '#bcd9c0' : COLORS.border,
-                backgroundColor: item.done ? '#f3faf3' : COLORS.bg,
+                borderColor: item.done ? 'var(--success-border)' : COLORS.border,
+                backgroundColor: item.done ? 'var(--success-bg)' : COLORS.bg,
               }}
             >
               <div>
@@ -289,8 +289,8 @@ function HubOverview({
               <span
                 className="text-xs px-2 py-1 rounded shrink-0"
                 style={{
-                  color: item.done ? '#1f4e1f' : COLORS.warn,
-                  backgroundColor: item.done ? '#dff1df' : COLORS.warnSoft,
+                  color: item.done ? 'var(--success-strong)' : COLORS.warn,
+                  backgroundColor: item.done ? 'var(--success-bg)' : COLORS.warnSoft,
                 }}
               >
                 {item.done ? 'Edit' : 'Open'}
@@ -332,7 +332,7 @@ function Stepper({
                 <span
                   aria-hidden
                   className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold"
-                  style={{ backgroundColor: badgeColor, color: '#fff' }}
+                  style={{ backgroundColor: badgeColor, color: 'var(--surface)' }}
                 >
                   {badge}
                 </span>
@@ -387,7 +387,7 @@ function StepFooter({
         backgroundColor: COLORS.bg,
         // Reads as a bar floating over the content it covers mid-scroll,
         // rather than a row that has cut the matrix in half.
-        boxShadow: '0 -2px 6px rgba(44, 24, 16, 0.08)',
+        boxShadow: '0 -2px 6px rgba(26, 28, 32, 0.08)',
       }}
     >
       {onBack ? (
@@ -395,7 +395,7 @@ function StepFooter({
           type="button"
           onClick={onBack}
           className="text-sm rounded px-3 py-2 border"
-          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
         >
           ← Back
         </button>
@@ -413,7 +413,7 @@ function StepFooter({
           onClick={onAction}
           disabled={disabled}
           className="text-sm rounded px-4 py-2 disabled:opacity-50"
-          style={{ backgroundColor: COLORS.warn, color: '#fff' }}
+          style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
         >
           {actionLabel}
         </button>
@@ -541,7 +541,7 @@ function DisciplineStep({
               <span
                 key={d.id}
                 className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
-                style={{ borderColor: '#bcd9c0', backgroundColor: '#f3faf3', color: COLORS.done }}
+                style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: COLORS.done }}
               >
                 ✓ {d.name}
                 <button
@@ -601,7 +601,7 @@ function DisciplineStep({
                   className="text-sm rounded px-3 py-1.5 border"
                   style={{
                     borderColor: selected ? COLORS.warn : COLORS.border,
-                    backgroundColor: selected ? COLORS.highlight : '#fff',
+                    backgroundColor: selected ? COLORS.highlight : 'var(--surface)',
                     color: selected ? COLORS.warn : COLORS.text,
                     fontWeight: selected ? 600 : 400,
                   }}
@@ -624,7 +624,7 @@ function DisciplineStep({
             <span
               key={n}
               className="inline-flex items-center gap-1.5 text-sm rounded px-2 py-1 border border-dashed"
-              style={{ borderColor: '#bca15f', backgroundColor: COLORS.highlight, color: COLORS.warn }}
+              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.warn }}
             >
               {n}
               <button
@@ -657,7 +657,7 @@ function DisciplineStep({
             onClick={addCustom}
             disabled={!customDraft.trim()}
             className="text-sm rounded px-3 py-1 border disabled:opacity-50"
-            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
           >
             Add
           </button>
@@ -807,7 +807,7 @@ function DivisionStep({
               <span
                 key={d.id}
                 className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
-                style={{ borderColor: '#bcd9c0', backgroundColor: '#f3faf3', color: COLORS.done }}
+                style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: COLORS.done }}
               >
                 ✓ {d.name}
                 <button
@@ -867,7 +867,7 @@ function DivisionStep({
                   className="text-sm rounded px-3 py-1.5 border"
                   style={{
                     borderColor: selected ? COLORS.warn : COLORS.border,
-                    backgroundColor: selected ? COLORS.highlight : '#fff',
+                    backgroundColor: selected ? COLORS.highlight : 'var(--surface)',
                     color: selected ? COLORS.warn : COLORS.text,
                     fontWeight: selected ? 600 : 400,
                   }}
@@ -890,7 +890,7 @@ function DivisionStep({
             <span
               key={n}
               className="inline-flex items-center gap-1.5 text-sm rounded px-2 py-1 border border-dashed"
-              style={{ borderColor: '#bca15f', backgroundColor: COLORS.highlight, color: COLORS.warn }}
+              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.warn }}
             >
               {n}
               <button
@@ -923,7 +923,7 @@ function DivisionStep({
             onClick={addCustom}
             disabled={!customDraft.trim()}
             className="text-sm rounded px-3 py-1 border disabled:opacity-50"
-            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: '#fff' }}
+            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
           >
             Add
           </button>
@@ -1337,10 +1337,10 @@ function ClassesStep({
                             className="w-full text-xs font-medium rounded px-2 py-1"
                             style={{
                               backgroundColor: taken
-                                ? '#e8e0d0'
+                                ? 'var(--border-subtle)'
                                 : queued
                                   ? COLORS.highlight
-                                  : '#fff',
+                                  : 'var(--surface)',
                               color: taken
                                 ? COLORS.muted
                                 : queued
@@ -1388,7 +1388,7 @@ function ClassesStep({
             onClick={() => setListOpen((open) => !open)}
             aria-expanded={listOpen}
             className="w-full flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
-            style={{ borderColor: COLORS.border, backgroundColor: '#fff', color: COLORS.text }}
+            style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)', color: COLORS.text }}
           >
             <span className="font-medium">
               <span aria-hidden>{listOpen ? '▾' : '▸'}</span> Classes added ({classes.length})
@@ -1448,14 +1448,14 @@ function ClassesStep({
                                     >
                                       ⠿
                                     </span>
-                                    <span className="font-mono shrink-0" style={{ color: '#8b4513' }}>
+                                    <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
                                       #{c.class_number}
                                     </span>
                                     <span className="truncate">{c.class_name}</span>
                                     {c.entered_by_qualification && (
                                       <span
                                         className="shrink-0 text-xs px-1.5 py-0.5 rounded"
-                                        style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                                        style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
                                         title="Exhibitors can't enter this class — the top two from each qualifying class are called back to it. The desk still enters it."
                                       >
                                         by qualification

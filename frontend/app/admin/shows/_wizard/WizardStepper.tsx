@@ -1,13 +1,16 @@
-import Link from 'next/link';
+'use client';
+
+import { AutosaveNavLink } from '../[id]/setup/_lib/StepAutosave';
 
 export type WizardStepKey =
   | 'basic'
   | 'judges'
-  | 'sanctioning'
   | 'lodging'
   | 'fees'
   | 'classes'
+  | 'sanctioning'
   | 'futurities'
+  | 'judgecards'
   | 'showbill';
 
 export type StepDef = {
@@ -18,13 +21,19 @@ export type StepDef = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  active: '#5c3d1e',
-  done: '#2f6b3f',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  active: 'var(--text-deep)',
+  done: 'var(--success)',
 } as const;
 
+/**
+ * The step rail. A client component because leaving a step now saves it — each
+ * link goes through `AutosaveNavLink`, which flushes whatever the step has
+ * unsaved before it navigates. On the setup hub, where nothing is registered,
+ * that flush is a no-op and these behave exactly like the links they were.
+ */
 export default function WizardStepper({
   steps,
   current,
@@ -51,7 +60,7 @@ export default function WizardStepper({
                 className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold border"
                 style={{
                   borderColor: badgeColor,
-                  color: '#fff',
+                  color: 'var(--surface)',
                   backgroundColor: badgeColor,
                 }}
               >
@@ -64,10 +73,8 @@ export default function WizardStepper({
           );
           return (
             <li key={step.key} className="flex items-center gap-2">
-              {step.href ? (
-                <Link href={step.href} aria-current={isCurrent ? 'step' : undefined}>
-                  {content}
-                </Link>
+              {step.href && !isCurrent ? (
+                <AutosaveNavLink href={step.href}>{content}</AutosaveNavLink>
               ) : (
                 <span aria-current={isCurrent ? 'step' : undefined}>{content}</span>
               )}

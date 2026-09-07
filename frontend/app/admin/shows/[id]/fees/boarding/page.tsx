@@ -19,7 +19,7 @@ export default async function BoardingFeesPage({ params }: { params: Promise<{ i
   ]);
 
   // Everything except the charges the show applies automatically — those are
-  // edited on Entry Fees and in setup Step 5, and offering them here as well
+  // edited on Entry Fees and in setup Step 4, and offering them here as well
   // would be two screens writing one row in two vocabularies.
   const boardingFees = fees.filter((f: { unit: string }) => !isAutomaticUnit(f.unit));
 
@@ -35,9 +35,9 @@ export default async function BoardingFeesPage({ params }: { params: Promise<{ i
         ]} />
         <div className="flex items-center gap-2 mt-2">
           <span className="text-2xl" aria-hidden>🏕️</span>
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Boarding Fees</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Boarding Fees</h1>
         </div>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Stalls, campsites, shavings, late entry, cross-entry surcharges, etc.
         </p>
       </div>

@@ -13,43 +13,36 @@ export default async function AdminHorsesPage() {
       <div>
         <Breadcrumbs crumbs={[
           { label: 'Admin', href: '/admin' },
-          { label: 'Horses' },
+          { label: 'Horse Registry' },
         ]} />
         <div className="flex items-center justify-between mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>Horses</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Horse Registry</h1>
           <div className="flex gap-3">
             <Link
               href="/admin/horses/breeds"
               className="text-sm px-3 py-1.5 rounded border font-medium"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               Manage Breeds
             </Link>
             <Link
               href="/admin/horses/colors"
               className="text-sm px-3 py-1.5 rounded border font-medium"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               Manage Colors
             </Link>
             <Link
               href="/admin/horses/patterns"
               className="text-sm px-3 py-1.5 rounded border font-medium"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
             >
               Manage Patterns
             </Link>
             <Link
-              href="/admin/trainers"
-              className="text-sm px-3 py-1.5 rounded border font-medium"
-              style={{ borderColor: '#d4b896', color: '#8b4513' }}
-            >
-              Manage Trainers
-            </Link>
-            <Link
               href="/admin/horses/new"
               className="text-sm px-3 py-1.5 rounded font-medium"
-              style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+              style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
             >
               + New Horse
             </Link>

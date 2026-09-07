@@ -35,7 +35,7 @@ record() {
   fi
 }
 
-echo -e "${BLUE}=== Horse Show Results — test suite ===${NC}"
+echo -e "${BLUE}=== GaitDesk — test suite ===${NC}"
 
 # ── Backend ───────────────────────────────────────────────────────────────────
 # Runs in the backend image, not on the host: the backend needs Python 3.10+

@@ -45,6 +45,10 @@ const RELATIONSHIP_HELP =
   'this horse, so it is the one thing about it the app cannot work out. Answered ' +
   'once here and used on every class you enter.';
 
+/** The same thing in the space a phone actually has. The rule citation stays on
+ *  the select's `title`, where it costs nobody a line. */
+const RELATIONSHIP_HINT = 'Asked once — used on every class.';
+
 /**
  * Take a horse back off the profile.
  *
@@ -115,16 +119,16 @@ function RemoveHorse({
 
   if (enteredCount > 0) {
     return (
-      <span className="text-xs shrink-0" style={{ color: '#8b7355' }}>
-        Entered in {enteredCount} class{enteredCount === 1 ? '' : 'es'} —{' '}
+      <span className="text-xs shrink-0" style={{ color: 'var(--muted)' }}>
+        In {enteredCount} class{enteredCount === 1 ? '' : 'es'} —{' '}
         <Link
           href={`#registration-classes`}
           className="font-medium hover:underline"
-          style={{ color: '#8b4513' }}
+          style={{ color: 'var(--accent)' }}
         >
-          withdraw {enteredCount === 1 ? 'it' : 'them'}
+          withdraw
         </Link>{' '}
-        to remove this horse
+        to remove
       </span>
     );
   }
@@ -138,7 +142,7 @@ function RemoveHorse({
             onClick={remove}
             disabled={removing}
             className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
-            style={{ backgroundColor: '#b91c1c' }}
+            style={{ backgroundColor: 'var(--error)' }}
           >
             {removing ? 'Removing…' : 'Yes, remove'}
           </button>
@@ -147,7 +151,7 @@ function RemoveHorse({
             onClick={() => { setConfirming(false); setError(null); }}
             disabled={removing}
             className="text-xs hover:underline disabled:opacity-50"
-            style={{ color: '#8b7355' }}
+            style={{ color: 'var(--muted)' }}
           >
             Keep
           </button>
@@ -157,14 +161,14 @@ function RemoveHorse({
           type="button"
           onClick={() => setConfirming(true)}
           className="text-xs hover:underline"
-          style={{ color: '#b91c1c' }}
+          style={{ color: 'var(--error)' }}
           title={`Remove ${horse.name} from your profile — this does not delete the horse`}
         >
           Remove
         </button>
       )}
       {error && (
-        <span className="block text-xs mt-1" style={{ color: '#b91c1c' }}>
+        <span className="block text-xs mt-1" style={{ color: 'var(--error)' }}>
           {error}
         </span>
       )}
@@ -223,17 +227,17 @@ function HorseCard({
   };
 
   return (
-    <li className="rounded-lg border p-3" style={{ borderColor: '#e8d5b7', backgroundColor: '#fffdf9' }}>
+    <li className="rounded-lg border p-3" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <span className="font-medium" style={{ color: '#2c1810' }}>
+        <span className="font-medium" style={{ color: 'var(--foreground)' }}>
           {horse.name}
           {horse.is_solid_paint_bred && (
-            <span className="text-xs ml-1.5" style={{ color: '#8b7355' }}>
+            <span className="text-xs ml-1.5" style={{ color: 'var(--muted)' }}>
               (SPB)
             </span>
           )}
         </span>
-        <span className="flex items-center gap-3 text-xs" style={{ color: '#8b7355' }}>
+        <span className="flex items-center gap-3 text-xs" style={{ color: 'var(--muted)' }}>
           <span>
             {(horse.registrations ?? []).length > 0
               ? `Registered: ${(horse.registrations ?? []).join(', ')}`
@@ -257,20 +261,19 @@ function HorseCard({
       {flags.length > 0 && (
         <div
           className="mt-2 rounded border p-2 text-xs flex flex-wrap items-center justify-between gap-2"
-          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
           <span>
             <strong>
-              No {flags.map((f) => f.association_code).join(', ')} registration{' '}
-              {flags.length === 1 ? 'number' : 'numbers'} on file.
+              No {flags.map((f) => f.association_code).join(', ')} number
+              {flags.length === 1 ? '' : 's'} on file.
             </strong>{' '}
-            This show runs under {flags.length === 1 ? 'it' : 'them'} and asks for papers at the
-            desk — you can still enter.
+            Papers are checked at the desk — you can still enter.
           </span>
           <Link
             href={`/profile/horses/${horse.id}`}
             className="shrink-0 font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             {flags.length === 1 ? 'Add the number →' : 'Add the numbers →'}
           </Link>
@@ -280,13 +283,13 @@ function HorseCard({
       {warnings.length > 0 && (
         <div
           className="mt-2 rounded border p-2 text-xs flex flex-wrap items-center justify-between gap-2"
-          style={{ backgroundColor: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
           <span>{warnings.join(' ')}</span>
           <Link
             href={`/profile/horses/${horse.id}`}
             className="shrink-0 font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Upload documents →
           </Link>
@@ -297,20 +300,20 @@ function HorseCard({
           own record. Stated rather than hidden, because it goes onto every
           entry and an exhibitor should be able to see what was filed for them. */}
       {needsRelationship && horse.owns_horse && (
-        <p className="text-xs mt-2" style={{ color: '#5d4a37' }}>
+        <p
+          className="text-xs mt-2"
+          style={{ color: 'var(--text-deep)' }}
+          title="APHA asks how you are entitled to show this horse (AM-300.E, YP-015). You are its recorded owner, so the answer is Self."
+        >
           Shown as <strong>Self</strong>
-          <span style={{ color: '#8b7355' }}>
-            {' '}— you are the recorded owner, so APHA&apos;s ownership question answers itself
-            (AM-300.E, YP-015).
-          </span>
+          <span style={{ color: 'var(--muted)' }}> — you&apos;re the recorded owner.</span>
         </p>
       )}
 
       {needsRelationship && !horse.owns_horse && (
         <label className="block mt-2">
-          <span className="block text-xs mb-1" style={{ color: '#5d4a37' }}>
-            Your relationship to {horse.owner_name ? `${horse.owner_name}, ` : ''}this horse&apos;s
-            owner
+          <span className="block text-xs mb-1" style={{ color: 'var(--text-deep)' }}>
+            Your relationship to {horse.owner_name ? `${horse.owner_name}, ` : ''}the owner
           </span>
           <select
             value={relationship}
@@ -318,7 +321,7 @@ function HorseCard({
             disabled={saving}
             title={RELATIONSHIP_HELP}
             className="w-full sm:w-auto border rounded px-3 py-2 text-sm disabled:opacity-50"
-            style={{ borderColor: relationship ? '#d4b896' : '#c9a227' }}
+            style={{ borderColor: relationship ? 'var(--border)' : 'var(--warning)' }}
           >
             <option value="">Not stated</option>
             {RELATIONSHIP_OPTION_GROUPS.map((group) => (
@@ -331,14 +334,14 @@ function HorseCard({
               </optgroup>
             ))}
           </select>
-          <span className="block text-xs mt-0.5" style={{ color: '#8b7355' }}>
-            {saving ? 'Saving…' : RELATIONSHIP_HELP}
+          <span className="block text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            {saving ? 'Saving…' : RELATIONSHIP_HINT}
           </span>
         </label>
       )}
 
       {error && (
-        <p className="text-xs mt-1" style={{ color: '#b91c1c' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--error)' }}>
           {error}
         </p>
       )}
@@ -364,23 +367,21 @@ export default function HorsesStep({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm" style={{ color: '#5d4a37' }}>
-        You enter classes on a horse from your profile. Everything flagged below can be sorted out
-        before you ship in — none of it stops you entering.
+      <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
+        Nothing flagged below stops you entering — sort it before you ship in.
       </p>
 
       {horses.length === 0 ? (
         <div
           className="rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
-          You don&apos;t have any horses on your profile yet. Add one to carry on — your stall and
-          camping numbers can be set either way.
+          No horses on your profile yet. Add one to carry on.
           <div className="mt-2">
             <Link
               href="/profile/horses/new"
               className="font-medium hover:underline"
-              style={{ color: '#8b4513' }}
+              style={{ color: 'var(--accent)' }}
             >
               Add a horse →
             </Link>
@@ -402,16 +403,16 @@ export default function HorsesStep({
       )}
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1">
-        <span className="text-xs" style={{ color: '#8b7355' }}>
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
           {showTypeCode && showTypeCode !== 'OPEN'
-            ? `${showTypeCode} shows ask for the horse's registration number at the desk.`
-            : 'This show has no breed requirement of its own.'}
+            ? `${showTypeCode} shows ask for papers at the desk.`
+            : 'No breed requirement at this show.'}
         </span>
         {horses.length > 0 && (
           <Link
             href="/profile/horses/new"
             className="text-sm font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Add another horse →
           </Link>

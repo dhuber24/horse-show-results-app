@@ -140,7 +140,11 @@ def _serialize(show: Show) -> dict:
                 "association_id": str(s.association_id),
                 "code": s.association.code if s.association else "",
                 "name": s.association.name if s.association else "",
-                "per_class_fee_cents": s.per_class_fee_cents,
+                "fee_amount_cents": s.fee_amount_cents,
+                # What that amount counts (migration 133). On the payload
+                # because the show bill prints the rate, and "$45.00" with no
+                # unit against it is a number nobody can check.
+                "fee_unit": s.fee_unit,
             }
             for s in (show.sanctioning or [])
         ],

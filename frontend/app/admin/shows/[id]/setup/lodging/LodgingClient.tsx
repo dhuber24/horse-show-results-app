@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRegisterStepAutosave } from '../_lib/StepAutosave';
 import { canHaveEarlyRate } from '@/lib/fee-units';
 
 export type FeeRow = {
@@ -21,12 +22,12 @@ export type FeeRow = {
 };
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
 
 type SlotState = {
@@ -79,9 +80,9 @@ type Slot = {
    *  this" is a real venue policy. Stalls and camping are not — an exhibitor
    *  books however many stalls they need, and nobody makes an exhibitor book
    *  a camping spot to be allowed to enter — so the box asked a question with
-   *  no sensible answer and its own explanation ("required of everyone who
-   *  signs up") read as nonsense under either. `POST/PATCH /shows/{id}/fees`
-   *  refuses a minimum on anything but bedding for the same reason. */
+   *  no sensible answer under either, and a floor required of everybody read as
+   *  nonsense against them. `POST/PATCH /shows/{id}/fees` refuses a minimum on
+   *  anything but bedding for the same reason. */
   requirable: boolean;
   notesPlaceholder: string;
 };
@@ -261,7 +262,29 @@ export default function LodgingClient({
     setSlots((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
   }
 
-  async function save() {
+  /** Whether anything on the screen differs from what is on file. Compared
+   *  against the rows this screen loaded rather than tracked as a flag: a
+   *  manager who types a 5 and deletes it again has changed nothing, and the
+   *  autosave firing on every step link must not rewrite the step for them. */
+  const dirty = SLOTS.some((s) => {
+    const slot = slots[s.code];
+    const fee = findFee(s);
+    const onFile = fee ? centsToDollars(fee.amount_cents) : '';
+    return (
+      slot.dollars.trim() !== onFile.trim() ||
+      slot.notes !== (fee?.notes ?? '') ||
+      slot.unit !== (fee ? fee.unit : s.units[0].value) ||
+      slot.earlyDollars !==
+        (fee?.early_amount_cents != null ? centsToDollars(fee.early_amount_cents) : '') ||
+      slot.earlyDeadline !== (fee?.early_deadline ?? '') ||
+      slot.minQuantity !== (fee?.min_quantity ? String(fee.min_quantity) : '')
+    );
+  }) || banOutsideShavings !== initialShavingsBanOutside;
+
+  /** Returns whether everything was written. The step's autosave stops the
+   *  navigation on a false — the row that failed has said why on screen, and
+   *  carrying the manager forward from it is the silent loss this replaces. */
+  async function save(): Promise<boolean> {
     setError(null);
     setSuccessMsg(null);
     setBusy(true);
@@ -276,7 +299,7 @@ export default function LodgingClient({
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
           setError(j?.detail || 'Failed to update shavings policy.');
-          return;
+          return false;
         }
       }
 
@@ -291,7 +314,7 @@ export default function LodgingClient({
         const early = earlyFields(slot, cents);
         if ('error' in early) {
           setError(`${s.title}: ${early.error}`);
-          return;
+          return false;
         }
 
         if (slot.feeId && isEmpty) {
@@ -302,7 +325,7 @@ export default function LodgingClient({
           if (!res.ok && res.status !== 204) {
             const j = await res.json().catch(() => null);
             setError(j?.detail || `Failed to remove ${s.title}.`);
-            return;
+            return false;
           }
         } else if (slot.feeId && !isEmpty) {
           const res = await fetch(`/api/shows/${showId}/fees/${slot.feeId}`, {
@@ -327,7 +350,7 @@ export default function LodgingClient({
           if (!res.ok) {
             const j = await res.json().catch(() => null);
             setError(j?.detail || `Failed to update ${s.title}.`);
-            return;
+            return false;
           }
         } else if (!slot.feeId && !isEmpty) {
           const res = await fetch(`/api/shows/${showId}/fees`, {
@@ -346,24 +369,35 @@ export default function LodgingClient({
           if (!res.ok) {
             const j = await res.json().catch(() => null);
             setError(j?.detail || `Failed to create ${s.title}.`);
-            return;
+            return false;
           }
         }
       }
 
       setSuccessMsg('Lodging & boarding saved.');
       router.refresh();
+      return true;
     } finally {
       setBusy(false);
     }
   }
+
+  // Leaving the step saves it. Every slot is written from the same state the
+  // Save button reads, so this is that button pressed on the way out — and it
+  // is a no-op in the one case that matters, a manager passing through a step
+  // they have not touched, because each slot's write is skipped when the
+  // amount is unchanged and empty.
+  useRegisterStepAutosave(async () => {
+    if (!dirty) return;
+    if (!(await save())) throw new Error('Lodging & boarding could not be saved.');
+  });
 
   return (
     <div className="space-y-6">
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#c0392b', backgroundColor: '#fef0ef', color: '#922' }}
+          style={{ borderColor: 'var(--error)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
           role="alert"
         >
           {error}
@@ -372,249 +406,248 @@ export default function LodgingClient({
       {successMsg && (
         <div
           className="rounded border px-3 py-2 text-sm"
-          style={{ borderColor: '#7fa97f', backgroundColor: '#eef7ee', color: '#1f4e1f' }}
+          style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
         >
           {successMsg}
         </div>
       )}
 
-      <section
-        className="p-4 rounded-lg border space-y-4"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-      >
-        {SLOTS.map((s) => {
-          const slot = slots[s.code];
-          const chosen = unitChoice(s, slot.unit);
-          const managed = unitIsManaged(s, slot.unit);
-          // The unit says what a booked quantity counts. Once exhibitors hold
-          // reservations, changing it would reprice all of them — the backend
-          // returns 409, so the choice is locked here rather than offered and
-          // then refused.
-          const unitLocked = slot.reservedCount > 0;
-          const lockReason = unitLocked
-            ? `${slot.reservedCount} exhibitor${slot.reservedCount === 1 ? ' has' : 's have'} ` +
-              `already reserved this at the current rate. Remove the fee and add it again ` +
-              `to change how it's charged.`
-            : undefined;
-          return (
-            <div key={s.code} className="space-y-2">
-              <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-                <div>
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    {s.title}
-                  </span>
-                  {!managed ? (
-                    <span className="text-sm" style={{ color: COLORS.text }}>
-                      Charged {slot.unit.replace(/_/g, ' ')}{' '}
-                      <a
-                        href={`/admin/shows/${showId}/fees/boarding`}
-                        className="text-xs underline"
-                        style={{ color: COLORS.muted }}
-                      >
-                        (set on the boarding fee schedule)
-                      </a>
-                    </span>
-                  ) : s.units.length > 1 ? (
-                    <fieldset
-                      className="flex flex-wrap gap-x-4 gap-y-1"
-                      title={lockReason}
-                      disabled={unitLocked}
-                      style={{ opacity: unitLocked ? 0.55 : 1 }}
+      {/* A card per line, each under its own heading. All three ran together
+          in one box, separated only by a small grey label above each unit
+          picker — so a note typed against camping read as though it applied to
+          the shavings above it, and the shavings ban looked like a policy about
+          the whole step. A section apiece is what makes the controls in a box
+          belong to the thing the box is named after. */}
+      {SLOTS.map((s) => {
+        const slot = slots[s.code];
+        const chosen = unitChoice(s, slot.unit);
+        const managed = unitIsManaged(s, slot.unit);
+        // The unit says what a booked quantity counts. Once exhibitors hold
+        // reservations, changing it would reprice all of them — the backend
+        // returns 409, so the choice is locked here rather than offered and
+        // then refused.
+        const unitLocked = slot.reservedCount > 0;
+        const lockReason = unitLocked
+          ? `${slot.reservedCount} exhibitor${slot.reservedCount === 1 ? ' has' : 's have'} ` +
+            `already reserved this at the current rate. Remove the fee and add it again ` +
+            `to change how it's charged.`
+          : undefined;
+        return (
+          <section
+            key={s.code}
+            className="p-4 rounded-lg border space-y-3"
+            style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+          >
+            <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+              {s.title}
+            </h2>
+            <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
+              <div>
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  How it&apos;s charged
+                </span>
+                {!managed ? (
+                  <span className="text-sm" style={{ color: COLORS.text }}>
+                    Charged {slot.unit.replace(/_/g, ' ')}{' '}
+                    <a
+                      href={`/admin/shows/${showId}/fees/boarding`}
+                      className="text-xs underline"
+                      style={{ color: COLORS.muted }}
                     >
-                      <legend className="sr-only">How {s.title} is charged</legend>
-                      {s.units.map((u) => (
-                        <label
-                          key={u.value}
-                          className="flex items-center gap-1.5 text-sm"
-                          style={{ color: COLORS.text }}
-                        >
-                          <input
-                            type="radio"
-                            name={`${s.code}-unit`}
-                            value={u.value}
-                            checked={slot.unit === u.value}
-                            onChange={() => setSlot(s.code, { unit: u.value })}
-                          />
-                          <span>{u.choice}</span>
-                        </label>
-                      ))}
-                    </fieldset>
-                  ) : (
-                    <span className="text-sm" style={{ color: COLORS.text }}>
-                      Cost per {chosen.noun}
-                    </span>
-                  )}
-                </div>
+                      (set on the boarding fee schedule)
+                    </a>
+                  </span>
+                ) : s.units.length > 1 ? (
+                  <fieldset
+                    className="flex flex-wrap gap-x-4 gap-y-1"
+                    title={lockReason}
+                    disabled={unitLocked}
+                    style={{ opacity: unitLocked ? 0.55 : 1 }}
+                  >
+                    <legend className="sr-only">How {s.title} is charged</legend>
+                    {s.units.map((u) => (
+                      <label
+                        key={u.value}
+                        className="flex items-center gap-1.5 text-sm"
+                        style={{ color: COLORS.text }}
+                      >
+                        <input
+                          type="radio"
+                          name={`${s.code}-unit`}
+                          value={u.value}
+                          checked={slot.unit === u.value}
+                          onChange={() => setSlot(s.code, { unit: u.value })}
+                        />
+                        <span>{u.choice}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <span className="text-sm" style={{ color: COLORS.text }}>
+                    Cost per {chosen.noun}
+                  </span>
+                )}
+              </div>
+              <label className="block">
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  {managed ? `$ per ${chosen.noun}` : 'Amount ($)'}
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={slot.dollars}
+                  onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                  placeholder={managed ? chosen.placeholder : ''}
+                  aria-label={
+                    managed ? `${s.title} — amount per ${chosen.noun}` : `${s.title} — amount`
+                  }
+                />
+              </label>
+              <label className="block">
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  Notes (optional)
+                </span>
+                <input
+                  type="text"
+                  value={slot.notes}
+                  onChange={(e) => setSlot(s.code, { notes: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                  placeholder={s.notesPlaceholder}
+                />
+              </label>
+            </div>
+            {s.units.length > 1 && managed && (
+              <p className="text-xs" style={{ color: COLORS.muted }}>
+                {slot.unit === 'per_show'
+                  ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
+                  : `Charged for each ${chosen.noun} an exhibitor books — a Friday-to-Sunday show is three days and two nights.`}
+                {unitLocked && <> {lockReason}</>}
+              </p>
+            )}
+            {/* Not offered on shavings. Every other reservable line has a
+                real reserve-early convention on a paper show bill — book a
+                stall or a camping spot by a date, pay less. A bag count has
+                no such convention; the control used to sit here anyway, a
+                box with nothing behind it for a secretary to fill in. */}
+            {earlyRateAllowed(s) && (
+              <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
+                <span className="text-xs" style={{ color: COLORS.muted }}>
+                  Early rate{' '}
+                  <span style={{ color: 'var(--text-dimmed)' }}>
+                    (optional — cheaper if they reserve by the date)
+                  </span>
+                </span>
                 <label className="block">
                   <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    {managed ? `$ per ${chosen.noun}` : 'Amount ($)'}
+                    Early amount ($)
                   </span>
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={slot.dollars}
-                    onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
+                    value={slot.earlyDollars}
+                    onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
-                    placeholder={managed ? chosen.placeholder : ''}
-                    aria-label={
-                      managed ? `${s.title} — amount per ${chosen.noun}` : `${s.title} — amount`
-                    }
+                    placeholder="e.g. 60.00"
+                    aria-label={`${s.title} — early rate amount`}
                   />
                 </label>
                 <label className="block">
                   <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Notes (optional)
+                    Reserve by
                   </span>
                   <input
-                    type="text"
-                    value={slot.notes}
-                    onChange={(e) => setSlot(s.code, { notes: e.target.value })}
+                    type="date"
+                    value={slot.earlyDeadline}
+                    onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
                     className="w-full border rounded px-3 py-2"
                     style={{ borderColor: COLORS.border }}
-                    placeholder={s.notesPlaceholder}
+                    aria-label={`${s.title} — early rate deadline`}
                   />
                 </label>
               </div>
-              {s.units.length > 1 && managed && (
-                <p className="text-xs" style={{ color: COLORS.muted }}>
-                  {slot.unit === 'per_show'
-                    ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
-                    : `Charged for each ${chosen.noun} an exhibitor books — a Friday-to-Sunday show is three days and two nights.`}
-                  {unitLocked && <> {lockReason}</>}
-                </p>
-              )}
-              {/* Not offered on shavings. Every other reservable line has a
-                  real reserve-early convention on a paper show bill — book a
-                  stall or a camping spot by a date, pay less. A bag count has
-                  no such convention; the control used to sit here anyway, a
-                  box with nothing behind it for a secretary to fill in. */}
-              {earlyRateAllowed(s) && (
-                <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-                  <span className="text-xs" style={{ color: COLORS.muted }}>
-                    Early rate{' '}
-                    <span style={{ color: '#a08a6e' }}>
-                      (optional — cheaper if they reserve by the date)
-                    </span>
-                  </span>
-                  <label className="block">
-                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                      Early amount ($)
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={slot.earlyDollars}
-                      onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
-                      className="w-full border rounded px-3 py-2"
-                      style={{ borderColor: COLORS.border }}
-                      placeholder="e.g. 60.00"
-                      aria-label={`${s.title} — early rate amount`}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                      Reserve by
-                    </span>
-                    <input
-                      type="date"
-                      value={slot.earlyDeadline}
-                      onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
-                      className="w-full border rounded px-3 py-2"
-                      style={{ borderColor: COLORS.border }}
-                      aria-label={`${s.title} — early rate deadline`}
-                    />
-                  </label>
-                </div>
-              )}
-              {/* The floor an exhibitor cannot book under. It belongs beside
-                  the shavings ban most of all: banning outside shavings tells
-                  the exhibitor to buy bedding here, and "buy some" with no
-                  number is a stall bedded with two bags where the show wanted
-                  four.
+            )}
+            {/* The floor an exhibitor cannot book under. It belongs beside
+                the shavings ban most of all: banning outside shavings tells
+                the exhibitor to buy bedding here, and "buy some" with no
+                number is a stall bedded with two bags where the show wanted
+                four.
 
-                  Bedding only. A minimum states a fact about the grounds —
-                  "every stall gets bedded this deep" — and neither a stall
-                  count nor a camping spot is that: an exhibitor books however
-                  many of either they need, and asking for a floor under it was
-                  a question with no sensible answer, under an explanation
-                  ("required of everyone who signs up") that read as nonsense
-                  against either line. */}
-              {s.requirable && (
-                <label className="block sm:max-w-xs">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Minimum per exhibitor{' '}
-                    <span style={{ color: '#a08a6e' }}>(optional)</span>
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={999}
-                    value={slot.minQuantity}
-                    onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    placeholder="no minimum"
-                    aria-label={`${s.title} — minimum quantity`}
-                  />
-                  <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                    <strong>Required of everyone who signs up</strong>, not just of people who
-                    order some — that is the point of it, and it is why a sign-up with none of this
-                    line is refused. Leave blank if you take day-haul entries who should not be
-                    charged for it.
-                  </span>
-                </label>
-              )}
+                Bedding only. A minimum states a fact about the grounds —
+                "every stall gets bedded this deep" — and neither a stall
+                count nor a camping spot is that: an exhibitor books however
+                many of either they need, so a floor required of everybody
+                read as nonsense against either line. */}
+            {s.requirable && (
+              <label
+                className="block sm:max-w-xs"
+                title={
+                  'A flat floor on the whole booking, not a number multiplied by the ' +
+                  'stalls reserved. A show wanting "2 bags per stall" sets the flat ' +
+                  'equivalent here and says so in Notes. Leave blank to require none — ' +
+                  'though banning outside shavings already requires one bag of anyone ' +
+                  'who books a stall.'
+                }
+              >
+                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                  Minimum per exhibitor{' '}
+                  <span style={{ color: 'var(--text-dimmed)' }}>(optional)</span>
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={slot.minQuantity}
+                  onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  style={{ borderColor: COLORS.border }}
+                  placeholder="no minimum"
+                  aria-label={`${s.title} — minimum quantity`}
+                />
+                <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                  This sets the minimum # of bags required per exhibitor.
+                </span>
+              </label>
+            )}
 
-              {s.code === 'shavings' && (
-                <label
-                  className="flex items-start gap-2 text-sm ml-1"
-                  style={{ color: COLORS.text }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={banOutsideShavings}
-                    onChange={(e) => setBanOutsideShavings(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <strong>Ban outside shavings.</strong>{' '}
-                    <span style={{ color: COLORS.muted }}>
-                      Exhibitors must buy shavings from the show. This shows on the
-                      exhibitor&apos;s registration screen.
-                    </span>
+            {s.code === 'shavings' && (
+              <label
+                className="flex items-start gap-2 text-sm ml-1"
+                style={{ color: COLORS.text }}
+              >
+                <input
+                  type="checkbox"
+                  checked={banOutsideShavings}
+                  onChange={(e) => setBanOutsideShavings(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <strong>Ban outside shavings.</strong>{' '}
+                  <span style={{ color: COLORS.muted }}>
+                    Exhibitors must buy shavings from the show. This shows on the
+                    exhibitor&apos;s registration screen.
                   </span>
-                </label>
-              )}
-            </div>
-          );
-        })}
+                </span>
+              </label>
+            )}
+          </section>
+        );
+      })}
 
-        <div className="flex justify-end pt-2">
-          <button
-            type="button"
-            onClick={save}
-            disabled={busy}
-            className="text-sm rounded px-4 py-2 disabled:opacity-50"
-            style={{ backgroundColor: COLORS.warn, color: '#fff' }}
-          >
-            {busy ? 'Saving…' : 'Save lodging & boarding'}
-          </button>
-        </div>
-        <p className="text-xs" style={{ color: COLORS.muted }}>
-          Leave an amount blank to skip or remove that fee. Saving is non-destructive
-          to other show fees. Extra campsite tiers — dry camping, early arrival, late
-          departure — live on the full{' '}
-          <a
-            href={`/admin/shows/${showId}/fees/boarding`}
-            className="underline"
-            style={{ color: COLORS.warn }}
-          >
-            boarding fee schedule
-          </a>
-          .
-        </p>
-      </section>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy}
+          className="text-sm rounded px-4 py-2 disabled:opacity-50"
+          style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
+        >
+          {busy ? 'Saving…' : 'Save lodging & boarding'}
+        </button>
+      </div>
     </div>
   );
 }

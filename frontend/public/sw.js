@@ -1,4 +1,4 @@
-const CACHE_NAME = 'horse-show-v1';
+const CACHE_NAME = 'gaitdesk-v1';
 
 // App shell routes to pre-cache on install
 const PRECACHE_URLS = ['/', '/dashboard', '/shows', '/login'];

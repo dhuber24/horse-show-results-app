@@ -37,15 +37,15 @@ export default async function AdminTrainerDetailPage({
         <Breadcrumbs
           crumbs={[
             { label: 'Admin', href: '/admin' },
-            { label: 'Trainers', href: '/admin/trainers' },
+            { label: 'Trainer Registry', href: '/admin/trainers' },
             { label: trainer.name },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>{trainer.name}</h1>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>{trainer.name}</h1>
         {trainer.user_id && (
-          <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
             Linked user:{' '}
-            <Link href={`/admin/users/${trainer.user_id}`} className="underline" style={{ color: '#8b4513' }}>
+            <Link href={`/admin/users/${trainer.user_id}`} className="underline" style={{ color: 'var(--accent)' }}>
               {trainer.user_email ?? 'view user'}
             </Link>
           </p>

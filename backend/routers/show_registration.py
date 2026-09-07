@@ -75,6 +75,7 @@ from billing import (
     fee_rate_cents,
     class_sanction_cents,
     reservable_fees,
+    sanction_charge_lines,
     sanction_rates,
 )
 from database import get_db
@@ -1382,7 +1383,14 @@ async def register_for_show(
 
     # Scoped to the entries just created, which is the same scope the office
     # charge's own distinct-horse count used before it became a fee row.
-    _, charge_total = charge_lines(show.fees or [], created, len(show.judges or []))
+    judge_count = len(show.judges or [])
+    _, charge_total = charge_lines(show.fees or [], created, judge_count)
+    # The clubs that charge per horse or per exhibitor rather than per class
+    # (migration 133). Scoped to this batch for the same reason the charges
+    # above are: this is a receipt for what was just entered, not the whole
+    # show bill — which `build_bill` gives them on the sign-up screen.
+    _, club_charge_total = sanction_charge_lines(show, created, judge_count)
+    sanction_total += club_charge_total
     total_fee = subtotal + sanction_total + charge_total
 
     try:

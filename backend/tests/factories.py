@@ -60,7 +60,10 @@ def make_show(**overrides) -> SimpleNamespace:
 
 
 def make_sanctioning(
-    code: Optional[str], per_class_fee_cents: int = 300, association_id=None
+    code: Optional[str],
+    fee_amount_cents: int = 300,
+    association_id=None,
+    fee_unit: str = "per_entry",
 ) -> SimpleNamespace:
     """One `show_sanctioning` row. `code=None` builds the row with no
     association attached, which is the shape a half-finished registry edit
@@ -69,13 +72,18 @@ def make_sanctioning(
     `association_id` is what `class_sanctioning` joins on, so a test that wants
     a club to actually charge has to hand the same id to `make_class_sanction`.
     Defaulted to a fresh uuid rather than to the code, so two rows for the same
-    club in one test are still distinguishable."""
+    club in one test are still distinguishable.
+
+    `fee_unit` defaults to `per_entry` (migration 133) because that is what
+    every club charged before the unit existed, and what a test saying nothing
+    about units should get."""
     association_id = association_id or uuid4()
     association = None if code is None else SimpleNamespace(code=code, name=code)
     return SimpleNamespace(
         association=association,
         association_id=association_id,
-        per_class_fee_cents=per_class_fee_cents,
+        fee_amount_cents=fee_amount_cents,
+        fee_unit=fee_unit,
     )
 
 

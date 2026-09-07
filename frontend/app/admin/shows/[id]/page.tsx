@@ -18,7 +18,7 @@ import {
 const tiles = (showId: string) => [
   // Staff and the class schedule were tiles of their own. Both are things you
   // set up once, before the show runs, so both are steps of the setup wizard —
-  // staff in Step 1 next to the dates, classes in Step 6.
+  // staff in Step 1 next to the dates, classes in Step 5.
   {
     href: `/admin/shows/${showId}/setup`,
     title: 'Setup',
@@ -170,14 +170,14 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           { label: show.name },
         ]} />
         <div className="flex items-center gap-2 mt-2">
-          <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
           {show.show_type_code && (
             <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
               {show.show_type_code}
             </span>
           )}
         </div>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           📍 {show.venue} · 📅 {show.start_date} – {show.end_date}
         </p>
         <div className="mt-2">
@@ -191,7 +191,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           />
         </div>
         {(isAdmin || isShowAdmin) && (
-          <p className="text-sm mt-2" style={{ color: '#8b7355' }}>
+          <p className="text-sm mt-2" style={{ color: 'var(--muted)' }}>
             {scribeNames.length > 0 ? (
               <>Scribes: {scribeNames.join(' · ')}</>
             ) : (
@@ -200,7 +200,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
                 <Link
                   href={`/admin/shows/${id}/edit`}
                   className="underline"
-                  style={{ color: '#8b4513' }}
+                  style={{ color: 'var(--accent)' }}
                 >
                   manage staff
                 </Link>
@@ -217,23 +217,23 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             key={tile.href}
             href={tile.href}
             className="block p-6 rounded-lg border transition-colors hover:bg-amber-50"
-            style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >
             <div className="flex items-start gap-4">
               <div className="text-3xl" aria-hidden>{tile.icon}</div>
               <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: '#2c1810' }}>
+                <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
                   {tile.title}
                   {tile.title === 'Messages' && unreadMessages > 0 && (
                     <span
                       className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: '#8b4513', color: '#ffffff' }}
+                      style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
                     >
                       {unreadMessages} new
                     </span>
                   )}
                 </h2>
-                <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+                <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                   {tile.description}
                 </p>
               </div>
@@ -246,15 +246,15 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             <Link
               href={tile.href}
               className="block p-6 rounded-lg border transition-colors hover:opacity-90"
-              style={{ borderColor: '#2c1810', backgroundColor: '#2c1810' }}
+              style={{ borderColor: 'var(--foreground)', backgroundColor: 'var(--foreground)' }}
             >
               <div className="flex items-start gap-4">
                 <div className="text-3xl" aria-hidden>{tile.icon}</div>
                 <div>
-                  <h2 className="text-lg font-semibold" style={{ color: '#f5ede0' }}>
+                  <h2 className="text-lg font-semibold" style={{ color: 'var(--bg-subtle)' }}>
                     {tile.title}
                   </h2>
-                  <p className="text-sm mt-1" style={{ color: '#d4b896' }}>
+                  <p className="text-sm mt-1" style={{ color: 'var(--border)' }}>
                     {tile.description}
                   </p>
                 </div>
@@ -265,26 +265,26 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       </div>
 
       {show.show_type_code === 'APHA' && (
-        <div className="border rounded-lg p-4" style={{ borderColor: '#d4b896' }}>
-          <h2 className="font-semibold mb-2" style={{ color: '#2c1810' }}>APHA Submission</h2>
+        <div className="border rounded-lg p-4" style={{ borderColor: 'var(--border)' }}>
+          <h2 className="font-semibold mb-2" style={{ color: 'var(--foreground)' }}>APHA Submission</h2>
           {show.apha_show_number ? (
             <div className="flex items-center gap-4">
-              <span className="text-sm" style={{ color: '#8b7355' }}>
-                Show #: <span className="font-mono font-medium" style={{ color: '#2c1810' }}>{show.apha_show_number}</span>
+              <span className="text-sm" style={{ color: 'var(--muted)' }}>
+                Show #: <span className="font-mono font-medium" style={{ color: 'var(--foreground)' }}>{show.apha_show_number}</span>
               </span>
               <a
                 href={`/api/shows/${id}/apha-export`}
                 download
                 className="px-4 py-2 rounded text-sm font-medium"
-                style={{ backgroundColor: '#2c1810', color: '#f5ede0' }}
+                style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
               >
                 Export APHA Results (CSV)
               </a>
             </div>
           ) : (
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               Set the APHA Show Number in{' '}
-              <a href={`/admin/shows/${id}/edit`} className="hover:underline" style={{ color: '#8b4513' }}>
+              <a href={`/admin/shows/${id}/edit`} className="hover:underline" style={{ color: 'var(--accent)' }}>
                 Edit Show Details
               </a>{' '}
               to enable export.
@@ -294,38 +294,38 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       )}
 
       {show.show_type_code === 'AQHA' && (
-        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold" style={{ color: '#2c1810' }}>AQHA Approval</h2>
+            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>AQHA Approval</h2>
             <span className="text-xs font-mono px-2 py-1 rounded bg-amber-100 text-amber-800">
               {show.aqha_approval_status ?? 'NOT_SUBMITTED'}
             </span>
           </div>
-          <div className="grid sm:grid-cols-2 gap-2 text-sm" style={{ color: '#8b7355' }}>
+          <div className="grid sm:grid-cols-2 gap-2 text-sm" style={{ color: 'var(--muted)' }}>
             <p>
-              Show #: <span className="font-mono" style={{ color: '#2c1810' }}>{show.aqha_show_number || 'Not assigned'}</span>
+              Show #: <span className="font-mono" style={{ color: 'var(--foreground)' }}>{show.aqha_show_number || 'Not assigned'}</span>
             </p>
             <p>
-              Submitted: <span style={{ color: '#2c1810' }}>{show.aqha_approval_submitted_at || 'Not submitted'}</span>
+              Submitted: <span style={{ color: 'var(--foreground)' }}>{show.aqha_approval_submitted_at || 'Not submitted'}</span>
             </p>
           </div>
           {show.aqha_approval_notes && (
-            <p className="text-sm" style={{ color: '#8b7355' }}>{show.aqha_approval_notes}</p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>{show.aqha_approval_notes}</p>
           )}
-          <div className="rounded p-3 text-sm" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
+          <div className="rounded p-3 text-sm" style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
             AQHA approval readiness: venue selected, class schedule built, AQHA class codes assigned, judge/show details confirmed, and show bill submitted with approval.
           </div>
           {aqhaValidation && <ValidationIssues label="AQHA validation" data={aqhaValidation} />}
-          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
             Update AQHA approval details
           </a>
         </div>
       )}
 
       {show.show_type_code === 'APHA' && (
-        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: '#d4b896' }}>
+        <div className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="font-semibold" style={{ color: '#2c1810' }}>APHA Approval</h2>
+            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>APHA Approval</h2>
             {/* APHA issues the show number on approval, and the results export
                 refuses without it, so its presence is the closest thing the app
                 holds to an approval flag. */}
@@ -333,15 +333,15 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               className="text-xs font-mono px-2 py-1 rounded"
               style={
                 show.apha_show_number
-                  ? { backgroundColor: '#e6f2e9', color: '#2f6b3f' }
-                  : { backgroundColor: '#fef3c7', color: '#92400e' }
+                  ? { backgroundColor: 'var(--success-bg)', color: 'var(--success)' }
+                  : { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }
               }
             >
               {show.apha_show_number ? `SHOW #${show.apha_show_number}` : 'NO SHOW NUMBER'}
             </span>
           </div>
 
-          <p className="text-sm" style={{ color: '#8b7355' }}>
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
             {show.show_category
               ? `${show.show_category.name} (${show.show_category.rule_reference ?? 'SC-105'})`
               : 'Kind of show not stated'}
@@ -349,20 +349,20 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           </p>
 
           {aphaValidation?.application_window && (
-            <div className="rounded p-3 text-sm" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
+            <div className="rounded p-3 text-sm" style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
               <div className="grid sm:grid-cols-3 gap-2">
                 <p>
-                  <span className="block text-xs" style={{ color: '#8b7355' }}>Application due</span>
+                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>Application due</span>
                   <span className="font-mono">{aphaValidation.application_window.standard_deadline}</span>
                 </p>
                 <p>
-                  <span className="block text-xs" style={{ color: '#8b7355' }}>
+                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>
                     Counted to the {APPLICATION_BASIS_LABELS[aphaValidation.application_window.basis]}
                   </span>
                   <span className="font-mono">{aphaValidation.application_window.basis_date}</span>
                 </p>
                 <p>
-                  <span className="block text-xs" style={{ color: '#8b7355' }}>Days remaining</span>
+                  <span className="block text-xs" style={{ color: 'var(--muted)' }}>Days remaining</span>
                   <span className="font-mono">{aphaValidation.application_window.days_remaining}</span>
                 </p>
               </div>
@@ -371,16 +371,16 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
                 style={{
                   color:
                     APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'bad'
-                      ? '#b42318'
+                      ? 'var(--error)'
                       : APPLICATION_BANDS[aphaValidation.application_window.band].tone === 'warn'
-                        ? '#92400e'
-                        : '#2f6b3f',
+                        ? 'var(--warning)'
+                        : 'var(--success)',
                 }}
               >
                 {APPLICATION_BANDS[aphaValidation.application_window.band].label}
               </p>
               {aphaValidation.application_window.basis === 'start_date' && (
-                <p className="text-xs mt-1" style={{ color: '#8b7355' }}>
+                <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
                   Counted from the show date because no entry deadline is set. SC-090.C
                   measures from the entry deadline where that comes first, so the real
                   cutoff may be earlier than this — set it on the show details.
@@ -396,14 +396,14 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               is nothing to file, and eight lines about submission would sit on
               the dashboard for eleven months teaching people to skip the panel. */}
           {aphaValidation?.results_window && (
-            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: '#faf6f0', color: '#5c3d1e' }}>
-              <p className="font-medium" style={{ color: '#2c1810' }}>
+            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
+              <p className="font-medium" style={{ color: 'var(--foreground)' }}>
                 Filing the results (SC-125)
               </p>
               <p>
-                <span className="text-xs" style={{ color: '#8b7355' }}>Due </span>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>Due </span>
                 <span className="font-mono">{aphaValidation.results_window.due}</span>
-                <span className="text-xs" style={{ color: '#8b7355' }}>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
                   {' '}·{' '}
                   {aphaValidation.results_window.days_remaining >= 0
                     ? `${aphaValidation.results_window.days_remaining} days left`
@@ -415,10 +415,10 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
                 style={{
                   color:
                     RESULTS_BANDS[aphaValidation.results_window.band].tone === 'bad'
-                      ? '#b42318'
+                      ? 'var(--error)'
                       : RESULTS_BANDS[aphaValidation.results_window.band].tone === 'warn'
-                        ? '#92400e'
-                        : '#2f6b3f',
+                        ? 'var(--warning)'
+                        : 'var(--success)',
                 }}
               >
                 {RESULTS_BANDS[aphaValidation.results_window.band].label}
@@ -428,7 +428,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
                   <li key={index}>{note}</li>
                 ))}
               </ul>
-              <p className="text-xs pt-1" style={{ color: '#8b7355' }}>
+              <p className="text-xs pt-1" style={{ color: 'var(--muted)' }}>
                 The app cannot see a postmark. This is the calendar, not a claim
                 that anything is outstanding.
               </p>
@@ -442,11 +442,11 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               than findings: an item nobody can ever clear would train the office
               to scroll past the list above it. */}
           {aphaValidation && aphaValidation.category_requirements.length > 0 && (
-            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: '#faf6f0' }}>
-              <p className="font-medium" style={{ color: '#2c1810' }}>
+            <div className="rounded p-3 text-sm space-y-1" style={{ backgroundColor: 'var(--background)' }}>
+              <p className="font-medium" style={{ color: 'var(--foreground)' }}>
                 Not checked here
               </p>
-              <ul className="space-y-1 list-disc pl-4" style={{ color: '#5c3d1e' }}>
+              <ul className="space-y-1 list-disc pl-4" style={{ color: 'var(--text-deep)' }}>
                 {aphaValidation.category_requirements.map((note, index) => (
                   <li key={index}>{note}</li>
                 ))}
@@ -454,12 +454,12 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             </div>
           )}
 
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Read-only. Nothing here is filed with APHA, and none of it is verified
             against APHA&rsquo;s records — the approved-judge list and the approval
             itself are theirs.
           </p>
-          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: '#8b4513' }}>
+          <a href={`/admin/shows/${id}/edit`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
             Update APHA show details
           </a>
         </div>

@@ -14,7 +14,8 @@ from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
 from routers.horse_access import approval_url, build_access_request, notify_request
 from routers.auth import clear_security_answer_throttle, hash_security_answer
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, Trainer, Association, Class, Show
+import competition_cards
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, Trainer, Judge, Association, Class, Show
 from schemas import (
     UserCreate, UserOut,
     CreatedHorseResult,
@@ -23,10 +24,11 @@ from schemas import (
     HorseRegistrationCreate, HorseRegistrationOut,
     HorseRiderOut, HorseRiderCreate,
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
-    ExhibitorRegistrationCreate, ExhibitorRegistrationOut,
+    ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate, ExhibitorRegistrationOut,
+    ExhibitorCompetitionCardCreate, ExhibitorCompetitionCardUpdate, ExhibitorCompetitionCardOut,
 )
 
-VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER"}
+VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER", "JUDGE"}
 
 
 def _normalize_email(email: str) -> str:
@@ -58,6 +60,29 @@ async def _ensure_role_profile(user: User, db: AsyncSession):
         existing = await db.execute(select(Trainer).where(Trainer.user_id == user.id))
         if not existing.scalar_one_or_none():
             db.add(Trainer(first_name=user.first_name, last_name=user.last_name, user_id=user.id))
+    if user.role == "JUDGE":
+        # Same invariant as TRAINER (migration 135): a JUDGE account with no
+        # registry row is a person show setup cannot pick. Adopt an existing
+        # unlinked row that matches on email first — the office has almost
+        # always typed the judge in long before anybody gives them a login, and
+        # a second row would be a duplicate somebody has to merge by hand.
+        existing = await db.execute(select(Judge).where(Judge.user_id == user.id))
+        if not existing.scalar_one_or_none():
+            match = await db.execute(
+                select(Judge).where(
+                    func.lower(Judge.email) == user.email.lower(), Judge.user_id.is_(None)
+                )
+            )
+            judge = match.scalars().first()
+            if judge:
+                judge.user_id = user.id
+            else:
+                db.add(Judge(
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    email=user.email,
+                    user_id=user.id,
+                ))
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -1652,6 +1677,34 @@ async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db
 
 # ── Exhibitor Registrations ───────────────────────────────────────────────────
 
+async def _require_expiry_for_breed(association_id: UUID, expires_at, db: AsyncSession) -> None:
+    """A breed membership must say when it lapses; a club one need not.
+
+    `expires_at` has always been nullable, and NULL means *unknown* rather than
+    current -- so a breed row without one leaves the desk holding a number it
+    can report nothing about, at the one body whose good standing is a condition
+    of showing (APHA RG-030). A club card is the softer case: several clubs sell
+    a membership at the gate, plenty of them run to no fixed date, and refusing
+    the number because the date is missing would lose the number too.
+
+    Enforced here rather than by a CHECK because the answer lives in another
+    table -- `associations.association_type` -- which a CHECK cannot see. Same
+    reason `showbill_source` is guarded in its router.
+    """
+    if expires_at is not None:
+        return
+    association = await db.get(Association, association_id)
+    if association is None:
+        raise HTTPException(422, "Association not found")
+    if association.association_type == "breed":
+        raise HTTPException(
+            422,
+            f"An expiry date is required for a {association.code} membership. "
+            "Breed memberships have to be current on the day of the show, and a "
+            "number with no date beside it can only be reported as unknown.",
+        )
+
+
 def _exhibitor_reg_out(reg: ExhibitorRegistration) -> ExhibitorRegistrationOut:
     return ExhibitorRegistrationOut(
         id=reg.id,
@@ -1690,6 +1743,7 @@ async def add_exhibitor_registration(
     x_api_key: str = Header(...),
 ):
     await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    await _require_expiry_for_breed(body.association_id, body.expires_at, db)
     reg = ExhibitorRegistration(
         exhibitor_id=exhibitor_id,
         association_id=body.association_id,
@@ -1710,6 +1764,50 @@ async def add_exhibitor_registration(
     )
     return _exhibitor_reg_out(result.scalar_one())
 
+@exhibitors_router.patch("/{exhibitor_id}/registrations/{reg_id}", response_model=ExhibitorRegistrationOut)
+async def update_exhibitor_registration(
+    exhibitor_id: UUID,
+    reg_id: UUID,
+    body: ExhibitorRegistrationUpdate,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    """Correct a membership already on file.
+
+    Added with the breed-expiry rule above, and needed by it: rows created
+    before that rule may carry no expiry at all, and without this the only way
+    to supply one would be to delete the membership and type it in again --
+    losing the number over a missing date, which is the outcome the rule exists
+    to avoid.
+
+    `exclude_unset` is what makes a deliberate `expires_at: null` different from
+    a request that only renames the number, and the breed rule is re-applied to
+    the resulting value so the clear is refused on the same terms as the blank.
+    """
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    reg = await db.get(ExhibitorRegistration, reg_id)
+    if not reg or reg.exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Registration not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    if "member_number" in fields and fields["member_number"] is not None:
+        reg.member_number = fields["member_number"].strip()
+    if "expires_at" in fields:
+        await _require_expiry_for_breed(reg.association_id, fields["expires_at"], db)
+        reg.expires_at = fields["expires_at"]
+
+    await db.commit()
+    result = await db.execute(
+        select(ExhibitorRegistration)
+        .where(ExhibitorRegistration.id == reg.id)
+        .options(selectinload(ExhibitorRegistration.association))
+        .execution_options(populate_existing=True)
+    )
+    return _exhibitor_reg_out(result.scalar_one())
+
+
 @exhibitors_router.delete("/{exhibitor_id}/registrations/{reg_id}", status_code=204)
 async def delete_exhibitor_registration(
     exhibitor_id: UUID,
@@ -1724,4 +1822,174 @@ async def delete_exhibitor_registration(
     if not reg or reg.exhibitor_id != exhibitor_id:
         raise HTTPException(404, "Registration not found")
     await db.delete(reg)
+    await db.commit()
+
+
+# ── Exhibitor Competition Cards ───────────────────────────────────────────────
+#
+# Migration 134. What entitles somebody to enter Amateur, Novice Amateur,
+# Amateur Walk-Trot, Novice Youth or Youth Walk-Trot 11-18 -- and the one fact
+# about it that is not derivable, the competition year it is good for.
+#
+# There is no expiry on the wire in either direction as an *input*. Every one of
+# these cards runs 1 January to 31 December, so the date is `card_expiry()` and
+# the payload carries it out as a convenience for the screen. Accepting one
+# would be letting a client file a card APHA does not issue.
+
+def _card_out(card: ExhibitorCompetitionCard) -> ExhibitorCompetitionCardOut:
+    return ExhibitorCompetitionCardOut(
+        id=card.id,
+        association_id=card.association_id,
+        association_code=card.association.code,
+        association_name=card.association.name,
+        division=card.division,
+        division_label=competition_cards.division_label(card.division),
+        valid_year=card.valid_year,
+        card_number=card.card_number,
+        expires_at=competition_cards.card_expiry(card.valid_year),
+    )
+
+
+def _card_query(exhibitor_id: UUID):
+    return (
+        select(ExhibitorCompetitionCard)
+        .where(ExhibitorCompetitionCard.exhibitor_id == exhibitor_id)
+        .options(selectinload(ExhibitorCompetitionCard.association))
+        .order_by(ExhibitorCompetitionCard.created_at)
+    )
+
+
+@exhibitors_router.get(
+    "/{exhibitor_id}/competition-cards",
+    response_model=list[ExhibitorCompetitionCardOut],
+    dependencies=[Depends(require_api_key)],
+)
+async def list_exhibitor_competition_cards(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(_card_query(exhibitor_id))
+    return [_card_out(c) for c in result.scalars().all()]
+
+
+@exhibitors_router.post(
+    "/{exhibitor_id}/competition-cards",
+    response_model=ExhibitorCompetitionCardOut,
+    status_code=201,
+)
+async def add_exhibitor_competition_card(
+    exhibitor_id: UUID,
+    body: ExhibitorCompetitionCardCreate,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    """File a card the exhibitor holds.
+
+    The division is checked against the association's own list rather than
+    against the union of every card the app knows about -- an "AQHA Novice
+    Youth card" filed here would be read at a desk and chased at a gate, and no
+    such thing exists as far as this app has been told. That list is
+    `competition_cards.CARD_DIVISIONS_BY_ASSOCIATION`; an association missing
+    from it issues no card the app can describe, which is why the message says
+    so plainly instead of naming a division.
+    """
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+
+    association = await db.get(Association, body.association_id)
+    if association is None:
+        raise HTTPException(422, "Association not found")
+
+    offered = competition_cards.card_divisions_for(association.code)
+    if not offered:
+        raise HTTPException(
+            422,
+            f"{association.code} does not issue competition cards this app can describe.",
+        )
+    division = body.division.strip().upper()
+    if division not in offered:
+        raise HTTPException(
+            422,
+            f"{association.code} does not issue a {competition_cards.division_label(division)} card.",
+        )
+
+    card = ExhibitorCompetitionCard(
+        exhibitor_id=exhibitor_id,
+        association_id=body.association_id,
+        division=division,
+        valid_year=body.valid_year,
+        card_number=(body.card_number or "").strip() or None,
+    )
+    db.add(card)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        # One row per (exhibitor, association, division): holding the same card
+        # for two years at once is not a thing, and renewing is a PATCH.
+        raise HTTPException(409, "A card for that association and division is already on file")
+
+    result = await db.execute(
+        select(ExhibitorCompetitionCard)
+        .where(ExhibitorCompetitionCard.id == card.id)
+        .options(selectinload(ExhibitorCompetitionCard.association))
+        .execution_options(populate_existing=True)
+    )
+    return _card_out(result.scalar_one())
+
+
+@exhibitors_router.patch(
+    "/{exhibitor_id}/competition-cards/{card_id}",
+    response_model=ExhibitorCompetitionCardOut,
+)
+async def update_exhibitor_competition_card(
+    exhibitor_id: UUID,
+    card_id: UUID,
+    body: ExhibitorCompetitionCardUpdate,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    """Renew, or fix the number.
+
+    Renewing a card is raising its year -- that is what an annual renewal is,
+    and it is why this endpoint exists rather than the exhibitor deleting last
+    year's card and adding this year's. The association and division are not
+    editable: a card for a different division is a different card, and changing
+    it here would silently make a Novice Amateur card out of an Amateur one.
+    """
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    card = await db.get(ExhibitorCompetitionCard, card_id)
+    if not card or card.exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Competition card not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    if fields.get("valid_year") is not None:
+        card.valid_year = fields["valid_year"]
+    if "card_number" in fields:
+        card.card_number = (fields["card_number"] or "").strip() or None
+
+    await db.commit()
+    result = await db.execute(
+        select(ExhibitorCompetitionCard)
+        .where(ExhibitorCompetitionCard.id == card.id)
+        .options(selectinload(ExhibitorCompetitionCard.association))
+        .execution_options(populate_existing=True)
+    )
+    return _card_out(result.scalar_one())
+
+
+@exhibitors_router.delete("/{exhibitor_id}/competition-cards/{card_id}", status_code=204)
+async def delete_exhibitor_competition_card(
+    exhibitor_id: UUID,
+    card_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    x_api_key: str = Header(...),
+):
+    await _check_exhibitor_access(exhibitor_id, x_user_id, x_user_role, db)
+    card = await db.get(ExhibitorCompetitionCard, card_id)
+    if not card or card.exhibitor_id != exhibitor_id:
+        raise HTTPException(404, "Competition card not found")
+    await db.delete(card)
     await db.commit()

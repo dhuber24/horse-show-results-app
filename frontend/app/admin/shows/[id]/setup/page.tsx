@@ -6,13 +6,13 @@ import { buildSteps, type WizardStepsInput } from '../../_wizard/steps';
 import { fetchStepCounts } from './_lib/fetchStepCounts';
 
 const COLORS = {
-  text: '#2c1810',
-  muted: '#8b7355',
-  border: '#d4b896',
-  borderSoft: '#f0e6d2',
-  bg: '#fff',
-  warn: '#5c3d1e',
-  warnSoft: '#fdf8eb',
+  text: 'var(--foreground)',
+  muted: 'var(--muted)',
+  border: 'var(--border)',
+  borderSoft: 'var(--bg-subtle)',
+  bg: 'var(--surface)',
+  warn: 'var(--text-deep)',
+  warnSoft: 'var(--warning-bg)',
 } as const;
 
 export default async function SetupHubPage({
@@ -56,8 +56,8 @@ export default async function SetupHubPage({
               href={step.href ?? '#'}
               className="block p-4 rounded-lg border transition-colors hover:bg-amber-50"
               style={{
-                borderColor: step.done ? '#bcd9c0' : COLORS.border,
-                backgroundColor: step.done ? '#f3faf3' : COLORS.bg,
+                borderColor: step.done ? 'var(--success-border)' : COLORS.border,
+                backgroundColor: step.done ? 'var(--success-bg)' : COLORS.bg,
               }}
             >
               <div className="flex items-start justify-between gap-3">
@@ -74,8 +74,8 @@ export default async function SetupHubPage({
                 <span
                   className="text-xs px-2 py-1 rounded shrink-0"
                   style={{
-                    color: step.done ? '#1f4e1f' : COLORS.warn,
-                    backgroundColor: step.done ? '#dff1df' : COLORS.warnSoft,
+                    color: step.done ? 'var(--success-strong)' : COLORS.warn,
+                    backgroundColor: step.done ? 'var(--success-bg)' : COLORS.warnSoft,
                   }}
                 >
                   {step.done ? 'Edit' : 'Open'}
@@ -99,16 +99,16 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
         : `${counts.judgeCount} judge${counts.judgeCount === 1 ? '' : 's'} added.`;
     case 'sanctioning':
       return counts.sanctioningCount === 0
-        ? 'No sanctioning associations selected. Skip if none apply.'
-        : `${counts.sanctioningCount} sanctioning association${counts.sanctioningCount === 1 ? '' : 's'}.`;
+        ? 'No clubs sanction this show. Skip if none apply.'
+        : `${counts.sanctioningCount} club${counts.sanctioningCount === 1 ? '' : 's'}, what each charges and how, and which classes it approves.`;
     case 'lodging':
       return counts.lodgingFeeCount === 0
         ? 'Stall, shavings, and camping fees not configured.'
         : `${counts.lodgingFeeCount} lodging fee${counts.lodgingFeeCount === 1 ? '' : 's'} configured.`;
     case 'fees':
       return counts.feesCount > 0
-        ? 'Office charge and class fees configured.'
-        : 'Office charge, standard class fee, and jackpot.';
+        ? 'Class fees configured — the office fee, assessments, an all-day pass.'
+        : 'An office fee, an association assessment, an all-day pass, a jackpot line.';
     case 'classes':
       return counts.classCount === 0
         ? 'No classes yet — build the schedule from disciplines and divisions.'
@@ -117,6 +117,13 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
       return counts.futurityCount === 0
         ? 'No futurity on this show. Skip unless you run one.'
         : `${counts.futurityCount} futurit${counts.futurityCount === 1 ? 'y' : 'ies'} set up.`;
+    case 'judgecards':
+      if (counts.classCount === 0) return 'No classes to mark on a card yet.';
+      if (counts.scoredClassCount === 0)
+        return 'Nothing on this schedule is scored — rail classes are placed, not marked.';
+      return counts.cardedClassCount === 0
+        ? `${counts.scoredClassCount} scored class${counts.scoredClassCount === 1 ? '' : 'es'}, none given a card yet.`
+        : `${counts.cardedClassCount} of ${counts.scoredClassCount} scored classes marked on a card.`;
     case 'showbill':
       return counts.showbillReady
         ? 'Check the show bill, or upload your own in place of it.'

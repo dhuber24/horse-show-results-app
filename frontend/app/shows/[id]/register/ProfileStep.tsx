@@ -27,9 +27,13 @@ import type { ProfileStatus } from './types';
  * button is never disabled, because a disabled button with nothing pointing at
  * the reason is the same dead end read a different way.
  *
- * The checklist above the form is the backend's, not this component's.
- * `PUT /signup` refuses on the identical list, so a form saying "all done"
- * over an endpoint that disagrees is not a state this screen can reach.
+ * **What is outstanding is one line, not a checklist.** It was a bulleted list
+ * of every row with a hint under it, above a form carrying the same labels and
+ * two of the same hints verbatim — a screenful of small print on a phone,
+ * restating the boxes directly beneath it. The labels come from the backend
+ * either way: `PUT /signup` refuses on the identical list, so a form saying
+ * "all done" over an endpoint that disagrees is not a state this screen can
+ * reach.
  */
 
 /** What step one will not go on without. Mirrors the blocking rows
@@ -81,11 +85,11 @@ function Field({
       <label
         htmlFor={`profile-${name}`}
         className="block text-xs font-medium mb-1"
-        style={{ color: invalid ? '#b91c1c' : '#5d4a37' }}
+        style={{ color: invalid ? 'var(--error)' : 'var(--text-deep)' }}
       >
         {label}
         {required && (
-          <span aria-hidden="true" style={{ color: '#b91c1c' }}>
+          <span aria-hidden="true" style={{ color: 'var(--error)' }}>
             {' '}
             *
           </span>
@@ -110,19 +114,19 @@ function Field({
         style={{
           // Two pixels, not one: a one-pixel red border against a beige field
           // is not something anybody spots on a phone in a barn aisle.
-          borderColor: invalid ? '#b91c1c' : '#d4b896',
+          borderColor: invalid ? 'var(--error)' : 'var(--border)',
           borderWidth: invalid ? 2 : 1,
-          backgroundColor: invalid ? '#fef2f2' : '#ffffff',
-          color: '#2c1810',
+          backgroundColor: invalid ? 'var(--error-bg)' : 'var(--surface)',
+          color: 'var(--foreground)',
         }}
       />
       {invalid && (
-        <p id={`profile-${name}-error`} className="text-xs mt-0.5" style={{ color: '#b91c1c' }}>
-          Required before you can go on.
+        <p id={`profile-${name}-error`} className="text-xs mt-0.5" style={{ color: 'var(--error)' }}>
+          Required.
         </p>
       )}
       {hint && !invalid && (
-        <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
           {hint}
         </p>
       )}
@@ -237,37 +241,25 @@ export default function ProfileStep({
   const detailItems = profile.checklist.filter((i) => i.step === 'details');
   const membershipItem = detailItems.find((i) => i.key === 'memberships');
 
+  // One line, not a checklist. This used to be a bulleted list of every row
+  // with its hint under it -- six items, thirteen lines -- sitting directly
+  // above a form carrying the same labels, the same asterisks and, on two
+  // rows, the same hint text word for word. On a phone that was a screenful of
+  // small print restating the boxes underneath it. What is outstanding is
+  // still said, because the boxes below are the only other thing saying it on
+  // `/shows/[id]/signup`, which has no section header to carry a summary.
+  const stillNeeded = detailItems.filter((i) => i.blocking && !i.complete);
+
   return (
     <div className="space-y-4">
-      <ul className="space-y-1">
-        {detailItems.map((item) => (
-          <li key={item.key} className="flex items-start gap-2 text-sm">
-            <span
-              aria-hidden="true"
-              className="shrink-0 mt-0.5"
-              style={{ color: item.complete ? '#15803d' : item.blocking ? '#b91c1c' : '#b45309' }}
-            >
-              {item.complete ? '✓' : item.blocking ? '•' : '○'}
-            </span>
-            <span>
-              <span className="font-medium" style={{ color: item.complete ? '#5d4a37' : '#2c1810' }}>
-                {item.label}
-              </span>
-              {!item.blocking && !item.complete && (
-                <span className="text-xs ml-1.5" style={{ color: '#b45309' }}>
-                  (optional)
-                </span>
-              )}
-              <span className="block text-xs" style={{ color: '#8b7355' }}>
-                {item.hint}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ul>
+      {stillNeeded.length > 0 && (
+        <p className="text-sm" style={{ color: 'var(--error)' }}>
+          Still needed: {stillNeeded.map((i) => i.label.toLowerCase()).join(', ')}.
+        </p>
+      )}
 
-      <div className="pt-3 border-t" style={{ borderColor: '#f0e4d0' }}>
-        <h3 className="text-sm font-semibold mb-2" style={{ color: '#2c1810' }}>
+      <div>
+        <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
           Your details
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -280,7 +272,7 @@ export default function ProfileStep({
             autoComplete="bday"
             required
             invalid={invalid.has('date_of_birth')}
-            hint="Youth and amateur divisions are decided by age."
+            hint="Sets your youth/amateur division."
           />
           <Field
             label="Phone"
@@ -356,7 +348,7 @@ export default function ProfileStep({
             name="parent_guardian_name"
             value={form.parent_guardian_name}
             onChange={handleChange}
-            hint="If the exhibitor is under 18."
+            hint="If under 18."
           />
           <Field
             label="Parent / guardian phone"
@@ -370,7 +362,7 @@ export default function ProfileStep({
         {error && (
           <div
             className="mt-3 rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+            style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
           >
             {error}
           </div>
@@ -379,11 +371,11 @@ export default function ProfileStep({
         {invalid.size > 0 && (
           <div
             className="mt-3 rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+            style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
           >
             {invalid.size === 1
-              ? 'One box above still needs filling in — it’s outlined in red.'
-              : `${invalid.size} boxes above still need filling in — they’re outlined in red.`}
+              ? 'One box above is still empty — outlined in red.'
+              : `${invalid.size} boxes above are still empty — outlined in red.`}
           </div>
         )}
       </div>
@@ -393,23 +385,21 @@ export default function ProfileStep({
       {membershipItem && (
         <div
           className="pt-3 border-t flex flex-wrap items-baseline justify-between gap-2"
-          style={{ borderColor: '#f0e4d0' }}
+          style={{ borderColor: 'var(--bg-subtle)' }}
         >
           <div>
-            <span className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+            <span className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
               Association memberships
             </span>
-            <span className="block text-xs" style={{ color: '#8b7355' }}>
+            <span className="block text-xs" style={{ color: 'var(--muted)' }}>
               {membershipItem.hint}
-              {!membershipItem.complete && (
-                <> You can still enter without one — the show office checks cards at the desk.</>
-              )}
+              {!membershipItem.complete && <> Optional — cards are checked at the desk.</>}
             </span>
           </div>
           <Link
             href="/profile?tab=memberships"
             className="text-sm font-medium hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Add my numbers →
           </Link>
@@ -418,23 +408,23 @@ export default function ProfileStep({
 
       <div
         className="pt-3 border-t flex flex-wrap items-center gap-3"
-        style={{ borderColor: '#f0e4d0' }}
+        style={{ borderColor: 'var(--bg-subtle)' }}
       >
         <button
           type="button"
           onClick={handleSave}
           disabled={saving}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#5c3d1e' }}
+          style={{ backgroundColor: 'var(--text-deep)' }}
         >
           {saving ? 'Saving…' : 'Save & continue →'}
         </button>
         {saved && !saving && (
-          <span className="text-sm" style={{ color: '#15803d' }}>
+          <span className="text-sm" style={{ color: 'var(--success)' }}>
             Saved.
           </span>
         )}
-        <Link href="/profile" className="text-sm hover:underline ml-auto" style={{ color: '#8b4513' }}>
+        <Link href="/profile" className="text-sm hover:underline ml-auto" style={{ color: 'var(--accent)' }}>
           Full profile →
         </Link>
       </div>

@@ -92,18 +92,18 @@ function EnteredRow({
   onConfirm: () => void;
 }) {
   return (
-    <tr className="border-t" style={{ borderColor: '#f0e4d0' }}>
-      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
-        <span className="font-mono" style={{ color: '#8b4513' }}>{line.class_number}</span>{' '}
+    <tr className="border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
+      <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
+        <span className="font-mono" style={{ color: 'var(--accent)' }}>{line.class_number}</span>{' '}
         {line.class_name}
       </td>
-      <td className="py-1.5 pr-3" style={{ color: '#2c1810' }}>
+      <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
         {line.horse_name ?? '(horse removed)'}
       </td>
-      <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: '#8b7355' }}>
+      <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: 'var(--muted)' }}>
         {line.class_date ? formatDay(line.class_date) : '—'}
       </td>
-      <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: '#8b7355' }}>
+      <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: 'var(--muted)' }}>
         {formatMoney(line.fee_cents + line.sanction_cents)}
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
@@ -114,7 +114,7 @@ function EnteredRow({
               onClick={onConfirm}
               disabled={isRemoving}
               className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
-              style={{ backgroundColor: '#b91c1c' }}
+              style={{ backgroundColor: 'var(--error)' }}
             >
               {isRemoving ? 'Removing…' : 'Yes, remove'}
             </button>
@@ -123,7 +123,7 @@ function EnteredRow({
               onClick={onCancel}
               disabled={isRemoving}
               className="text-xs hover:underline disabled:opacity-50"
-              style={{ color: '#8b7355' }}
+              style={{ color: 'var(--muted)' }}
             >
               Keep
             </button>
@@ -133,7 +133,7 @@ function EnteredRow({
             type="button"
             onClick={onAsk}
             className="text-xs hover:underline"
-            style={{ color: '#b91c1c' }}
+            style={{ color: 'var(--error)' }}
             title={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
             aria-label={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
           >
@@ -238,26 +238,24 @@ export default function RegisterShowForm({
     ];
     if (horsesNeedingRecords.length > 0) {
       parts.push(
-        `${horsesNeedingRecords.length} horse${
-          horsesNeedingRecords.length === 1 ? '' : 's'
-        } need records`,
+        horsesNeedingRecords.length === 1
+          ? '1 horse needs records'
+          : `${horsesNeedingRecords.length} horses need records`,
       );
     }
     return parts.join(' · ');
   })();
 
   const detailsSummary = detailsDone
-    ? 'Contact details, date of birth and emergency contact on file'
-    : `${detailsMissing.length} thing${detailsMissing.length === 1 ? '' : 's'} still needed: ${
-        detailsMissing.map((i) => i.label).join(', ').toLowerCase()
-      }`;
+    ? 'On file'
+    : `Still needed: ${detailsMissing.map((i) => i.label).join(', ').toLowerCase()}`;
 
   const horsesSummary = (() => {
-    if (horses.length === 0) return 'No horses on your profile yet';
+    if (horses.length === 0) return 'None yet';
     const flagged = horses.filter((h) => (h.registration_flags ?? []).length > 0).length;
     const parts = [`${horses.length} horse${horses.length === 1 ? '' : 's'}`];
     if (flagged > 0) {
-      parts.push(`${flagged} without the papers this show asks for`);
+      parts.push(`${flagged} missing papers`);
     }
     return parts.join(' · ');
   })();
@@ -283,14 +281,14 @@ export default function RegisterShowForm({
       label: 'Stalls',
       done: signedUp,
       available: profileComplete,
-      lockedReason: 'Finish your details and add a horse first',
+      lockedReason: 'Add a horse first',
     },
     {
       key: 'classes',
       label: 'Classes',
       done: entered.length > 0,
       available: signedUp,
-      lockedReason: 'Reserve your stalls, shavings and camping first',
+      lockedReason: 'Sign up for stalls first',
     },
     ...(hasFuturities
       ? [
@@ -299,7 +297,7 @@ export default function RegisterShowForm({
             label: 'Futurities',
             done: futurities.some((f) => f.my_entries.length > 0),
             available: signedUp,
-            lockedReason: 'Reserve your stalls, shavings and camping first',
+            lockedReason: 'Sign up for stalls first',
           },
         ]
       : []),
@@ -322,8 +320,8 @@ export default function RegisterShowForm({
 
   return (
     <div className="mt-6">
-      <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>{show.name}</h1>
-      <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+      <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
+      <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
         My registration — {exhibitor.full_name}
       </p>
 
@@ -337,18 +335,18 @@ export default function RegisterShowForm({
 
       <div
         className="mt-4 rounded-lg border p-3 text-sm"
-        style={{ backgroundColor: '#faf7f2', borderColor: '#d4b896', color: '#5d4a37' }}
+        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         {/* Says what to do next rather than describing the screen. Somebody
             halfway through needs to be told which step they are on, not read a
             paragraph about all five. */}
         {!detailsDone
-          ? 'Start with your details — the show office needs them before it can take your entry. Everything below opens up once they’re in.'
+          ? 'Start with your details — the rest opens up once they’re in.'
           : !horsesDone
-            ? 'Next: the horses you’re bringing. You enter classes on a horse from your profile.'
+            ? 'Next: the horses you’re bringing.'
             : !signedUp
-              ? 'Next: stalls, shavings and camping. That tells the office you’re coming and opens up class entries. Fees are informational — the show office collects payment at the show.'
-              : 'Everything you sign up for at this show is on this screen. Open a step to change it — you can keep changing until the show starts. Fees are informational; the show office collects payment at the show.'}
+              ? 'Next: stalls, shavings and camping — that opens up class entries.'
+              : 'Open any step to change it, up until the show starts. Fees shown here are what the office will collect at the show.'}
       </div>
 
       <div id="registration-details">
@@ -378,12 +376,10 @@ export default function RegisterShowForm({
           isOpen={openStep === 'horses'}
           onToggle={() => toggle('horses')}
           locked={!detailsDone}
-          lockedReason="Finish your details above first"
+          lockedReason="Finish your details first"
           onBack={() => go('details')}
           onNext={() => go('stalls')}
-          nextDisabledReason={
-            horsesDone ? null : 'Add at least one horse — you enter classes on a horse from your profile.'
-          }
+          nextDisabledReason={horsesDone ? null : 'Add a horse to carry on.'}
         >
           <HorsesStep
             showId={showId}
@@ -408,11 +404,7 @@ export default function RegisterShowForm({
           isOpen={openStep === 'stalls'}
           onToggle={() => toggle('stalls')}
           locked={!profileComplete}
-          lockedReason={
-            !detailsDone
-              ? 'Finish your details above first — the show office needs them before it can hold a stall for you'
-              : 'Add a horse above first'
-          }
+          lockedReason={!detailsDone ? 'Finish your details first' : 'Add a horse first'}
           onBack={() => go('horses')}
         >
           {signupData ? (
@@ -429,12 +421,12 @@ export default function RegisterShowForm({
               }}
             />
           ) : (
-            <p className="text-sm" style={{ color: '#8b7355' }}>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
               Stall, shavings and camping options could not be loaded for this show.{' '}
               <Link
                 href={`/shows/${showId}/signup`}
                 className="font-medium hover:underline"
-                style={{ color: '#8b4513' }}
+                style={{ color: 'var(--accent)' }}
               >
                 Try the sign-up page →
               </Link>
@@ -453,7 +445,7 @@ export default function RegisterShowForm({
           isOpen={openStep === 'classes'}
           onToggle={() => toggle('classes')}
           locked={!signedUp}
-          lockedReason="Reserve your stalls, shavings and camping above first — the office needs those numbers before you can enter classes"
+          lockedReason="Sign up for stalls first"
           onBack={() => go('stalls')}
           onNext={hasFuturities ? () => go('futurities') : undefined}
           footerNote={
@@ -462,9 +454,9 @@ export default function RegisterShowForm({
             // later to add the Saturday. Everything already entered is saved
             // as it goes, so leaving costs nothing — this just says so, and
             // gives them the door.
-            <span className="text-xs" style={{ color: '#8b7355' }}>
-              Entered classes save as you add them.{' '}
-              <Link href="/my-shows" className="font-medium hover:underline" style={{ color: '#8b4513' }}>
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>
+              Entries save as you add them.{' '}
+              <Link href="/my-shows" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
                 Finish later from My Shows →
               </Link>
             </span>
@@ -481,15 +473,21 @@ export default function RegisterShowForm({
 
           <div className="mt-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-              <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
                 {entered.length === 0
                   ? 'Your classes'
                   : `You're entered in ${entered.length} class${entered.length === 1 ? '' : 'es'}`}
               </h3>
               {entered.length > 0 && (
-                <span className="text-xs" style={{ color: '#8b7355' }}>
-                  {formatMoney(bill.class_fee_total_cents + bill.sanction_total_cents)} in class
-                  fees
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                  {/* The per-class sanction money only — it is part of what
+                      each class below costs. A club charging per horse or per
+                      exhibitor (migration 133) is not a class fee and is in
+                      the bill further down, with its arithmetic. */}
+                  {formatMoney(
+                    bill.class_fee_total_cents + bill.class_sanction_total_cents,
+                  )}{' '}
+                  in class fees
                 </span>
               )}
             </div>
@@ -497,22 +495,21 @@ export default function RegisterShowForm({
             {horses.length === 0 ? (
               <div
                 className="rounded-lg border p-3 text-sm"
-                style={{ backgroundColor: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}
+                style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
               >
-                You don&apos;t have any horses on your profile yet. Add one on the horses step
-                above before entering classes.
+                No horses on your profile yet — add one on the horses step above.
               </div>
             ) : (
               <>
                 {entered.length === 0 ? (
-                  <p className="text-sm mb-3" style={{ color: '#8b7355' }}>
-                    Not entered in anything yet. Pick your first class below.
+                  <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
+                    Nothing entered yet — pick a class below.
                   </p>
                 ) : (
                   <div className="overflow-x-auto mb-3">
                     <table className="w-full text-sm border-collapse">
                       <thead>
-                        <tr className="text-xs uppercase tracking-wide" style={{ color: '#8b4513' }}>
+                        <tr className="text-xs uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
                           <th className="text-left font-semibold pb-1 pr-3">Class</th>
                           <th className="text-left font-semibold pb-1 pr-3">Horse</th>
                           <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Day</th>
@@ -557,7 +554,7 @@ export default function RegisterShowForm({
             {withdrawError && (
               <div
                 className="mt-3 rounded-lg border p-3 text-sm"
-                style={{ backgroundColor: '#fef2f2', borderColor: '#fecaca', color: '#991b1b' }}
+                style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
               >
                 {withdrawError}
               </div>
@@ -571,24 +568,26 @@ export default function RegisterShowForm({
           {horsesNeedingRecords.length > 0 && (
             <div
               className="mt-4 rounded-lg border p-3 space-y-2"
-              style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb' }}
+              style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
             >
-              <p className="text-sm font-medium" style={{ color: '#92400e' }}>
+              <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
                 {horsesNeedingRecords.length === 1
                   ? '1 horse needs'
                   : `${horsesNeedingRecords.length} horses need`}{' '}
                 health records updated before the show
               </p>
-              <p className="text-xs" style={{ color: '#92400e' }}>
-                You can still enter these classes now. The show office is sent the same list and will
-                expect current paperwork by the time you ship in.
+              <p className="text-xs" style={{ color: 'var(--warning)' }}>
+                You can still enter — the office expects current paperwork when you ship in.
               </p>
               <ul className="space-y-1.5">
                 {horsesNeedingRecords.map((h) => {
                   const warnings = healthWarnings(h);
                   return (
-                    <li key={h.id} className="flex items-center justify-between gap-3 text-sm">
-                      <span style={{ color: '#7c2d12' }}>
+                    <li
+                      key={h.id}
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm"
+                    >
+                      <span style={{ color: 'var(--warning-strong)' }}>
                         <span className="font-medium">{h.name}</span>
                         {' — '}
                         {warnings[0] ?? 'documents needed'}
@@ -596,7 +595,7 @@ export default function RegisterShowForm({
                       <Link
                         href={`/profile/horses/${h.id}`}
                         className="shrink-0 text-xs font-medium hover:underline"
-                        style={{ color: '#8b4513' }}
+                        style={{ color: 'var(--accent)' }}
                       >
                         Upload documents →
                       </Link>
@@ -624,7 +623,7 @@ export default function RegisterShowForm({
             isOpen={openStep === 'futurities'}
             onToggle={() => toggle('futurities')}
             locked={!signedUp}
-            lockedReason="Complete your show sign-up above first"
+            lockedReason="Sign up for stalls first"
             onBack={() => go('classes')}
           >
             <FuturityEntry
@@ -639,9 +638,9 @@ export default function RegisterShowForm({
 
       <section
         className="mt-4 rounded-lg border p-4"
-        style={{ borderColor: '#d4b896', backgroundColor: '#faf7f2' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
       >
-        <h2 className="text-sm font-semibold mb-2" style={{ color: '#2c1810' }}>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
           What this show will cost
         </h2>
         {/* Every step lands in here — classes, the grounds, the office charge
@@ -650,22 +649,22 @@ export default function RegisterShowForm({
         <ShowBillBreakdown bill={bill} />
         {/* Everywhere else this screen sends you, in one place under the bill. */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t text-sm font-medium"
-          style={{ borderColor: '#e8d5b7' }}>
+          style={{ borderColor: 'var(--border-subtle)' }}>
           <Link
             href={`/shows/${showId}/details`}
             className="hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Show details &amp; show bill →
           </Link>
           <Link
             href={`/shows/${showId}/schedule`}
             className="hover:underline"
-            style={{ color: '#8b4513' }}
+            style={{ color: 'var(--accent)' }}
           >
             Browse the full class schedule →
           </Link>
-          <Link href="/my-shows" className="hover:underline" style={{ color: '#8b4513' }}>
+          <Link href="/my-shows" className="hover:underline" style={{ color: 'var(--accent)' }}>
             My shows &amp; bill →
           </Link>
         </div>

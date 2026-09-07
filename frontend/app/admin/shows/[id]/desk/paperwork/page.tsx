@@ -16,7 +16,7 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
  * What this show requires of an exhibitor before they compete: health documents
  * and signatures.
  *
- * This was setup Step 7 and is not a setup question. Nothing here is decided
+ * This was a setup step and is not a setup question. Nothing here is decided
  * once and left alone the way a venue or a fee schedule is — it is the standing
  * order for the desk, read every time somebody registers, and the people who
  * answer it are the people working registration. So it lives beside the desk
@@ -43,10 +43,10 @@ export default async function DeskPaperworkPage({
             { label: 'Paperwork Requirements' },
           ]}
         />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: '#2c1810' }}>
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
           Paperwork Requirements
         </h1>
-        <p className="text-sm mt-1" style={{ color: '#8b7355' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           {show.name} — which health documents this show requires, and what exhibitors
           sign. Skip any that don&apos;t apply. This is what the desk checks against and
           what exhibitors are asked for when they register.
@@ -69,7 +69,7 @@ export default async function DeskPaperworkPage({
       <Link
         href={`/admin/shows/${id}/desk`}
         className="inline-block text-sm hover:underline"
-        style={{ color: '#8b4513' }}
+        style={{ color: 'var(--accent)' }}
       >
         ← Back to the registration desk
       </Link>

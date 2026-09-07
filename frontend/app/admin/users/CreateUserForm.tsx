@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'EXHIBITOR', 'TRAINER'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'JUDGE', 'EXHIBITOR', 'TRAINER'];
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Admin',
@@ -11,6 +11,7 @@ const ROLE_LABELS: Record<string, string> = {
   SHOW_SECRETARY: 'Show Secretary',
   SCRIBE: 'Scribe',
   GATE_STEWARD: 'Gate Steward',
+  JUDGE: 'Judge',
   EXHIBITOR: 'Exhibitor',
   TRAINER: 'Trainer',
 };
@@ -48,12 +49,12 @@ export default function CreateUserForm() {
   }
 
   const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
-  const inputStyle = { borderColor: '#d4b896' };
+  const inputStyle = { borderColor: 'var(--border)' };
 
   return (
     <form onSubmit={handleSubmit} className="grid sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>First Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>First Name</label>
         <input
           required
           className={inputClass}
@@ -63,7 +64,7 @@ export default function CreateUserForm() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Last Name</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Last Name</label>
         <input
           required
           className={inputClass}
@@ -73,7 +74,7 @@ export default function CreateUserForm() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Email</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Email</label>
         <input
           required
           type="email"
@@ -84,7 +85,7 @@ export default function CreateUserForm() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Role</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Role</label>
         <select
           className={inputClass}
           style={inputStyle}
@@ -95,7 +96,7 @@ export default function CreateUserForm() {
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: '#5a3e2b' }}>Password</label>
+        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Password</label>
         <input
           required
           type="password"
@@ -114,7 +115,7 @@ export default function CreateUserForm() {
           type="submit"
           disabled={loading}
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
         >
           {loading ? 'Creating…' : 'Create User'}
         </button>

@@ -1,6 +1,6 @@
 ---
 name: run-app
-description: Build, run, and drive the Horse Show Results app (Next.js frontend + FastAPI backend via Docker Compose, against Neon Postgres). Use when asked to start the app, launch it, run it locally, register/log in as an exhibitor, click through the UI, take a screenshot, or verify a change works end-to-end (not just tests/typecheck).
+description: Build, run, and drive the GaitDesk app (Next.js frontend + FastAPI backend via Docker Compose, against Neon Postgres). Use when asked to start the app, launch it, run it locally, register/log in as an exhibitor, click through the UI, take a screenshot, or verify a change works end-to-end (not just tests/typecheck).
 ---
 
 This is a two-container web app (Next.js frontend on :3000, FastAPI backend
@@ -54,7 +54,7 @@ docker compose up -d --build
 Wait for health, then confirm both are answering:
 
 ```bash
-curl -sf http://localhost:8000/                                    # {"status":"ok","app":"Horse Show Results API"}
+curl -sf http://localhost:8000/                                    # {"status":"ok","app":"GaitDesk API"}
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/     # 200
 docker compose ps                                                   # both "healthy"/"Up"
 ```

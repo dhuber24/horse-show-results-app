@@ -23,7 +23,7 @@ import ShowbillActions from './ShowbillActions';
  * buttons that turn the page into a PDF or a spreadsheet. See `ShowbillActions`
  * for why print-to-PDF rather than a server-side renderer.
  *
- * A show that uploaded its own bill (Setup step 8, migration 127) gets that
+ * A show that uploaded its own bill (Setup step 9, migration 127) gets that
  * instead, through `UploadedShowbill`. The branch is on `effective_source`, not
  * on the show's stored choice: a show pointed at a file that is not on record
  * falls back to the generated bill rather than rendering an empty frame.
@@ -38,7 +38,7 @@ const PRINT_CSS = `
   .showbill-section { break-inside: avoid; }
   .showbill-day { break-inside: avoid; }
   a[href]::after { content: ""; }
-  body { background: #ffffff !important; }
+  body { background: var(--surface) !important; }
 }
 `;
 
@@ -93,13 +93,13 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
           />
 
           <div className="no-print mt-5 flex flex-wrap gap-3 text-sm font-medium">
-            <Link href={`/shows/${id}/details`} className="hover:underline" style={{ color: '#8b4513' }}>
+            <Link href={`/shows/${id}/details`} className="hover:underline" style={{ color: 'var(--accent)' }}>
               Show details →
             </Link>
-            <Link href={`/shows/${id}/schedule`} className="hover:underline" style={{ color: '#8b4513' }}>
+            <Link href={`/shows/${id}/schedule`} className="hover:underline" style={{ color: 'var(--accent)' }}>
               Class schedule →
             </Link>
-            <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: '#8b4513' }}>
+            <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: 'var(--accent)' }}>
               Message the show office →
             </Link>
           </div>

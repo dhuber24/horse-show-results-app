@@ -82,14 +82,13 @@ export default function BackNumberRequest({
   return (
     <section
       className="mt-4 rounded-lg border p-3"
-      style={{ borderColor: '#d4b896', backgroundColor: '#ffffff' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
-      <h2 className="text-sm font-semibold" style={{ color: '#2c1810' }}>
+      <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
         Your back number
       </h2>
-      <p className="text-xs mt-0.5" style={{ color: '#8b7355' }}>
-        Enter your preferred back number or one will be assigned to you. If someone already has it,
-        we&apos;ll tell you and you can pick another.
+      <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+        Ask for a number, or leave it and one will be assigned.
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -107,14 +106,14 @@ export default function BackNumberRequest({
           placeholder="e.g. 42"
           aria-label="Preferred back number"
           className="w-28 border rounded px-3 py-2 text-sm"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
         <button
           type="button"
           onClick={handleSave}
           disabled={saving || !isValid || unchanged}
           className="text-sm font-medium px-3 py-2 rounded text-white disabled:opacity-50"
-          style={{ backgroundColor: '#8b4513' }}
+          style={{ backgroundColor: 'var(--accent)' }}
           title={
             !isValid
               ? 'Enter a number between 1 and 9999'
@@ -126,26 +125,26 @@ export default function BackNumberRequest({
           {saving ? 'Saving…' : unchanged ? 'Saved' : 'Save number'}
         </button>
         {backNumber != null && !saved && (
-          <span className="text-xs" style={{ color: '#15803d' }}>
+          <span className="text-xs" style={{ color: 'var(--success)' }}>
             You have back number <strong>{backNumber}</strong>.
           </span>
         )}
         {saved != null && (
-          <span className="text-xs font-medium" style={{ color: '#15803d' }}>
+          <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>
             ✓ Back number {saved} is yours.
           </span>
         )}
       </div>
 
       {overridden && !saved && (
-        <p className="text-xs mt-2" style={{ color: '#92400e' }}>
+        <p className="text-xs mt-2" style={{ color: 'var(--warning)' }}>
           You asked for {preferredBackNumber}, but the show office has issued you{' '}
           <strong>{backNumber}</strong> — that is the number to wear.
         </p>
       )}
 
       {error && (
-        <p className="text-xs mt-2 font-medium" style={{ color: '#991b1b' }}>
+        <p className="text-xs mt-2 font-medium" style={{ color: 'var(--error-strong)' }}>
           {error}
         </p>
       )}

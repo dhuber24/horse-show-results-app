@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 /**
- * Paperwork was setup Step 7. What a show requires of an exhibitor is answered
+ * Paperwork was a setup step. What a show requires of an exhibitor is answered
  * during registration, not while the show is being built, so it moved to the
  * registration desk. This route is kept so old links still land on it.
  */

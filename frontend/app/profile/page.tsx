@@ -25,6 +25,7 @@ export default async function ProfilePage({
   let horses: any[] = [];
   let exhibitorDocs: any[] = [];
   let exhibitorRegs: any[] = [];
+  let exhibitorCards: any[] = [];
   let trainerProfile: any = null;
   let trainerHorses: any[] = [];
   let trainerAffiliations: any[] = [];
@@ -47,15 +48,17 @@ export default async function ProfilePage({
     }
 
     if (exhibitor) {
-      const [horsesRes, docsRes, regsRes, showsRes] = await Promise.all([
+      const [horsesRes, docsRes, regsRes, cardsRes, showsRes] = await Promise.all([
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/my-horses`, { headers: headers!, cache: 'no-store' }),
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/documents`, { headers: headers!, cache: 'no-store' }),
         fetch(`${API_URL}/exhibitors/${exhibitor.id}/registrations`, { headers: headers!, cache: 'no-store' }),
+        fetch(`${API_URL}/exhibitors/${exhibitor.id}/competition-cards`, { headers: headers!, cache: 'no-store' }),
         fetch(`${API_URL}/my-shows/`, { headers: headers!, cache: 'no-store' }),
       ]);
       if (horsesRes.ok) horses = await horsesRes.json();
       if (docsRes.ok) exhibitorDocs = await docsRes.json();
       if (regsRes.ok) exhibitorRegs = await regsRes.json();
+      if (cardsRes.ok) exhibitorCards = await cardsRes.json();
       // Same payload the My Shows page reads, so history and bills agree.
       if (showsRes.ok) showHistory = ((await showsRes.json())?.shows ?? []) as MyShow[];
     }
@@ -75,7 +78,7 @@ export default async function ProfilePage({
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold" style={{ color: '#2c1810' }}>My Account</h1>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>My Account</h1>
       </div>
 
       <ProfileTabs
@@ -84,6 +87,7 @@ export default async function ProfilePage({
         exhibitor={exhibitor}
         initialRegistrations={exhibitorRegs}
         initialDocuments={exhibitorDocs}
+        initialCompetitionCards={exhibitorCards}
         initialHorses={horses}
         trainerProfile={trainerProfile}
         trainerHorses={trainerHorses}

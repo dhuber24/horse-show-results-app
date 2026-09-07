@@ -9,11 +9,12 @@ import TrainerHorsesPanel from './TrainerHorsesPanel';
 import TrainerProfileForm, { TrainerProfile } from './TrainerProfileForm';
 import TrainerAffiliationsPanel from '@/components/TrainerAffiliationsPanel';
 import ExhibitorMembershipPanel from '@/components/ExhibitorMembershipPanel';
+import type { CompetitionCard } from '@/components/ExhibitorCompetitionCards';
 import ShowHistoryPanel from './ShowHistoryPanel';
 import type { MyShow } from '@/lib/my-shows';
 
 interface User { first_name: string; last_name: string; full_name: string; email: string; role: string; created_at: string; }
-interface Registration { id: string; association_id: string; association_code: string; association_name: string; member_number: string; expires_at: string | null; }
+interface Registration { id: string; association_id: string; association_code: string; association_name: string; association_type?: 'breed' | 'club' | null; member_number: string; expires_at: string | null; }
 interface Document {
   id: string; document_type: string; original_filename: string;
   issue_date: string | null; expiry_date: string | null; association_id: string | null;
@@ -53,6 +54,7 @@ interface Props {
   exhibitor: Exhibitor | null;
   initialRegistrations: Registration[];
   initialDocuments: Document[];
+  initialCompetitionCards: CompetitionCard[];
   initialHorses: MyHorse[];
   trainerProfile: TrainerProfile | null;
   trainerHorses: TrainerHorse[];
@@ -67,8 +69,8 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
       onClick={onClick}
       className="px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors"
       style={{
-        color: active ? '#2c1810' : '#8b7355',
-        borderBottom: active ? '2px solid #8b4513' : '2px solid transparent',
+        color: active ? 'var(--foreground)' : 'var(--muted)',
+        borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
       }}
     >
       {label}
@@ -82,6 +84,7 @@ export default function ProfileTabs({
   exhibitor,
   initialRegistrations,
   initialDocuments,
+  initialCompetitionCards,
   initialHorses,
   trainerProfile,
   trainerHorses,
@@ -102,7 +105,7 @@ export default function ProfileTabs({
   return (
     <div>
       {(isExhibitor || isTrainer) && (
-        <div className="flex border-b mb-6" style={{ borderColor: '#d4b896' }}>
+        <div className="flex border-b mb-6" style={{ borderColor: 'var(--border)' }}>
           <TabButton label="Account" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
           {isExhibitor && (
             <TabButton label="Memberships" active={activeTab === 'memberships'} onClick={() => setActiveTab('memberships')} />
@@ -130,21 +133,21 @@ export default function ProfileTabs({
       {activeTab === 'account' && (
         <div className="space-y-6">
           {!isTrainer && (
-            <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-              <h2 className="text-lg font-semibold mb-5" style={{ color: '#2c1810' }}>My Profile</h2>
+            <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+              <h2 className="text-lg font-semibold mb-5" style={{ color: 'var(--foreground)' }}>My Profile</h2>
               <EditAccountForm user={user} exhibitor={isExhibitor ? exhibitor : null} />
             </div>
           )}
 
           {isTrainer && <TrainerProfileForm trainer={trainerProfile} />}
 
-          <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-            <h2 className="text-lg font-semibold mb-4" style={{ color: '#2c1810' }}>Change Password</h2>
+          <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+            <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Change Password</h2>
             <ChangePasswordForm />
           </div>
 
-          <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-            <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Security Question</h2>
+          <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+            <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Security Question</h2>
             <SecurityQuestionForm />
           </div>
         </div>
@@ -155,13 +158,14 @@ export default function ProfileTabs({
           exhibitorId={exhibitor!.id}
           initialRegistrations={initialRegistrations}
           initialDocuments={initialDocuments}
+          initialCompetitionCards={initialCompetitionCards}
         />
       )}
 
       {isTrainer && activeTab === 'affiliations' && (
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Professional Affiliations</h2>
-          <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
+        <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+          <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Professional Affiliations</h2>
+          <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
             Associations you belong to and your status with each (Professional / Non Pro / Member). Status badges show on your public profile when it&rsquo;s turned on.
           </p>
           <TrainerAffiliationsPanel initialAffiliations={trainerAffiliations} />
@@ -169,8 +173,8 @@ export default function ProfileTabs({
       )}
 
       {isExhibitor && activeTab === 'horses' && (
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-3" style={{ color: '#2c1810' }}>My Horses</h2>
+        <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>My Horses</h2>
           <MyHorsesPanel
             exhibitorId={exhibitor!.id}
             initialHorses={initialHorses}
@@ -179,9 +183,9 @@ export default function ProfileTabs({
       )}
 
       {isExhibitor && activeTab === 'history' && (
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
-          <h2 className="text-lg font-semibold mb-1" style={{ color: '#2c1810' }}>Show History</h2>
-          <p className="text-sm mb-4" style={{ color: '#8b7355' }}>
+        <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+          <h2 className="text-lg font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Show History</h2>
+          <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
             Every show you&rsquo;ve competed in. Open any of them to see the schedule and results.
           </p>
           <ShowHistoryPanel shows={showHistory} />
@@ -189,10 +193,10 @@ export default function ProfileTabs({
       )}
 
       {isTrainer && activeTab === 'horses' && (
-        <div className="rounded-lg border p-5" style={{ backgroundColor: '#ffffff', borderColor: '#d4b896' }}>
+        <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
           <div className="flex items-baseline justify-between gap-3 mb-3">
-            <h2 className="text-lg font-semibold" style={{ color: '#2c1810' }}>Horses</h2>
-            <span className="text-xs" style={{ color: '#8b7355' }}>
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Horses</h2>
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>
               {trainerHorses.length} linked
             </span>
           </div>

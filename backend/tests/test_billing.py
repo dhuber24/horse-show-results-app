@@ -74,8 +74,8 @@ def test_fee_rate_without_an_early_rate_is_always_the_standard_amount():
 
 
 def test_sanction_rates_reads_the_per_class_fee_off_each_club():
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
-    wsca = make_sanctioning("WSCA", per_class_fee_cents=200)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
+    wsca = make_sanctioning("WSCA", fee_amount_cents=200)
     rates = billing.sanction_rates(make_show(sanctioning=[nsba, wsca]))
     assert rates == {nsba.association_id: 300, wsca.association_id: 200}
 
@@ -83,7 +83,7 @@ def test_sanction_rates_reads_the_per_class_fee_off_each_club():
 def test_sanction_rates_drops_a_club_with_no_fee_set():
     """A show that enrolled a club without pricing it charges nothing, rather
     than putting a $0.00 line on every entry."""
-    unpriced = make_sanctioning("WSCA", per_class_fee_cents=0)
+    unpriced = make_sanctioning("WSCA", fee_amount_cents=0)
     rates = billing.sanction_rates(make_show(sanctioning=[unpriced]))
     assert rates == {}
 
@@ -91,8 +91,8 @@ def test_sanction_rates_drops_a_club_with_no_fee_set():
 def test_sanction_rates_tolerates_a_row_with_no_association():
     """A sanctioning row whose association did not load must not raise — the
     bill is not the place to discover a dangling reference."""
-    dangling = make_sanctioning(None, per_class_fee_cents=300)
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=500)
+    dangling = make_sanctioning(None, fee_amount_cents=300)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=500)
     rates = billing.sanction_rates(make_show(sanctioning=[dangling, nsba]))
     assert rates[nsba.association_id] == 500
 
@@ -105,13 +105,13 @@ def test_an_undesignated_class_carries_no_sanction_fee():
     """The whole point of migration 113. A show carrying NSBA sanctioning runs
     plenty of classes NSBA has nothing to do with, and the exhibitor entering
     one of those owes nothing on it."""
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
     rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
     assert billing.class_sanction_cents(make_class(), rates) == 0
 
 
 def test_a_designated_class_carries_that_club_s_fee():
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
     rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
     cls = make_class(sanctioning=[make_class_sanction(nsba)])
     assert billing.class_sanction_cents(cls, rates) == 300
@@ -120,8 +120,8 @@ def test_a_designated_class_carries_that_club_s_fee():
 def test_a_dual_sanctioned_class_carries_both_fees():
     """Two clubs approving the same class is two sanction fees, not the larger
     of the two — each club collects its own."""
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
-    wsca = make_sanctioning("WSCA", per_class_fee_cents=200)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
+    wsca = make_sanctioning("WSCA", fee_amount_cents=200)
     rates = billing.sanction_rates(make_show(sanctioning=[nsba, wsca]))
     cls = make_class(
         sanctioning=[make_class_sanction(nsba), make_class_sanction(wsca)]
@@ -130,9 +130,9 @@ def test_a_dual_sanctioned_class_carries_both_fees():
 
 
 def test_a_designation_for_a_club_the_show_dropped_charges_nothing():
-    """Removing a club in Step 3 leaves its class designations behind. They
+    """Removing a club in Step 6 leaves its class designations behind. They
     must price at zero rather than at whatever the club used to charge."""
-    dropped = make_sanctioning("WSCA", per_class_fee_cents=200)
+    dropped = make_sanctioning("WSCA", fee_amount_cents=200)
     cls = make_class(sanctioning=[make_class_sanction(dropped)])
     assert billing.class_sanction_cents(cls, rates={}) == 0
 
@@ -140,11 +140,157 @@ def test_a_designation_for_a_club_the_show_dropped_charges_nothing():
 def test_sanction_fee_does_not_scale_with_the_entry_fee():
     """It is a flat per-class amount, not a percentage. A $100 class and a $25
     class designated for the same club owe the same."""
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
     rates = billing.sanction_rates(make_show(sanctioning=[nsba]))
     for fee in (0, 2500, 10000):
         cls = make_class(entry_fee_cents=fee, sanctioning=[make_class_sanction(nsba)])
         assert billing.class_sanction_cents(cls, rates) == 300
+
+
+# ── A club's fee has a unit (migration 133) ─────────────────────────────
+#
+# Per class was the only thing a club could charge until then. Every case below
+# turns on the same two rules: the unit decides *what is multiplied*, and every
+# unit counts only the classes that club approves.
+
+
+def test_a_club_that_charges_per_horse_is_kept_out_of_the_per_class_rates():
+    """The double-charge guard. A club billing per horse must not also put a
+    rate on every class line — which is what `sanction_rates` feeds."""
+    per_horse = make_sanctioning("WSCA", fee_amount_cents=4500, fee_unit="per_horse")
+    per_class = make_sanctioning("NSBA", fee_amount_cents=300)
+    rates = billing.sanction_rates(make_show(sanctioning=[per_horse, per_class]))
+    assert rates == {per_class.association_id: 300}
+
+
+def test_a_per_class_club_produces_no_exhibitor_level_line():
+    """The other half of the same guard, from the other side."""
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
+    show = make_show(sanctioning=[nsba])
+    entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(nsba)]))]
+
+    lines, total = billing.sanction_charge_lines(show, entries, judge_count=3)
+
+    assert lines == []
+    assert total == 0
+
+
+def test_a_per_horse_club_charges_once_for_each_horse_in_its_own_classes():
+    """The MNSPHC All Day fee, priced by the row rather than by hand. Two horses
+    in the club's classes is two of them, however many classes each entered."""
+    club = make_sanctioning("MNSPHC", fee_amount_cents=4500, fee_unit="per_horse")
+    show = make_show(sanctioning=[club])
+    cls_a = make_class(sanctioning=[make_class_sanction(club)])
+    cls_b = make_class(sanctioning=[make_class_sanction(club)])
+    dusty, scout = uuid4(), uuid4()
+    entries = [
+        make_entry(cls=cls_a, horse_id=dusty),
+        make_entry(cls=cls_b, horse_id=dusty),
+        make_entry(cls=cls_a, horse_id=scout),
+    ]
+
+    lines, total = billing.sanction_charge_lines(show, entries, judge_count=0)
+
+    assert total == 9000
+    assert lines[0]["horse_count"] == 2
+    assert lines[0]["quantity"] == 2
+    assert lines[0]["code"] == "MNSPHC"
+
+
+def test_a_per_horse_club_ignores_horses_it_never_saw():
+    """A club sanctions a list of classes, not a schedule. A horse trailered in
+    for one breed class the club has nothing to do with owes it nothing."""
+    club = make_sanctioning("WSCA", fee_amount_cents=4500, fee_unit="per_horse")
+    show = make_show(sanctioning=[club])
+    entries = [
+        make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]), horse_id=uuid4()),
+        make_entry(cls=make_class(), horse_id=uuid4()),
+    ]
+
+    _, total = billing.sanction_charge_lines(show, entries, judge_count=0)
+
+    assert total == 4500, "one horse in the club's classes, not two"
+
+
+def test_a_per_exhibitor_club_charges_nobody_who_entered_none_of_its_classes():
+    """`per_exhibitor` has no count of its own to fall to zero, which is what
+    `has_relevant_entries` is for."""
+    club = make_sanctioning("WSCA", fee_amount_cents=2000, fee_unit="per_exhibitor")
+    show = make_show(sanctioning=[club])
+
+    _, entered = billing.sanction_charge_lines(
+        show,
+        [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))],
+        judge_count=0,
+    )
+    _, elsewhere = billing.sanction_charge_lines(
+        show, [make_entry(cls=make_class())], judge_count=0
+    )
+
+    assert entered == 2000, "once, however many of its classes they entered"
+    assert elsewhere == 0
+
+
+def test_a_per_judge_club_fee_multiplies_by_the_panel():
+    """$45 x 4 judges x one horse = $180 — the arithmetic a secretary had been
+    doing by hand into a flat amount."""
+    club = make_sanctioning("MNSPHC", fee_amount_cents=4500, fee_unit="per_judge_per_horse")
+    show = make_show(sanctioning=[club], judges=make_judges(4))
+    entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))]
+
+    lines, total = billing.sanction_charge_lines(show, entries, judge_count=4)
+
+    assert total == 18000
+    assert lines[0]["judge_count"] == 4 and lines[0]["horse_count"] == 1
+
+
+def test_a_club_with_a_unit_but_no_amount_bills_nothing():
+    """Same rule the per-class rates have always followed: a club enrolled and
+    never priced charges nobody, rather than putting $0.00 on every bill."""
+    club = make_sanctioning("WSCA", fee_amount_cents=0, fee_unit="per_horse")
+    show = make_show(sanctioning=[club])
+    entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))]
+
+    lines, total = billing.sanction_charge_lines(show, entries, judge_count=2)
+
+    assert (lines, total) == ([], 0)
+
+
+def test_a_club_row_that_predates_the_unit_still_bills_per_class():
+    """No `fee_unit` attribute at all — the shape every caller and stub written
+    before migration 133 hands over."""
+    from types import SimpleNamespace
+
+    legacy = SimpleNamespace(
+        association=SimpleNamespace(code="NSBA", name="NSBA"),
+        association_id=uuid4(),
+        fee_amount_cents=300,
+    )
+    show = make_show(sanctioning=[legacy])
+
+    assert billing.sanction_rates(show) == {legacy.association_id: 300}
+    assert billing.sanction_charge_lines(show, [], judge_count=2) == ([], 0)
+
+
+def test_the_bill_totals_both_kinds_of_sanction_money_and_foots():
+    """A dual-sanctioned show: one club per class, one per horse. The class
+    lines carry the first, `sanction_lines` the second, and
+    `sanction_total_cents` is both — which is the figure every screen prints."""
+    per_class = make_sanctioning("NSBA", fee_amount_cents=300)
+    per_horse = make_sanctioning("WSCA", fee_amount_cents=4500, fee_unit="per_horse")
+    show = make_show(sanctioning=[per_class, per_horse])
+    cls = make_class(
+        entry_fee_cents=2500,
+        sanctioning=[make_class_sanction(per_class), make_class_sanction(per_horse)],
+    )
+    entries = [make_entry(cls=cls)]
+
+    bill = billing.build_bill(show, entries, [])
+
+    assert bill["class_sanction_total_cents"] == 300
+    assert [line["line_total_cents"] for line in bill["sanction_lines"]] == [4500]
+    assert bill["sanction_total_cents"] == 4800
+    assert bill["total_cents"] == 2500 + 4800
 
 
 
@@ -231,7 +377,7 @@ def test_bill_counts_distinct_horses_for_a_per_horse_office_charge():
 def test_bill_charges_sanction_per_entry():
     """Money is per entry, not per class — an exhibitor showing two horses in
     the same pattern class owes two sanction fees."""
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=600)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=600)
     show = make_show(sanctioning=[nsba])
     cls = make_class(entry_fee_cents=10000, sanctioning=[make_class_sanction(nsba)])
     entries = [make_entry(cls=cls) for _ in range(2)]
@@ -245,7 +391,7 @@ def test_bill_charges_sanction_per_entry():
 def test_bill_charges_sanction_only_on_the_designated_classes():
     """The regression migration 113 exists to prevent: an NSBA show billing a
     sanction fee on every class an exhibitor entered."""
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=300)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
     show = make_show(sanctioning=[nsba])
     entries = [
         make_entry(cls=make_class(sanctioning=[make_class_sanction(nsba)])),
@@ -402,7 +548,7 @@ def test_a_settled_account_counts_as_paid_in_full():
 
 
 def test_rollup_sums_each_billed_category():
-    nsba = make_sanctioning("NSBA", per_class_fee_cents=600)
+    nsba = make_sanctioning("NSBA", fee_amount_cents=600)
     show = make_show(fees=[_office_fee(1000)], sanctioning=[nsba])
     # Deliberately not a club-sanctioned class: every automatic charge counts
     # only the breed association's own classes (migration 131), so putting the

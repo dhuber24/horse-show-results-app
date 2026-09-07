@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal chromium-cli-style REPL driver for the Horse Show Results frontend,
+// Minimal chromium-cli-style REPL driver for the GaitDesk frontend,
 // built on Playwright (no chromium-cli binary is available on this machine).
 // Reads newline-delimited commands from stdin, one per line:
 //
@@ -58,6 +58,14 @@ async function handle(line) {
 
   try {
     switch (cmd) {
+      case 'viewport': {
+        // `viewport 390 844` — a phone. Copy and layout problems that only
+        // show up on a narrow screen are invisible at the default 1280px.
+        const [w, h] = rest.split(/\s+/).map(Number);
+        await page.setViewportSize({ width: w || 390, height: h || 844 });
+        console.log(`OK viewport ${w || 390}x${h || 844}`);
+        break;
+      }
       case 'nav':
         await page.goto(rest, { waitUntil: 'domcontentloaded', timeout: 30000 });
         console.log(`OK nav ${rest} -> ${page.url()}`);

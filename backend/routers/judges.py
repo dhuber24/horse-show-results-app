@@ -10,6 +10,7 @@ admin-only, because that record is shared across every show that judge has ever
 worked; a typo fix in one show's setup should not silently rewrite the others.
 """
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +19,8 @@ from uuid import UUID
 
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
-from models import Association, Judge
-from schemas import JudgeCreate, JudgeOut, JudgeUpdate
+from models import Association, Judge, User
+from schemas import JudgeCreate, JudgeOut, JudgeUpdate, JudgeUserCreate
 
 router = APIRouter(prefix="/judges", tags=["Judges"])
 
@@ -35,8 +36,14 @@ async def _load_associations(db: AsyncSession, ids: list[UUID]) -> list[Associat
 
 
 async def _fetch(db: AsyncSession, judge_id: UUID) -> Judge:
+    # populate_existing because the row is already in the identity map on every
+    # path that calls this — the options would otherwise be dropped and the
+    # first attribute read would be lazy IO in an async request.
     result = await db.execute(
-        select(Judge).where(Judge.id == judge_id).options(selectinload(Judge.associations))
+        select(Judge)
+        .where(Judge.id == judge_id)
+        .options(selectinload(Judge.associations), selectinload(Judge.user))
+        .execution_options(populate_existing=True)
     )
     return result.scalar_one()
 
@@ -115,5 +122,67 @@ async def update_judge(judge_id: UUID, body: JudgeUpdate, db: AsyncSession = Dep
 
     if association_ids is not None:
         judge.associations = await _load_associations(db, association_ids)
+    await db.commit()
+    return await _fetch(db, judge_id)
+
+
+@router.post(
+    "/{judge_id}/user",
+    response_model=JudgeOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
+async def create_judge_user(
+    judge_id: UUID, body: JudgeUserCreate, db: AsyncSession = Depends(get_db)
+):
+    """Give a registry judge a login.
+
+    Admin-only for the same reason `PATCH` is: the registry row is shared by
+    every show that judge has ever worked, and an account attached to the wrong
+    one is not a typo somebody notices.
+
+    The name comes off the registry row, never off the request — the judge is
+    already on file and this is an account *for that person*. Creating the user
+    and linking it are one transaction, because the two halves apart are a
+    login nobody can find and a registry row pointing at nothing.
+    """
+    result = await db.execute(
+        select(Judge)
+        .where(Judge.id == judge_id)
+        .options(selectinload(Judge.associations), selectinload(Judge.user))
+    )
+    judge = result.scalar_one_or_none()
+    if not judge:
+        raise HTTPException(404, "Judge not found")
+    if judge.user_id:
+        raise HTTPException(409, "That judge already has an account.")
+
+    email = ((body.email or judge.email) or "").strip().lower()
+    if not email:
+        raise HTTPException(
+            422,
+            "This judge has no email on file — add one to the registry, or supply one here.",
+        )
+
+    existing = await db.execute(select(User).where(func.lower(User.email) == email))
+    if existing.scalar_one_or_none():
+        # Deliberately not "link it anyway". An address already in use belongs
+        # to somebody with a role of their own — a judge who also shows horses
+        # holds an EXHIBITOR account — and quietly re-roling it would take away
+        # what they signed up for. The admin decides.
+        raise HTTPException(409, f"{email} already has an account.")
+
+    user = User(
+        email=email,
+        first_name=judge.first_name,
+        last_name=judge.last_name,
+        full_name=f"{judge.first_name} {judge.last_name}".strip(),
+        role="JUDGE",
+        hashed_password=bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode(),
+        is_approved=True,
+    )
+    db.add(user)
+    await db.flush()
+    judge.user_id = user.id
     await db.commit()
     return await _fetch(db, judge_id)

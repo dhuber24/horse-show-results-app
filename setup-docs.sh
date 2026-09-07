@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Horse Show Results App - Documentation Setup Script
+# GaitDesk - Documentation Setup Script
 # This script copies all documentation files to their correct locations
 # and commits them to git
 
 set -e  # Exit on any error
 
-echo "🚀 Horse Show Results App - Documentation Setup"
+echo "🚀 GaitDesk - Documentation Setup"
 echo "================================================"
 echo ""
 

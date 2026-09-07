@@ -4,6 +4,7 @@ import {
   type BillChargeLine,
   type BillFuturityLine,
   type BillReservationLine,
+  type BillSanctionLine,
 } from '@/lib/my-shows';
 import { unitLabel } from '@/lib/fee-units';
 
@@ -28,7 +29,7 @@ export default function ShowBillBreakdown({
 }) {
   if (bill.total_cents === 0) {
     return (
-      <p className="text-sm" style={{ color: '#8b7355' }}>
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
         Nothing charged for this show yet.
       </p>
     );
@@ -39,16 +40,16 @@ export default function ShowBillBreakdown({
       {detailed && bill.class_lines.length > 0 && (
         <div className="mb-4">
           <h3 className="text-xs font-semibold uppercase tracking-wider mb-2"
-            style={{ color: '#8b7355' }}>
+            style={{ color: 'var(--muted)' }}>
             Classes entered
           </h3>
-          <table className="w-full text-sm" style={{ color: '#5d4a37' }}>
+          <table className="w-full text-sm" style={{ color: 'var(--text-deep)' }}>
             <tbody>
               {bill.class_lines.map((line) => (
                 <tr key={line.entry_id} className="border-b last:border-b-0"
-                  style={{ borderColor: '#f0e4d0' }}>
+                  style={{ borderColor: 'var(--bg-subtle)' }}>
                   <td className="py-1.5 pr-2 align-top font-mono whitespace-nowrap"
-                    style={{ color: '#8b4513' }}>
+                    style={{ color: 'var(--accent)' }}>
                     {line.class_number}
                   </td>
                   <td className="py-1.5 pr-2 align-top w-full">
@@ -58,7 +59,7 @@ export default function ShowBillBreakdown({
                         which is two entries and two fees. Without the name the
                         second line looks like a duplicate charge. */}
                     {line.horse_name && (
-                      <div className="text-xs" style={{ color: '#8b7355' }}>{line.horse_name}</div>
+                      <div className="text-xs" style={{ color: 'var(--muted)' }}>{line.horse_name}</div>
                     )}
                   </td>
                   <td className="py-1.5 align-top text-right whitespace-nowrap">
@@ -71,26 +72,36 @@ export default function ShowBillBreakdown({
         </div>
       )}
 
-      <dl className="text-sm grid grid-cols-2 gap-y-1.5" style={{ color: '#5d4a37' }}>
+      <dl className="text-sm grid grid-cols-2 gap-y-1.5" style={{ color: 'var(--text-deep)' }}>
         {bill.class_fee_total_cents > 0 && (
           <>
             <dt>
               Class fees
-              <span className="text-xs" style={{ color: '#8b7355' }}>
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>
                 {' '}({bill.class_lines.length})
               </span>
             </dt>
             <dd className="text-right">{formatMoney(bill.class_fee_total_cents)}</dd>
           </>
         )}
-        {bill.sanction_total_cents > 0 && (
+        {/* The per-class clubs, rolled up: their money is already spread
+            across the class lines above, so one figure is the only way to show
+            it without restating every line. A club charging per horse or per
+            exhibitor gets a line of its own below, with its arithmetic — the
+            two together are `sanction_total_cents`. */}
+        {(bill.class_sanction_total_cents ?? bill.sanction_total_cents) > 0 && (
           <>
             <dt title="Each sanctioning club's per-class fee, charged only on the classes that club approves.">
               Club sanction fees
             </dt>
-            <dd className="text-right">{formatMoney(bill.sanction_total_cents)}</dd>
+            <dd className="text-right">
+              {formatMoney(bill.class_sanction_total_cents ?? bill.sanction_total_cents)}
+            </dd>
           </>
         )}
+        {(bill.sanction_lines ?? []).map((line) => (
+          <SanctionLine key={line.association_id} line={line} />
+        ))}
         {bill.reservation_lines.map((line) => (
           <ReservationLine key={line.show_fee_id} line={line} />
         ))}
@@ -102,18 +113,49 @@ export default function ShowBillBreakdown({
         ))}
         <dt
           className="pt-1.5 mt-1 border-t font-semibold"
-          style={{ borderColor: '#e8d5b7', color: '#2c1810' }}
+          style={{ borderColor: 'var(--border-subtle)', color: 'var(--foreground)' }}
         >
           Total
         </dt>
         <dd
           className="pt-1.5 mt-1 border-t text-right font-bold"
-          style={{ borderColor: '#e8d5b7', color: '#2c1810' }}
+          style={{ borderColor: 'var(--border-subtle)', color: 'var(--foreground)' }}
         >
           {formatMoney(bill.total_cents)}
         </dd>
       </dl>
     </div>
+  );
+}
+
+/**
+ * One club's sanction fee, where the club charges per horse or per exhibitor.
+ *
+ * Named for the club rather than lumped under "Club sanction fees", and the
+ * arithmetic spelled out, for the same reason a `ChargeLine` is: this is money
+ * nobody booked, and "$180.00" beside a club code is a figure an exhibitor
+ * cannot check. The counts are of that club's own classes only, which is what
+ * makes them differ from the show's own charges above.
+ */
+function SanctionLine({ line }: { line: BillSanctionLine }) {
+  const parts = [formatMoney(line.amount_cents)];
+  if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
+    parts.push(`× ${line.judge_count} judge${line.judge_count === 1 ? '' : 's'}`);
+  }
+  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
+    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
+  }
+  return (
+    <>
+      <dt>
+        {line.name || line.code} sanction fee
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
+          {' '}({parts.join(' ')}, in its {line.entry_count}{' '}
+          {line.entry_count === 1 ? 'class' : 'classes'})
+        </span>
+      </dt>
+      <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
+    </>
   );
 }
 
@@ -150,7 +192,7 @@ function ChargeLine({ line }: { line: BillChargeLine }) {
         )}, counted only against horses/entries in the breed association's own classes — not ones a club like WSCA or MNSPHC sanctions outright.`}
       >
         {line.label}
-        <span className="text-xs" style={{ color: '#8b7355' }}>
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
           {' '}({parts.join(' ')})
         </span>
       </dt>
@@ -164,13 +206,13 @@ function ReservationLine({ line }: { line: BillReservationLine }) {
     <>
       <dt>
         {line.label}
-        <span className="text-xs" style={{ color: '#8b7355' }}>
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
           {' '}({line.quantity} × {formatMoney(line.amount_cents)})
         </span>
         {line.is_early_rate && (
           <span
             className="text-xs ml-1.5 px-1.5 py-0.5 rounded whitespace-nowrap"
-            style={{ backgroundColor: '#dcfce7', color: '#15803d' }}
+            style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success)' }}
             title={`Early rate — reserved ${line.reserved_at}. Standard rate is ${formatMoney(
               line.standard_amount_cents,
             )}.`}
@@ -199,11 +241,11 @@ function FuturityLine({ line }: { line: BillFuturityLine }) {
       <dt>
         {line.futurity_name}
         {line.horse_name && (
-          <span className="text-xs" style={{ color: '#8b7355' }}>
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>
             {' '}— {line.horse_name}
           </span>
         )}
-        <span className="block text-xs" style={{ color: '#8b7355' }}>
+        <span className="block text-xs" style={{ color: 'var(--muted)' }}>
           {line.fee_tier_name ? `${line.fee_tier_name}: ` : ''}
           {perClass}
           {line.office_fee_cents > 0 &&

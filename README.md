@@ -1,4 +1,4 @@
-# Horse Show Results App
+# GaitDesk
 
 A browser-based application for ranch and western pleasure horse shows.
 

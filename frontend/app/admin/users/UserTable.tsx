@@ -3,16 +3,17 @@
 import Link from 'next/link';
 import { useState, useMemo } from 'react';
 
-const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'EXHIBITOR', 'TRAINER'];
+const ROLES = ['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY', 'SCRIBE', 'GATE_STEWARD', 'JUDGE', 'EXHIBITOR', 'TRAINER'];
 
 const ROLE_COLORS: Record<string, string> = {
-  ADMIN: '#7c3aed',
-  SHOW_MANAGER: '#b45309',
-  SHOW_SECRETARY: '#1d4ed8',
-  SCRIBE: '#0369a1',
-  GATE_STEWARD: '#0f766e',
-  EXHIBITOR: '#166534',
-  TRAINER: '#7c2d12',
+  ADMIN: 'var(--accent)',
+  SHOW_MANAGER: 'var(--warning)',
+  SHOW_SECRETARY: 'var(--accent)',
+  SCRIBE: 'var(--accent)',
+  GATE_STEWARD: 'var(--success)',
+  JUDGE: 'var(--warning)',
+  EXHIBITOR: 'var(--success-strong)',
+  TRAINER: 'var(--warning-strong)',
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -21,6 +22,7 @@ const ROLE_LABELS: Record<string, string> = {
   SHOW_SECRETARY: 'Show Secretary',
   SCRIBE: 'Scribe',
   GATE_STEWARD: 'Gate Steward',
+  JUDGE: 'Judge',
   EXHIBITOR: 'Exhibitor',
   TRAINER: 'Trainer',
 };
@@ -124,13 +126,13 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
           onChange={e => setSearch(e.target.value)}
           placeholder="Search name or email…"
           className="border rounded px-3 py-1.5 text-sm flex-1 min-w-48 focus:outline-none focus:ring-1"
-          style={{ borderColor: '#d4b896' }}
+          style={{ borderColor: 'var(--border)' }}
         />
         <select
           value={roleFilter}
           onChange={e => setRoleFilter(e.target.value)}
           className="border rounded px-3 py-1.5 text-sm focus:outline-none"
-          style={{ borderColor: '#d4b896', color: roleFilter ? (ROLE_COLORS[roleFilter] ?? '#333') : '#5a3e2b' }}
+          style={{ borderColor: 'var(--border)', color: roleFilter ? (ROLE_COLORS[roleFilter] ?? 'var(--text-deep)') : 'var(--text-deep)' }}
         >
           <option value="">All roles</option>
           {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>)}
@@ -138,21 +140,21 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
         <button
           onClick={() => exportCsv(filtered)}
           className="border rounded px-3 py-1.5 text-sm font-medium hover:bg-amber-50 transition-colors"
-          style={{ borderColor: '#d4b896', color: '#8b4513' }}
+          style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
         >
           Export CSV
         </button>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           {users.length === 0 ? 'No users found.' : 'No users match the current filters.'}
         </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left border-b" style={{ borderColor: '#d4b896', color: '#5a3e2b' }}>
+              <tr className="text-left border-b" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
                 <th className="pb-2 pr-4 font-semibold">Name</th>
                 <th className="pb-2 pr-4 font-semibold">Email</th>
                 <th className="pb-2 pr-4 font-semibold">Role</th>
@@ -163,38 +165,38 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
             </thead>
             <tbody>
               {filtered.map(user => (
-                <tr key={user.id} className="border-b last:border-0" style={{ borderColor: '#f0e6d3' }}>
-                  <td className="py-3 pr-4 font-medium" style={{ color: '#2c1810' }}>{user.full_name}</td>
-                  <td className="py-3 pr-4" style={{ color: '#5a3e2b' }}>{user.email}</td>
+                <tr key={user.id} className="border-b last:border-0" style={{ borderColor: 'var(--bg-subtle)' }}>
+                  <td className="py-3 pr-4 font-medium" style={{ color: 'var(--foreground)' }}>{user.full_name}</td>
+                  <td className="py-3 pr-4" style={{ color: 'var(--text-deep)' }}>{user.email}</td>
                   <td className="py-3 pr-4">
                     <div className="flex items-center gap-2">
                       <span
                         className="text-xs font-semibold px-2 py-0.5 rounded-full"
                         style={{
-                          color: ROLE_COLORS[user.role] ?? '#333',
-                          backgroundColor: (ROLE_COLORS[user.role] ?? '#333') + '18',
+                          color: ROLE_COLORS[user.role] ?? 'var(--text-deep)',
+                          backgroundColor: (ROLE_COLORS[user.role] ?? 'var(--text-deep)') + '18',
                         }}
                       >
                         {ROLE_LABELS[user.role] ?? user.role}
                       </span>
                       {(user.role === 'SHOW_SECRETARY' || user.role === 'SHOW_MANAGER') && !user.is_approved && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100" style={{ color: '#9a3412' }}>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100" style={{ color: 'var(--warning-strong)' }}>
                           Pending
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="py-3 pr-4 text-xs" style={{ color: user.last_login_at ? '#5a3e2b' : '#b0956e' }}>
+                  <td className="py-3 pr-4 text-xs" style={{ color: user.last_login_at ? 'var(--text-deep)' : 'var(--text-dimmed)' }}>
                     {formatLastLogin(user.last_login_at)}
                   </td>
-                  <td className="py-3 pr-4 text-xs" style={{ color: '#8b7355' }}>
+                  <td className="py-3 pr-4 text-xs" style={{ color: 'var(--muted)' }}>
                     {new Date(user.created_at).toLocaleDateString('en-US')}
                   </td>
                   <td className="py-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       {confirmDeleteId === user.id ? (
                         <>
-                          <span className="text-xs" style={{ color: '#5c3d1e' }}>Delete {user.full_name}?</span>
+                          <span className="text-xs" style={{ color: 'var(--text-deep)' }}>Delete {user.full_name}?</span>
                           <button
                             onClick={() => handleDelete(user)}
                             disabled={deleting}
@@ -206,7 +208,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                             onClick={() => { setConfirmDeleteId(null); setDeleteError(null); }}
                             disabled={deleting}
                             className="text-xs hover:underline"
-                            style={{ color: '#8b7355' }}
+                            style={{ color: 'var(--muted)' }}
                           >
                             Cancel
                           </button>
@@ -221,7 +223,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                               onClick={() => handleApprove(user)}
                               disabled={approving}
                               className="text-xs font-medium hover:underline disabled:opacity-50"
-                              style={{ color: '#15803d' }}
+                              style={{ color: 'var(--success)' }}
                             >
                               {approving ? 'Approving…' : 'Approve'}
                             </button>
@@ -229,7 +231,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
                           <Link
                             href={`/admin/users/${user.id}`}
                             className="text-xs font-medium hover:underline"
-                            style={{ color: '#8b4513' }}
+                            style={{ color: 'var(--accent)' }}
                           >
                             Edit
                           </Link>
@@ -253,7 +255,7 @@ export default function UserTable({ initialUsers }: { initialUsers: User[] }) {
         </div>
       )}
 
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         {filtered.length === users.length
           ? `${users.length} user${users.length !== 1 ? 's' : ''}`
           : `Showing ${filtered.length} of ${users.length} users`}

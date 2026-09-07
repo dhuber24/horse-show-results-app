@@ -4,6 +4,12 @@ from typing import Optional, Any, Literal
 from datetime import date, datetime, time
 from uuid import UUID
 
+# The card-year bounds are the rule module's, not this file's: a Field(ge=...)
+# that disagreed with the CHECK constraint would 422 or 500 depending on which
+# one bit first. `competition_cards` imports only from `rules`, which imports
+# nothing from here, so there is no cycle.
+from competition_cards import MAX_CARD_YEAR, MIN_CARD_YEAR
+
 
 # ── Show Types ─────────────────────────────────────────────────────────────────
 
@@ -348,9 +354,26 @@ class SanctionedAssociationRequestOut(BaseModel):
 
 # ── Show Sanctioning ───────────────────────────────────────────────────────────
 
+#: How a club's sanction fee is charged (migration 133). A subset of `FeeUnit`
+#: — the same words mean the same thing on a club's fee as on the show's own,
+#: which is why `billing.charge_multiplier` prices both — minus
+#: `per_judge_per_entry`, which is the breed body's own assessment and belongs
+#: to the show's fee catalog. Mirrors `billing.CLUB_SANCTION_UNITS`.
+ClubSanctionUnit = Literal[
+    'per_entry',
+    'per_exhibitor',
+    'per_horse',
+    'per_judge_per_horse',
+    'per_judge_per_exhibitor',
+]
+
+
 class ShowSanctioningItem(BaseModel):
     association_id: UUID
-    per_class_fee_cents: int = Field(ge=0)
+    fee_amount_cents: int = Field(ge=0)
+    #: Defaulted rather than required, so a caller written before migration 133
+    #: enrols a club charging per class — which is what every club charged.
+    fee_unit: ClubSanctionUnit = 'per_entry'
 
 class ShowSanctioningReplace(BaseModel):
     items: list[ShowSanctioningItem] = []
@@ -359,7 +382,8 @@ class ShowSanctioningOut(BaseModel):
     association_id: UUID
     code: str
     name: str
-    per_class_fee_cents: int
+    fee_amount_cents: int
+    fee_unit: ClubSanctionUnit = 'per_entry'
 
     class Config:
         from_attributes = True
@@ -703,7 +727,8 @@ class ClassSanctioningOut(BaseModel):
     association_id: UUID
     code: str
     name: str
-    per_class_fee_cents: int
+    fee_amount_cents: int
+    fee_unit: ClubSanctionUnit = 'per_entry'
     class_ids: list[UUID] = Field(default_factory=list)
 
 
@@ -898,10 +923,28 @@ class JudgeOut(BaseModel):
     phone: Optional[str] = None
     is_active: bool = True
     associations: list[JudgeAssociationOut] = []
+    # The login, if this judge has one (migration 135). `user_email` is the
+    # address they sign in with and is not `email` above, which is the contact
+    # address the show office holds for them.
+    user_id: Optional[UUID] = None
+    user_email: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class JudgeUserCreate(BaseModel):
+    """Give a registry judge a login (migration 135).
+
+    The name is read off the registry row rather than accepted here — the judge
+    already exists and the account is for that person, so a second spelling of
+    their name would be a second person as far as every screen is concerned.
+    `email` is optional only because the registry row may already carry one;
+    with neither there is nothing to sign in with.
+    """
+    email: Optional[str] = Field(default=None, max_length=200)
+    password: str = Field(min_length=8, max_length=200)
 
 
 class ShowJudgeCreate(BaseModel):
@@ -1579,6 +1622,20 @@ class ExhibitorRegistrationCreate(BaseModel):
     # Migration 117. NULL means unknown, not current — see the column comment.
     expires_at: Optional[date] = None
 
+class ExhibitorRegistrationUpdate(BaseModel):
+    """Correcting a membership already on file.
+
+    Exists because the expiry became required on a breed registration: without
+    it, an exhibitor whose APHA row predates that rule could only satisfy it by
+    deleting the membership and typing it in again. `expires_at` is sent
+    explicitly, so `exclude_unset` is what tells a deliberate clear apart from a
+    field the caller did not mention -- and the router refuses the clear on a
+    breed body for the same reason it refuses the blank on the way in.
+    """
+    member_number: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    expires_at: Optional[date] = None
+
+
 class ExhibitorRegistrationOut(BaseModel):
     id: UUID
     association_id: UUID
@@ -1589,6 +1646,42 @@ class ExhibitorRegistrationOut(BaseModel):
     expires_at: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+# ── Exhibitor Competition Cards ────────────────────────────────
+
+class ExhibitorCompetitionCardCreate(BaseModel):
+    """Migration 134. No expiry field, deliberately -- see `competition_cards`.
+
+    The card runs to 31 December of `valid_year`; a date on the request would be
+    a second, editable copy of a rule the app already knows.
+    """
+    association_id: UUID
+    division: str
+    valid_year: int = Field(ge=MIN_CARD_YEAR, le=MAX_CARD_YEAR)
+    card_number: Optional[str] = Field(default=None, max_length=50)
+
+
+class ExhibitorCompetitionCardUpdate(BaseModel):
+    """Renewing is raising the year -- that is the whole annual renewal."""
+    valid_year: Optional[int] = Field(default=None, ge=MIN_CARD_YEAR, le=MAX_CARD_YEAR)
+    card_number: Optional[str] = Field(default=None, max_length=50)
+
+
+class ExhibitorCompetitionCardOut(BaseModel):
+    id: UUID
+    association_id: UUID
+    association_code: str
+    association_name: str
+    division: str
+    division_label: str
+    valid_year: int
+    card_number: Optional[str] = None
+    #: Derived, never stored: 31 December of `valid_year`. On the payload so a
+    #: screen prints the date without restating the rule in TypeScript.
+    expires_at: date
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 # ── Exhibitors ────────────────────────────────────────────────────────────────
 
@@ -3319,6 +3412,27 @@ class BillChargeLineOut(BaseModel):
     line_total_cents: int
 
 
+class BillSanctionLineOut(BaseModel):
+    """One club's sanction fee, charged per horse or per exhibitor.
+
+    The clubs that charge `per_entry` are not here: their money rides on the
+    class lines as `sanction_cents`, which is where an exhibitor looks for it.
+    Every count on this line is taken over that club's own approved classes and
+    no others — see `billing.sanction_charge_lines`.
+    """
+
+    association_id: UUID
+    code: str
+    name: str
+    unit: FeeUnit
+    amount_cents: int
+    horse_count: int
+    judge_count: int
+    entry_count: int
+    quantity: int
+    line_total_cents: int
+
+
 class BillFuturityLineOut(BaseModel):
     """One futurity enrollment's share of the bill.
 
@@ -3354,8 +3468,14 @@ class BillOut(BaseModel):
     class_lines: list[BillClassLineOut] = Field(default_factory=list)
     reservation_lines: list[BillReservationLineOut] = Field(default_factory=list)
     charge_lines: list[BillChargeLineOut] = Field(default_factory=list)
+    sanction_lines: list[BillSanctionLineOut] = Field(default_factory=list)
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
+    #: The per-class portion of the sanction money — what the class lines above
+    #: already carry. `sanction_total_cents` is that plus `sanction_lines`, so a
+    #: screen prints this one beside those and foots without summing anything
+    #: itself. Defaulted for a payload built before migration 133.
+    class_sanction_total_cents: int = 0
     sanction_total_cents: int
     reservation_total_cents: int
     charge_total_cents: int = 0

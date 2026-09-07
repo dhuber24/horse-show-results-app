@@ -504,7 +504,7 @@ export default function FuturityForm({
         >
           {classes.length === 0 ? (
             <p className="text-sm" style={{ color: COLORS.muted }}>
-              This show has no classes yet — build the schedule in Step 6 first.
+              This show has no classes yet — build the schedule in Step 5 first.
             </p>
           ) : (
             classes.map((c) => (
@@ -517,7 +517,7 @@ export default function FuturityForm({
                 <span className="font-mono text-xs">#{c.class_number}</span>
                 <span style={{ color: COLORS.text }}>{c.class_name}</span>
                 {c.entry_fee_cents > 0 && (
-                  <span className="text-xs" style={{ color: '#922' }}>
+                  <span className="text-xs" style={{ color: 'var(--error-strong)' }}>
                     (has its own {formatCents(c.entry_fee_cents)} fee)
                   </span>
                 )}

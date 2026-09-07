@@ -1,4 +1,4 @@
-# Horse Show Results App - Backend Requirements
+# GaitDesk - Backend Requirements
 # Python 3.11+
 
 # Web Framework

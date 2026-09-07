@@ -249,7 +249,8 @@ async def _show_sanctioning_or_404(
     if row is None:
         raise HTTPException(
             404,
-            "This show does not carry that sanctioning. Add it in setup Step 3 first.",
+            "This show does not carry that sanctioning. Enrol the club in setup "
+            "Step 6 first.",
         )
     return row
 
@@ -287,7 +288,8 @@ async def list_class_sanctioning(show_id: UUID, db: AsyncSession = Depends(get_d
             association_id=club.association_id,
             code=club.association.code if club.association else "",
             name=club.association.name if club.association else "",
-            per_class_fee_cents=club.per_class_fee_cents,
+            fee_amount_cents=club.fee_amount_cents,
+            fee_unit=club.fee_unit,
             class_ids=by_association.get(club.association_id, []),
         )
         for club in clubs
@@ -368,7 +370,8 @@ async def replace_class_sanctioning(
         association_id=association_id,
         code=club.association.code if club.association else "",
         name=club.association.name if club.association else "",
-        per_class_fee_cents=club.per_class_fee_cents,
+        fee_amount_cents=club.fee_amount_cents,
+        fee_unit=club.fee_unit,
         class_ids=sorted(wanted, key=str),
     )
 

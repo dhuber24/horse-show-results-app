@@ -3,7 +3,7 @@
 `show_fees.min_quantity` (migration 128) is a floor the secretary typed in --
 "at least four bags". It is the whole answer where it is set, and it is set on
 almost no show, because the fact a show usually records is a different one:
-`shows.shavings_ban_outside`, ticked in setup Step 4, which says outside
+`shows.shavings_ban_outside`, ticked in setup Step 3, which says outside
 bedding is not allowed on the grounds.
 
 Those two are the same requirement written down twice, and only one of them

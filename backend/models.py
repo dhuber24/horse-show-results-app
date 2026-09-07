@@ -529,7 +529,7 @@ class ClassSanctioning(Base):
     A club approves a list of classes, not a whole show: an NSBA-sanctioned
     show runs plenty of classes NSBA has nothing to do with, and an exhibitor
     entering one of those owes no sanction fee on it. A row here means the class
-    carries that club's `show_sanctioning.per_class_fee_cents`.
+    carries that club's `show_sanctioning` fee, in whatever unit that row names.
 
     Points at `associations` and not `show_types` — clubs are deliberately not
     show types (migration 080), and `ClassAssociation` above answers a different
@@ -873,6 +873,7 @@ class Exhibitor(Base):
     entries = relationship("Entry", back_populates="exhibitor")
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="exhibitor", cascade="all, delete")
     registrations = relationship("ExhibitorRegistration", back_populates="exhibitor", cascade="all, delete")
+    competition_cards = relationship("ExhibitorCompetitionCard", back_populates="exhibitor", cascade="all, delete")
     documents = relationship("ExhibitorDocument", back_populates="exhibitor", cascade="all, delete")
 
 
@@ -966,6 +967,55 @@ class ExhibitorRegistration(Base):
     )
 
     exhibitor = relationship("Exhibitor", back_populates="registrations")
+    association = relationship("Association")
+
+
+class ExhibitorCompetitionCard(Base):
+    """A card the exhibitor holds for one division, for one competition year.
+
+    APHA's Amateur, Novice Amateur, Amateur Walk-Trot, Novice Youth and Youth
+    Walk-Trot 11-18 cards all run 1 January to 31 December and are renewed
+    annually, so **there is no expiry column** -- it is 31 December of
+    `valid_year`, derived in `backend/competition_cards.py`. Storing a date
+    would let a card claim to lapse in June, which is not a card APHA issues,
+    and the desk would be reading it off a screen that looked authoritative.
+    Renewing is raising the year.
+
+    One row per (exhibitor, association, division): somebody legitimately holds
+    an Amateur card and a Novice Amateur card in the same year, and holds them
+    with a particular body. This is the shape migration 117 had to unpick for
+    membership numbers, arrived at first this time.
+    """
+    __tablename__ = "exhibitor_competition_cards"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
+    association_id = Column(UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False)
+    # `entries.apha_division`'s own vocabulary (migration 115) -- a card is what
+    # entitles an entry to name that division, and two lists for one concept is
+    # how they drift. See competition_cards.ALL_CARD_DIVISIONS.
+    division = Column(
+        Text,
+        CheckConstraint(
+            "division IN ('AMATEUR','NOVICE_AMATEUR','AMATEUR_WALK_TROT','NOVICE_YOUTH','YOUTH_WALK_TROT_11_18')"
+        ),
+        nullable=False,
+    )
+    # Ordinarily NULL: an APHA amateur card carries the member's own APHA
+    # number, so asking for it again is asking for the same digits twice.
+    card_number = Column(Text, nullable=True)
+    valid_year = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "exhibitor_id", "association_id", "division",
+            name="uq_exhibitor_competition_cards_exhibitor_association_division",
+        ),
+        CheckConstraint("valid_year BETWEEN 1962 AND 2100", name="ck_exhibitor_competition_cards_valid_year"),
+    )
+
+    exhibitor = relationship("Exhibitor", back_populates="competition_cards")
     association = relationship("Association")
 
 
@@ -1589,6 +1639,12 @@ class Judge(Base):
     __tablename__ = "judges"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    # The login this judge signs in with, if they have one (migration 135).
+    # NULL is the ordinary case -- most of the registry is judges the office
+    # typed in off a card. ON DELETE SET NULL, never CASCADE: deleting the
+    # account must not take the registry row, which `show_judges` and every
+    # placing filed under it still point at.
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     first_name = Column(Text, nullable=False)
     last_name = Column(Text, nullable=False)
     email = Column(Text, nullable=True)
@@ -1602,6 +1658,17 @@ class Judge(Base):
         lazy="selectin",
         order_by="Association.code",
     )
+    # Eager, like `associations`: the registry list renders the account beside
+    # the judge, and an unloaded relationship in an async request is a
+    # MissingGreenlet 500 rather than a missing column.
+    user = relationship("User", lazy="selectin")
+
+    @property
+    def user_email(self) -> "str | None":
+        """The account's email, which is not `Judge.email`. The registry's own
+        email is the contact address the show office holds for this judge; the
+        account's is what they sign in with, and they are allowed to differ."""
+        return self.user.email if self.user else None
 
 
 class ShowJudge(Base):
@@ -2390,10 +2457,17 @@ class SanctionedAssociationRequest(Base):
 
 
 class ShowSanctioning(Base):
-    """Per-show club sanctioning enrollment + per-class fee the secretary collects.
+    """Per-show club sanctioning enrollment + the fee the secretary collects for it.
 
     Points at the shared `associations` registry (club rows), so "this show is
-    NSBA-sanctioned" and "this rider is an NSBA member" reference the same body."""
+    NSBA-sanctioned" and "this rider is an NSBA member" reference the same body.
+
+    The fee is an amount and a unit (migration 133), the way a `show_fees` row
+    is. It was per class by definition -- the column was called
+    `per_class_fee_cents` -- so a club charging an all-day fee per horse, or an
+    assessment per judge per horse, had to be typed in as a hand-worked flat
+    amount or left off the app. Whichever unit is chosen, the charge counts only
+    the classes this club approves (`ClassSanctioning`)."""
     __tablename__ = "show_sanctioning"
 
     show_id = Column(
@@ -2404,7 +2478,11 @@ class ShowSanctioning(Base):
         ForeignKey("associations.id", ondelete="CASCADE"),
         primary_key=True,
     )
-    per_class_fee_cents = Column(Integer, nullable=False, server_default="0")
+    fee_amount_cents = Column(Integer, nullable=False, server_default="0")
+    # One of `billing.CLUB_SANCTION_UNITS`. `per_entry` is the original
+    # behaviour and the default, so every show that predates migration 133
+    # bills exactly what it did before.
+    fee_unit = Column(Text, nullable=False, server_default="per_entry")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="sanctioning")

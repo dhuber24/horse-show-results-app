@@ -11,7 +11,7 @@ import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEdit
  * class fee lives in a box outside this one.
  *
  * The per-horse and per-judge tables that used to live here were a second
- * implementation of the same `show_fees` editing that setup Step 5 needed, in a
+ * implementation of the same `show_fees` editing that setup Step 4 needed, in a
  * different vocabulary — and one of them wrote a `per_judge` unit that did not
  * say what it multiplied by. Both screens now render `ShowChargesEditor`, so
  * there is one shape for a charge and one place it is written. Here it renders
@@ -171,9 +171,9 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
 
   if (classes.length === 0) {
     return (
-      <div className="pt-3 border-t" style={{ borderColor: '#e8d5b7' }}>
-        <h3 className="text-sm font-semibold mb-1" style={{ color: '#2c1810' }}>Per-class pricing</h3>
-        <p className="text-sm" style={{ color: '#8b7355' }}>
+      <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Per-class pricing</h3>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
           No classes yet. Add classes from the Show home page, then come back to set fees.
         </p>
       </div>
@@ -183,9 +183,9 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
   const unpricedBreedCount = classes.filter(isDefaultFillable).length;
 
   return (
-    <div className="pt-3 border-t space-y-3" style={{ borderColor: '#e8d5b7' }}>
-      <h3 className="text-sm font-semibold" style={{ color: '#2c1810' }}>Per-class pricing</h3>
-      <p className="text-xs" style={{ color: '#8b7355' }}>
+    <div className="pt-3 border-t space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
+      <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Per-class pricing</h3>
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
         Charged once per entry (per class per horse). A class a club sanctions outright — WSCA,
         MNSPHC and the like — carries that club&apos;s own price and is not touched by the
         default below; each association charges its own.
@@ -194,9 +194,9 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
       {unpricedBreedCount > 0 && (
         <div
           className="rounded border p-2.5 space-y-1.5"
-          style={{ borderColor: '#e8d5b7', backgroundColor: '#faf7f2' }}
+          style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}
         >
-          <p className="text-xs" style={{ color: '#8b7355' }}>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
             <strong>{unpricedBreedCount}</strong> breed-association class
             {unpricedBreedCount === 1 ? '' : 'es'} still {unpricedBreedCount === 1 ? 'has' : 'have'} no
             price. Fill them all at once rather than typing the same amount {unpricedBreedCount}{' '}
@@ -204,7 +204,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
           </p>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative w-24">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
               <input
                 inputMode="decimal"
                 value={defaultDollars}
@@ -212,26 +212,26 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                 aria-label="Default price for unpriced breed-association classes"
                 placeholder="e.g. 36.00"
                 className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                style={{ borderColor: '#d4b896' }}
+                style={{ borderColor: 'var(--border)' }}
               />
             </div>
             <button
               onClick={fillDefaultPrice}
               disabled={filling || defaultDollars.trim() === ''}
               className="text-xs px-2.5 py-1.5 rounded font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: '#8b4513' }}
+              style={{ backgroundColor: 'var(--accent)' }}
             >
               {filling ? 'Filling…' : `Fill ${unpricedBreedCount} class${unpricedBreedCount === 1 ? '' : 'es'}`}
             </button>
             {fillResult && (
-              <span className="text-xs" style={{ color: '#5d4a37' }}>{fillResult}</span>
+              <span className="text-xs" style={{ color: 'var(--text-deep)' }}>{fillResult}</span>
             )}
           </div>
         </div>
       )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
-      <ul className="divide-y" style={{ borderColor: '#e8d5b7' }}>
+      <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
         {classes.map((cls) => {
           const draft = drafts[cls.id] ?? '';
           const parsed = centsFromDollars(draft);
@@ -241,14 +241,14 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
             <li key={cls.id} className="flex items-center gap-3 py-2">
               <div className="flex-1 min-w-0">
                 <span className="text-xs font-mono mr-2 px-1.5 py-0.5 rounded"
-                  style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}>
+                  style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
                   #{cls.class_number}
                 </span>
-                <span className="text-sm" style={{ color: '#2c1810' }}>{cls.class_name}</span>
+                <span className="text-sm" style={{ color: 'var(--foreground)' }}>{cls.class_name}</span>
                 {cls.sanctioning_codes.length > 0 && (
                   <span
                     className="ml-2 text-xs px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
+                    style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
                     title="Priced by the club, not by the breed-association default above"
                   >
                     {cls.sanctioning_codes.join(', ')}
@@ -257,7 +257,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                 {cls.entered_by_qualification && (
                   <span
                     className="ml-2 text-xs px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                    style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                     title="Reached by placing, not by entering — nobody signs up for this one"
                   >
                     by qualification
@@ -266,7 +266,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                 {cls.is_futurity_class && (
                   <span
                     className="ml-2 text-xs px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: '#f0e8d8', color: '#8b4513' }}
+                    style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
                     title="Priced by its futurity's own fee tier — a price here would double-charge it"
                   >
                     futurity
@@ -275,7 +275,7 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                 {(cls.entered_by_qualification || cls.is_futurity_class) && cls.entry_fee_cents > 0 && (
                   <span
                     className="ml-2 text-xs px-1.5 py-0.5 rounded"
-                    style={{ backgroundColor: '#fef2f2', color: '#b91c1c' }}
+                    style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error)' }}
                     title="This carries a price despite being reached by qualification or priced by a futurity — check it belongs"
                   >
                     ⚠ priced anyway
@@ -283,21 +283,21 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                 )}
               </div>
               <div className="relative w-24">
-                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#8b7355' }}>$</span>
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
                 <input
                   inputMode="decimal"
                   value={draft}
                   onChange={(e) => setDrafts((prev) => ({ ...prev, [cls.id]: e.target.value }))}
                   aria-label={`Entry fee for class ${cls.class_number}`}
                   className="w-full border rounded pl-5 pr-2 py-1 text-sm"
-                  style={{ borderColor: invalid ? '#fca5a5' : '#d4b896' }}
+                  style={{ borderColor: invalid ? 'var(--error-border)' : 'var(--border)' }}
                 />
               </div>
               <button
                 onClick={() => saveClass(cls)}
                 disabled={savingId === cls.id || invalid || !dirty}
                 className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
-                style={{ color: '#8b4513' }}
+                style={{ color: 'var(--accent)' }}
                 title={!dirty ? 'No change' : invalid ? 'Invalid amount' : 'Save'}
               >
                 {savingId === cls.id ? 'Saving…' : 'Save'}
@@ -319,8 +319,8 @@ export default function EntryFeesEditor({
   judgeCount,
 }: Props) {
   return (
-    <section className="rounded-lg border p-4 space-y-4" style={{ borderColor: '#d4b896' }}>
-      <h2 className="text-base font-semibold" style={{ color: '#2c1810' }}>Class Fees</h2>
+    <section className="rounded-lg border p-4 space-y-4" style={{ borderColor: 'var(--border)' }}>
+      <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Class Fees</h2>
       <ShowChargesEditor
         showId={showId}
         initialCharges={initialCharges}

@@ -95,6 +95,27 @@ export type BillChargeLine = {
 };
 
 /**
+ * One club's sanction fee, where the club charges per horse or per exhibitor
+ * rather than per class (migration 133).
+ *
+ * The clubs that charge per class are not here — their money is on the class
+ * lines as `sanction_cents`, which is where somebody looks for it. Every count
+ * on this line is taken over that club's own approved classes and no others.
+ */
+export type BillSanctionLine = {
+  association_id: string;
+  code: string;
+  name: string;
+  unit: string;
+  amount_cents: number;
+  horse_count: number;
+  judge_count: number;
+  entry_count: number;
+  quantity: number;
+  line_total_cents: number;
+};
+
+/**
  * One futurity enrollment's share of the bill.
  *
  * A futurity class carries no `entry_fee_cents` of its own — the rate depends
@@ -127,8 +148,14 @@ export type Bill = {
   class_lines: BillClassLine[];
   reservation_lines: BillReservationLine[];
   charge_lines: BillChargeLine[];
+  sanction_lines: BillSanctionLine[];
   futurity_lines: BillFuturityLine[];
   class_fee_total_cents: number;
+  /** The per-class portion of the sanction money — what the class lines above
+   *  already carry. `sanction_total_cents` is that plus `sanction_lines`, so a
+   *  screen prints this one beside those and foots without adding anything up
+   *  itself. */
+  class_sanction_total_cents: number;
   sanction_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;
@@ -163,10 +190,10 @@ export const SHOW_STATUS_BADGE: Record<
   string,
   { label: string; bgColor: string; textColor: string }
 > = {
-  ACTIVE: { label: 'In Progress', bgColor: '#fef3c7', textColor: '#92400e' },
-  PUBLISHED: { label: 'Open for Registration', bgColor: '#dbeafe', textColor: '#1e40af' },
-  COMPLETED: { label: 'Completed', bgColor: '#f3f4f6', textColor: '#6b7280' },
-  DRAFT: { label: 'Draft', bgColor: '#f3f4f6', textColor: '#6b7280' },
+  ACTIVE: { label: 'In Progress', bgColor: 'var(--success-bg)', textColor: 'var(--success-strong)' },
+  PUBLISHED: { label: 'Open for Registration', bgColor: 'var(--accent-bg)', textColor: 'var(--accent-hover)' },
+  COMPLETED: { label: 'Completed', bgColor: 'var(--bg-subtle)', textColor: 'var(--muted)' },
+  DRAFT: { label: 'Draft', bgColor: 'var(--bg-subtle)', textColor: 'var(--muted)' },
 };
 
 export function formatMoney(cents: number): string {

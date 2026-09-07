@@ -1,4 +1,4 @@
-# Contributing to Horse Show Results App
+# Contributing to GaitDesk
 
 Thank you for contributing! This document provides guidelines for working on this project.
 
@@ -432,4 +432,4 @@ worth running either way. `bash RUN_TESTS.sh` from the repo root runs the lot.
 
 ---
 
-Thank you for contributing to Horse Show Results App! 🎉
+Thank you for contributing to GaitDesk! 🎉

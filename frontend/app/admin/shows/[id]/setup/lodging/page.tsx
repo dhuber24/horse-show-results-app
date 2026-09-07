@@ -36,7 +36,7 @@ export default async function SetupLodgingPage({
       showId={id}
       showName={show.name}
       current="lodging"
-      title="Step 4: Lodging & Boarding"
+      title="Step 3: Lodging & Boarding"
       subtitle="Stall fees, shavings, and camping. Skip any that don't apply."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
     >

@@ -158,7 +158,10 @@ def profile_checklist(
                 # card, and one can be bought at the counter.
                 "blocking": False,
                 "hint": (
-                    "Add your number for " + ", ".join(outstanding)
+                    # Ends with a full stop like every other hint: the screen
+                    # runs a sentence on after it, and without one the line
+                    # read "...APHA, WSCA, MNSPHC Optional - cards are checked".
+                    "Add your number for " + ", ".join(outstanding) + "."
                     if outstanding
                     else "On file for every association this show runs under."
                 ),

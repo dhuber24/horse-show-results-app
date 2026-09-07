@@ -2,7 +2,7 @@ import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { ShowCharge } from '@/components/ShowChargesEditor';
-import FeesClient, { type FeeRow, type SanctioningRow } from './FeesClient';
+import FeesClient, { type FeeRow } from './FeesClient';
 import StepLayout from '../_lib/StepLayout';
 import { fetchStepCounts } from '../_lib/fetchStepCounts';
 
@@ -14,7 +14,7 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-// No `futurity` fee code here. It was a single per-entry amount sitting beside
+// No `futurity` fee code here. It was a single per-class amount sitting beside
 // the jackpot fee, and a futurity cannot be described by one number: the same
 // class is priced three ways depending on how the horse got there, entries
 // close on a stated date after which every class carries a late fee, and
@@ -31,23 +31,11 @@ export default async function SetupFeesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [allFees, sanctioning, judges, classSanctioning, classes, stepsInput] =
-    await Promise.all([
-      fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
-      fetchAuthed<SanctioningRow[]>(`${API_URL}/shows/${id}/sanctioning/`, []),
-      fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
-      fetchAuthed<{ association_id: string; class_ids: string[] }[]>(
-        `${API_URL}/shows/${id}/classes/sanctioning`,
-        [],
-      ),
-      fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/classes/`, []),
-      fetchStepCounts(id),
-    ]);
-  // A per-class sanction fee only bills on classes the club approves, so the
-  // amount on its own does not say whether it charges anybody. See migration 113.
-  const sanctionedCounts: Record<string, number> = Object.fromEntries(
-    classSanctioning.map((c) => [c.association_id, c.class_ids.length]),
-  );
+  const [allFees, judges, stepsInput] = await Promise.all([
+    fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
+    fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
+    fetchStepCounts(id),
+  ]);
   // The show's own class fees, picked out by unit rather than by a list of
   // codes: the whole point is that a manager names their own, so there is no
   // code here to match on. `per_entry` rides along too — a jackpot/sidepot
@@ -62,17 +50,14 @@ export default async function SetupFeesPage({
       showId={id}
       showName={show.name}
       current="fees"
-      title="Step 5: Show Fees"
-      subtitle="Every class fee this show adds — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 6; futurity pricing comes from Step 7."
+      title="Step 4: Show Fees"
+      subtitle="Every class fee this show adds — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 5; a club's sanction fee is Step 6, and futurity pricing comes from Step 7."
       stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
     >
       <FeesClient
         showId={id}
         initialCharges={charges}
         judgeCount={judges.length}
-        sanctioning={sanctioning}
-        sanctionedCounts={sanctionedCounts}
-        classCount={classes.length}
         legacyFuturityFee={legacyFuturityFee}
         futurityCount={stepsInput.futurityCount}
       />

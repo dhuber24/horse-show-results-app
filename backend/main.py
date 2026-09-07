@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
 limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
-    title="Horse Show Results API",
+    title="GaitDesk API",
     lifespan=lifespan,
     description="Entry and results management for ranch and western pleasure horse shows.",
     version="0.1.0",
@@ -228,7 +228,7 @@ async def root():
     transient Neon blip must not do that, so the database check lives on
     /health/ready instead. Do not "tidy" the two into one.
     """
-    return {"status": "ok", "app": "Horse Show Results API"}
+    return {"status": "ok", "app": "GaitDesk API"}
 
 
 @app.get("/health/ready", tags=["Health"])

@@ -1,6 +1,6 @@
 # Architecture
 
-Horse Show Results is a browser-based system for managing horse show entries, back numbers, manual placings, and published results. It is intentionally not a judging engine: it does not score maneuvers or calculate penalties. It does include limited association compliance validation where the app models the required data, such as AQHA class-code, registration, membership-number, and age checks.
+GaitDesk is a browser-based system for managing horse show entries, back numbers, manual placings, and published results. It is intentionally not a judging engine: it does not score maneuvers or calculate penalties. It does include limited association compliance validation where the app models the required data, such as AQHA class-code, registration, membership-number, and age checks.
 
 ## Stack
 

@@ -742,7 +742,7 @@ async def main() -> None:
                 ShowSanctioning(
                     show_id=show.id,
                     association_id=clubs[code].id,
-                    per_class_fee_cents=0,
+                    fee_amount_cents=0,
                 )
             )
         for order, judge in enumerate(judges, start=1):

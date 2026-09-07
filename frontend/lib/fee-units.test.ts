@@ -14,7 +14,15 @@
 // `@types/jest` to the dependency tree.
 import { describe, expect, it } from '@jest/globals';
 
-import { FEE_GROUPS, canHaveEarlyRate, canHaveMinimumQuantity, groupFees } from './fee-units';
+import {
+  CLUB_SANCTION_UNITS,
+  FEE_GROUPS,
+  UNIT_LABEL,
+  canHaveEarlyRate,
+  canHaveMinimumQuantity,
+  groupFees,
+  isClubSanctionUnit,
+} from './fee-units';
 
 const fee = (unit: string, id = unit) => ({ id, unit });
 
@@ -80,6 +88,36 @@ describe('groupFees', () => {
   it('gives every group a note saying whether the amounts are the readers to control', () => {
     for (const group of FEE_GROUPS) {
       expect(group.note.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('CLUB_SANCTION_UNITS', () => {
+  it('offers per class first — what every club charged before it had a choice', () => {
+    expect(CLUB_SANCTION_UNITS[0]).toBe('per_entry');
+  });
+
+  it('leaves out the breed body\'s own per-entry assessment', () => {
+    // `per_judge_per_entry` is APHA SC-125.B and its kin: a levy the breed
+    // association makes the show collect, which lives in the show's own fee
+    // catalog. A club billing per class entered is `per_entry` here.
+    expect(isClubSanctionUnit('per_judge_per_entry')).toBe(false);
+  });
+
+  it('offers nothing an exhibitor books or the app cannot bill', () => {
+    // Every club unit is charged from what somebody entered. A reservable unit
+    // (a stall, a bag) or `flat` would be a rate with nothing to multiply.
+    for (const unit of ['per_stall', 'per_bag', 'per_night', 'flat', 'percent_of_entry']) {
+      expect(isClubSanctionUnit(unit)).toBe(false);
+    }
+  });
+
+  it('has a label for every unit it offers', () => {
+    // The picker renders `unitLabel`, and a unit with no label falls back to
+    // its column value — "per judge per horse" in a list that says "per judge,
+    // per horse" everywhere else.
+    for (const unit of CLUB_SANCTION_UNITS) {
+      expect(UNIT_LABEL[unit]).toBeTruthy();
     }
   });
 });

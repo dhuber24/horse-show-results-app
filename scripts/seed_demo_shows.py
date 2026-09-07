@@ -417,7 +417,7 @@ async def seed(db: AsyncSession) -> None:
             db.add(ShowSanctioning(
                 show_id=show.id,
                 association_id=associations[code].id,
-                per_class_fee_cents=SANCTION_FEE_CENTS[code],
+                fee_amount_cents=SANCTION_FEE_CENTS[code],
             ))
 
         # Judges — the person goes in the registry once and is assigned to each
