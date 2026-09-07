@@ -31,8 +31,9 @@ repository. It deliberately contains names and non-secret defaults only.
    | `AUTH_URL`, `PUBLIC_APP_URL` | `https://gaitdesk-web.onrender.com` |
 
    Use the actual URLs displayed by Render if it assigns a different hostname.
-   Set `DATABASE_URL` to Neon’s async SQLAlchemy URL (for example, a
-   `postgresql+asyncpg://...` connection string).
+   Set `DATABASE_URL` to Neon’s connection string. The backend accepts both
+   Neon’s standard `postgresql://...` URL and an async
+   `postgresql+asyncpg://...` URL.
 
 5. Confirm `https://<api-host>/health/ready` returns a success response, then
    open the web service and test sign-in, registration, an authenticated write,

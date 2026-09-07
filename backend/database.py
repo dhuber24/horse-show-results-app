@@ -4,6 +4,14 @@ import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/horseshow")
 
+# Neon supplies a conventional ``postgresql://`` URL from its dashboard, while
+# this application uses SQLAlchemy's asyncpg driver. Accept the dashboard URL
+# directly in deployment configuration and select the async driver here.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+
 # Strip ssl/sslmode query params and pass ssl via connect_args for asyncpg compatibility
 from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 _parsed = urlparse(DATABASE_URL)
