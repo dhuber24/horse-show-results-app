@@ -39,6 +39,11 @@ repository. It deliberately contains names and non-secret defaults only.
    open the web service and test sign-in, registration, an authenticated write,
    and a document upload.
 
+   If sign-in returns Auth.js's generic `CredentialsSignin` message, check the
+   `gaitdesk-web` service logs. They safely record either the API response
+   status or the URL/connectivity error, without recording the submitted email
+   address or password.
+
 ## Custom domain
 
 Add these custom domains from each Render service's **Settings > Custom Domains**
