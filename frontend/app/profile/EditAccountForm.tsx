@@ -110,7 +110,22 @@ export default function EditAccountForm({ user, exhibitor }: Props) {
         parent_guardian_name: exForm.parent_guardian_name.trim() || null,
         parent_guardian_phone: exForm.parent_guardian_phone.trim() || null,
       };
-      requests.push(fetch(`/api/exhibitors/${exhibitor.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(exBody) }));
+      // Only when something here actually changed. The boxes are the whole
+      // message -- an empty one sends null and clears the column -- so a form
+      // that renders blank for any reason other than the record being blank
+      // wipes it on the next press of Save. That is not hypothetical: this
+      // screen read the exhibitor out of the dashboard's `{id, full_name}`
+      // summary until recently, so every contact box was empty whatever was on
+      // file, and saving a corrected surname took somebody's phone number and
+      // street address with it. `page.tsx` reads the real record now; this is so
+      // the next wrong payload costs nobody their emergency contact. Clearing a
+      // box on purpose is still a change, so it still sends the null.
+      const exChanged = Object.entries(exBody).some(
+        ([k, v]) => (v ?? '') !== ((exhibitor as unknown as Record<string, string | null>)[k] ?? ''),
+      );
+      if (exChanged) {
+        requests.push(fetch(`/api/exhibitors/${exhibitor.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(exBody) }));
+      }
     }
 
     const results = await Promise.all(requests);

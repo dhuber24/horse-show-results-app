@@ -51,6 +51,26 @@ def _validate_name_parts(first_name: Optional[str], last_name: Optional[str]) ->
         raise HTTPException(400, "Last name is required")
 
 
+async def _sync_linked_exhibitor_name(user: User, db: AsyncSession):
+    """Carry a rename on the login account through to the show-facing record.
+
+    `exhibitors.full_name` is the name entries, back-number lists and published
+    results are printed under. It was written once, when the account was
+    created, and never again -- so renaming yourself on `/profile` changed the
+    account and left every entry under the old name, with no screen anywhere
+    offering to fix it: registration's step one blocks on this row and gives it
+    no box, because the name belongs to the account.
+
+    Only the row **linked to this user**. An exhibitor a show secretary typed in
+    by hand is that office's record of somebody who may not have an account at
+    all, and renaming it from here would rewrite a stranger who shares a name.
+    """
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
+    exhibitor = result.scalar_one_or_none()
+    if exhibitor:
+        exhibitor.full_name = _display_name(user.first_name, user.last_name)
+
+
 async def _ensure_role_profile(user: User, db: AsyncSession):
     if user.role == "EXHIBITOR":
         existing = await db.execute(select(Exhibitor).where(Exhibitor.user_id == user.id))
@@ -261,6 +281,8 @@ async def update_current_user(
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
+    if "first_name" in updates or "last_name" in updates:
+        await _sync_linked_exhibitor_name(user, db)
     try:
         await db.commit()
         await db.refresh(user)
@@ -370,6 +392,8 @@ async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSess
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
+    if "first_name" in updates or "last_name" in updates:
+        await _sync_linked_exhibitor_name(user, db)
     try:
         await db.commit()
         await db.refresh(user)
@@ -1195,6 +1219,37 @@ async def get_exhibitor_by_user(user_id: UUID, db: AsyncSession = Depends(get_db
     exhibitor = result.scalar_one_or_none()
     if not exhibitor:
         raise HTTPException(404, "No exhibitor record found for this user")
+    return exhibitor
+
+@exhibitors_router.post("/me", response_model=ExhibitorOut, status_code=201)
+async def ensure_own_exhibitor(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's own exhibitor row, created if they somehow have none.
+
+    `/profile` has called this since it was written and it has never existed --
+    the POST 405'd and the page swallowed it, so an EXHIBITOR whose row was
+    missing simply saw no contact fields at all. Registration creates the row
+    and so does user creation (`_ensure_role_profile`), which is why nobody
+    noticed; this is for the accounts that predate either.
+
+    Returns the existing row rather than refusing, because the caller is asking
+    for their own profile and a second row for one person is the thing
+    `_dedup_exhibitors` exists to clean up after.
+    """
+    uid = safe_uuid(user_id)
+    result = await db.execute(select(Exhibitor).where(Exhibitor.user_id == uid))
+    exhibitor = result.scalar_one_or_none()
+    if exhibitor:
+        return exhibitor
+    user = await db.get(User, uid)
+    if not user:
+        raise HTTPException(404, "User not found")
+    exhibitor = Exhibitor(full_name=_display_name(user.first_name, user.last_name), user_id=user.id)
+    db.add(exhibitor)
+    await db.commit()
+    await db.refresh(exhibitor)
     return exhibitor
 
 @exhibitors_router.get("/{exhibitor_id}", response_model=ExhibitorOut, dependencies=[Depends(require_api_key)])

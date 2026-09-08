@@ -103,6 +103,49 @@ exists to avoid. `PATCH /exhibitors/{id}/registrations/{reg_id}` closes it, and
 each membership on the profile now shows where it stands with an **Add expiry**
 link where it does not say.
 
+### The Profile And The Registration Form Are One Record
+
+Reported from production: details typed into show registration never appeared on
+the user profile, and details typed into the profile were being erased by
+registering.
+
+Both halves were one defect. `EditAccountForm` on `/profile` and `ProfileStep`
+on `/shows/[id]/register` edit the same `exhibitors` row and already wrote it
+through the same `PATCH /exhibitors/{id}` -- the writing was never the problem.
+The **reading** was. `/profile` took its exhibitor from
+`GET /dashboard/exhibitor/{userId}`, whose payload is `{id, full_name}` and
+nothing else, because that endpoint exists to title the dashboard's entry list.
+So the profile's Contact, Emergency Contact and Parent/Guardian boxes rendered
+empty however much was on file -- which is the first complaint exactly.
+
+The second complaint follows from the first with nothing else added. A form of
+empty boxes sends `null` for each one, and `PATCH /exhibitors/{id}` uses
+`exclude_unset=True`, so the nulls are written. Anyone who registered for a show,
+came back to a blank-looking profile and pressed **Save Changes** -- to fix a
+surname, or to retype the fields they noticed were missing -- destroyed the rest:
+date of birth, phone, street address, emergency contact, guardian. The developer's
+own record showed it, phone and address gone while city, state and ZIP survived,
+which is what a partial retype leaves behind.
+
+The fix is the read: `GET /exhibitors/by-user/{userId}`, the full `ExhibitorOut`,
+the same row `/shows/[id]/register/preview` has always prefilled step one from.
+Beside it, two things that were wrong for the same reason. `EditAccountForm` now
+diffs its exhibitor half against what it loaded and skips the PATCH when nothing
+moved, so a future wrong payload cannot cost anybody their emergency contact --
+the same no-op-when-clean rule `StepAutosave` follows, and deliberate clearing
+still works because clearing a box is a change. And `POST /exhibitors/me`, which
+`/profile` has called as its create-if-missing fallback since it was written,
+now exists -- it had been 405ing into a swallowed `if (createRes.ok)`.
+
+One more, found on the way. `users.first_name`/`last_name` is what the profile
+edits; `exhibitors.full_name` is what entries, back-number lists and published
+results print, and it was written once at account creation and never again. So
+renaming yourself changed the login and left every entry under the old name,
+with nowhere to correct it -- registration step one blocks on that row and gives
+it no box, because the name belongs to the account. Both user-update endpoints
+carry a name change onto the linked exhibitor row, and only the linked one: a
+row a secretary typed in by hand belongs to that show office.
+
 ### Registration, Read On A Phone
 
 Tested on a mobile device, the exhibitor's registration screen was small print

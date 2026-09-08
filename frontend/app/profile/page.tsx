@@ -32,9 +32,19 @@ export default async function ProfilePage({
   let showHistory: MyShow[] = [];
 
   if (role === 'EXHIBITOR') {
-    const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
-    const dash = await dashRes.json();
-    exhibitor = dash.exhibitor ?? null;
+    // The exhibitor record itself, not the dashboard's summary of it.
+    //
+    // This used to read `GET /dashboard/exhibitor/{userId}`, whose payload is
+    // `{id, full_name}` and nothing else -- it is the entry list for the
+    // dashboard, and the exhibitor on it is there to name the page. So every
+    // contact box on this screen rendered empty however much was on file, and
+    // pressing Save wrote a null over each one, because the form sends what the
+    // boxes hold. Somebody who filled in their details during show registration
+    // saw a blank profile, retyped the fields they noticed, and silently lost
+    // the ones they did not. `by-user` returns the whole `ExhibitorOut`, which
+    // is the same row `/shows/[id]/register` prefills its step one from.
+    const exRes = await fetch(`${API_URL}/exhibitors/by-user/${userId}`, { headers: headers!, cache: 'no-store' });
+    if (exRes.ok) exhibitor = await exRes.json();
 
     // Auto-create the exhibitor record on first visit if it doesn't exist yet
     if (!exhibitor) {

@@ -74,6 +74,20 @@ A unit belonging to no group lands in **Other charges** rather than disappearing
 
 Layout carries as much of this as the copy does. A row pairing text with a fixed-width control (`ReservationFields`' fee rows: two steppers, an input and a noun, ~200px of it) must stack below `sm`, or the text is wrung out in a column barely wider than a word — and the longest text in that row is the secretary's own `notes`, which no amount of editing here touches.
 
+### One Exhibitor Record, Two Screens That Edit It
+
+`/profile` (**Account** tab, `EditAccountForm`) and `/shows/[id]/register` (step one, `ProfileStep`) put boxes over the *same* `exhibitors` row and both write it through `PATCH /api/exhibitors/{id}`. There is one writer; what there has to be is one **reader**.
+
+The profile screen read its exhibitor out of `GET /dashboard/exhibitor/{userId}` for a long time. That payload is `{id, full_name}` — it is the entry list for the dashboard, and the exhibitor on it is there to title the page. So every contact box on the profile rendered empty however much was on file, and because a form of empty boxes sends `null` for each one, pressing **Save Changes** to fix a surname wrote a null over the date of birth, phone, address, emergency contact and guardian that registration had collected. The page reads `GET /exhibitors/by-user/{userId}` — the full `ExhibitorOut`, the same row `/shows/[id]/register/preview` prefills step one from — and the two screens now agree.
+
+Two rules come out of that:
+
+**A screen that edits a record reads that record, not an aggregate that mentions it.** The dashboard, desk and preview payloads name an exhibitor so their own screens can label something. Widening one of them to carry editable columns puts the next edit form one field behind whenever somebody adds a column.
+
+**A form whose boxes are the whole message only submits when a box changed.** `EditAccountForm` diffs its exhibitor half against what it loaded and skips the PATCH when nothing moved — the same "a flush must be a no-op when nothing is dirty" rule `StepAutosave` follows, here for a blunter reason: a form that renders blank for any reason other than the record being blank destroys the record on the next press. Clearing a box on purpose is still a change, so it still sends the null.
+
+The account's name is the other half. `users.first_name`/`last_name` is what you edit; `exhibitors.full_name` is what entries, back-number lists and published results print. It was written once at account creation and never again, so renaming yourself changed the login and left every entry under the old name — with nowhere to fix it, since step one blocks on that row and offers no box for it. `PATCH /users/me` and the admin `PATCH /users/{id}` now carry a name change onto the linked exhibitor, and only the linked one: an exhibitor a secretary typed in by hand is that office's record of somebody who may not have an account at all.
+
 ### Required Fields Are Marked In The Field
 
 `ProfileStep` puts the asterisk on the label and in the placeholder, not in a list above the form. A list of field names is something the reader has to hold in their head while looking at boxes that all look alike, and it grows into a paragraph nobody reads.
