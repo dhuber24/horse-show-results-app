@@ -89,18 +89,35 @@ Use a Neon branch per environment:
    target before doing anything and refuses to run against that host without
    `-AllowProduction`.
 
-Migrating production then becomes a deliberate release step, in this order:
+Migrating production then becomes a deliberate release step, and **the order is
+decided by the migration, not by preference.** The `release` skill
+(`.claude/skills/release/`) encodes this; the short version:
+
+A **backward-compatible** migration — a new table, a nullable or defaulted
+column, an index — goes to production *before* the code:
 
 ```powershell
-# 1. Deploy the code that expects the new schema, or take the outage knowingly.
-# 2. Then, and only then:
+powershell -ExecutionPolicy Bypass -File database/migrate.ps1            # dev
 powershell -ExecutionPolicy Bypass -File database/migrate.ps1 -AllowProduction
+# then push, and let Render deploy
 ```
 
-Order matters in both directions, and neither is free. A migration ahead of its
-deploy breaks the running release; a deploy ahead of its migration fails its own
-readiness check and is not promoted. The second is the recoverable one, which is
-why the readiness probe is allowed to fail on drift.
+That is safe because `schema_drift` treats a column the database has and the
+build does not map as **not** drift: the running release simply ignores it.
+Deploying first instead is safe but unsuccessful — the new code maps a column
+that does not exist, readiness 503s, and Render declines to promote it. Nothing
+breaks, but nothing ships either until the migration runs.
+
+A **backward-incompatible** migration — `RENAME`, `DROP`, `SET NOT NULL`, a
+narrowed type — has **no working order at all**, and migration 133 was one.
+Migrating first breaks the running release; deploying first never promotes. Split
+it into releases that are each backward-compatible (expand / contract): add the
+new column and write both, backfill and switch reads, then stop referencing the
+old column and drop it. Only that last step deploys before it migrates, because
+by then nothing maps the column being dropped.
+
+A single-step rename means a deliberate outage window. That is a decision to take
+knowingly and at a quiet time, not a routine release.
 
 ## What readiness actually checks
 
