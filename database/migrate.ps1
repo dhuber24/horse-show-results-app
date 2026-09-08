@@ -1,9 +1,17 @@
 # Applies any unapplied migrations in database/migrations/ to the Neon database.
 # Requires DATABASE_URL in .env or environment.
 #
-# The target is always printed before anything runs. If PRODUCTION_DATABASE_HOST
-# is set (in .env) and DATABASE_URL points at it, the run is refused unless
-# -AllowProduction is passed.
+# The target is always printed before anything runs. If it is a known production
+# host, the run is refused unless -AllowProduction is passed.
+#
+# Production hosts are matched by SHA-256, not by name. The guard has to travel
+# with the repository -- it previously lived only in PRODUCTION_DATABASE_HOST in
+# a gitignored .env, so any environment without that file (a Codespace, a fresh
+# clone, CI) silently had no guard at all, which is the same failure as a health
+# check that only tests SELECT 1. This repository is public, so the hostname
+# itself is not committed; a hash guards it without publishing infrastructure.
+# PRODUCTION_DATABASE_HOST still works and is *added* to the list rather than
+# replacing it, so a misconfigured value can never switch the guard off.
 #
 # This guard exists because of a real outage. Migration 133 renamed
 # show_sanctioning.per_class_fee_cents while the deployed release still mapped
@@ -40,11 +48,26 @@ $targetHost = "unknown"
 if ($dbUrl -match "@([^/:?]+)") { $targetHost = $matches[1] }
 Write-Host "Target database: $targetHost"
 
+# SHA-256 of each known production host, lowercased. Add a line to extend.
+$ProductionHostHashes = @(
+    "94fdbdfb643086f1296b4ad66abf1ebe8928a2b1963e0975f196e1cf853811ef"  # gaitdesk-api / Render
+)
+
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$targetHash = (($sha.ComputeHash(
+    [System.Text.Encoding]::UTF8.GetBytes($targetHost.ToLower())
+) | ForEach-Object { $_.ToString("x2") }) -join "")
+
+$isProduction = $ProductionHostHashes -contains $targetHash
+
+# An explicitly configured host is additional, never a replacement.
 $prodHost = $env:PRODUCTION_DATABASE_HOST
-if ($prodHost -and $targetHost -eq $prodHost.Trim()) {
+if ($prodHost -and $targetHost -eq $prodHost.Trim()) { $isProduction = $true }
+
+if ($isProduction) {
     if (-not $AllowProduction) {
         Write-Host ""
-        Write-Host "Refusing to migrate: $targetHost is PRODUCTION_DATABASE_HOST." -ForegroundColor Yellow
+        Write-Host "Refusing to migrate: $targetHost is a known production database." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "A migration against the database production is serving from breaks"
         Write-Host "the running release the moment it renames or drops anything, and the"

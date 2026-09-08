@@ -136,9 +136,11 @@ Run it with Bash `run_in_background: true` so the user is not blocked.
   pointed at production) or through the public API. Do not "temporarily" repoint
   `DATABASE_URL` at production to run something — that is the configuration the
   split exists to prevent.
-- **`PRODUCTION_DATABASE_HOST` in `.env` is what arms the guard.** If
-  `migrate.ps1` runs against production without being asked, that line is
-  missing or stale.
+- **The guard needs no configuration.** `migrate.ps1` matches known production
+  hosts by SHA-256 committed in the script, so it protects a Codespace, a fresh
+  clone and CI equally. `PRODUCTION_DATABASE_HOST` adds a host; it cannot remove
+  one. If `migrate.ps1` ever reaches production unasked, the hash list is out of
+  date — add the new host's hash rather than relying on an env var.
 - **Migrations are append-only and idempotent here.** Re-running is the check:
   every migration must report `applying:` or `skipped:`, ending in `Migrations
   complete.`

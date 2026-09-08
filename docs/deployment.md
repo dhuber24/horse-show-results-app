@@ -84,10 +84,14 @@ Use a Neon branch per environment:
    and starts with production's schema and data.
 2. Point the local `.env` `DATABASE_URL` at the `dev` branch's connection
    string. Production keeps the parent branch, set only in Render.
-3. Set `PRODUCTION_DATABASE_HOST` in the local `.env` to the *production*
-   host (`ep-....neon.tech`, no credentials). `database/migrate.ps1` prints its
-   target before doing anything and refuses to run against that host without
-   `-AllowProduction`.
+3. Nothing to configure: `database/migrate.ps1` prints its target before doing
+   anything and already refuses the production host without `-AllowProduction`.
+   It matches known production hosts by **SHA-256**, committed in the script, so
+   the guard travels with the repository — a Codespace, a fresh clone or CI is
+   protected without a `.env`. The hostname itself is not committed because this
+   repository is public. `PRODUCTION_DATABASE_HOST` still works for an
+   *additional* production database and is added to that list, never replacing
+   it, so a misconfigured value cannot switch the guard off.
 
 Migrating production then becomes a deliberate release step, and **the order is
 decided by the migration, not by preference.** The `release` skill
