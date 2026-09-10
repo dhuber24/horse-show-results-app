@@ -150,9 +150,12 @@ are two independent events, and **the order between them is decided by the
 migration, not by preference** — getting it wrong took the site down once
 already (migration 133).
 
-So: **if any staged file is under `database/migrations/`, stop and use the
-`release` skill (`.claude/skills/release/`) instead of finishing here.** It
-classifies the migration and gives the ordering. The short version:
+So: **if any staged file is under `database/migrations/`, commit here but do not
+push — hand off to the `release` skill (`.claude/skills/release/`).** It drives
+`scripts/release.ps1`, which takes the commit you just made and runs the rest of
+the sequence: dev, production, the ledger check, a health check before the push,
+the push itself, then a watch. That script requires a clean tree, so committing
+first is exactly what it needs. The short version of the ordering:
 
 - **Backward-compatible** (new table, nullable/defaulted column, index):
   migrate production *first*, then push.

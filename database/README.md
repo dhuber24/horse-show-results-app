@@ -63,8 +63,25 @@ a Codespace, a fresh clone or CI with no `.env` and no configuration. An empty o
 unreadable hash file is a hard failure, never an unguarded run.
 
 **Migrating production is a release step, and the order relative to the deploy
-is decided by the migration, not by preference.** Read
+is decided by the migration, not by preference.** `scripts/release.ps1` runs the
+whole sequence — dev, then production, then the push — and refuses a
+backward-incompatible migration outright. Read
 [.claude/skills/release/](../.claude/skills/release/) before releasing schema.
+
+While a migration is still being written, that script will classify it on its
+own without touching anything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 `
+    -Classify database/migrations/138_my_migration.sql
+```
+
+It reports any backward-incompatible statement, whether the migration writes its
+own `_migrations` row, and whether that row names the right file. It scans code
+only — comments and string literals are stripped first, so the long `COMMENT ON`
+blocks in these migrations cannot trip it or hide anything behind an apostrophe.
+A clean report is a guard, not a promise: it cannot see a value removed from a
+`CHECK` list, a wrong backfill, or dynamic SQL built inside a `DO` block.
 
 Direct SQL fallback:
 

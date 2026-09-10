@@ -86,7 +86,22 @@ goes green — there is no separate release step and no staging environment. A
 commit that carries a migration is therefore a **release**, and production is a
 different Neon branch that your local migration run did not touch. The order
 between the migration and the deploy is decided by the migration, not by
-preference; getting it wrong took the site down once. Read
+preference; getting it wrong took the site down once.
+
+`scripts/release.ps1` runs that sequence for you. It releases what is
+**committed**, so commit (without pushing), then:
+
+```powershell
+# what would this release do? touches nothing
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1
+
+# then, with -Run, it migrates dev and production, pushes, and watches
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run `
+    -DatabaseUrl "<production connection string>" -BackedUp
+```
+
+It refuses a backward-incompatible migration rather than sequencing it, because
+no ordering works for those. Read
 [.claude/skills/release/SKILL.md](./.claude/skills/release/SKILL.md) before
 pushing schema, and [docs/deployment.md](./docs/deployment.md) for the
 environment layout.

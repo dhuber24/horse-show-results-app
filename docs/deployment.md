@@ -104,8 +104,61 @@ Use a Neon branch per environment:
    `_migrations` row claiming it had been applied.
 
 Migrating production then becomes a deliberate release step, and **the order is
-decided by the migration, not by preference.** The `release` skill
-(`.claude/skills/release/`) encodes this; the short version:
+decided by the migration, not by preference.**
+
+## Releasing
+
+`scripts/release.ps1` runs the whole sequence in the right order. It releases
+what is **committed**, so commit first and let it do the push:
+
+```powershell
+# what would this release do? touches nothing
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1
+
+# code-only release
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
+
+# release carrying a migration
+$env:PRODUCTION_DATABASE_URL = "<production connection string>"
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run -BackedUp
+```
+
+`-DatabaseUrl "<url>"` is accepted too, but the environment variable is
+preferable: a connection string passed as a command-line argument lands in
+PSReadLine's on-disk history in clear text. Neither is read from `.env`.
+
+The script **refuses a target that is not a known production host** (SHA-256,
+same list as `migrate.ps1`) — the inverse of that runner's guard. Without it,
+handing the script a dev URL would pass every check downstream and still push,
+leaving production with code for a schema it never received.
+
+With `-Run` it refuses a dirty tree or a stale `main`, lists the commits and the
+migrations they carry, scans each migration and refuses anything
+backward-incompatible, runs `RUN_TESTS.sh`, migrates dev, migrates production,
+confirms every migration reached production's `_migrations` ledger, **checks
+production is still serving before pushing**, pushes, and samples for five
+minutes.
+
+That pre-push check is the migration-133 detector: production is running the old
+code against the new schema at exactly that moment, which is the state that broke
+the site. On breakage it stops without pushing.
+
+Four things it deliberately does not do. It does not decide whether a migration
+is safe — it scans and refuses on suspicion, which is a guard rather than a
+judgment, so read the SQL. It does not read the production URL from `.env`. It
+cannot make the Neon backup branch, so `-BackedUp` is your word that you did. And
+it cannot tell whether CI passed or whether the new build is live — see "What no
+amount of this tells you" in `.claude/skills/release/SKILL.md`.
+
+To classify a migration without releasing anything:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 `
+    -Classify database/migrations/138_my_migration.sql
+```
+
+The `release` skill (`.claude/skills/release/`) holds the reasoning; the short
+version:
 
 A **backward-compatible** migration — a new table, a nullable or defaulted
 column, an index — goes to production *before* the code:
