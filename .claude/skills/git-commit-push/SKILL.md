@@ -41,7 +41,8 @@ this same procedure; this skill is the Claude Code path to the same result.
    explicitly approves skipping it for this commit.
 
    b. **Migration guard** — if `git status --short` shows any staged file
-   under `database/migrations/`, apply migrations *before* committing:
+   under `database/migrations/`, apply migrations to **dev** *before*
+   committing:
    ```powershell
    powershell -ExecutionPolicy Bypass -File database/migrate.ps1
    ```
@@ -61,6 +62,10 @@ this same procedure; this skill is the Claude Code path to the same result.
    anything naming the real column. Commit `304bc07` shipped migration 092
    unapplied exactly this way (091 was applied earlier in the session, 092
    was written after and never re-run) and broke show sign-up.
+
+   **This only fixes dev.** Production is a separate Neon branch, and the
+   push in step 7 deploys to it. See "Pushing a migration is a release"
+   below — do not treat a green dev migration as the end of the job.
 4. **Write the commit message** matching actual repo style (not
    `CONTRIBUTING.md`'s `<type>(<scope>)`/`Fixes #` template, which isn't what's
    used):
@@ -119,6 +124,9 @@ this same procedure; this skill is the Claude Code path to the same result.
 7. **Push:** `git push origin main`. If it's still rejected after the sync
    step above (someone pushed again in the gap), repeat step 6 — don't force
    push.
+
+   **This deploys to production.** If the commit contains a migration, do not
+   push from here — see "Pushing a migration is a release" below.
 8. **Report** the commit SHA and `git status` (clean or not) back to the
    user.
 
@@ -127,6 +135,41 @@ sync — it goes straight to `git push origin main` and will simply fail with a
 non-fast-forward error if the other machine pushed first. Use the manual
 steps above (or extend the script, if asked) when working across two
 machines; don't rely on the script alone for that case.
+
+## Pushing a migration is a release
+
+**`git push origin main` is the production deploy.** Render's two services are
+on `autoDeployTrigger: checksPass`, so the push starts a real deploy to
+gaitdesk.com as soon as CI goes green. There is no separate release button and
+no staging environment.
+
+That is fine for a code-only change: push it and you are done. It is **not**
+fine for a commit that carries a migration, because production's Neon branch is
+a different database from dev and the push does not touch it. Code and schema
+are two independent events, and **the order between them is decided by the
+migration, not by preference** — getting it wrong took the site down once
+already (migration 133).
+
+So: **if any staged file is under `database/migrations/`, stop and use the
+`release` skill (`.claude/skills/release/`) instead of finishing here.** It
+classifies the migration and gives the ordering. The short version:
+
+- **Backward-compatible** (new table, nullable/defaulted column, index):
+  migrate production *first*, then push.
+- **Backward-incompatible** (`RENAME`, `DROP`, `SET NOT NULL`, narrowed type):
+  there is no working order at all. It has to be split into expand/contract
+  releases. Do not push it as one commit.
+
+Do not assume readiness will catch a mistake. `/health/ready` compares mapped
+**columns** only, so it refuses a deploy that arrives ahead of an `ADD COLUMN`
+migration — but a `CREATE TABLE` migration is invisible to it, because
+`create_all` builds the table from the model at boot and readiness then sees
+every column present. That ships a table with no server defaults, no unique
+indexes and no CHECK constraints, and nothing goes red.
+
+If the user asked only to commit (not push), the migration is not yet a release
+— commit, and say plainly that pushing it is the release step and which
+ordering it will need.
 
 ## Shortcut: the existing script
 

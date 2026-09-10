@@ -8,6 +8,19 @@
 #   API_URL: https://api.yourdomain.com
 #   CORS_ORIGINS: https://yourdomain.com,https://www.yourdomain.com
 #   AUTH_URL / PUBLIC_APP_URL: https://yourdomain.com
+#
+# Both services deploy only after the branch's CI checks pass
+# (.github/workflows/ci.yml and docs-guard.yml, which both run on push to
+# main). `git push` is still the deploy -- there is no release button -- but it
+# is now a deploy that type-check, lint, tests, the frontend build and the docs
+# guard have all agreed to. With `commit` this raced them: Render started
+# building the instant the push landed and CI reported afterwards, so a change
+# that failed tests but compiled went live and the red X arrived too late to
+# mean anything.
+#
+# Consequence worth knowing: a check that never reports blocks the deploy
+# rather than releasing without it, which is the safe direction but does mean a
+# hotfix waits for CI. Render's dashboard can still deploy a commit manually.
 services:
   - type: web
     name: gaitdesk-api
@@ -17,7 +30,7 @@ services:
     dockerfilePath: ./backend/Dockerfile.production
     dockerContext: ./backend
     healthCheckPath: /health/ready
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -57,7 +70,7 @@ services:
     region: ohio
     dockerfilePath: ./frontend/Dockerfile.production
     dockerContext: ./frontend
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
     envVars:
       # Every backend request is made server-side, so this one runtime value is
       # the whole of it. There is deliberately no NEXT_PUBLIC_API_URL: no

@@ -1,17 +1,33 @@
 # Applies any unapplied migrations in database/migrations/ to the Neon database.
-# Requires DATABASE_URL in .env or environment.
 #
-# The target is always printed before anything runs. If it is a known production
-# host, the run is refused unless -AllowProduction is passed.
+# The target is chosen in this order, and the choice is printed before anything
+# runs:
 #
-# Production hosts are matched by SHA-256, not by name. The guard has to travel
-# with the repository -- it previously lived only in PRODUCTION_DATABASE_HOST in
-# a gitignored .env, so any environment without that file (a Codespace, a fresh
-# clone, CI) silently had no guard at all, which is the same failure as a health
-# check that only tests SELECT 1. This repository is public, so the hostname
-# itself is not committed; a hash guards it without publishing infrastructure.
-# PRODUCTION_DATABASE_HOST still works and is *added* to the list rather than
-# replacing it, so a misconfigured value can never switch the guard off.
+#   1. -DatabaseUrl <url>
+#   2. $env:DATABASE_URL
+#   3. DATABASE_URL in .env
+#
+# .env never overwrites a variable the environment already has. It used to, and
+# that made the production path unusable: setting $env:DATABASE_URL to
+# production and passing -AllowProduction loaded the dev URL from .env straight
+# back over it, so the guard saw a dev host, said nothing, and migrated dev
+# while the operator believed they had released. Releasing to production is now
+# either of:
+#
+#   database/migrate.ps1 -AllowProduction -DatabaseUrl "<production url>"
+#   $env:DATABASE_URL="<production url>"; database/migrate.ps1 -AllowProduction
+#
+# Production hosts are matched by SHA-256, not by name, from
+# database/production-hosts.sha256 -- shared with migrate.sh so the two runners
+# cannot disagree. The guard has to travel with the repository: it previously
+# lived only in PRODUCTION_DATABASE_HOST in a gitignored .env, so any
+# environment without that file (a Codespace, a fresh clone, CI) silently had no
+# guard at all, which is the same failure as a health check that only tests
+# SELECT 1. This repository is public, so the hostname itself is not committed;
+# a hash guards it without publishing infrastructure. PRODUCTION_DATABASE_HOST
+# still works and is *added* to the list rather than replacing it, so a
+# misconfigured value can never switch the guard off. An unreadable or empty
+# hash file is a hard failure rather than an unguarded run.
 #
 # This guard exists because of a real outage. Migration 133 renamed
 # show_sanctioning.per_class_fee_cents while the deployed release still mapped
@@ -19,25 +35,45 @@
 # because the migration went to the same Neon database production was serving
 # from. Applying a migration to production is a release step, and a release step
 # should have to be asked for.
-param([switch]$AllowProduction)
+param(
+    [switch]$AllowProduction,
+    # The database to migrate, highest precedence. Without this the target is
+    # $env:DATABASE_URL, and only then .env -- see the precedence note below.
+    [string]$DatabaseUrl
+)
 
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $migrationsDir = Join-Path $scriptDir "migrations"
-$envFile = Join-Path $scriptDir "..\env"
 
-# Load .env if present
+# Load .env, but NEVER over a variable the environment already carries.
+#
+# This used to overwrite unconditionally, which made -AllowProduction unusable
+# and quietly wrong: setting $env:DATABASE_URL to production and running with
+# the flag loaded .env straight back over it, so the target was the *dev*
+# branch, the host never matched a production hash, the guard never fired, and
+# the run reported success having migrated the wrong database. A value in the
+# environment is a deliberate act by the caller; a .env file is a default.
 $envFile = Resolve-Path (Join-Path $scriptDir "..\.env") -ErrorAction SilentlyContinue
 if ($envFile -and (Test-Path $envFile)) {
     Get-Content $envFile | ForEach-Object {
         if ($_ -match "^([^#][^=]+)=(.+)$") {
-            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2])
+            $name = $matches[1].Trim()
+            if (-not [System.Environment]::GetEnvironmentVariable($name)) {
+                [System.Environment]::SetEnvironmentVariable($name, $matches[2])
+            }
         }
     }
 }
 
-$dbUrl = $env:DATABASE_URL
+if ($DatabaseUrl) {
+    $dbUrl = $DatabaseUrl
+    $dbUrlSource = "-DatabaseUrl"
+} else {
+    $dbUrl = $env:DATABASE_URL
+    $dbUrlSource = "DATABASE_URL (environment or .env)"
+}
 if (-not $dbUrl) { Write-Error "DATABASE_URL is not set."; exit 1 }
 
 # Convert asyncpg URL to psql-compatible
@@ -47,11 +83,21 @@ $psqlUrl = $dbUrl -replace "postgresql\+asyncpg", "postgresql"
 $targetHost = "unknown"
 if ($dbUrl -match "@([^/:?]+)") { $targetHost = $matches[1] }
 Write-Host "Target database: $targetHost"
+Write-Host "  (from $dbUrlSource)"
 
-# SHA-256 of each known production host, lowercased. Add a line to extend.
-$ProductionHostHashes = @(
-    "94fdbdfb643086f1296b4ad66abf1ebe8928a2b1963e0975f196e1cf853811ef"  # gaitdesk-api / Render
-)
+# SHA-256 of each known production host, shared with migrate.sh so adding one
+# is a single edit and the two runners cannot disagree about what production is.
+$hashFile = Join-Path $scriptDir "production-hosts.sha256"
+$ProductionHostHashes = @()
+if (Test-Path $hashFile) {
+    $ProductionHostHashes = Get-Content $hashFile | ForEach-Object {
+        ($_ -split "#")[0].Trim().ToLower()
+    } | Where-Object { $_ -match "^[0-9a-f]{64}$" }
+}
+if ($ProductionHostHashes.Count -eq 0) {
+    Write-Error "No production host hashes loaded from $hashFile - refusing to run with the guard disabled."
+    exit 1
+}
 
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $targetHash = (($sha.ComputeHash(
@@ -76,6 +122,9 @@ if ($isProduction) {
         Write-Host "To migrate a development branch instead, point DATABASE_URL at it."
         Write-Host "To release to production deliberately, re-run with:"
         Write-Host "  powershell -ExecutionPolicy Bypass -File database/migrate.ps1 -AllowProduction"
+        Write-Host ""
+        Write-Host "See the release skill (.claude/skills/release/) first: whether the"
+        Write-Host "migration goes before or after the deploy is decided by the migration."
         Write-Host ""
         exit 1
     }

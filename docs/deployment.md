@@ -84,14 +84,24 @@ Use a Neon branch per environment:
    and starts with production's schema and data.
 2. Point the local `.env` `DATABASE_URL` at the `dev` branch's connection
    string. Production keeps the parent branch, set only in Render.
-3. Nothing to configure: `database/migrate.ps1` prints its target before doing
-   anything and already refuses the production host without `-AllowProduction`.
-   It matches known production hosts by **SHA-256**, committed in the script, so
-   the guard travels with the repository — a Codespace, a fresh clone or CI is
-   protected without a `.env`. The hostname itself is not committed because this
-   repository is public. `PRODUCTION_DATABASE_HOST` still works for an
+3. Nothing to configure: **both** `database/migrate.ps1` and
+   `database/migrate.sh` print their target before doing anything and refuse a
+   production host without `-AllowProduction` / `--allow-production`. They match
+   known production hosts by **SHA-256** from
+   [`database/production-hosts.sha256`](../database/production-hosts.sha256),
+   shared between the two so they cannot disagree and so adding a host is one
+   edit. The guard travels with the repository — a Codespace, a fresh clone or CI
+   is protected without a `.env`. The hostname itself is not committed because
+   this repository is public. `PRODUCTION_DATABASE_HOST` still works for an
    *additional* production database and is added to that list, never replacing
-   it, so a misconfigured value cannot switch the guard off.
+   it, so a misconfigured value cannot switch the guard off. An empty or missing
+   hash file is a hard failure rather than an unguarded run.
+
+   `migrate.sh` had none of this until recently — no guard at all, which mattered
+   because it is the natural runner in a Codespace or WSL, exactly the
+   environments the hash guard was introduced to protect. It also lacked
+   `ON_ERROR_STOP`, so a migration whose statements failed still got an
+   `_migrations` row claiming it had been applied.
 
 Migrating production then becomes a deliberate release step, and **the order is
 decided by the migration, not by preference.** The `release` skill
@@ -101,10 +111,25 @@ A **backward-compatible** migration — a new table, a nullable or defaulted
 column, an index — goes to production *before* the code:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File database/migrate.ps1            # dev
-powershell -ExecutionPolicy Bypass -File database/migrate.ps1 -AllowProduction
-# then push, and let Render deploy
+# dev first, always
+powershell -ExecutionPolicy Bypass -File database/migrate.ps1
+
+# then production, ahead of the code that needs it
+powershell -ExecutionPolicy Bypass -File database/migrate.ps1 `
+    -AllowProduction -DatabaseUrl "<production connection string>"
+
+# then push; CI must go green before Render deploys
 ```
+
+`-DatabaseUrl` is how production is reached. **Do not edit `.env` to point at
+production** — that is the configuration this split exists to prevent. Setting
+`$env:DATABASE_URL` also works, because the environment now takes precedence
+over `.env`; it did not always, and that is worth knowing about, because
+`-AllowProduction` used to be silently ignored. `.env` was loaded *over* the
+environment, so the target reverted to dev, the host never matched a production
+hash, the guard never fired, and the run reported success having migrated the
+wrong database. Both runners now print the target host **and** where the URL came
+from. Read that line before letting it proceed.
 
 That is safe because `schema_drift` treats a column the database has and the
 build does not map as **not** drift: the running release simply ignores it.
@@ -123,6 +148,54 @@ by then nothing maps the column being dropped.
 A single-step rename means a deliberate outage window. That is a decision to take
 knowingly and at a quiet time, not a routine release.
 
+## Backing up before a release
+
+A Neon **branch** is the backup, and it is instant and free:
+
+1. Neon console → **Branches > New branch**, from `production`.
+2. Name it for the release, e.g. `pre-138`.
+3. Release. If it goes wrong, the branch still holds the pre-release state and
+   can be inspected or restored from.
+
+Delete these when a release has settled — they are cheap, not free, and a drawer
+full of them makes the branch list useless. Neon's point-in-time restore covers
+the same ground within the history-retention window; the named branch is
+preferable because it says *why* it exists.
+
+Never set auto-delete or branch expiry on the **dev** branch. It is the branch
+every release must migrate first, so one that can vanish makes the procedure fail
+at exactly the moment you reach for it. Auto-*suspend* is the cost lever and
+destroys nothing.
+
+## Rolling back
+
+Code and schema roll back separately, and only one of them is easy.
+
+**Code.** Render keeps previous deploys: service → **Deploys** → *Rollback* on
+the last good one. Both services roll back independently, so roll back both
+unless you are certain the change was confined to one.
+
+**Schema.** There are no down-migrations, deliberately — a down-migration is
+written when the change is fresh and run when it is not, and it is the least
+tested SQL in any repository. Recovery is a forward migration that undoes the
+change, released like any other. Migration 131 undoing migration 130 is the
+worked example.
+
+This is why the ordering rule matters more than the rollback plan: **rolling code
+back onto a schema that has moved forward is the migration-133 failure in
+reverse.** A rollback to a build that predates an `ADD COLUMN` is safe — the old
+build simply ignores the new column. A rollback across a `RENAME` or a `DROP` is
+not, and the answer there is to roll *forward*, not back.
+
+Before rolling back, check what the running build expects:
+
+```bash
+curl -s https://api.gaitdesk.com/health/ready
+```
+
+`schema: drifted` after a rollback means you have gone back past a migration and
+the old build is missing columns — go forward again.
+
 ## What readiness actually checks
 
 `/health/ready` answers two questions, and the second exists because the first
@@ -140,6 +213,20 @@ mapped column, so a column the database lacks breaks every read of that table,
 and no amount of restarting repairs it. `Base.metadata.create_all` at startup
 creates a missing *table* but never adds a missing *column* — which is exactly
 the gap a rename leaves.
+
+**Know what this does not cover.** It compares mapped *columns*, so it catches a
+deploy that arrives ahead of an `ADD COLUMN` migration and is blind to one that
+arrives ahead of a `CREATE TABLE` migration: `create_all` builds that table from
+the models at boot, every mapped column is then present, and readiness reports
+`schema: ok` over a table with no server defaults, no unique indexes and no CHECK
+constraints. It is also blind to a migration that only adds an index, a CHECK
+value or a comment, and to any backfill. So `schema: ok` means "the columns this
+build reads exist" — it is not a statement that the migration ran. For anything
+other than `ADD COLUMN`, confirm the ledger instead:
+
+```sql
+SELECT name, applied_at FROM _migrations ORDER BY name DESC LIMIT 5;
+```
 
 A 503 here means Render will not promote the deploy. That is the intent: a
 release that arrives before its migration should fail rather than replace a
@@ -171,6 +258,11 @@ Worth knowing before debugging a symptom against the wrong setting.
 - Use an always-on paid Render plan for both services.
 - Keep the services in the same region as practical; the Blueprint uses Ohio,
   near a US East Neon database.
-- Run migrations as a deliberate pre-release step after a backup. The app's
-  startup schema creation does not replace the migration runner.
+- Run migrations as a deliberate pre-release step, after branching the database
+  (see "Backing up before a release"). The app's startup schema creation does not
+  replace the migration runner.
+- Both services are on `autoDeployTrigger: checksPass`, so a push deploys only
+  after `ci.yml` and `docs-guard.yml` pass. A check that never reports blocks the
+  deploy rather than releasing without it; Render's dashboard can still deploy a
+  commit manually if that is ever needed.
 - Enable SMTP before relying on email notifications or email-based workflows.

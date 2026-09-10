@@ -74,11 +74,22 @@ Branch only for work you might genuinely abandon or shelve for a while:
 git checkout -b feature/description   # or fix/, docs/, refactor/, test/, chore/
 ```
 
-**A branch does not isolate the database.** `DATABASE_URL` points at one shared
-Neon instance, so a migration is applied the moment you run it, whatever branch
-the code is on. Abandoning a branch leaves its schema change behind, and `main`
-will then be running against a database it does not know about. Treat the
-migration, not the code, as the thing to be careful with.
+**A branch does not isolate the database.** `DATABASE_URL` points at the shared
+**dev** Neon branch, so a migration is applied the moment you run it, whatever
+git branch the code is on. Abandoning a git branch leaves its schema change
+behind on dev, and `main` will then be running against a database it does not
+know about. Treat the migration, not the code, as the thing to be careful with.
+
+**Pushing to `main` deploys to production.** Render is on
+`autoDeployTrigger: checksPass`, so a push releases to gaitdesk.com as soon as CI
+goes green — there is no separate release step and no staging environment. A
+commit that carries a migration is therefore a **release**, and production is a
+different Neon branch that your local migration run did not touch. The order
+between the migration and the deploy is decided by the migration, not by
+preference; getting it wrong took the site down once. Read
+[.claude/skills/release/SKILL.md](./.claude/skills/release/SKILL.md) before
+pushing schema, and [docs/deployment.md](./docs/deployment.md) for the
+environment layout.
 
 ### Before You Start Coding
 
@@ -361,32 +372,17 @@ worth running either way. `bash RUN_TESTS.sh` from the repo root runs the lot.
    git rebase origin/main
    ```
 
-2. **Run all tests**
+2. **Run every check**
    ```bash
-   # Backend
-   cd backend && pytest --cov
-   
-   # Frontend
-   cd frontend && npm test
+   bash RUN_TESTS.sh
    ```
 
-3. **Run linters**
-   ```bash
-   # Backend
-   cd backend && black . && flake8 . && mypy .
-   
-   # Frontend
-   cd frontend && npm run lint
-   ```
-
-4. **Ensure your code builds**
-   ```bash
-   # Backend should start without errors
-   uvicorn main:app --reload
-   
-   # Frontend should build
-   npm run build
-   ```
+   That is the whole list, and it is what CI runs. Do not run `pytest` or
+   `uvicorn` directly on the host: the host interpreter is Python 3.9 and the
+   backend needs 3.10+, so it fails to import — see [Testing](#testing) for the
+   Docker invocation. Do not run `npm run build` on the host either; the host and
+   the dev container share `frontend/.next` through a bind mount, so a host-side
+   build breaks a running dev server. CI builds instead.
 
 ### Creating the PR
 

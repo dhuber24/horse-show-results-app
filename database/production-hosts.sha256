@@ -1,0 +1,17 @@
+# SHA-256 of each known production database host, lowercased, one per line.
+#
+# Read by both database/migrate.ps1 and database/migrate.sh, which refuse to
+# run against a matching host unless production is explicitly allowed.
+#
+# Hashed rather than named because this repository is public: the guard has to
+# travel with the repo — a Codespace, a fresh clone and CI all get it with no
+# .env and no configuration — without publishing infrastructure hostnames.
+#
+# To add a host:
+#   printf '%s' "<host>" | sha256sum        # no trailing newline
+#
+# PRODUCTION_DATABASE_HOST in the environment is honoured as well, and is
+# *added* to this list rather than replacing it, so a misconfigured or empty
+# value can never switch the guard off.
+
+94fdbdfb643086f1296b4ad66abf1ebe8928a2b1963e0975f196e1cf853811ef  # gaitdesk-api / Render

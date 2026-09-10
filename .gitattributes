@@ -1,2 +1,5 @@
 .githooks/* text eol=lf
 *.ps1 text eol=crlf
+# Shell scripts must check out LF, or bash fails on the CR. migrate.sh is a
+# release tool, so this is not cosmetic.
+*.sh text eol=lf
