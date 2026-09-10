@@ -3,8 +3,10 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
+import StartedRegistrationCard from './StartedRegistrationCard';
 import {
   formatDateRange,
+  hasNoClassesYet,
   isPastShow,
   ordinal,
   SHOW_STATUS_BADGE,
@@ -14,9 +16,9 @@ import {
 
 async function loadMyShows(): Promise<MyShowsData> {
   const headers = await getAuthHeaders();
-  if (!headers) return { exhibitor: null, shows: [] };
+  if (!headers) return { exhibitor: null, shows: [], started: [] };
   const res = await fetch(`${API_URL}/my-shows/`, { headers, cache: 'no-store' });
-  if (!res.ok) return { exhibitor: null, shows: [] };
+  if (!res.ok) return { exhibitor: null, shows: [], started: [] };
   return res.json();
 }
 
@@ -46,7 +48,7 @@ export default async function MyShowsPage() {
         </Link>
       </div>
 
-      {data.shows.length === 0 ? (
+      {data.shows.length === 0 && data.started.length === 0 ? (
         <div
           className="rounded-lg border p-6 text-center"
           style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
@@ -70,6 +72,25 @@ export default async function MyShowsPage() {
               collects per show, against a back number — so "Due at this show"
               moved onto the show itself, where the dates and the venue it is
               owed for already are. Each card below still totals its own. */}
+          {/* Above the bills, because it is the only thing on this page that
+              is waiting on the exhibitor. Everything below is a record of what
+              they have already done; this is the show they meant to finish. */}
+          {data.started.length > 0 && (
+            <section>
+              <h2
+                className="text-xs font-semibold uppercase tracking-wider mb-3"
+                style={{ color: 'var(--muted)' }}
+              >
+                Started — not finished
+              </h2>
+              <div className="space-y-4">
+                {data.started.map((show) => (
+                  <StartedRegistrationCard key={show.show_id} show={show} />
+                ))}
+              </div>
+            </section>
+          )}
+
           {upcoming.length > 0 && (
             <section>
               <h2
@@ -98,10 +119,15 @@ export default async function MyShowsPage() {
             </section>
           )}
 
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Totals are what the show office will collect — this app does not take payment. If a
-            number looks wrong, the show secretary is the one who can change it.
-          </p>
+          {/* A note about totals, so only where there are totals. A bookmark
+              card carries no money at all, and this sitting under one on its
+              own reads as a bill somebody has to go and find. */}
+          {data.shows.length > 0 && (
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Totals are what the show office will collect — this app does not take payment. If a
+              number looks wrong, the show secretary is the one who can change it.
+            </p>
+          )}
         </div>
       )}
     </main>
@@ -148,6 +174,24 @@ function ShowBillCard({ show }: { show: MyShow }) {
       </div>
 
       <div className="px-4 py-3">
+        {/* The other half of an unfinished registration, and the one that has
+            always been visible without saying anything: signed up for the
+            stalls, not a class entered. A prompt rather than a warning —
+            plenty of people book stalls now and enter at the desk on the
+            day — but a card reading "0 classes" beside a stall bill says the
+            same thing as a finished registration, and it is the last chance
+            somebody gets to notice before the show. */}
+        {hasNoClassesYet(show) && (
+          <div
+            className="mb-3 rounded px-3 py-2 text-xs"
+            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+          >
+            You are signed up but have not entered any classes.{' '}
+            {show.show_status === 'PUBLISHED'
+              ? 'Add them from Manage registration below.'
+              : 'Registration has closed — the show office can still add entries at the desk.'}
+          </div>
+        )}
         <ShowBillBreakdown bill={bill} />
 
         <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>

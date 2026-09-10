@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from uuid import UUID
 
-from billing import RESERVABLE_FEE_UNITS, EARLY_RATE_FEE_UNITS
+from billing import AUTOMATIC_FEE_UNITS, RESERVABLE_FEE_UNITS, EARLY_RATE_FEE_UNITS
 from reservations import REQUIRABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from models import Show, ShowEntryReservation, ShowFee
+from models import Class, Show, ShowEntryReservation, ShowFee, ShowFeeClass
 from routers.shows import _assert_show_access
 from schemas import ShowFeeCreate, ShowFeeOut, ShowFeeUpdate
 
@@ -123,6 +123,62 @@ def _assert_min_quantity_valid(*, unit: str, min_quantity: int | None) -> None:
         )
 
 
+async def _resolve_scope_classes(
+    *, show_id: UUID, unit: str, class_ids: list[UUID] | None, db: AsyncSession
+) -> list[UUID] | None:
+    """Validate a fee's class scope, or None when the caller did not send one.
+
+    Two guards, and both are the same rule the early rate and the minimum
+    quantity already follow.
+
+    **Only an automatic unit has a count to narrow.** A reserved fee bills from
+    a quantity somebody booked and a price-list row bills nobody, so a scope on
+    either is a control with no reader -- and one stored anyway would sit in the
+    data looking like it did something.
+
+    **Every class must belong to this show.** The ids arrive from a client, and
+    a fee scoped to another show's class would bill nobody here while reading
+    on screen as though it were narrowing something.
+    """
+    if class_ids is None:
+        return None
+    if class_ids and unit not in AUTOMATIC_FEE_UNITS:
+        raise HTTPException(
+            422,
+            "Only an automatic charge can be limited to particular classes. "
+            "A reserved fee is billed from the quantity somebody books, and a "
+            "price-list row is not billed at all, so neither has a count for "
+            "the class list to narrow.",
+        )
+    wanted = list(dict.fromkeys(class_ids))
+    if not wanted:
+        return []
+    found = await db.execute(
+        select(Class.id).where(Class.id.in_(wanted), Class.show_id == show_id)
+    )
+    known = {row[0] for row in found.all()}
+    missing = [c for c in wanted if c not in known]
+    if missing:
+        raise HTTPException(
+            422,
+            f"{len(missing)} of those classes are not on this show. A fee can "
+            "only be limited to classes in its own schedule.",
+        )
+    return wanted
+
+
+def _apply_scope(fee: ShowFee, class_ids: list[UUID] | None) -> None:
+    """Replace a fee's class scope in place, leaving it alone when None.
+
+    Whole-list replacement rather than a diff: the editor sends the ticked set,
+    which is what the scope *is*, and `delete-orphan` on the relationship turns
+    the removals into DELETEs in the same transaction as the fee's other edits.
+    """
+    if class_ids is None:
+        return
+    fee.scoped_classes = [ShowFeeClass(class_id=cid) for cid in class_ids]
+
+
 async def _reserved_counts(fee_ids: list[UUID], db: AsyncSession) -> dict[UUID, int]:
     """How many exhibitors have booked a quantity against each of these fees.
 
@@ -211,7 +267,11 @@ async def create_show_fee(
         early_deadline=body.early_deadline,
     )
     _assert_min_quantity_valid(unit=body.unit, min_quantity=body.min_quantity)
-    fee = ShowFee(show_id=show_id, **body.model_dump())
+    scope = await _resolve_scope_classes(
+        show_id=show_id, unit=body.unit, class_ids=body.class_ids, db=db
+    )
+    fee = ShowFee(show_id=show_id, **body.model_dump(exclude={"class_ids"}))
+    _apply_scope(fee, scope)
     db.add(fee)
     await db.commit()
     await db.refresh(fee)
@@ -297,6 +357,10 @@ async def update_show_fee(
                 "silently reprice their bookings. Remove this fee and add it "
                 "again to start over, or leave the unit as it is.",
             )
+    scope = await _resolve_scope_classes(
+        show_id=show_id, unit=new_unit, class_ids=updates.pop("class_ids", None), db=db
+    )
+    _apply_scope(fee, scope)
     for k, v in updates.items():
         setattr(fee, k, v)
     await db.commit()

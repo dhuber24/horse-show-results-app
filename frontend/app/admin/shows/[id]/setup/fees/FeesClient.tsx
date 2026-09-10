@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEditor';
+import ShowChargesEditor, { type ScopeClass, type ShowCharge } from '@/components/ShowChargesEditor';
 
 /** A raw `show_fees` row, the shape a legacy pre-107 futurity fee still needs
  *  (see `legacyFuturityFee` below) — everything else that used to read this
@@ -41,6 +41,7 @@ export default function FeesClient({
   showId,
   initialCharges,
   judgeCount,
+  classes,
   legacyFuturityFee = null,
   futurityCount = 0,
 }: {
@@ -52,6 +53,9 @@ export default function FeesClient({
    *  re-implementing add, edit and remove. */
   initialCharges: ShowCharge[];
   judgeCount: number;
+  /** The show's classes, for narrowing an automatic charge to some of them.
+   *  Empty until Step 5 builds them, which is the ordinary case here. */
+  classes: ScopeClass[];
   /** A `futurity` fee row from before this screen stopped offering one. Shown
    *  so it can be removed deliberately — a show that also sets up a real
    *  futurity would otherwise bill both, and silently deleting somebody's fee
@@ -101,6 +105,7 @@ export default function FeesClient({
         initialCharges={initialCharges}
         judgeCount={judgeCount}
         judgesHref={`/admin/shows/${showId}/setup/judges`}
+        classes={classes}
       />
 
       {legacyFee && (

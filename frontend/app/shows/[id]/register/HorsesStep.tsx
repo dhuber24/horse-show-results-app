@@ -365,6 +365,14 @@ export default function HorsesStep({
 }) {
   const router = useRouter();
 
+  // Back to this step of this show's registration when the wizard is done.
+  // Adding a horse is a five-step detour on another route, and returning
+  // somebody to the top of their profile afterwards means finding the show
+  // again and re-opening the step they were on. `safeNextPath` sanitises it at
+  // the far end, because a `?next=` is a URL a stranger can compose.
+  const addHorseHref =
+    `/profile/horses/new?next=${encodeURIComponent(`/shows/${showId}/register?step=horses`)}`;
+
   return (
     <div className="space-y-3">
       <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
@@ -379,7 +387,7 @@ export default function HorsesStep({
           No horses on your profile yet. Add one to carry on.
           <div className="mt-2">
             <Link
-              href="/profile/horses/new"
+              href={addHorseHref}
               className="font-medium hover:underline"
               style={{ color: 'var(--accent)' }}
             >
@@ -410,7 +418,7 @@ export default function HorsesStep({
         </span>
         {horses.length > 0 && (
           <Link
-            href="/profile/horses/new"
+            href={addHorseHref}
             className="text-sm font-medium hover:underline"
             style={{ color: 'var(--accent)' }}
           >

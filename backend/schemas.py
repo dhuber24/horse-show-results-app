@@ -850,6 +850,10 @@ class ShowFeeCreate(BaseModel):
     # (migration 128). Only meaningful on a reservable unit, which the router
     # checks -- the unit families live in billing.py, not in the schema.
     min_quantity: int = Field(default=0, ge=0, le=999)
+    # Which classes this charge applies to (migration 137). Empty means the
+    # whole schedule, which is the ordinary case; a list narrows it. Only
+    # meaningful on an automatic unit -- the router refuses one elsewhere.
+    class_ids: list[UUID] = Field(default_factory=list)
 
 
 class ShowFeeUpdate(BaseModel):
@@ -862,6 +866,10 @@ class ShowFeeUpdate(BaseModel):
     early_amount_cents: Optional[int] = Field(default=None, ge=0)
     early_deadline: Optional[date] = None
     min_quantity: Optional[int] = Field(default=None, ge=0, le=999)
+    # Omitted leaves the scope alone; [] clears it back to the whole
+    # schedule. `exclude_unset` on the update is what makes those two
+    # different, the same way it does for every other field here.
+    class_ids: Optional[list[UUID]] = None
 
 
 class ShowFeeOut(BaseModel):
@@ -882,6 +890,8 @@ class ShowFeeOut(BaseModel):
     # has no business reporting how many people have entered. Defaulted rather
     # than required so `from_attributes` still works on a bare ORM row.
     reserved_count: int = 0
+    # The classes this charge is narrowed to, empty for the whole schedule.
+    class_ids: list[UUID] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

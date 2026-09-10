@@ -172,6 +172,10 @@ export type MyShow = {
   venue: string | null;
   back_number: number | null;
   registered_at: string | null;
+  /** Set when the registration was called off. A cancelled show with no
+   *  classes entered is not an unfinished registration -- they finished and
+   *  then withdrew, which is a different thing to tell somebody. */
+  cancelled_at: string | null;
   arrival_date: string | null;
   departure_date: string | null;
   notes: string | null;
@@ -181,9 +185,44 @@ export type MyShow = {
   bill: Bill;
 };
 
+
+/**
+ * A show somebody started registering for and never signed up to
+ * (migration 136).
+ *
+ * Not a `MyShow`. There is no `show_entries` row behind it, so there is no
+ * back number, no entry count and no bill — folding it into `shows` would mean
+ * a card of zeroes reading as a $0.00 registration, and `shows` is also what
+ * the profile's Show History tab renders as shows the exhibitor competed in.
+ *
+ * Only ever a PUBLISHED show: registration closes with that status, so a
+ * bookmark on anything else points at a form that would turn them away.
+ */
+export type StartedRegistration = {
+  show_id: string;
+  show_name: string;
+  show_status: string;
+  start_date: string;
+  end_date: string;
+  venue: string | null;
+  started_at: string;
+  /** What the list is ordered by — the show they were looking at yesterday is
+   *  the one they meant to come back to. */
+  last_opened_at: string;
+  /** Where the wizard picks up. Never `memberships`: that step blocks nothing,
+   *  so naming it as the one to resume at would send somebody back for
+   *  something optional. */
+  next_step: 'details' | 'horses' | 'stalls';
+  next_step_label: string;
+  /** Blocking profile rows still outstanding, by name. Named rather than
+   *  counted so the card itself says what to go and type. */
+  still_needed: string[];
+};
+
 export type MyShowsData = {
   exhibitor: { id: string; full_name: string } | null;
   shows: MyShow[];
+  started: StartedRegistration[];
 };
 
 export const SHOW_STATUS_BADGE: Record<
@@ -220,4 +259,29 @@ export function ordinal(n: number): string {
 /** A show is history once it can no longer be registered for or competed in. */
 export function isPastShow(show: MyShow): boolean {
   return !['ACTIVE', 'PUBLISHED'].includes(show.show_status);
+}
+
+/**
+ * Signed up for the show and not one class entered — the other half of an
+ * unfinished registration.
+ *
+ * The `StartedRegistration` above is the abandon that leaves no record at all;
+ * this one leaves a `show_entries` row, so the show has always appeared on My
+ * Shows. It just appeared as an ordinary card reading "0 classes", which says
+ * the same thing as a finished registration to a horse show with nothing but
+ * halter on the Sunday. Derived rather than stored: the moment they enter a
+ * class it stops being true, and there is no row to remember to close.
+ *
+ * Not a fault, so the card prompts rather than warns. Somebody may legitimately
+ * book stalls now and enter at the desk on the day, and cancelling is not the
+ * same thing at all — they finished and then withdrew, which is why a cancelled
+ * registration is excluded rather than counted as the emptiest of all.
+ */
+export function hasNoClassesYet(show: MyShow): boolean {
+  return (
+    show.registered_at !== null &&
+    show.cancelled_at === null &&
+    show.entry_count === 0 &&
+    !isPastShow(show)
+  );
 }

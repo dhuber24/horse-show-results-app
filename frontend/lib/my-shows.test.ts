@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { formatDateRange, formatMoney, isPastShow, ordinal } from './my-shows';
+import { formatDateRange, formatMoney, hasNoClassesYet, isPastShow, ordinal } from './my-shows';
 import type { MyShow } from './my-shows';
 
 describe('formatMoney', () => {
@@ -74,5 +74,50 @@ describe('isPastShow', () => {
     expect(isPastShow(show('COMPLETED'))).toBe(true);
     expect(isPastShow(show('CANCELLED'))).toBe(true);
     expect(isPastShow(show('DRAFT'))).toBe(true);
+  });
+});
+
+describe('hasNoClassesYet', () => {
+  const show = (over: Partial<MyShow>) =>
+    ({
+      show_status: 'PUBLISHED',
+      registered_at: '2026-08-01T00:00:00Z',
+      cancelled_at: null,
+      entry_count: 0,
+      ...over,
+    }) as MyShow;
+
+  it('prompts somebody who signed up and entered nothing', () => {
+    expect(hasNoClassesYet(show({}))).toBe(true);
+  });
+
+  it('says nothing once a class is entered', () => {
+    expect(hasNoClassesYet(show({ entry_count: 1 }))).toBe(false);
+  });
+
+  it('says nothing to somebody the office only shelled a row for', () => {
+    // `registered_at` NULL is the shell a secretary creates while adding a
+    // late entry by hand. They have not signed up, so there is no unfinished
+    // registration of theirs to prompt about.
+    expect(hasNoClassesYet(show({ registered_at: null }))).toBe(false);
+  });
+
+  it('says nothing to somebody who cancelled', () => {
+    // They finished and then withdrew, which is not the same as never having
+    // got round to entering — and the emptiest card of all would otherwise be
+    // the one belonging to somebody who is deliberately not coming.
+    expect(
+      hasNoClassesYet(show({ cancelled_at: '2026-08-10T00:00:00Z' })),
+    ).toBe(false);
+  });
+
+  it('says nothing once the show is over', () => {
+    // Nothing can be entered any more, so the prompt would be an accusation
+    // about a weekend that has already happened.
+    expect(hasNoClassesYet(show({ show_status: 'COMPLETED' }))).toBe(false);
+  });
+
+  it('still prompts on an active show, where the desk can add entries', () => {
+    expect(hasNoClassesYet(show({ show_status: 'ACTIVE' }))).toBe(true);
   });
 });

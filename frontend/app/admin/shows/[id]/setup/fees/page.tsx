@@ -1,7 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
-import type { ShowCharge } from '@/components/ShowChargesEditor';
+import type { ScopeClass, ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow } from './FeesClient';
 import StepLayout from '../_lib/StepLayout';
 import { fetchStepCounts } from '../_lib/fetchStepCounts';
@@ -31,9 +31,13 @@ export default async function SetupFeesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [allFees, judges, stepsInput] = await Promise.all([
+  const [allFees, judges, classes, stepsInput] = await Promise.all([
     fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
     fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
+    // For the class-scope picker on an automatic charge. Step 4 comes
+    // before the Class Builder, so an empty list is the ordinary answer
+    // for a show being set up in order -- the picker says so.
+    fetchAuthed<ScopeClass[]>(`${API_URL}/shows/${id}/classes/`, []),
     fetchStepCounts(id),
   ]);
   // The show's own class fees, picked out by unit rather than by a list of
@@ -58,6 +62,7 @@ export default async function SetupFeesPage({
         showId={id}
         initialCharges={charges}
         judgeCount={judges.length}
+        classes={classes}
         legacyFuturityFee={legacyFuturityFee}
         futurityCount={stepsInput.futurityCount}
       />

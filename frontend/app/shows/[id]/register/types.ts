@@ -9,6 +9,7 @@
  */
 
 import type { Bill } from '@/lib/my-shows';
+import type { Registration } from '@/components/ExhibitorRegistrations';
 
 export type PreviewClass = {
   id: string;
@@ -174,6 +175,10 @@ export type PreviewData = {
   /** Step one. The stalls half is locked on this the same way the classes half
    *  is locked on `signup`. */
   profile: ProfileStatus;
+  /** The exhibitor's own association memberships, so the wizard's
+   *  memberships step can render them without a second round trip. The same
+   *  rows the `memberships` checklist item above is computed from. */
+  registrations: Registration[];
   cancellation: CancellationWindow;
   show: {
     id: string;

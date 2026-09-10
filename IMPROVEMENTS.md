@@ -2,6 +2,186 @@
 
 ## September 2026
 
+### The $36 Class That Billed $552
+
+Reported as "something is off with the class registration": charges for youth
+classes, WSCA classes and MNSPHC classes on the bill of somebody who entered
+none of them, and *both* All Day fees at once.
+
+A bill built for one $36 amateur class at the MNSPHC Paint-O-Rama came to
+**$552**. Every extra line was an automatic `show_fees` row:
+
+| Line | Charged | Should have been |
+| --- | --- | --- |
+| APHA class — Open/Am/Novice | $108 | $0 — `classes.entry_fee_cents` already charges it |
+| APHA Youth class | $84 | $0 — no youth entries |
+| MNSPHC All Breed class | $32 | $0 — no MNSPHC entries |
+| All Breed WSCA class | $20 | $0 — no WSCA entries |
+| APHA All Day fee — Open/Am | $180 | $0 — an elective bundle |
+| APHA All Day fee — Youth | $35 | $0 — an elective bundle, and the wrong division |
+
+**The seed was right and the edit was reasonable.** Those class-rate rows were
+seeded `per_entry` -- published price-list text that bills nobody, because
+`classes.entry_fee_cents` is what charges per class. They had since been
+corrected in the fee editor to the units their own notes described, and the
+instinct was sound: "$45 per judge x 4 judges" genuinely *is*
+`per_judge_per_horse @ $45` rather than a hand-multiplied `per_horse @ $180`.
+What nothing said is that the correction moved four rows out of the family that
+bills nobody and into the family that bills everybody, on top of the class fees
+they duplicated.
+
+Two separate problems, and only one of them is about this show.
+
+**An automatic charge could not say which classes it applied to.** Migration 131
+scopes every one of them to "not a club-sanctioned class", which is one coarse
+rule and was the only one the app had. A real catalogue is drawn far finer than
+that: a youth rate, two club rates, and an All Day fee per division. Migration
+137 adds `show_fee_classes`, deliberately the same shape as `class_sanctioning`
+-- because a club approving a list of classes and a charge applying to a list of
+classes are the same fact read from two sides. **No rows means the whole
+schedule**, which had to be the reading: it is what almost every fee at almost
+every show wants, and the other way round would have zeroed every existing bill.
+It narrows and never widens -- 131's exclusion still applies on top, so ticking a
+WSCA class into the breed body's own assessment does not make the assessment
+reach it.
+
+**The rest was a duplicate and a bundle.** The four class-rate rows went back to
+`per_entry`; scoping them would still have charged the same classes twice. The
+two All Day fees became `flat` -- the family whose whole meaning is "occurrence
+is not derivable" -- because an All Day fee *replaces* per-class fees rather than
+adding to them, the exhibitor elects it, and nothing stored says whether they
+did. The show bill still publishes both rates. Modelling the election is real
+work and is still open; pricing the bundle `per_horse` to make it bill is not
+the answer, because that bills everybody who entered anything.
+
+The bill for that amateur class is now $93: $36 for the class, $36 APHA
+assessment, $16 office fee, $5 back number.
+
+### Six Steps, In The Order The Answers Come
+
+Five changes to the exhibitor's registration and the add-a-horse wizard, all of
+them about not losing somebody part-way through.
+
+**Futurities moved above the classes.** A futurity enrollment adds a line to the
+bill and its classes are ordinary classes entered in the step below it, so
+asking afterwards meant reading a running total under the class picker that was
+about to change -- and a $150-per-class futurity is not a small change.
+
+**Adding a horse comes back to the step it left.** The *Add a horse* link carries
+`?next=`, `NewHorseWizard` honours it on create, on link and on cancel, and
+`RegisterShowForm` reads `?step=` to open the box somebody left. A six-step
+detour onto another route used to drop people on their profile, and finding the
+show again is most of the reason a registration gets abandoned half-done.
+
+**The add-a-horse wizard keeps a draft.** Not a server autosave: the horse row
+does not exist until the last step, and creating one early would leave
+half-finished horses on profiles and fire owner-approval requests for horses
+nobody finished adding. The answers live in `localStorage`, restored on mount
+with a *Start over* beside the notice, cleared the moment the wizard succeeds.
+Health documents are deliberately excluded -- a staged `File` cannot be
+serialised, and a restored list with no bytes behind it is a lie the Add button
+discovers.
+
+**The Registrations step opens with the registry the breeds imply.** Tick
+"American Paint Horse" on step 2 and step 5 opens with APHA already chosen and
+only the number left to type, moving to the next implied registry after each
+Add. Matched on the name because `breeds` carries no association link, and
+strictly enough that nothing reaches Foundation Quarter Horse Registry. It is an
+affordance and never a stored inference, which is what makes a name match
+acceptable where the repo otherwise refuses to guess.
+
+**Health Records says a copy of the certificate is required.** A record here is
+the document, not a note that one exists: the office reads the expiry off the
+file and the desk checks the paper against the animal. Dates with no scan behind
+them would clear a health flag on nobody's authority.
+
+### The Registration Nobody Finished
+
+`GET /my-shows/` finds a show two ways: a `show_entries` row, or a class entry.
+Registration's first per-show write is `PUT /signup` -- step four of six. Steps
+one, two and three write `exhibitors`, `exhibitor_registrations` and `horses`,
+which belong to the person and not to the weekend.
+
+So an exhibitor who opened a show's registration screen, typed in their phone
+number, saw that the next step wanted the horse's Coggins and closed the tab had
+**no record anywhere that they had been part-way through that show**. Nothing
+reminded them. My Shows had nothing to list, because there was nothing to find.
+
+Migration 136 adds `show_registration_drafts` -- one row per (show, exhibitor),
+`started_at` and `last_opened_at` and nothing else -- written by
+`POST /shows/{id}/register/draft`, which `RegisterShowForm` fires when it opens.
+My Shows renders them above the bills as **Started -- not finished**, each card
+naming the step to resume at and the profile rows still outstanding.
+
+**Not a `show_entries` shell row**, which is the obvious home and the wrong one.
+That shape already exists -- `registered_at` NULL is what a secretary creates
+while adding a late entry by hand -- but it is also what `GET /shows/{id}/desk`
+draws the office's roster from. Writing one when somebody merely *opens a form*
+would fill the roster with window-shoppers and inflate the "no back number" and
+"no entries" counts staff work down. The desk's roster is people the show is
+expecting; this is people who looked.
+
+**No progress column.** How far somebody got is `profile_checklist` plus their
+horse count, derived on every read -- the same answers the registration screen
+renders and `PUT /signup` refuses on, so a card cannot claim somebody is further
+along than the endpoint thinks. A stored step would have gone stale the first
+time they finished their profile from `/profile` instead. What is not derivable,
+and is the whole content of the row, is that they were looking at *this show*.
+
+**The dismiss deletes, and reopening the form brings it back.** The bookmark is
+written on open, so somebody who clicked Register to see what the classes cost
+gets one too; without a way to say no, My Shows fills with shows nobody is
+entering and stops being read. Deleting rather than marking is deliberate --
+opening the screen again is somebody changing their mind, and remembering that
+they once said no would mean a bookmark they could not get back without ringing
+the office.
+
+The other shape of an unfinished registration needed no table at all. Signed up
+with no classes entered leaves a `show_entries` row, so the show has always
+appeared on My Shows -- as an ordinary card reading "0 classes", which at a show
+that is halter on the Sunday says the same thing as a finished registration.
+`hasNoClassesYet()` derives it and the card prompts rather than warns, because
+booking stalls now and entering at the desk on the day is a real thing people
+do. A cancelled registration is excluded: they finished and then withdrew.
+
+### Memberships Where They Are Asked For
+
+The registration wizard's step one used to end in a line reading *Add my numbers
+->*, pointing at `/profile?tab=memberships`. That is the exact trip step one's
+own in-place contact form exists to avoid -- somebody half-way through
+registering, on a phone, sent to a different screen with no way back to the show
+they were registering for.
+
+Association memberships are now a step of their own, between *Your details* and
+*Your horses*. `MembershipsStep` renders the shared `ExhibitorRegistrations`
+editor over `preview.registrations`, and every write goes to the same
+`POST/PATCH/DELETE /exhibitors/{id}/registrations` the profile screen uses -- one
+writer, the way step one already shares `PATCH /exhibitors/{id}`.
+
+Three things about it are deliberate.
+
+It is **the person's own card**, which is why it sits before the horses: a
+*horse's* papers with the same association are a different fact, and they are
+checked on the horses step against the same show-associations list.
+
+It **gates nothing**. `exhibitor_profile.py` marks the membership row advisory
+and `PUT /signup` does not refuse over it, so the horses step is still unlocked
+by the details alone. A number typed here is a claim the desk verifies against a
+card, and one can be bought at the counter -- gating an entry on it would refuse
+somebody over a thing the show itself can fix in thirty seconds.
+
+The wizard **never opens on it**. `initialStep` runs details -> horses -> stalls,
+because opening on an optional step is how a screen tells somebody it is
+required.
+
+It appears only at a show with a breed or club affiliation, which is the rule
+the checklist row already followed: an Open show with no clubs is not waiting on
+anybody's card, and a step that can never be ticked is one people learn to skip
+past. Competition cards are linked rather than asked for -- a card says which
+division you may enter, nothing here is refused over one, and a second list
+under this one would make an optional step look like two.
+
+
 ### The Probe That Was Green Through The Outage
 
 Migration 133 renamed `show_sanctioning.per_class_fee_cents` to

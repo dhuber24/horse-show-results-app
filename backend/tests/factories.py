@@ -111,6 +111,12 @@ def make_fee(**overrides) -> SimpleNamespace:
         early_amount_cents=None,
         early_deadline=None,
         min_quantity=0,
+        # No class scope unless a test asks for one (migration 137).
+        # Defaulted to empty rather than omitted so a fee built here
+        # behaves like one the ORM loaded -- `scoped_classes` is
+        # `lazy="selectin"` and is never absent. Empty means the whole
+        # schedule, which is what almost every fee at every show wants.
+        scoped_classes=[],
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -328,3 +334,12 @@ def make_futurity(classes=(), entries=(), **overrides) -> SimpleNamespace:
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def make_fee_scope(class_ids) -> list:
+    """`show_fee_classes` rows for `make_fee(scoped_classes=...)`.
+
+    Only the `class_id` is ever read — `billing.scoped_class_ids` turns these
+    into a set and nothing downstream looks at the row itself.
+    """
+    return [SimpleNamespace(id=uuid4(), class_id=cid) for cid in class_ids]

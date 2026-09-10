@@ -39,13 +39,142 @@ from models import (
     Show,
     ShowEntry,
     ShowEntryReservation,
+    ShowRegistrationDraft,
     ShowWaiver,
     ShowWaiverSignature,
 )
+from exhibitor_profile import missing_blocking, profile_checklist
 from placings import is_placed, place_key
 from routers.futurities import load_billable_futurities
+from routers.show_registration import _exhibitor_horse_ids, _show_associations
 
 router = APIRouter(prefix="/my-shows", tags=["My Shows"])
+
+
+
+#: Where an unfinished registration picks up again, and what that step is
+#: called on screen. The memberships step is deliberately absent: it never
+#: blocks anything (`exhibitor_profile.py` marks it advisory), so naming it as
+#: the step somebody must resume at would be telling them to do something
+#: optional before they may carry on. It matches `initialStep` in
+#: `RegisterShowForm`, which opens on the same three for the same reason.
+_RESUME_LABELS = {
+    "details": "Your details",
+    "horses": "Your horses",
+    "stalls": "Stalls, shavings & camping",
+}
+
+
+def resume_step(checklist, horse_count: int) -> str:
+    """Which step an unfinished registration picks up at.
+
+    Mirrors `initialStep` in `RegisterShowForm` deliberately, and the mirror is
+    the reason this is a function with a test rather than a ternary inline: a
+    My Shows card that says "next up: your horses" over a wizard that opens on
+    the details is worse than a card that says nothing.
+
+    Memberships is **not** in the chain even when it is outstanding. The
+    membership row is advisory -- `PUT /signup` does not refuse over it, since a
+    number typed in is a claim the desk verifies against a card -- and naming an
+    optional step as the one to resume at tells somebody it is required.
+
+    Only ever the three, because this is only called for a draft, and a draft
+    by definition has no `show_entries` row: sign-up is the furthest anybody
+    with one of these has got.
+    """
+    if missing_blocking(checklist, step="details"):
+        return "details"
+    if horse_count == 0:
+        return "horses"
+    return "stalls"
+
+
+async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list[dict]:
+    """Shows this exhibitor started registering for and never signed up to.
+
+    Migration 136. Registration's first three steps write nothing against the
+    show -- the details and the horses are the exhibitor's own profile -- so
+    until `PUT /signup` there is no `show_entries` row, and the list above,
+    which finds a show through that row or a class entry, could not mention it.
+    Somebody who opened a form, found they needed the horse's Coggins and
+    closed the tab had nothing anywhere telling them which show it was.
+
+    Two filters, and both are about the bookmark still pointing at something.
+    **PUBLISHED only**, because that is the status self-registration is open in
+    -- a draft on a show that has started points at a screen that 403s, and the
+    exhibitor's route in is the show office now. **No `show_entries` row**,
+    because any such row already puts the show in the list above with a record
+    of its own; a bookmark beside it would be the same show listed twice. The
+    sign-up path deletes the draft, so this second filter is the belt to that
+    braces -- a draft that outlived its deletion is not a reason to show
+    somebody a duplicate.
+
+    How far they got is derived here rather than stored. `profile_checklist` is
+    the same function the registration screen renders and `PUT /signup` refuses
+    on, so the card cannot claim they are further along than the endpoint
+    thinks; a `step` column on the draft would have gone stale the first time
+    somebody completed their profile from `/profile` instead.
+    """
+    rows = await db.execute(
+        select(ShowRegistrationDraft)
+        .options(
+            selectinload(ShowRegistrationDraft.show).selectinload(Show.venue_rel),
+        )
+        .join(Show, Show.id == ShowRegistrationDraft.show_id)
+        .where(
+            ShowRegistrationDraft.exhibitor_id == exhibitor.id,
+            Show.status == "PUBLISHED",
+            ~exists().where(
+                ShowEntry.show_id == ShowRegistrationDraft.show_id,
+                ShowEntry.exhibitor_id == exhibitor.id,
+            ),
+        )
+        .order_by(ShowRegistrationDraft.last_opened_at.desc())
+    )
+    drafts = list(rows.scalars().all())
+    if not drafts:
+        return []
+
+    # Show-independent, so counted once rather than per draft.
+    horse_count = len(await _exhibitor_horse_ids(exhibitor.id, db))
+    held = {r.association_id for r in (exhibitor.registrations or [])}
+
+    out = []
+    for draft in drafts:
+        show = draft.show
+        if show is None:
+            continue
+        checklist = profile_checklist(
+            exhibitor,
+            horse_count=horse_count,
+            # Per show: which bodies a membership is wanted for depends on what
+            # this show runs under, which is the whole reason the row is
+            # omitted at a show with no affiliation at all.
+            associations=await _show_associations(show, db),
+            registered_association_ids=held,
+        )
+        next_step = resume_step(checklist, horse_count)
+        out.append(
+            {
+                "show_id": str(show.id),
+                "show_name": show.name,
+                "show_status": show.status,
+                "start_date": show.start_date,
+                "end_date": show.end_date,
+                "venue": show.venue_rel.name if show.venue_rel else None,
+                "started_at": draft.started_at,
+                "last_opened_at": draft.last_opened_at,
+                "next_step": next_step,
+                "next_step_label": _RESUME_LABELS[next_step],
+                # The blocking rows still outstanding, whole profile. Named
+                # rather than counted: "still needs your date of birth" is a
+                # thing somebody can act on from the card, and "2 items
+                # outstanding" is a thing they have to open the form to find.
+                "still_needed": missing_blocking(checklist),
+            }
+        )
+    return out
+
 
 
 @router.get("/")
@@ -54,13 +183,18 @@ async def list_my_shows(
     db: AsyncSession = Depends(get_db),
 ):
     exhibitor_result = await db.execute(
-        select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id))
+        select(Exhibitor)
+        # `_started_registrations` reads these to work out which of this show's
+        # associations the exhibitor still owes a membership number for. A lazy
+        # relationship in an async request is a MissingGreenlet, not a slow query.
+        .options(selectinload(Exhibitor.registrations))
+        .where(Exhibitor.user_id == safe_uuid(user_id))
     )
     exhibitor = exhibitor_result.scalar_one_or_none()
     if not exhibitor:
         # Not an exhibitor account — an empty list is the honest answer, and
         # keeps the page from 403-ing for staff who click through to it.
-        return {"exhibitor": None, "shows": []}
+        return {"exhibitor": None, "shows": [], "started": []}
 
     entries_result = await db.execute(
         select(Entry)
@@ -171,6 +305,12 @@ async def list_my_shows(
     return {
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "shows": payload,
+        # Shows they began registering for and never signed up to (migration
+        # 136). A separate list rather than entries in `shows` above: a draft has
+        # no bill, no back number and no entries, so folding it in would mean a
+        # row of zeroes that reads as a $0.00 registration -- and `shows` is what
+        # the profile's Show History tab renders as shows they competed in.
+        "started": await _started_registrations(exhibitor, db),
     }
 
 

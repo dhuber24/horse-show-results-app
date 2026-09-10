@@ -304,7 +304,15 @@ SHOW_FEES = [
         "code": "all_day_open",
         "label": "APHA All Day fee — Open, Amateur & Novice Amateur (one horse)",
         "amount_cents": 18000,
-        "unit": "per_horse",
+        # `flat`, not `per_horse`, and this is not a rounding of the truth.
+        # An All Day fee *replaces* per-class fees rather than adding to them --
+        # the exhibitor elects it -- and the app has no concept of a bundle that
+        # substitutes for class lines, so its occurrence is not derivable from
+        # anything stored. That is exactly what the `flat` family means: a price
+        # published on the show bill that bills nobody automatically. Priced
+        # `per_horse` it billed $180 to every exhibitor who entered anything,
+        # which is how a $36 amateur class came out at $552.
+        "unit": "flat",
         "notes": (
             "$45 per judge x 4 APHA judges, one horse, APHA classes only. Does not "
             "include APHA fees; All Breed (MNSPHC or WSCA) classes and side pots "
@@ -315,7 +323,7 @@ SHOW_FEES = [
         "code": "all_day_youth",
         "label": "APHA All Day fee — Youth (one horse)",
         "amount_cents": 14000,
-        "unit": "per_horse",
+        "unit": "flat",
         "notes": (
             "$35 per judge x 4 APHA judges. If the youth horse crosses over to other "
             "divisions the Open rate of $45 per judge applies."

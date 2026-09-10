@@ -18,6 +18,7 @@ from tests.factories import (
     make_class,
     make_entry,
     make_fee,
+    make_fee_scope,
     make_judges,
     make_payment,
     make_payout,
@@ -1066,3 +1067,144 @@ def test_charge_multiplier_zeroes_an_exhibitor_scoped_unit_when_told_to():
     assert billing.charge_multiplier("per_exhibitor", 5, 3, has_relevant_entries=True) == 1
     assert billing.charge_multiplier("per_judge_per_exhibitor", 5, 3, has_relevant_entries=False) == 0
     assert billing.charge_multiplier("per_judge_per_exhibitor", 5, 3, has_relevant_entries=True) == 3
+
+
+# ── An automatic charge may name the classes it applies to (migration 137) ────
+#
+# Found on a live show. The MNSPHC catalogue carries a Youth class rate, two
+# club rates and two All Day fees split Open/Amateur against Youth -- every one
+# an automatic unit, so every one billed to every exhibitor whatever they had
+# entered. An amateur with a single $36 class was charged $552.
+
+
+def _youth_and_open():
+    """One Youth class and one Amateur class, on one horse."""
+    youth = make_class(class_number=56, class_name="Youth Showmanship")
+    amateur = make_class(class_number=1, class_name="Amateur Stallions")
+    horse = uuid4()
+    return youth, amateur, [
+        make_entry(cls=youth, horse_id=horse),
+        make_entry(cls=amateur, horse_id=horse),
+    ]
+
+
+def test_a_fee_with_no_class_scope_still_bills_the_whole_schedule():
+    """Empty means every class, not no class.
+
+    The absence of rows has to be the ordinary case: almost every fee at almost
+    every show applies to the whole schedule, and reading it the other way
+    would have zeroed every bill at every show that predates the feature.
+    """
+    _, _, entries = _youth_and_open()
+    fee = make_fee(code="office", unit="per_judge_per_entry", amount_cents=300)
+    lines, total = billing.charge_lines([fee], entries, judge_count=4)
+    assert lines[0]["entry_count"] == 2
+    assert total == 300 * 4 * 2
+
+
+def test_a_scoped_fee_counts_only_its_own_classes():
+    youth, _, entries = _youth_and_open()
+    fee = make_fee(
+        code="youth_rate",
+        unit="per_judge_per_entry",
+        amount_cents=700,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    lines, total = billing.charge_lines([fee], entries, judge_count=4)
+    assert lines[0]["entry_count"] == 1, "the amateur class is not this fee's business"
+    assert lines[0]["is_scoped"] is True
+    assert total == 700 * 4 * 1
+
+
+def test_a_scoped_fee_bills_nothing_to_somebody_who_entered_none_of_it():
+    """The complaint this exists for: charged a youth rate having entered no
+    youth classes."""
+    youth, amateur, _ = _youth_and_open()
+    amateur_only = [make_entry(cls=amateur)]
+    fee = make_fee(
+        code="youth_rate",
+        unit="per_judge_per_entry",
+        amount_cents=700,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    assert billing.charge_lines([fee], amateur_only, judge_count=4) == ([], 0)
+
+
+def test_a_scoped_per_horse_fee_counts_only_horses_in_those_classes():
+    """`per_horse` scopes by substituting a smaller horse count.
+
+    Two horses at the show, only one of them in the scoped class — the charge
+    is for one.
+    """
+    youth = make_class(class_number=56, class_name="Youth Showmanship")
+    amateur = make_class(class_number=1, class_name="Amateur Stallions")
+    entries = [
+        make_entry(cls=youth, horse_id=uuid4()),
+        make_entry(cls=amateur, horse_id=uuid4()),
+    ]
+    fee = make_fee(
+        code="all_day_youth",
+        unit="per_judge_per_horse",
+        amount_cents=3500,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    lines, total = billing.charge_lines([fee], entries, judge_count=4)
+    assert lines[0]["horse_count"] == 1
+    assert total == 3500 * 4 * 1
+
+
+def test_a_scoped_per_exhibitor_fee_zeroes_out_with_no_relevant_entries():
+    """`per_exhibitor` has no count of its own to shrink, so it needs the gate.
+
+    Same reasoning as `has_relevant_entries` for the club-sanctioned scope:
+    without it a flat `1` would bill somebody with nothing in the scope.
+    """
+    youth, amateur, _ = _youth_and_open()
+    fee = make_fee(
+        code="youth_admin",
+        unit="per_exhibitor",
+        amount_cents=1000,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    assert billing.charge_lines([fee], [make_entry(cls=amateur)], judge_count=4) == ([], 0)
+    lines, _ = billing.charge_lines([fee], [make_entry(cls=youth)], judge_count=4)
+    assert lines[0]["quantity"] == 1
+
+
+def test_a_scope_narrows_and_never_widens_past_the_club_exclusion():
+    """Naming a club-sanctioned class does not drag it back into the breed
+    body's own assessment.
+
+    Migration 131 excludes club-sanctioned classes from every automatic charge,
+    unconditionally. A scope is a second filter applied after it, not a way
+    round it — otherwise a secretary could tick a WSCA class into an APHA
+    assessment that APHA never levies on it.
+    """
+    wsca = make_class(class_number=90, class_name="WSCA Western Pleasure",
+                      sanctioning=[make_class_sanction(make_sanctioning(code="WSCA"))])
+    fee = make_fee(
+        code="apha_assessment",
+        unit="per_judge_per_entry",
+        amount_cents=300,
+        scoped_classes=make_fee_scope([wsca.id]),
+    )
+    assert billing.charge_lines([fee], [make_entry(cls=wsca)], judge_count=4) == ([], 0)
+
+
+def test_a_scope_on_a_non_automatic_unit_is_ignored_on_read():
+    """Defence in depth, the same as `has_early_rate` re-checking the unit.
+
+    The endpoint refuses to store one, but a row written before that guard
+    existed must not go on narrowing a charge that was never billed anyway —
+    and `per_entry` bills nobody either way, so the assertion is that the unit
+    check happens before the scope is consulted at all.
+    """
+    youth, amateur, entries = _youth_and_open()
+    fee = make_fee(
+        code="price_list",
+        unit="per_entry",
+        amount_cents=3600,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    assert billing.scoped_class_ids(fee) is None
+    assert billing.charge_lines([fee], entries, judge_count=4) == ([], 0)

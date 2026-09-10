@@ -317,6 +317,30 @@ def breed_association_entry_count(entries: Iterable) -> int:
     )
 
 
+def scoped_class_ids(fee) -> Optional[set]:
+    """The classes this fee is restricted to, or None for the whole schedule.
+
+    Migration 137. **No rows means every class**, not no class: almost every fee
+    at almost every show applies to the whole schedule, so the absence of rows
+    has to be the ordinary case -- and reading it the other way would zero every
+    bill at every show that predates the feature.
+
+    Only automatic units have a count for this to narrow. A reserved fee bills
+    from a quantity somebody booked and a price-list row bills nobody, so a
+    scope on either would be a control with no reader; the endpoint refuses to
+    store one, and this re-checks the unit on read for the same defence-in-depth
+    reason `has_early_rate` and `reservations.required_quantity` do -- a scope
+    stored before a guard existed must not go on narrowing a charge from a
+    control no screen offers any more.
+    """
+    if fee.unit not in AUTOMATIC_FEE_UNITS:
+        return None
+    rows = getattr(fee, "scoped_classes", None) or []
+    if not rows:
+        return None
+    return {r.class_id for r in rows}
+
+
 def charge_multiplier(
     unit: str,
     horse_count: int,
@@ -380,6 +404,18 @@ def charge_lines(
     one on these units: an early rate is chosen by the day a line was *booked*,
     and nothing books these.
 
+    A fee may also name **its own classes** (`show_fee_classes`, migration 137),
+    in which case every count it multiplies is taken over those classes alone
+    and an exhibitor who entered none of them owes nothing. No rows means the
+    whole schedule, which is what almost every fee at almost every show wants.
+    This narrows and never widens: the club-sanctioned exclusion above still
+    applies on top, so naming a WSCA class in a breed body's assessment does not
+    make the assessment reach it. It exists because "not a club-sanctioned
+    class" was the only scope the app had, and a real catalogue is drawn on far
+    finer lines than that -- an "APHA Youth class" rate, an "All Breed WSCA"
+    rate, and two All Day fees split Open/Amateur against Youth were all billing
+    every exhibitor whatever they had entered.
+
     Every automatic charge counts only the breed association's own classes —
     a class a club like WSCA or MNSPHC sanctions outright already carries its
     own separate entry fee (`is_club_sanctioned_class`) and is not reported to
@@ -401,16 +437,29 @@ def charge_lines(
     breed_entries = [
         e for e in entry_list if e.class_ is not None and not is_club_sanctioned_class(e.class_)
     ]
-    horse_count = len({e.horse_id for e in breed_entries if e.horse_id})
-    entry_count = len(breed_entries)
 
     lines: list[dict] = []
     total = 0
     for fee in fees:
         if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
             continue
+        # A fee that names its own classes counts only those (migration 137).
+        # No rows means the whole schedule, which is what every fee at almost
+        # every show wants -- so this narrows an unscoped charge not at all,
+        # and the club-sanctioned exclusion above still applies on top.
+        scoped = scoped_class_ids(fee)
+        if scoped is None:
+            fee_entries = breed_entries
+        else:
+            fee_entries = [e for e in breed_entries if e.class_.id in scoped]
+        fee_horses = len({e.horse_id for e in fee_entries if e.horse_id})
+        fee_count = len(fee_entries)
         quantity = charge_multiplier(
-            fee.unit, horse_count, judge_count, entry_count, has_relevant_entries=entry_count > 0
+            fee.unit,
+            fee_horses,
+            judge_count,
+            fee_count,
+            has_relevant_entries=fee_count > 0,
         )
         if quantity <= 0:
             continue
@@ -424,10 +473,18 @@ def charge_lines(
                 "amount_cents": fee.amount_cents,
                 # Both counts travel with the line so the bill can show the
                 # arithmetic — "$5.00 x 3 judges x 2 horses" is checkable
-                # against a paper bill in a way "$5.00 x 6" is not.
-                "horse_count": horse_count,
+                # against a paper bill in a way "$5.00 x 6" is not. They are
+                # this fee's own counts, not the exhibitor's: a charge scoped
+                # to the Youth classes has to print the youth entries it was
+                # actually multiplied by, or the arithmetic on the bill does
+                # not foot.
+                "horse_count": fee_horses,
                 "judge_count": judge_count,
-                "entry_count": entry_count,
+                "entry_count": fee_count,
+                # Whether this line was narrowed, so a bill can say so rather
+                # than leaving somebody to wonder why the counts differ from
+                # the line above.
+                "is_scoped": scoped is not None,
                 "quantity": quantity,
                 "line_total_cents": line_total,
             }

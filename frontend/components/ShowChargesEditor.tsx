@@ -6,6 +6,7 @@ import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepA
 import {
   CLASS_FEE_EDITOR_UNITS,
   unitLabel,
+  isAutomaticUnit,
   usesJudgeCount,
   type FeeUnit,
 } from '@/lib/fee-units';
@@ -49,13 +50,23 @@ export type ShowCharge = {
   unit: FeeUnit;
   notes: string | null;
   sort_order: number;
+  /** Classes this charge is narrowed to (migration 137). Empty — and it is
+   *  empty on almost every fee at almost every show — means the whole
+   *  schedule. Optional so a payload from before the field existed still
+   *  parses as "all classes" rather than as "none". */
+  class_ids?: string[];
 };
+
+/** The minimum of a class the scope picker needs. */
+export type ScopeClass = { id: string; class_number: string; class_name: string };
 
 type Draft = {
   label: string;
   amount: string;
   unit: FeeUnit;
   notes: string;
+  /** Mirrors `ShowCharge.class_ids`; empty means every class. */
+  classIds: string[];
 };
 
 /**
@@ -145,6 +156,15 @@ function codeFromLabel(label: string): string {
   );
 }
 
+/** A class scope is a set, so order is not a change. Comparing the arrays
+ *  directly would call a row dirty for having been re-ticked in a different
+ *  sequence, and the step autosave would then rewrite a row nobody edited. */
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
+}
+
 /** Whether a row's draft differs from what is on file. The per-row Save button
  *  and the step's autosave read the same test, so a row the button calls
  *  unchanged is one the autosave leaves alone. An unparseable amount is not
@@ -156,7 +176,8 @@ function isDirty(charge: ShowCharge, draft: Draft): boolean {
     cents !== charge.amount_cents ||
     draft.label !== charge.label ||
     draft.unit !== charge.unit ||
-    (draft.notes.trim() || null) !== (charge.notes ?? null)
+    (draft.notes.trim() || null) !== (charge.notes ?? null) ||
+    !sameIds(draft.classIds, charge.class_ids ?? [])
   );
 }
 
@@ -236,15 +257,128 @@ function BasisSelect({
   );
 }
 
+/**
+ * Which classes one automatic charge applies to (migration 137).
+ *
+ * **Nothing ticked means every class**, which is what almost every fee at
+ * almost every show wants — so the control opens closed, reading "All classes",
+ * and a manager only goes near it when they have a charge that is genuinely
+ * narrower. Reading it the other way round would mean every existing fee
+ * suddenly billed nobody.
+ *
+ * Only offered on an automatic unit. A reserved fee bills from a quantity
+ * somebody booked and a price-list row bills nobody, so neither has a count for
+ * a class list to narrow — and the endpoint refuses one either way.
+ */
+function ClassScopePicker({
+  classes,
+  selected,
+  onChange,
+  disabled,
+}: {
+  classes: ScopeClass[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const chosen = new Set(selected);
+  const all = selected.length === 0;
+
+  const toggle = (id: string) => {
+    const next = new Set(chosen);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange([...next]);
+  };
+
+  return (
+    <div className="text-xs">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        className="hover:underline disabled:opacity-50"
+        style={{ color: all ? COLORS.muted : COLORS.text }}
+        title={
+          all
+            ? 'This charge applies to every class. Pick classes to narrow it.'
+            : 'This charge is billed only against the classes ticked here.'
+        }
+      >
+        {all ? 'Applies to all classes' : `Applies to ${selected.length} class${selected.length === 1 ? '' : 'es'}`}
+        {' '}
+        <span aria-hidden>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div
+          className="mt-1 rounded border p-2 space-y-1 max-h-56 overflow-y-auto"
+          style={{ borderColor: COLORS.border, backgroundColor: 'var(--background)' }}
+        >
+          {classes.length === 0 ? (
+            <p style={{ color: COLORS.muted }}>
+              No classes on the schedule yet — build them in the Class Builder and this charge
+              will apply to all of them until you say otherwise.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 pb-1">
+                <button
+                  type="button"
+                  onClick={() => onChange([])}
+                  className="hover:underline"
+                  style={{ color: 'var(--accent)' }}
+                  title="Clear the list — the charge goes back to applying to every class"
+                >
+                  All classes
+                </button>
+                <span style={{ color: COLORS.muted }}>
+                  {all
+                    ? 'Tick classes to bill this charge on those alone.'
+                    : 'Exhibitors who enter none of these owe nothing for this line.'}
+                </span>
+              </div>
+              {classes.map((c) => (
+                <label key={c.id} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(c.id)}
+                    onChange={() => toggle(c.id)}
+                    className="mt-0.5"
+                  />
+                  <span style={{ color: COLORS.text }}>
+                    <span className="font-mono mr-1" style={{ color: 'var(--accent)' }}>
+                      {c.class_number}
+                    </span>
+                    {c.class_name}
+                  </span>
+                </label>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ShowChargesEditor({
   showId,
   initialCharges,
   judgeCount,
   judgesHref,
+  classes = [],
   boxed = true,
 }: {
   showId: string;
   initialCharges: ShowCharge[];
+  /** The show's classes, so an automatic charge can be narrowed to some of
+   *  them (migration 137). Empty is a fair answer and not an error — Step 4
+   *  comes before the Class Builder, so a show being set up in order genuinely
+   *  has none yet, and the picker says so rather than rendering an empty list
+   *  that reads as a fault. */
+  classes?: ScopeClass[];
   /** How many judges are on this show's panel. A per-judge charge multiplies by
    *  it, so a show with none assigned yet bills nothing for one — which the
    *  screen says outright rather than leaving the manager to discover it on
@@ -271,6 +405,7 @@ export default function ShowChargesEditor({
           amount: dollarsFromCents(c.amount_cents),
           unit: c.unit,
           notes: c.notes ?? '',
+          classIds: c.class_ids ?? [],
         },
       ]),
     ),
@@ -284,6 +419,7 @@ export default function ShowChargesEditor({
     amount: '',
     unit: 'per_horse',
     notes: '',
+    classIds: [],
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -296,6 +432,9 @@ export default function ShowChargesEditor({
       amount: '',
       unit: preset.unit,
       notes: preset.notes ?? '',
+      // A preset never narrows the scope: it is a starting point, and the
+      // manager picks classes after they have seen what the charge is.
+      classIds: [],
     });
     setShowAddForm(true);
     setError(null);
@@ -307,6 +446,7 @@ export default function ShowChargesEditor({
       amount: dollarsFromCents(charge.amount_cents),
       unit: charge.unit,
       notes: charge.notes ?? '',
+      classIds: charge.class_ids ?? [],
     };
 
   const patchDraft = (charge: ShowCharge, patch: Partial<Draft>) =>
@@ -336,6 +476,10 @@ export default function ShowChargesEditor({
         amount_cents: cents,
         unit: draft.unit,
         notes: draft.notes.trim() || null,
+        // Always sent, so clearing the list back to "all classes" is a
+        // change the endpoint can see. Omitting it would mean a scope
+        // could be added and never removed.
+        class_ids: draft.classIds,
       }),
     });
     setBusyId(null);
@@ -385,6 +529,7 @@ export default function ShowChargesEditor({
         amount_cents: cents,
         unit: newRow.unit,
         notes: newRow.notes.trim() || null,
+        class_ids: newRow.classIds,
         // Top of the list, not the bottom. The fee you have just added is the
         // one you are about to type an amount and a note into, and on a show
         // carrying a dozen charges it appeared below the fold — which reads
@@ -406,9 +551,10 @@ export default function ShowChargesEditor({
           amount: dollarsFromCents(created.amount_cents),
           unit: created.unit,
           notes: created.notes ?? '',
+          classIds: created.class_ids ?? [],
         },
       }));
-      setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '' });
+      setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '', classIds: [] });
       setShowAddForm(false);
       router.refresh();
       return true;
@@ -554,7 +700,7 @@ export default function ShowChargesEditor({
               type="button"
               onClick={() => {
                 setShowAddForm(false);
-                setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '' });
+                setNewRow({ label: '', amount: '', unit: 'per_horse', notes: '', classIds: [] });
                 setError(null);
               }}
               className="text-xs hover:underline"
@@ -568,6 +714,13 @@ export default function ShowChargesEditor({
           <p className="text-xs" style={{ color: COLORS.muted }}>
             {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
           </p>
+          {isAutomaticUnit(newRow.unit) && (
+            <ClassScopePicker
+              classes={classes}
+              selected={newRow.classIds}
+              onChange={(ids) => setNewRow((p) => ({ ...p, classIds: ids }))}
+            />
+          )}
           <label className="block text-xs" style={{ color: COLORS.muted }}>
             Note for the show bill (optional)
             <input
@@ -667,6 +820,14 @@ export default function ShowChargesEditor({
                   <p className="text-xs text-red-600">
                     Enter an amount like 8 or 8.50.
                   </p>
+                )}
+                {isAutomaticUnit(draft.unit) && (
+                  <ClassScopePicker
+                    classes={classes}
+                    selected={draft.classIds}
+                    onChange={(ids) => patchDraft(charge, { classIds: ids })}
+                    disabled={busyId === charge.id}
+                  />
                 )}
                 <label className="block text-xs" style={{ color: COLORS.muted }}>
                   Note for the show bill (optional)

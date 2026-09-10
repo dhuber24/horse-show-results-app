@@ -326,6 +326,9 @@ export default function EntryFeesEditor({
         initialCharges={initialCharges}
         judgeCount={judgeCount}
         judgesHref={`/admin/shows/${showId}/setup/judges`}
+        // The class list this screen already holds, so an automatic charge can
+        // be narrowed to some of it rather than billing every entrant.
+        classes={initialClasses}
         boxed={false}
       />
       <ClassFeesTable showId={showId} initialClasses={initialClasses} />

@@ -136,9 +136,18 @@ function Field({
 
 export default function ProfileStep({
   profile,
+  hasMembershipsStep = false,
   onSaved,
 }: {
   profile: ProfileStatus;
+  /** True when the caller renders a memberships step of its own — the
+   *  registration wizard does, between this step and the horses. The prompt
+   *  below is then a second, worse copy of that step: a line of hint text
+   *  and a link out to /profile, which is the trip the step exists to spare
+   *  somebody. False is `/shows/[id]/signup`, the direct door onto sign-up,
+   *  which has no wizard around it and would otherwise never mention
+   *  memberships at all. */
+  hasMembershipsStep?: boolean;
   /** Run after a save that leaves nothing required outstanding — the wizard
    *  moves on to the horses. Not called on a save that still has gaps, because
    *  advancing past a step the backend will refuse on is the thing the lock
@@ -239,7 +248,9 @@ export default function ProfileStep({
   // Only this step's rows. The horses live one step on and complaining about
   // them here is complaining about a screen that has not been reached yet.
   const detailItems = profile.checklist.filter((i) => i.step === 'details');
-  const membershipItem = detailItems.find((i) => i.key === 'memberships');
+  const membershipItem = hasMembershipsStep
+    ? undefined
+    : detailItems.find((i) => i.key === 'memberships');
 
   // One line, not a checklist. This used to be a bulleted list of every row
   // with its hint under it -- six items, thirteen lines -- sitting directly

@@ -87,6 +87,7 @@ from models import (
     Entry,
     Exhibitor,
     ExhibitorHorse,
+    ExhibitorRegistration,
     Futurity,
     FuturityClass,
     FuturityEntry,
@@ -97,8 +98,10 @@ from models import (
     ShowEntry,
     ShowEntryReservation,
     ShowFee,
+    ShowRegistrationDraft,
 )
 from routers.futurities import load_billable_futurities, missing_horse_details
+from routers.people import _exhibitor_reg_out
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
@@ -165,7 +168,14 @@ def _class_sanction_cents(show: Show, class_: Class) -> int:
 async def _load_exhibitor_for_user(user_id: UUID, db: AsyncSession) -> Exhibitor:
     result = await db.execute(
         select(Exhibitor)
-        .options(selectinload(Exhibitor.registrations))
+        # The association on each membership, not just the row: the wizard's
+        # memberships step renders the code and the name, and whether an expiry
+        # is required depends on whether the body is a breed registry or a club.
+        .options(
+            selectinload(Exhibitor.registrations).selectinload(
+                ExhibitorRegistration.association
+            )
+        )
         .where(Exhibitor.user_id == user_id)
     )
     exhibitor = result.scalar_one_or_none()
@@ -630,6 +640,11 @@ async def save_signup(
             # delete-orphan on the relationship turns this into a DELETE.
             show_entry.reservations.remove(row)
 
+    # The bookmark, if they had one, in the same transaction as the row that
+    # supersedes it (migration 136). From here the `show_entries` row is what
+    # puts this show on My Shows, and a draft beside it would list it twice.
+    await _drop_draft(show_id, exhibitor.id, db)
+
     try:
         await db.commit()
     except IntegrityError:
@@ -892,6 +907,128 @@ async def request_back_number(
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+async def _drop_draft(show_id: UUID, exhibitor_id: UUID, db: AsyncSession) -> None:
+    """Forget the bookmark for this (show, exhibitor).
+
+    Called when they sign up -- from then on the `show_entries` row is the
+    record and My Shows lists the show as a registration rather than as
+    something half-started -- and when they dismiss it outright. Not committed
+    here: the caller owns the transaction, and on the sign-up path the delete
+    belongs in the same unit of work as the row that supersedes it.
+    """
+    existing = await db.execute(
+        select(ShowRegistrationDraft).where(
+            ShowRegistrationDraft.show_id == show_id,
+            ShowRegistrationDraft.exhibitor_id == exhibitor_id,
+        )
+    )
+    draft = existing.scalar_one_or_none()
+    if draft is not None:
+        await db.delete(draft)
+
+
+@router.post("/draft", status_code=204)
+async def start_registration_draft(
+    show_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bookmark this show as one the caller has started registering for.
+
+    Fired by the registration screen when it opens. It exists because the first
+    three steps of the wizard write nothing against the show -- the details and
+    the horses belong to the exhibitor's own profile -- so somebody who opened
+    the form, saw they needed the horse's Coggins and closed the tab left no
+    trace at all, and My Shows had nothing to remind them with.
+
+    **Every failure here is silent, and that is the point.** This is a beacon on
+    a page load, not an action the exhibitor took: a caller who is not an
+    exhibitor, or who is already signed up, gets 204 and no row rather than an
+    error, because the alternative is a registration screen showing somebody a
+    red box about a bookmark they never asked for. Nothing downstream depends
+    on the row existing.
+
+    Idempotent -- reopening the screen only moves `last_opened_at`, which is
+    what My Shows sorts on.
+    """
+    show = await db.get(Show, show_id)
+    # A bookmark points at a form. Registration closes when the show leaves
+    # PUBLISHED, so a draft for anything else would point at a screen that
+    # 403s -- see `_load_published_show_or_403`.
+    if show is None or show.status != "PUBLISHED":
+        return
+
+    exhibitor_result = await db.execute(
+        select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id))
+    )
+    exhibitor = exhibitor_result.scalar_one_or_none()
+    if exhibitor is None:
+        return
+
+    # Already on the roster in some form -- signed up, cancelled, or a shell row
+    # the office created. All three already put this show on My Shows with a
+    # record of its own, and a bookmark beside it would be the same show twice.
+    show_entry = await db.execute(
+        select(ShowEntry.id).where(
+            ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor.id
+        )
+    )
+    if show_entry.scalar_one_or_none() is not None:
+        await _drop_draft(show_id, exhibitor.id, db)
+        await db.commit()
+        return
+
+    existing = await db.execute(
+        select(ShowRegistrationDraft).where(
+            ShowRegistrationDraft.show_id == show_id,
+            ShowRegistrationDraft.exhibitor_id == exhibitor.id,
+        )
+    )
+    draft = existing.scalar_one_or_none()
+    if draft is None:
+        db.add(
+            ShowRegistrationDraft(show_id=show_id, exhibitor_id=exhibitor.id)
+        )
+    else:
+        draft.last_opened_at = func.now()
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two tabs opening the screen at once. The row exists either way, which
+        # is the whole outcome this endpoint is after.
+        await db.rollback()
+
+
+@router.delete("/draft", status_code=204)
+async def dismiss_registration_draft(
+    show_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """"I am not entering this show" -- drop the bookmark from My Shows.
+
+    Deletes rather than marking. A dismissal is not a decision worth keeping:
+    somebody who opens the registration screen again has changed their mind,
+    and the honest response is to bookmark it again rather than to remember
+    that they once said no. That also keeps the table to what it claims to
+    hold -- registrations in progress.
+
+    Deliberately not status-scoped, unlike the rest of this router. Those
+    endpoints 403 outside PUBLISHED because they *change a registration*; this
+    one clears a bookmark, and a stale bookmark on a show that has since
+    started is exactly the one somebody wants rid of.
+    """
+    exhibitor_result = await db.execute(
+        select(Exhibitor).where(Exhibitor.user_id == safe_uuid(user_id))
+    )
+    exhibitor = exhibitor_result.scalar_one_or_none()
+    if exhibitor is None:
+        return
+    await _drop_draft(show_id, exhibitor.id, db)
+    await db.commit()
+
+
 @router.get("/preview")
 async def preview_registration(
     show_id: UUID,
@@ -995,6 +1132,14 @@ async def preview_registration(
         # locks the classes half on `signup` — and `PUT /signup` refuses on the
         # identical list, so the lock and the refusal cannot disagree.
         "profile": await _profile_status(show, exhibitor, db),
+        # The exhibitor's own association memberships. Step two of the wizard
+        # asks for these outright now, rather than linking out to `/profile` and
+        # hoping somebody finds their way back mid-registration on a phone.
+        # Sent with the preview rather than fetched separately because
+        # `_load_exhibitor_for_user` has already loaded them -- the membership
+        # row on the profile checklist is built from these same rows, so a
+        # second round trip would be asking twice for what is in hand.
+        "registrations": [_exhibitor_reg_out(r) for r in (exhibitor.registrations or [])],
         # Whether cancelling is still the exhibitor's to do, and by when.
         "cancellation": cancellation_window(show.start_date),
         "show": {

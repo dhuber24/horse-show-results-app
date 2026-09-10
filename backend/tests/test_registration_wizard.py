@@ -24,6 +24,7 @@ from horse_eligibility import (
     owns_horse,
     registration_codes,
 )
+from routers.my_shows import resume_step
 from rules.apha import DIVISIONS, divisions_for_bracket
 
 
@@ -314,3 +315,66 @@ def test_a_finished_person_still_owes_a_horse():
 
     assert missing_blocking(checklist, STEP_DETAILS) == []
     assert missing_blocking(checklist) == ["At least one horse"]
+
+
+# ── Where an unfinished registration picks up ────────────────────────────────
+
+def _exhibitor(**over):
+    """Somebody whose details are all on file, unless a test knocks one out."""
+    fields = {
+        "full_name": "Dana Rivera",
+        "date_of_birth": "1990-04-02",
+        "phone": "555-0100",
+        "address": "12 Arena Way",
+        "city": "Owatonna",
+        "state": "MN",
+        "zip": "55060",
+        "emergency_contact_name": "Sam Rivera",
+        "emergency_contact_phone": "555-0101",
+        "registrations": [],
+    }
+    fields.update(over)
+    return SimpleNamespace(**fields)
+
+
+def test_a_draft_resumes_at_the_details_while_any_are_missing():
+    checklist = profile_checklist(_exhibitor(phone=None), horse_count=0)
+    assert resume_step(checklist, horse_count=0) == "details"
+
+
+def test_the_details_come_first_even_with_a_horse_already_on_file():
+    # Order matters: the wizard locks the horses step behind the details, so a
+    # card sending somebody to the horses would point at a shut box.
+    checklist = profile_checklist(_exhibitor(date_of_birth=None), horse_count=2)
+    assert resume_step(checklist, horse_count=2) == "details"
+
+
+def test_a_finished_profile_with_no_horse_resumes_at_the_horses():
+    checklist = profile_checklist(_exhibitor(), horse_count=0)
+    assert resume_step(checklist, horse_count=0) == "horses"
+
+
+def test_a_finished_profile_with_a_horse_resumes_at_the_stalls():
+    checklist = profile_checklist(_exhibitor(), horse_count=1)
+    assert resume_step(checklist, horse_count=1) == "stalls"
+
+
+def test_an_outstanding_membership_never_becomes_the_step_to_resume_at():
+    """The membership row is advisory, and naming it would make it look required.
+
+    `PUT /signup` does not refuse over a missing membership -- a number typed in
+    is a claim the desk verifies against a card, and one can be bought at the
+    counter -- so a card reading "next up: your memberships" would send somebody
+    back for something nothing is waiting on. Mirrors `initialStep` in
+    `RegisterShowForm`, which skips the step for the same reason.
+    """
+    checklist = profile_checklist(
+        _exhibitor(),
+        horse_count=1,
+        associations=[("11111111-1111-1111-1111-111111111111", "APHA")],
+        registered_association_ids=set(),
+    )
+    membership = next(i for i in checklist if i["key"] == "memberships")
+    assert membership["complete"] is False
+    assert membership["blocking"] is False
+    assert resume_step(checklist, horse_count=1) == "stalls"

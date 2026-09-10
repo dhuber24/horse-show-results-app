@@ -8,9 +8,16 @@ import NewHorseWizard from './NewHorseWizard';
 export default async function NewHorsePage({
   searchParams,
 }: {
-  searchParams: Promise<{ name?: string; association_id?: string; registration_number?: string }>;
+  searchParams: Promise<{
+    name?: string;
+    association_id?: string;
+    registration_number?: string;
+    /** Where to go when the wizard finishes — the registration step
+     *  somebody left to come here. Sanitised in `NewHorseWizard`. */
+    next?: string;
+  }>;
 }) {
-  const { name, association_id, registration_number } = await searchParams;
+  const { name, association_id, registration_number, next } = await searchParams;
   const session = await auth();
   if (!session?.user) redirect('/login');
 
@@ -48,6 +55,7 @@ export default async function NewHorsePage({
         initialName={name}
         initialRegAssociationId={association_id}
         initialRegNumber={registration_number}
+        nextPath={next}
       />
     </main>
   );

@@ -1626,7 +1626,62 @@ class ShowFee(Base):
     min_quantity = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
+    # Eager, like `Class.sanctioning` and for the identical reason: every path
+    # that prices a bill reads it, and an unloaded relationship in an async
+    # request is a MissingGreenlet 500 rather than a slow query. One extra
+    # SELECT per bill removes the eager-load footgun from every caller.
+    scoped_classes = relationship(
+        "ShowFeeClass",
+        back_populates="show_fee",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
     show = relationship("Show", back_populates="fees")
+
+    @property
+    def class_ids(self) -> list:
+        """The scope as bare ids, which is what the API speaks.
+
+        A property rather than a column so `ShowFeeOut.from_attributes`
+        picks it up with no serializer of its own, and so there is one
+        answer to "which classes" whether a caller has the ORM row or
+        the payload. Empty is the whole schedule -- see `ShowFeeClass`.
+        """
+        return [row.class_id for row in self.scoped_classes]
+
+
+class ShowFeeClass(Base):
+    """Which classes one automatic charge applies to (migration 137).
+
+    **No rows means the whole schedule.** Almost every fee at almost every show
+    applies to every class, so the absence of rows has to be the ordinary case;
+    rows *narrow* the charge, and an exhibitor who entered none of them owes
+    nothing.
+
+    The same shape as `class_sanctioning`, and for the same reason: a club
+    approving a list of classes is not a property of the show, and neither is a
+    charge applying to one. Found on a live show bill where a Youth class rate,
+    two club rates and both All Day fees billed every exhibitor whatever they
+    had entered.
+
+    Narrows only. Migration 131's exclusion of club-sanctioned classes still
+    applies on top -- naming a WSCA class here does not make the breed body's
+    own assessment reach it.
+    """
+    __tablename__ = "show_fee_classes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_fee_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_fees.id", ondelete="CASCADE"), nullable=False
+    )
+    class_id = Column(
+        UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_fee_id", "class_id"),)
+
+    show_fee = relationship("ShowFee", back_populates="scoped_classes")
 
 
 class Judge(Base):
@@ -1744,6 +1799,50 @@ class ShowEntry(Base):
     futurity_entries = relationship(
         "FuturityEntry", back_populates="show_entry", cascade="all, delete-orphan"
     )
+
+
+class ShowRegistrationDraft(Base):
+    """An exhibitor started registering for a show and never signed up.
+
+    Migration 136. The first *per-show* write in registration is `PUT /signup`
+    at step three -- steps one and two write the exhibitor's own profile and
+    their horses, neither of which belongs to a particular weekend. So somebody
+    who opened a show's registration screen and closed the tab left nothing
+    anywhere pointing at that show, and My Shows, which finds a show through a
+    `show_entries` row or a class entry, had nothing to list.
+
+    **Not a `show_entries` shell row.** That row means the office is expecting
+    somebody -- it is what a secretary creates while adding a late entry by
+    hand -- and it is what the desk draws its roster from. Writing one when a
+    person merely opens a form would fill the roster with window-shoppers and
+    inflate the counts the office works down.
+
+    **No progress column.** How far they got is derived on read from the
+    profile checklist and their horse count, the same answers the registration
+    screen itself renders; a stored copy would go stale the moment they
+    finished their profile from `/profile` instead. What cannot be derived is
+    that they were looking at *this show*, and that is the whole row.
+    """
+    __tablename__ = "show_registration_drafts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False
+    )
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False
+    )
+    started_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    # What My Shows sorts on: the show they were looking at yesterday is the one
+    # they meant to come back to.
+    last_opened_at = Column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (UniqueConstraint("show_id", "exhibitor_id"),)
+
+    show = relationship("Show")
+    exhibitor = relationship("Exhibitor")
 
 
 class ShowEntryReservation(Base):

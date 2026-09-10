@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
 import AddClassEntry from './AddClassEntry';
 import ProfileStep from './ProfileStep';
+import MembershipsStep from './MembershipsStep';
 import HorsesStep from './HorsesStep';
 import CancelRegistration from './CancelRegistration';
 import FuturityEntry, { futuritySummary, type ExhibitorFuturity } from './FuturityEntry';
@@ -22,29 +23,40 @@ import type { BillClassLine } from '@/lib/my-shows';
 /**
  * Everything an exhibitor signs up for at one show, as a wizard.
  *
- * Five steps, in order, each one a collapsible box with a stepper across the
- * top — the exhibitor's answer to the wizard a show manager gets while setting
- * a show up:
+ * Up to six steps, in order, each one a collapsible box with a stepper across
+ * the top — the exhibitor's answer to the wizard a show manager gets while
+ * setting a show up. Two of them are conditional, so the stepper is built from
+ * data rather than from a fixed list:
  *
  * 1. **Your details.** Contact details, date of birth, an emergency contact.
  *    The office used to reach a stall chart before it had somebody's telephone
  *    number, and nobody goes back afterwards to fill that in.
- * 2. **Your horses.** What you are bringing, whether its papers suit the body
+ * 2. **Your association memberships.** The exhibitor's own cards. Only at a
+ *    show with a breed or club affiliation to hold one against, and it blocks
+ *    nothing — see `MembershipsStep`.
+ * 3. **Your horses.** What you are bringing, whether its papers suit the body
  *    running this show, and how you are entitled to show it. All three are
  *    questions about the horse, and none of them belongs on a form about the
  *    person.
- * 3. **Stalls, shavings & camping.** The show needs its grounds counts before
+ * 4. **Stalls, shavings & camping.** The show needs its grounds counts before
  *    it has a ring full of horses.
- * 4. **Classes & back number.** What you are entered in and the number you
- *    want to ride under.
  * 5. **Futurities.** Only at a show that runs one.
+ * 6. **Classes & back number.** What you are entered in and the number you
+ *    want to ride under.
  *
- * **One screen rather than five routes**, which is where this departs from the
+ * **Futurities come before the classes**, which is not where they started. A
+ * futurity enrollment adds a line to the bill (`billing.futurity_lines`) and
+ * its classes are ordinary classes entered in the step below it — so asking
+ * afterwards meant somebody read a running total under the class picker that
+ * was about to change. In this order the total under the last step is the whole
+ * of what the show will collect.
+ *
+ * **One screen rather than six routes**, which is where this departs from the
  * setup wizard it otherwise mirrors. A show manager builds a show over a
  * fortnight from a desk; an exhibitor enters one in a sitting, on a phone,
- * watching a bill. Five routes would put a page load between every answer and
- * hide the running total behind all of them — so every box stays on the page
- * and the bill sits under all of it.
+ * watching a bill. Separate routes would put a page load between every answer
+ * and hide the running total behind all of them — so every box stays on the
+ * page and the bill sits under all of it.
  *
  * **Every lock is a rule the backend enforces, not a rule this screen invents.**
  * `PUT /signup` refuses on the same profile checklist steps one and two render,
@@ -58,7 +70,7 @@ import type { BillClassLine } from '@/lib/my-shows';
  * the browser; see the money Sharp Edge in Claude.md.
  */
 
-type StepKey = 'details' | 'horses' | 'stalls' | 'classes' | 'futurities';
+type StepKey = 'details' | 'memberships' | 'horses' | 'stalls' | 'classes' | 'futurities';
 
 function formatDay(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -163,6 +175,7 @@ export default function RegisterShowForm({
   signupData: SignupData | null;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { show, exhibitor, classes, horses, existing_entries, bill, profile } = preview;
   const signedUp = preview.signup !== null;
 
@@ -177,18 +190,27 @@ export default function RegisterShowForm({
   const horsesDone = horses.length > 0;
   const profileComplete = profile.complete;
   const hasFuturities = futurities.length > 0;
+  // The exhibitor's own association cards, now a step of their own rather than
+  // a link out of step one. Absent entirely when the show has no breed or club
+  // affiliation to hold a membership against — `exhibitor_profile.py` omits the
+  // row, and an Open show with no clubs is not waiting on anybody's card — in
+  // which case the step is not rendered, the same rule futurities follow.
+  const membershipItem = profile.checklist.find((i) => i.key === 'memberships');
 
-  // Whichever step still needs doing is the one that opens. A first-time
-  // registrant lands on their details; somebody coming back lands on their
-  // classes, which is what they returned for.
-  const initialStep: StepKey = !detailsDone
-    ? 'details'
-    : !horsesDone
-      ? 'horses'
-      : !signedUp
-        ? 'stalls'
-        : 'classes';
-  const [openStep, setOpenStep] = useState<StepKey | null>(initialStep);
+  // Bookmark this show as one they started (migration 136). The first three
+  // steps write their profile and their horses, neither of which belongs to
+  // this weekend, so without this a registration abandoned before sign-up
+  // leaves no trace at all and My Shows has nothing to remind them with.
+  //
+  // Fire and forget, and silent on failure by design: it is a beacon on a page
+  // load rather than something the exhibitor asked for, and a red box about a
+  // failed bookmark would be the screen complaining about its own bookkeeping.
+  // The endpoint is idempotent and no-ops for anyone already signed up; the
+  // guard here only saves the round trip.
+  useEffect(() => {
+    if (signedUp) return;
+    fetch(`/api/shows/${showId}/register/draft`, { method: 'POST' }).catch(() => {});
+  }, [showId, signedUp]);
 
   const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
   const [withdrawingEntryId, setWithdrawingEntryId] = useState<string | null>(null);
@@ -260,6 +282,16 @@ export default function RegisterShowForm({
     return parts.join(' · ');
   })();
 
+  // Folded, this line is the whole step. The count first because that is what
+  // somebody is checking, then the hint — which is the backend's own, and
+  // names the associations still outstanding rather than saying how many.
+  const membershipsSummary = (() => {
+    if (!membershipItem) return '';
+    const n = preview.registrations.length;
+    const held = n === 0 ? 'None on file' : `${n} on file`;
+    return `${held} · ${membershipItem.hint}`;
+  })();
+
   const stallsSummary = (() => {
     if (!signupData) return 'Stalls, shavings and camping';
     const { total_cents, parts } = reservationSummary(signupData);
@@ -269,6 +301,22 @@ export default function RegisterShowForm({
 
   const steps: (RegistrationStep & { key: StepKey })[] = [
     { key: 'details', label: 'Your details', done: detailsDone, available: true },
+    // Between the person and their horses, because it is the person's own
+    // card — a *horse's* papers with the same association are a different fact
+    // and are asked about on the next step. Never gates the one after it:
+    // the membership row is advisory, so `horses` stays available on
+    // `detailsDone` exactly as it did before this step existed.
+    ...(membershipItem
+      ? [
+          {
+            key: 'memberships' as StepKey,
+            label: 'Memberships',
+            done: membershipItem.complete,
+            available: detailsDone,
+            lockedReason: 'Finish your details first',
+          },
+        ]
+      : []),
     {
       key: 'horses',
       label: 'Your horses',
@@ -283,13 +331,12 @@ export default function RegisterShowForm({
       available: profileComplete,
       lockedReason: 'Add a horse first',
     },
-    {
-      key: 'classes',
-      label: 'Classes',
-      done: entered.length > 0,
-      available: signedUp,
-      lockedReason: 'Sign up for stalls first',
-    },
+    // Before the classes, not after them. A futurity enrollment adds a line to
+    // the bill (`billing.futurity_lines`) and its classes are ordinary classes
+    // entered in the step below — so somebody who entered their classes first
+    // and only then found the futurity had already read a total that was about
+    // to change. Asking in this order means the running total under the classes
+    // step is the whole of what the show will collect.
     ...(hasFuturities
       ? [
           {
@@ -301,7 +348,41 @@ export default function RegisterShowForm({
           },
         ]
       : []),
+    {
+      key: 'classes',
+      label: 'Classes',
+      done: entered.length > 0,
+      available: signedUp,
+      lockedReason: 'Sign up for stalls first',
+    },
   ];
+
+  // Whichever step still needs doing is the one that opens. A first-time
+  // registrant lands on their details; somebody coming back lands on their
+  // classes, which is what they returned for.
+  //
+  // Memberships is deliberately not in this chain even when it is outstanding.
+  // It blocks nothing, and a wizard that opens on an optional step is telling
+  // somebody they have to do it.
+  const derivedStep: StepKey = !detailsDone
+    ? 'details'
+    : !horsesDone
+      ? 'horses'
+      : !signedUp
+        ? 'stalls'
+        : 'classes';
+  // `?step=` wins, because it means somebody was sent away from this screen and
+  // is being brought back to the box they left — the add-a-horse wizard is six
+  // steps on another route, and returning them to whatever the checklist thinks
+  // is outstanding would land them somewhere they did not leave. Validated
+  // against the steps actually on offer, so a hand-typed or stale value falls
+  // back to the derived answer rather than opening nothing at all.
+  const requestedStep = searchParams.get('step');
+  const initialStep: StepKey =
+    requestedStep && steps.some((s) => s.key === requestedStep)
+      ? (requestedStep as StepKey)
+      : derivedStep;
+  const [openStep, setOpenStep] = useState<StepKey | null>(initialStep);
 
   const stepNumber = (key: StepKey) => steps.findIndex((s) => s.key === key) + 1;
   const go = (key: StepKey | null) => {
@@ -362,9 +443,39 @@ export default function RegisterShowForm({
           {/* No Next in the section footer: the step's own "Save & continue"
               is the Next, because a Next that did not save would advance past
               boxes nobody had written down. */}
-          <ProfileStep profile={profile} onSaved={() => go('horses')} />
+          <ProfileStep
+            profile={profile}
+            // The memberships step carries this now, so step one no longer
+            // ends in a link out to /profile for it.
+            hasMembershipsStep={membershipItem !== undefined}
+            onSaved={() => go(membershipItem ? 'memberships' : 'horses')}
+          />
         </RegistrationSection>
       </div>
+
+      {membershipItem && (
+        <div id="registration-memberships">
+          <RegistrationSection
+            step={stepNumber('memberships')}
+            title="Your association memberships"
+            icon="🎫"
+            summary={membershipsSummary}
+            done={membershipItem.complete}
+            isOpen={openStep === 'memberships'}
+            onToggle={() => toggle('memberships')}
+            locked={!detailsDone}
+            lockedReason="Finish your details first"
+            onBack={() => go('details')}
+            onNext={() => go('horses')}
+          >
+            <MembershipsStep
+              exhibitorId={exhibitor.id}
+              registrations={preview.registrations}
+              item={membershipItem}
+            />
+          </RegistrationSection>
+        </div>
+      )}
 
       <div id="registration-horses">
         <RegistrationSection
@@ -377,7 +488,7 @@ export default function RegisterShowForm({
           onToggle={() => toggle('horses')}
           locked={!detailsDone}
           lockedReason="Finish your details first"
-          onBack={() => go('details')}
+          onBack={() => go(membershipItem ? 'memberships' : 'details')}
           onNext={() => go('stalls')}
           nextDisabledReason={horsesDone ? null : 'Add a horse to carry on.'}
         >
@@ -413,10 +524,12 @@ export default function RegisterShowForm({
               data={signupData}
               submitLabel={signedUp ? 'Save changes' : 'Sign up & continue'}
               totalHint="Class fees are counted separately, in the total below."
-              // Saving is what unlocks the classes step, so it is also what
-              // advances to it.
+              // Saving is what unlocks the two steps below it, so it is also
+              // what advances into the first of them. A show that runs a
+              // futurity asks about it before the classes, so the bill under
+              // the class picker is the whole of what the show will collect.
               onSaved={() => {
-                go('classes');
+                go(hasFuturities ? 'futurities' : 'classes');
                 router.refresh();
               }}
             />
@@ -435,6 +548,36 @@ export default function RegisterShowForm({
         </RegistrationSection>
       </div>
 
+      {/* A step of its own rather than a card hanging below the wizard, because
+          a futurity is a separate programme with its own deadline and its own
+          money — and the bill below counts it. Not offered at all when the show
+          runs none. */}
+      {hasFuturities && (
+        <div id="registration-futurities">
+          <RegistrationSection
+            step={stepNumber('futurities')}
+            title="Futurities"
+            icon="🏆"
+            summary={futuritySummary(futurities)}
+            done={futurities.some((f) => f.my_entries.length > 0)}
+            isOpen={openStep === 'futurities'}
+            onToggle={() => toggle('futurities')}
+            locked={!signedUp}
+            lockedReason="Sign up for stalls first"
+            onBack={() => go('stalls')}
+            onNext={() => go('classes')}
+          >
+            <FuturityEntry
+              showId={showId}
+              futurities={futurities}
+              horses={horses.map((h) => ({ id: h.id, name: h.name }))}
+              signedUp={signedUp}
+            />
+          </RegistrationSection>
+        </div>
+      )}
+
+
       <div id="registration-classes">
         <RegistrationSection
           step={stepNumber('classes')}
@@ -446,8 +589,7 @@ export default function RegisterShowForm({
           onToggle={() => toggle('classes')}
           locked={!signedUp}
           lockedReason="Sign up for stalls first"
-          onBack={() => go('stalls')}
-          onNext={hasFuturities ? () => go('futurities') : undefined}
+          onBack={() => go(hasFuturities ? 'futurities' : 'stalls')}
           footerNote={
             // Classes are the one step somebody legitimately leaves half done:
             // the schedule is not always out, and people come back a week
@@ -607,34 +749,6 @@ export default function RegisterShowForm({
           )}
         </RegistrationSection>
       </div>
-
-      {/* A step of its own rather than a card hanging below the wizard, because
-          a futurity is a separate programme with its own deadline and its own
-          money — and the bill below counts it. Not offered at all when the show
-          runs none. */}
-      {hasFuturities && (
-        <div id="registration-futurities">
-          <RegistrationSection
-            step={stepNumber('futurities')}
-            title="Futurities"
-            icon="🏆"
-            summary={futuritySummary(futurities)}
-            done={futurities.some((f) => f.my_entries.length > 0)}
-            isOpen={openStep === 'futurities'}
-            onToggle={() => toggle('futurities')}
-            locked={!signedUp}
-            lockedReason="Sign up for stalls first"
-            onBack={() => go('classes')}
-          >
-            <FuturityEntry
-              showId={showId}
-              futurities={futurities}
-              horses={horses.map((h) => ({ id: h.id, name: h.name }))}
-              signedUp={signedUp}
-            />
-          </RegistrationSection>
-        </div>
-      )}
 
       <section
         className="mt-4 rounded-lg border p-4"

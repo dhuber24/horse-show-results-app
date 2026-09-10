@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import ApprovalLinkCallout from '@/components/ApprovalLinkCallout';
 import BreedCheckboxGroup from '@/components/BreedCheckboxGroup';
+import { nextSuggestedAssociation } from '@/lib/breed-associations';
 import TrainerSelect from '@/components/TrainerSelect';
 import { DOC_TYPES, HEALTH_DOC_TYPES, MAX_DOC_BYTES } from '@/components/HorseDocuments';
 import {
@@ -96,6 +97,89 @@ const emptyNewReg = { association_id: '', association_type: null as AssociationT
 const PRIMARY_BUTTON = { backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' };
 const PANEL_STYLE = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' };
 
+/**
+ * The wizard's answers, kept in the browser so leaving does not lose them.
+ *
+ * **Not a server autosave, because there is nothing to save to.** The horse row
+ * does not exist until the last step — creating one early to PATCH as they go
+ * would leave half-finished horses on profiles and, in ride mode, fire an
+ * owner-approval request for a horse nobody finished adding. So the draft lives
+ * in `localStorage`, which is per-browser and per-exhibitor and disappears the
+ * moment the wizard succeeds.
+ *
+ * **Documents are deliberately not in it.** A staged `File` cannot be
+ * serialised, and a draft that silently restored a document list with no bytes
+ * behind it would be worse than one that says nothing — the Health step is
+ * where somebody re-attaches, and the count on screen is the truth.
+ *
+ * Every read and write is wrapped: a private window, cleared site data or a
+ * browser set to block storage all throw on access, and none of that is a
+ * reason for the form itself to break.
+ */
+type HorseDraft = {
+  form: typeof emptyForm;
+  owner: typeof emptyOwner;
+  pendingRegs: PendingReg[];
+  stepIndex: number;
+  furthest: number;
+};
+
+const draftKey = (exhibitorId: string) => `gaitdesk:add-horse:${exhibitorId}`;
+
+function readDraft(exhibitorId: string): HorseDraft | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(exhibitorId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<HorseDraft>;
+    if (!parsed || typeof parsed !== 'object' || !parsed.form) return null;
+    return {
+      // Spread over the empty shapes rather than trusting what came back: a
+      // draft written by an older build is missing whatever has been added
+      // since, and `form.breed_ids.includes` on an undefined throws.
+      form: { ...emptyForm, ...parsed.form },
+      owner: { ...emptyOwner, ...(parsed.owner ?? {}) },
+      pendingRegs: Array.isArray(parsed.pendingRegs) ? parsed.pendingRegs : [],
+      stepIndex: typeof parsed.stepIndex === 'number' ? parsed.stepIndex : 0,
+      furthest: typeof parsed.furthest === 'number' ? parsed.furthest : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(exhibitorId: string, draft: HorseDraft): void {
+  try {
+    window.localStorage.setItem(draftKey(exhibitorId), JSON.stringify(draft));
+  } catch {
+    /* Storage unavailable or full — the form still works, it just will not
+       survive a reload. Nothing here is worth an error message. */
+  }
+}
+
+function clearDraft(exhibitorId: string): void {
+  try {
+    window.localStorage.removeItem(draftKey(exhibitorId));
+  } catch {
+    /* See writeDraft. */
+  }
+}
+
+/** Whether a restored draft holds anything worth telling somebody about. A
+ *  draft that is only "they opened the wizard" should restore silently. */
+function draftHasContent(draft: HorseDraft): boolean {
+  return Boolean(
+    draft.form.name.trim() ||
+    draft.form.barn_name.trim() ||
+    draft.form.breed_ids.length ||
+    draft.form.sire_name.trim() ||
+    draft.form.dam_name.trim() ||
+    draft.form.foaling_date ||
+    draft.pendingRegs.length ||
+    draft.owner.firstName.trim() ||
+    draft.owner.lastName.trim(),
+  );
+}
+
 interface Props {
   exhibitorId: string;
   /** Horses already on the profile, so search hits can be labelled as such. */
@@ -182,6 +266,48 @@ export default function AddHorseWizard({
     emailSent: boolean | null;
   } | null>(null);
 
+
+  // Restore whatever was typed last time, once, on mount. `useState` cannot do
+  // this in its initialiser because `localStorage` does not exist while the
+  // component renders on the server; an effect runs only in the browser.
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  useEffect(() => {
+    const saved = readDraft(exhibitorId);
+    if (saved) {
+      // A name carried in from the search that came up empty wins over the
+      // draft's — it is what they just typed, and this second.
+      setForm(initialName ? { ...saved.form, name: initialName } : saved.form);
+      setOwner(saved.owner);
+      setPendingRegs(saved.pendingRegs);
+      setStepIndex(saved.stepIndex);
+      setFurthest(saved.furthest);
+      if (draftHasContent(saved)) setDraftRestored(true);
+    }
+    setDraftLoaded(true);
+  }, [exhibitorId, initialName]);
+
+  // Write on every change, once the restore has run. The guard is what stops
+  // the first render — with everything still empty — overwriting the draft it
+  // is about to load.
+  useEffect(() => {
+    if (!draftLoaded) return;
+    if (createdHorseId) return;
+    writeDraft(exhibitorId, { form, owner, pendingRegs, stepIndex, furthest });
+  }, [draftLoaded, createdHorseId, exhibitorId, form, owner, pendingRegs, stepIndex, furthest]);
+
+  /** Throw the draft away and start from an empty form. */
+  const discardDraft = () => {
+    clearDraft(exhibitorId);
+    setForm({ ...emptyForm, name: initialName ?? '' });
+    setOwner(emptyOwner);
+    setPendingRegs([]);
+    setPendingDocs([]);
+    setStepIndex(0);
+    setFurthest(0);
+    setDraftRestored(false);
+  };
+
   useEffect(() => {
     fetch('/api/breeds').then((r) => r.json()).then(setBreeds).catch(() => {});
     fetch('/api/horse-colors').then((r) => r.json()).then(setColors).catch(() => {});
@@ -217,6 +343,34 @@ export default function AddHorseWizard({
 
   const usedAssociationIds = new Set(pendingRegs.map((r) => r.association_id));
   const availableAssociations = associations.filter((a) => !usedAssociationIds.has(a.id));
+
+  // The registry the breeds ticked on the Horse step imply and that has no
+  // number against it yet. Somebody who has just said "American Paint Horse"
+  // should not have to find APHA again, two steps later, in a dropdown of every
+  // body the app knows.
+  const selectedBreeds = breeds.filter((b) => form.breed_ids.includes(b.id));
+  const suggestedAssociation = nextSuggestedAssociation(
+    selectedBreeds,
+    associations,
+    usedAssociationIds,
+  );
+
+  // Preselect that registry, once, when the Registrations step is reached with
+  // the picker empty. Guarded on the box being blank, so it never overwrites a
+  // choice and never fires twice for the same one — which is what keeps it out
+  // of the loop that seeding state from state usually is. It fires again after
+  // an Add, because `newReg` resets and `suggestedAssociation` has moved on to
+  // the next breed: a horse papered with two bodies gets both picked for it.
+  useEffect(() => {
+    if (step.key !== 'registrations') return;
+    if (newReg.association_id) return;
+    if (!suggestedAssociation) return;
+    setNewReg((prev) => ({
+      ...prev,
+      association_id: suggestedAssociation.id,
+      association_type: 'breed',
+    }));
+  }, [step.key, newReg.association_id, suggestedAssociation]);
 
   /** Whatever blocks leaving this step, or null when it's good to go. */
   const stepIssue = (key: StepKey): string | null => {
@@ -324,6 +478,7 @@ export default function AddHorseWizard({
     });
     setLinkingId(null);
     if (res.ok) {
+      clearDraft(exhibitorId);
       onLinked(await res.json());
       return;
     }
@@ -562,6 +717,7 @@ export default function AddHorseWizard({
       );
       return;
     }
+    clearDraft(exhibitorId);
     onCreated(horse);
   };
 
@@ -581,6 +737,31 @@ export default function AddHorseWizard({
         <span className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>{step.label}</span>
         <span className="text-xs" style={{ color: 'var(--muted)' }}>Step {safeIndex + 1} of {steps.length}</span>
       </div>
+
+      {/* Said, not silent. Somebody who half-added a horse a week ago and comes
+          back to add a different one would otherwise find a form mysteriously
+          pre-filled with the wrong animal — so the restore is announced and the
+          way out of it is right there. Health documents are the exception and
+          the note says so: a staged file cannot be kept, and a list restored
+          with no bytes behind it would be a lie the Add button discovers. */}
+      {draftRestored && (
+        <div
+          className="rounded px-3 py-2 text-xs flex flex-wrap items-center gap-2"
+          style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent-hover)' }}
+        >
+          <span>
+            Picked up where you left off. Any health documents you had attached need attaching
+            again.
+          </span>
+          <button
+            onClick={discardDraft}
+            className="ml-auto font-medium hover:underline"
+            style={{ color: 'var(--accent-hover)' }}
+          >
+            Start over
+          </button>
+        </div>
+      )}
 
       {/* Step indicator — cleared steps stay reachable so answers can be revised. */}
       <ol className="flex flex-wrap gap-1.5">
@@ -802,6 +983,19 @@ export default function AddHorseWizard({
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
             Coggins, vaccination records, and health certificates. These upload once the
             horse is created, so they stay listed here until you finish the wizard.
+          </p>
+          {/* Said outright rather than discovered at the Add button. A record
+              here is the document, not a note that one exists: the show office
+              reads the expiry date off the file to work out whether a horse is
+              covered for the weekend, and the desk checks the paper itself
+              against the animal in the trailer. Dates with no scan behind them
+              would clear a health flag on nobody's authority. */}
+          <p
+            className="text-xs rounded px-2 py-1.5"
+            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+          >
+            A copy of the certificate is required — attach the scan or photo to add it to the
+            horse&rsquo;s profile. Dates on their own cannot be filed here.
           </p>
 
           {pendingDocs.length > 0 && (
@@ -1125,7 +1319,7 @@ export default function AddHorseWizard({
             </>
           )}
         </div>
-        <button onClick={onCancel} className="ml-auto mt-3 text-xs hover:underline" style={{ color: 'var(--muted)' }}>
+        <button onClick={() => { clearDraft(exhibitorId); onCancel(); }} className="ml-auto mt-3 text-xs hover:underline" style={{ color: 'var(--muted)' }}>
           {createdHorseId || pendingApproval ? 'Back to My Horses' : 'Cancel'}
         </button>
       </div>
