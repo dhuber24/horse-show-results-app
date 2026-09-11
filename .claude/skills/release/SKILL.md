@@ -238,21 +238,42 @@ production the probe may still report the previous state. The script waits 65s
 before its pre-push check for exactly this reason. A stale green is why the read
 paths get checked too, not just the probe.
 
-## What no amount of this tells you
+## Confirming it shipped, and why the script does this itself
 
-Be straight with the user about the two gaps, rather than reporting a green
-watch as though it were a confirmed release:
+These used to be two gaps left to a human with a browser, and on **11 Sep 2026**
+both of them bit at once. The `frontend` CI job had been failing since before
+that day's work — the `res.json()` guard's allow-list had never been told about
+the show-bill streaming route — and `autoDeployTrigger: checksPass` means a red
+check does not merely report, it **blocks**. gaitdesk.com served the previous
+afternoon's build while three pushed commits queued behind the red tick, every
+health probe stayed green throughout (the old build was fine), and it was found
+by a person clicking around the app wondering where their change had gone.
 
-- **Whether CI passed.** `gh` is not installed on this machine, so CI status has
-  to be read from GitHub Actions in a browser. Until it is green, Render has not
-  started building.
-- **Whether the new build is actually live.** Nothing in the response changes
-  between builds — there is no version or commit marker on any endpoint — so the
-  watch can only prove production is *not broken*, never that it moved. The
-  Render dashboard is the only place that says so, per service.
+So `release.ps1` now checks both after the push, and fails the release rather
+than reporting a green watch:
 
-The watch therefore looks for **breakage**, not for success. A clean five
-minutes after a push usually means CI is still running.
+- **CI.** `Wait-ForChecks` polls GitHub's check-runs API for the pushed SHA
+  (`gh` is still not installed; this is plain REST and needs no auth, though
+  `GITHUB_TOKEN` lifts the 60/hour limit). A failed job is named and the script
+  exits 1, saying in as many words that the deploy is blocked, not merely
+  reported. **The pushed commits are not lost** and must not be re-pushed —
+  fixing the job and pushing again deploys the lot.
+- **That the new build is actually serving.** `Get-WebFingerprint` hashes the
+  content-addressed `/_next/static/…` assets the home page references plus
+  `sw.js`'s `Last-Modified`; `Get-ApiFingerprint` hashes `openapi.json`. Both
+  are captured *before* the push and compared after, so "production moved" is
+  something the script observes rather than assumes.
+
+Each fingerprint is only held against a release that could change it —
+`frontend/` for the web one, `backend/` for the API one — because a Next build
+is deterministic and a backend-only release leaves the frontend's hashes
+byte-identical. An unchanged fingerprint on a release that *should* have moved
+it is reported as **could not confirm**, pointing at the Render dashboard;
+never as proof of failure, since a slow build looks the same from outside.
+
+The health watch that follows is still looking for **breakage** rather than for
+success — but it is now watching a build already known to be live, which is the
+part that used to be guesswork.
 
 ## Gotchas
 

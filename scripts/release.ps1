@@ -343,6 +343,132 @@ function Show-Production {
     if ($State.Body) { Write-Info $State.Body.Trim() }
 }
 
+# ── Did it actually ship? ─────────────────────────────────────────────────────
+#
+# The two things the health watch cannot see, and both of them went wrong on
+# 11 Sep 2026. The frontend CI job had been failing since before that day's
+# work -- a streaming route handler the `res.json()` guard's allow-list had
+# never been told about -- and `autoDeployTrigger: checksPass` means a failing
+# check does not merely report, it *blocks*. gaitdesk.com served the previous
+# afternoon's build while three pushed commits sat behind a red tick, and
+# nothing anywhere said so: the health probes were green the whole time,
+# because the old build was perfectly healthy. It was found by a person
+# clicking around the app wondering where their change had gone.
+#
+# A release that cannot tell "deployed" from "queued behind a red tick" is
+# reporting success for an outcome it has not checked.
+
+function Get-RepoSlug {
+    # owner/name off the origin remote, for the GitHub checks API. Handles both
+    # git@github.com:owner/name.git and https://github.com/owner/name(.git).
+    $url = (git remote get-url origin 2>$null)
+    if (-not $url) { return $null }
+    if ($url.Trim() -match 'github\.com[:/](?<slug>[^/]+/[^/]+?)(\.git)?\s*$') {
+        return $Matches['slug']
+    }
+    return $null
+}
+
+function Get-CheckRuns {
+    param([string]$Slug, [string]$Sha)
+    $headers = @{ 'User-Agent' = 'gaitdesk-release'; 'Accept' = 'application/vnd.github+json' }
+    # A token lifts GitHub's 60/hour unauthenticated limit. Optional on purpose:
+    # the poll below stays well inside 60, and a rate-limited answer warns
+    # rather than failing a release that has already been pushed.
+    if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
+    try {
+        return (Invoke-RestMethod -Uri "https://api.github.com/repos/$Slug/commits/$Sha/check-runs" `
+                                  -Headers $headers -TimeoutSec 25).check_runs
+    } catch {
+        return $null
+    }
+}
+
+function Wait-ForChecks {
+    param([string]$Slug, [string]$Sha, [int]$TimeoutMinutes = 15)
+
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    $lastLine = ""
+    while ((Get-Date) -lt $deadline) {
+        $runs = Get-CheckRuns -Slug $Slug -Sha $Sha
+        if ($null -eq $runs) {
+            return [pscustomobject]@{ State = 'unknown'; Failed = @() }
+        }
+        if (@($runs).Count -eq 0) {
+            # GitHub has not registered the workflow yet. Normal for the first
+            # few seconds after a push.
+            Start-Sleep -Seconds 15
+            continue
+        }
+
+        $failed  = @($runs | Where-Object {
+            $_.status -eq 'completed' -and $_.conclusion -notin @('success', 'neutral', 'skipped')
+        })
+        $pending = @($runs | Where-Object { $_.status -ne 'completed' })
+
+        $line = (@($runs) | ForEach-Object {
+            $s = if ($_.status -eq 'completed') { $_.conclusion } else { $_.status }
+            "$($_.name)=$s"
+        }) -join '  '
+        if ($line -ne $lastLine) { Write-Info $line; $lastLine = $line }
+
+        if ($failed.Count -gt 0)  { return [pscustomobject]@{ State = 'failed'; Failed = $failed } }
+        if ($pending.Count -eq 0) { return [pscustomobject]@{ State = 'passed'; Failed = @() } }
+
+        Start-Sleep -Seconds 20
+    }
+    return [pscustomobject]@{ State = 'timeout'; Failed = @() }
+}
+
+function Get-WebFingerprint {
+    # Every hashed asset the home page references, plus sw.js's Last-Modified.
+    # Next content-hashes chunk filenames, so this changes whenever the
+    # frontend's own code changes -- and does NOT change when only the backend
+    # moved, which is why the caller holds it against a release that touched
+    # frontend/ and skips it otherwise.
+    try {
+        $r = Invoke-WebRequest -Uri "$WebUrl/" -UseBasicParsing -TimeoutSec 25
+        $assets = [regex]::Matches($r.Content, '/_next/static/[^"'']+') |
+                  ForEach-Object { $_.Value } | Sort-Object -Unique
+        $sw = ""
+        try {
+            $sw = (Invoke-WebRequest -Uri "$WebUrl/sw.js" -UseBasicParsing -TimeoutSec 25).Headers['Last-Modified']
+        } catch { }
+        return (($assets -join '|') + '||' + $sw)
+    } catch {
+        return $null
+    }
+}
+
+function Get-ApiFingerprint {
+    # The OpenAPI document changes whenever a route, parameter or schema does.
+    # Same caveat as above: a backend release that only changes a function body
+    # leaves it identical, so an unchanged hash is "could not confirm", never
+    # "did not deploy".
+    try {
+        $c = (Invoke-WebRequest -Uri "$ApiUrl/openapi.json" -UseBasicParsing -TimeoutSec 30).Content
+        $h = [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($c))
+        return [BitConverter]::ToString($h).Replace('-', '')
+    } catch {
+        return $null
+    }
+}
+
+function Wait-ForFingerprint {
+    param([string]$Label, [scriptblock]$Probe, [string]$Before, [int]$TimeoutMinutes = 12)
+
+    $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 20
+        $now = & $Probe
+        if ($null -ne $now -and $now -ne $Before) {
+            Write-Ok "$Label is serving new code"
+            return $true
+        }
+    }
+    return $false
+}
+
 function Invoke-Psql {
     param([string]$Url, [string]$Sql)
     $psqlUrl = $Url -replace "postgresql\+asyncpg", "postgresql"
@@ -735,6 +861,17 @@ if ($carriesSchema) {
 
 # ══ 10. Push -- this is the deploy ════════════════════════════════════════════
 
+# Captured before the push so there is something to compare against afterwards.
+# Which halves of the app this release can be expected to change decides which
+# fingerprints mean anything: a backend-only release leaves the frontend's
+# hashed assets byte-identical, and holding that against it would cry wolf on
+# every release that did deploy.
+$touched    = @(git diff --name-only origin/main HEAD)
+$touchesWeb = @($touched | Where-Object { $_ -like 'frontend/*' }).Count -gt 0
+$touchesApi = @($touched | Where-Object { $_ -like 'backend/*' }).Count -gt 0
+$webBefore  = if ($touchesWeb) { Get-WebFingerprint } else { $null }
+$apiBefore  = if ($touchesApi) { Get-ApiFingerprint } else { $null }
+
 Write-Head "Pushing to origin/main"
 Write-Info "Render is on autoDeployTrigger: checksPass, so this deploys once CI is green."
 git push origin main
@@ -744,22 +881,100 @@ if ($LASTEXITCODE -ne 0) {
         "origin/main and re-run. Never force-push main."
     )
 }
-$head = (git rev-parse --short HEAD).Trim()
+$head     = (git rev-parse --short HEAD).Trim()
+$headFull = (git rev-parse HEAD).Trim()
 Write-Ok "pushed $head"
+
+# ══ 10a. CI -- a red tick does not report, it blocks ══════════════════════════
+
+Write-Head "Waiting for CI"
+$slug = Get-RepoSlug
+if (-not $slug) {
+    Write-Warn "could not read owner/name off the origin remote -- skipping the CI check."
+    Write-Info "Check GitHub Actions by hand. A failing check blocks the deploy silently."
+    $checks = [pscustomobject]@{ State = 'unknown'; Failed = @() }
+} else {
+    Write-Info "$slug @ $head"
+    $checks = Wait-ForChecks -Slug $slug -Sha $headFull
+}
+
+if ($checks.State -eq 'failed') {
+    $names = (@($checks.Failed) | ForEach-Object { $_.name }) -join ', '
+    Write-Bad "CI failed: $names"
+    Write-Host ""
+    foreach ($f in @($checks.Failed)) {
+        Write-Host "         $($f.name) -> $($f.conclusion)"
+        if ($f.html_url) { Write-Host "         $($f.html_url)" }
+    }
+    Write-Host ""
+    Write-Host "         Render is on autoDeployTrigger: checksPass, so this does not just" -ForegroundColor Red
+    Write-Host "         report -- it BLOCKS the deploy. Production goes on serving the" -ForegroundColor Red
+    Write-Host "         previous build, and every health check stays green while it does," -ForegroundColor Red
+    Write-Host "         because that build is fine. Nothing will say the site has stopped" -ForegroundColor Red
+    Write-Host "         updating." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "         The commits are pushed and are not lost. Fix the failing job and"
+    Write-Host "         push again; Render deploys the lot once the checks go green. Do"
+    Write-Host "         not re-push these."
+    Write-Host ""
+    exit 1
+}
+if ($checks.State -eq 'timeout') {
+    Write-Warn "CI still running after 15 minutes."
+    Write-Info "Nothing is live yet -- Render has not started building. Watch GitHub Actions."
+    Write-Host ""
+    exit 1
+}
+if ($checks.State -eq 'unknown') {
+    Write-Warn "could not read the checks API -- rate limit, or no network."
+    Write-Info "Set GITHUB_TOKEN to lift the 60/hour limit. Verify by hand before walking away."
+} else {
+    Write-Ok "all checks green -- Render is building now"
+}
+
+# ══ 10b. Did the new build actually reach production? ═════════════════════════
+
+if ($touchesWeb -or $touchesApi) {
+    Write-Head "Waiting for the new build to serve"
+    Write-Info "Comparing what production serves now against what it served before the push."
+
+    if ($touchesWeb) {
+        if ($null -eq $webBefore) {
+            Write-Warn "no pre-push frontend fingerprint -- cannot confirm the web service."
+        } elseif (-not (Wait-ForFingerprint -Label "gaitdesk.com" -Before $webBefore -Probe { Get-WebFingerprint })) {
+            Write-Warn "frontend assets unchanged after 12 minutes."
+            Write-Info "Either the build is slow, or Render never started it. Check the"
+            Write-Info "gaitdesk-web service in the Render dashboard before assuming it shipped."
+        }
+    }
+    if ($touchesApi) {
+        if ($null -eq $apiBefore) {
+            Write-Warn "no pre-push API fingerprint -- cannot confirm the api service."
+        } elseif (-not (Wait-ForFingerprint -Label "api.gaitdesk.com" -Before $apiBefore -Probe { Get-ApiFingerprint })) {
+            # Not a failure on its own: openapi.json is identical across builds
+            # whenever a release changed only a function body.
+            Write-Info "API surface unchanged -- expected if this release touched no routes or schemas."
+        }
+    }
+} else {
+    Write-Head "Nothing to confirm"
+    Write-Info "This release touched neither frontend/ nor backend/, so there is no"
+    Write-Info "change in what either service serves to look for."
+}
 
 # ══ 11. Watch ═════════════════════════════════════════════════════════════════
 
 if ($WatchMinutes -le 0) {
     Write-Head "Not watching (-WatchMinutes 0)"
-    Write-Info "CI has to pass before Render starts building, so nothing is live yet."
+    Write-Info "CI and the build swap were confirmed above; this only skips the health"
+    Write-Info "sampling that would have run against the new build."
     Write-Host ""
     exit 0
 }
 
 Write-Head "Watching production for $WatchMinutes minute(s)"
-Write-Info "Watching for breakage, not for success: nothing in the response changes"
-Write-Info "between builds, so there is no signal here that says the new code is live."
-Write-Info "CI + build + swap usually outlasts this window."
+Write-Info "Watching the new build for breakage. Whether it is live was settled above;"
+Write-Info "this is whether it stays healthy once it is."
 Write-Host ""
 
 $samples = [math]::Max(1, [int](($WatchMinutes * 60) / 20))
@@ -786,9 +1001,9 @@ if ($clean) {
     Write-Host "Check the Render dashboard for both services before walking away." -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Info "Neither of these is confirmed by the watch above:"
-Write-Info "  * that CI passed        -- GitHub Actions"
-Write-Info "  * that the new build is live -- Render dashboard, both services"
+Write-Info "Confirmed by this run, not left to the dashboard:"
+Write-Info "  * CI went green            -- without it Render never builds at all"
+Write-Info "  * the new build is serving -- what production returns actually changed"
 Write-Host ""
 
 # The push already happened, so this is not "the release failed" -- it is "the
