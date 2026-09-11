@@ -57,7 +57,7 @@ jobs:
       # JSON helper; each already guards its own error path.
       - name: Guard against unguarded res.json() in route handlers
         run: |
-          ALLOWED='app/api/exhibitors/\[id\]/documents/\[docId\]/download/route.ts|app/api/horses/\[id\]/documents/\[docId\]/download/route.ts|app/api/horses/\[id\]/documents/\[docId\]/view/route.ts|app/api/shows/\[showId\]/apha-export/route.ts|app/api/trainers/me/photo/route.ts'
+          ALLOWED='app/api/exhibitors/\[id\]/documents/\[docId\]/download/route.ts|app/api/horses/\[id\]/documents/\[docId\]/download/route.ts|app/api/horses/\[id\]/documents/\[docId\]/view/route.ts|app/api/shows/\[showId\]/apha-export/route.ts|app/api/shows/\[showId\]/showbill-document/file/route.ts|app/api/trainers/me/photo/route.ts'
           OFFENDERS=$(grep -rl 'const res = await fetch' app/api --include=route.ts | grep -Ev "$ALLOWED" || true)
           if [ -n "$OFFENDERS" ]; then
             echo "::error::These route handlers call fetch() directly instead of safeFetchBackend():"
