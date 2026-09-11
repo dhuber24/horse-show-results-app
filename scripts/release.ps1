@@ -627,6 +627,15 @@ if ($carriesSchema)  { $step++; Write-Info "$step. migrate PRODUCTION (-AllowPro
 if ($carriesSchema)  { $step++; Write-Info "$step. confirm the production ledger recorded each migration" }
 if ($carriesSchema)  { $step++; Write-Info "$step. check production is still serving BEFORE pushing" }
 $step++; Write-Info "$step. git push origin main   <- this is the deploy"
+$step++; Write-Info "$step. wait for CI            (a red check blocks the deploy, it does not just report)"
+$webPlan = @(git diff --name-only origin/main HEAD) | Where-Object { $_ -like 'frontend/*' }
+$apiPlan = @(git diff --name-only origin/main HEAD) | Where-Object { $_ -like 'backend/*' }
+if (@($webPlan).Count -gt 0 -or @($apiPlan).Count -gt 0) {
+    $which = @()
+    if (@($webPlan).Count -gt 0) { $which += "gaitdesk.com" }
+    if (@($apiPlan).Count -gt 0) { $which += "api.gaitdesk.com" }
+    $step++; Write-Info "$step. confirm the new build is serving ($($which -join ', '))"
+}
 if ($WatchMinutes -gt 0) { $step++; Write-Info "$step. watch production for $WatchMinutes minute(s)" }
 
 if (-not $Run) {
