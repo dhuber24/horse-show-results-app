@@ -1,7 +1,11 @@
+'use client';
+
+import { useState } from 'react';
 import {
   formatMoney,
   type Bill,
   type BillChargeLine,
+  type BillClassLine,
   type BillFuturityLine,
   type BillReservationLine,
   type BillSanctionLine,
@@ -16,9 +20,17 @@ import { unitLabel } from '@/lib/fee-units';
  * from `billing.build_bill` on the backend — nothing is summed in the browser,
  * for the same reason the desk quotes rather than computes (see Claude.md).
  *
- * `detailed` adds the class-by-class list. The card wants a total and a shape;
- * somebody who clicked through to "what do I owe" wants to see the line that
- * surprised them.
+ * The Class fees line expands to a sub-line per class. `detailed` only decides
+ * whether it starts open: the card wants a total and a shape, while somebody
+ * who clicked through to "what do I owe" wants the line that surprised them
+ * already in front of them.
+ *
+ * The sub-lines carry `fee_cents` alone, never `fee_cents + sanction_cents`.
+ * As a separate table above the summary the combined figure was merely a
+ * different question; as sub-lines *under* the Class fees total they have to
+ * add up to it, and a bill whose own rows do not foot is the one thing an
+ * exhibitor checking it will not forgive. A class carrying club money says so
+ * in its own line and that money is totalled in Club sanction fees below.
  */
 export default function ShowBillBreakdown({
   bill,
@@ -27,6 +39,8 @@ export default function ShowBillBreakdown({
   bill: Bill;
   detailed?: boolean;
 }) {
+  const [classesOpen, setClassesOpen] = useState(detailed);
+
   if (bill.total_cents === 0) {
     return (
       <p className="text-sm" style={{ color: 'var(--muted)' }}>
@@ -37,51 +51,37 @@ export default function ShowBillBreakdown({
 
   return (
     <div>
-      {detailed && bill.class_lines.length > 0 && (
-        <div className="mb-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider mb-2"
-            style={{ color: 'var(--muted)' }}>
-            Classes entered
-          </h3>
-          <table className="w-full text-sm" style={{ color: 'var(--text-deep)' }}>
-            <tbody>
-              {bill.class_lines.map((line) => (
-                <tr key={line.entry_id} className="border-b last:border-b-0"
-                  style={{ borderColor: 'var(--bg-subtle)' }}>
-                  <td className="py-1.5 pr-2 align-top font-mono whitespace-nowrap"
-                    style={{ color: 'var(--accent)' }}>
-                    {line.class_number}
-                  </td>
-                  <td className="py-1.5 pr-2 align-top w-full">
-                    {line.class_name}
-                    {/* The horse is the reason a class can appear twice: one
-                        exhibitor may run two horses in the same pattern class,
-                        which is two entries and two fees. Without the name the
-                        second line looks like a duplicate charge. */}
-                    {line.horse_name && (
-                      <div className="text-xs" style={{ color: 'var(--muted)' }}>{line.horse_name}</div>
-                    )}
-                  </td>
-                  <td className="py-1.5 align-top text-right whitespace-nowrap">
-                    {formatMoney(line.fee_cents + line.sanction_cents)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       <dl className="text-sm grid grid-cols-2 gap-y-1.5" style={{ color: 'var(--text-deep)' }}>
-        {bill.class_fee_total_cents > 0 && (
+        {/* Guarded on the class list rather than on the money: an exhibitor
+            entered only in futurity classes has a $0 class-fee total and three
+            classes, and hiding the row would leave the futurity charge below
+            looking like it came from nowhere. */}
+        {bill.class_lines.length > 0 && (
           <>
             <dt>
-              Class fees
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                {' '}({bill.class_lines.length})
-              </span>
+              <button
+                type="button"
+                onClick={() => setClassesOpen((open) => !open)}
+                aria-expanded={classesOpen}
+                className="text-left"
+                style={{ color: 'var(--text-deep)' }}
+                title={
+                  classesOpen
+                    ? 'Hide the class-by-class breakdown'
+                    : 'Show every class entered and what each one costs'
+                }
+              >
+                <span aria-hidden>{classesOpen ? '▾' : '▸'}</span> Class fees
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                  {' '}({bill.class_lines.length})
+                </span>
+              </button>
             </dt>
             <dd className="text-right">{formatMoney(bill.class_fee_total_cents)}</dd>
+            {classesOpen &&
+              bill.class_lines.map((line) => (
+                <ClassSubLine key={line.entry_id} line={line} />
+              ))}
           </>
         )}
         {/* The per-class clubs, rolled up: their money is already spread
@@ -125,6 +125,48 @@ export default function ShowBillBreakdown({
         </dd>
       </dl>
     </div>
+  );
+}
+
+/**
+ * One class, under the Class fees total it is part of.
+ *
+ * A `dt`/`dd` pair like every other row rather than a nested table, so the
+ * amounts sit in the same column as the totals they add up to — which is the
+ * whole point of breaking the line open, and what a table indented under it
+ * would lose.
+ */
+function ClassSubLine({ line }: { line: BillClassLine }) {
+  return (
+    <>
+      <dt className="pl-3 ml-1 border-l text-xs" style={{ borderColor: 'var(--bg-subtle)' }}>
+        <span className="font-mono" style={{ color: 'var(--accent)' }}>
+          {line.class_number}
+        </span>{' '}
+        <span style={{ color: 'var(--muted)' }}>{line.class_name}</span>
+        {/* The horse is the reason a class can appear twice: one exhibitor may
+            run two horses in the same pattern class, which is two entries and
+            two fees. Without the name the second line looks like a duplicate
+            charge. */}
+        {line.horse_name && (
+          <span className="block" style={{ color: 'var(--muted)' }}>
+            {line.horse_name}
+          </span>
+        )}
+        {line.sanction_cents > 0 && (
+          <span
+            className="block"
+            style={{ color: 'var(--muted)' }}
+            title="Charged by a club that sanctions this class. Totalled in Club sanction fees below, not in the amount beside this line."
+          >
+            + {formatMoney(line.sanction_cents)} club sanction
+          </span>
+        )}
+      </dt>
+      <dd className="text-right text-xs self-start" style={{ color: 'var(--muted)' }}>
+        {formatMoney(line.fee_cents)}
+      </dd>
+    </>
   );
 }
 
