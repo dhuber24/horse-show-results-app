@@ -192,11 +192,41 @@ Prefer the PNGs. Every SVG in the package is ~102–205KB because each one embed
 the whole traced document and merely crops the viewBox, so the "wordmark" SVG
 still carries the horse geometry. The 400w PNGs are 10–28KB.
 
-### The service worker cache name is part of the rebrand
+### The service worker, and the two ways v1 got stuck
 
 `public/sw.js` sets `CACHE_NAME` and deletes every cache that does not match it
-on activate. It was bumped to `gaitdesk-v1` so returning users are not served the
-pre-rebrand shell. Bump it again on any future change to cached branding.
+on activate, so **the name is the only purge mechanism there is**. Bump it on any
+change to what is cached or how — a name that never changes is a cache that is
+never cleared.
+
+Two faults in `gaitdesk-v1` are worth keeping written down, because between them a
+deploy could not reach anybody who had ever opened the site.
+
+**`cache.addAll` with a URL that 404s fails the install, permanently.** v1
+precached `['/', '/dashboard', '/shows', '/login']` and `/shows` does not exist.
+`addAll` rejects the whole batch if a single response is not 2xx; that rejects the
+`waitUntil`, which fails the install; a worker that fails to install never
+activates — and **the previously installed worker stays in charge of every
+request**, with no way to replace it, including by a deploy that fixes this file.
+So precaching is now one `cache.add` per URL with its own `.catch`, and the list
+is only routes that exist and need no session. A precache fetch carries no
+cookies, so precaching an authenticated route stores its signed-out version and
+then serves that to somebody who is signed in — which is why `/dashboard` is gone
+from the list too.
+
+**Navigations were cache-first with no revalidation.** `caches.match(request)
+.then((cached) => cached || fetch(request))` serves the app shell out of Cache
+Storage forever, referencing whichever build's chunks it was cached with. The
+server sends `no-store, must-revalidate` on those routes and **Cache Storage does
+not honour Cache-Control at all**, so the worker was overriding an explicit
+instruction not to cache and then never re-checking. Navigations are network-first
+now, with the cache as an offline fallback only.
+
+The navigation response is deliberately **not** written back to the cache. Most of
+this app's HTML is authenticated, and putting a bill or a roster in Cache Storage
+leaves it readable on a shared device after sign-out. Static assets stay
+cache-first, which is safe because Next content-hashes every chunk filename: a new
+build produces new URLs that miss the cache and are fetched fresh.
 
 ## Important Routes
 
