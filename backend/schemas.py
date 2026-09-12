@@ -710,6 +710,16 @@ class ClassPatternStatus(BaseModel):
 class ClassReorder(BaseModel):
     class_ids: list[UUID]
 
+class ClassBulkDelete(BaseModel):
+    """Classes to take off the schedule in one go.
+
+    Capped well above any real schedule (the largest fixture here is 172
+    classes) so a malformed request cannot ask the renumber to walk an
+    unbounded list.
+    """
+
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+
 class ClassSanctioningReplace(BaseModel):
     """The classes one club sanctions at this show — the whole set, every time.
 

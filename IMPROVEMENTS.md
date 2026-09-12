@@ -2,6 +2,40 @@
 
 ## September 2026
 
+### A Class Builder You Can Search, Sweep, And Not Duplicate Into
+
+Three fixes to the Class Builder, all of them about what happens after the
+schedule stops being small.
+
+**The class list is searchable, and deletes in bulk.** A built show runs to
+hundreds of classes; finding the one to remove meant scrolling a day at a time,
+and removing twenty meant twenty presses — each of which renumbers the whole show
+(`_renumber_classes`), so the list shuffled between them. There is now a search
+box over the *Classes added* list, matching name, class number and day together,
+and a tick box on every row: *Tick all N shown*, then one **Delete selected**
+with inline confirmation, posting to the new
+`POST /shows/{id}/classes/bulk-delete`. **A class anybody has entered is kept out
+of the sweep** — its tick box is disabled with the entry count beside its name,
+and the endpoint refuses the whole list rather than part of it, naming the
+classes to untick. A class cascades to its entries and placings, and forty ticks
+is not the deliberate act that one Delete button is; that button is unchanged.
+Searching turns dragging off, since a drop index into a filtered list moves the
+wrong classes.
+
+**One class of a name per show day.** Pressing *Add a Grand & Reserve class*
+twice suggested the same name twice, and the grid's cell lock never covered the
+by-name form at all, so a schedule could carry two classes the show bill cannot
+tell apart. `POST /shows/{id}/classes` now refuses a second class whose name
+already runs that day, and both forms say which class is in the way before
+anybody fills one in. Keyed on the **name** rather than on the
+discipline-and-division cell: "Grand & Reserve Amateur Mares" and
+"…Geldings" are legitimately the same cell on the same day, and a cell-keyed rule
+would have refused the second one.
+
+**Adding a class by name shows you the class.** The form stayed open over a
+folded list, reporting the save in a line of text. It now closes, opens the class
+list, clears any search that would have hidden the new row, and scrolls to it.
+
 ### Setup In The Order Its Answers Come, And A Desk That Lists People
 
 A round of show-setup and registration-desk fixes, most of them about a screen

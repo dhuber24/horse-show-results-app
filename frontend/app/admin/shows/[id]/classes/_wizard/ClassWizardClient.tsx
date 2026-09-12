@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
+import {
+  DragDropContext,
+  Droppable,
+  Draggable,
+  type DraggableProvided,
+  type DropResult,
+} from '@hello-pangea/dnd';
 
 export type StandardItem = {
   id: string;
@@ -46,6 +52,10 @@ export type ClassItem = {
    *  corrected. */
   entered_by_qualification: boolean;
   sort_order: number | null;
+  /** Entries on this class, from the class list payload. Read only to say why a
+   *  class cannot be swept up in a bulk delete — a class cascades to its
+   *  entries, and forty ticks is not the deliberate act one Delete button is. */
+  entry_count?: number;
 };
 
 /** The setup step after this one, so Build Classes can end by walking into it. */
@@ -946,7 +956,20 @@ function ClassesStep({
   const [classDate, setClassDate] = useState(showStartDate);
   // The schedule can run to hundreds of rows; it lives below the picker and
   // stays folded so the grid — the thing being worked in — owns the screen.
+  // Adding a class by name opens it, because the point of that form is the row
+  // it produces.
   const [listOpen, setListOpen] = useState(false);
+  // Filter over the class list. A show runs to hundreds of classes and the one
+  // being removed is found by name, not by scrolling a day at a time.
+  const [query, setQuery] = useState('');
+  // Ticked classes, for the bulk delete. Held by id rather than by position so
+  // the set survives filtering and reordering.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // The class the by-name form just added, and the sentence saying where it
+  // landed. The form closes on a save, so the confirmation has to be out here.
+  const [added, setAdded] = useState<{ id: string; message: string } | null>(null);
   // Date-qualified cell keys (`${classDate}::${disciplineId}::${divisionId}`)
   // for picks that have been clicked but whose create hasn't reconciled into
   // `classes` yet — drives the in-flight "…" marker on the grid.
@@ -1006,6 +1029,67 @@ function ClassesStep({
     }
     return Array.from(byDate.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [classes]);
+
+  const filtering = query.trim().length > 0;
+  // Matched on name, class number and day together, so "halter", "42" and
+  // "06-14" all find something without a field picker in front of the box.
+  const visibleByDate = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return classesByDate;
+    const terms = q.split(/\s+/);
+    const hit = (c: ClassItem) => {
+      const hay = `${c.class_name} #${c.class_number} ${c.class_date}`.toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    };
+    return classesByDate
+      .map(([date, rows]) => [date, rows.filter(hit)] as [string, ClassItem[]])
+      .filter(([, rows]) => rows.length > 0);
+  }, [classesByDate, query]);
+
+  const visibleClasses = useMemo(
+    () => visibleByDate.flatMap(([, rows]) => rows),
+    [visibleByDate],
+  );
+  // A class with entries is kept out of the sweep: deleting it takes its
+  // entries and placings with it, which is a decision for its own Delete
+  // button rather than for one of forty ticks.
+  const selectableVisible = useMemo(
+    () => visibleClasses.filter((c) => !c.entry_count),
+    [visibleClasses],
+  );
+  const allVisibleSelected =
+    selectableVisible.length > 0 && selectableVisible.every((c) => selected.has(c.id));
+
+  // Drop any tick whose class has gone — deleted here, or by somebody else
+  // since this page loaded. A stale id would be sent to the bulk delete and
+  // come back as "not in this show", naming nothing the secretary can see.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const live = new Set(classes.map((c) => c.id));
+      const next = new Set(Array.from(prev).filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [classes]);
+
+  // Bring the row the by-name form just created into view. The list has just
+  // been opened underneath a form that closed, so the browser is looking at
+  // the wrong part of a long page.
+  useEffect(() => {
+    if (!added || !listOpen) return;
+    const row = document.getElementById(`class-row-${added.id}`);
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [added, listOpen]);
+
+  function toggleSelected(id: string) {
+    setConfirmBulk(false);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   async function refreshClasses(): Promise<ClassItem[] | null> {
     const res = await fetch(`/api/shows/${showId}/classes`, { cache: 'no-store' });
@@ -1074,6 +1158,7 @@ function ClassesStep({
     const k = cellKey(disciplineId, divisionId);
     const dk = `${classDate}::${k}`;
     if (takenForDate.has(k) || queuedKeys.has(dk)) return;
+    setAdded(null);
     setQueuedKeys((prev) => new Set(prev).add(dk));
     queueRef.current.push({ disciplineId, divisionId, classDate });
     void drainQueue();
@@ -1178,6 +1263,7 @@ function ClassesStep({
 
   async function removeClass(classId: string) {
     setError(null);
+    setAdded(null);
     setBusy(true);
     try {
       const res = await fetch(`/api/shows/${showId}/classes/${classId}`, {
@@ -1191,6 +1277,42 @@ function ClassesStep({
       await refreshClasses();
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Delete every ticked class in one request.
+   *
+   * One at a time works — it is what the Delete on each row does — but every
+   * delete renumbers the whole show, so clearing a mis-built schedule was a
+   * round trip per class with the numbers shuffling in between. The endpoint is
+   * all-or-nothing and refuses a class anybody has entered, so a refusal leaves
+   * the ticks alone: the message names the classes to untick.
+   */
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setError(null);
+    setAdded(null);
+    setBulkBusy(true);
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class_ids: ids }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(json?.detail || 'Failed to delete the selected classes.');
+        return;
+      }
+      setSelected(new Set());
+      setConfirmBulk(false);
+      await refreshClasses();
+    } catch {
+      setError('Failed to delete the selected classes.');
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -1365,6 +1487,17 @@ function ClassesStep({
             refreshClasses={refreshClasses}
             saveOrder={saveOrder}
             onClose={() => setNamedClassPreset(null)}
+            // A class you have just named is one you want to see on the
+            // schedule — so the form closes, the list opens, any filter that
+            // would have hidden the new row is cleared, and the page scrolls
+            // to it. It used to stay open over a folded list, reporting the
+            // save in a line of text above a form nobody needed any more.
+            onCreated={(id, message) => {
+              setNamedClassPreset(null);
+              setQuery('');
+              setListOpen(true);
+              setAdded({ id, message });
+            }}
           />
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -1411,107 +1544,229 @@ function ClassesStep({
               <span aria-hidden>{listOpen ? '▾' : '▸'}</span> Classes added ({classes.length})
             </span>
             <span className="text-xs" style={{ color: COLORS.muted }}>
-              {listOpen ? 'Hide' : 'Reorder, mark Must qualify, or delete'}
+              {listOpen ? 'Hide' : 'Search, reorder, mark Must qualify, or delete'}
             </span>
           </button>
 
+          {listOpen && added && (
+            <p className="text-xs mt-3" role="status" style={{ color: COLORS.done }}>
+              ✓ {added.message}
+            </p>
+          )}
+
           {listOpen && (
-            <DragDropContext onDragEnd={handleDragEnd}>
+            <>
+              {/* ── Find and sweep ─────────────────────────────────────────
+                  A built show runs to hundreds of classes, so the one being
+                  removed is found by typing its name rather than by scrolling
+                  a day at a time — and removing twenty of them is one press
+                  rather than twenty. */}
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search classes by name, number or day…"
+                  aria-label="Search classes"
+                  className="text-sm border rounded px-2 py-1.5 flex-1"
+                  style={{
+                    borderColor: COLORS.border,
+                    backgroundColor: 'var(--surface)',
+                    color: COLORS.text,
+                    minWidth: '14rem',
+                  }}
+                />
+                <span className="text-xs" style={{ color: COLORS.muted }}>
+                  {filtering
+                    ? `${visibleClasses.length} of ${classes.length}`
+                    : `${classes.length} class${classes.length === 1 ? '' : 'es'}`}
+                </span>
+                {selectableVisible.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmBulk(false);
+                      setSelected((prev) => {
+                        const next = new Set(prev);
+                        if (allVisibleSelected) {
+                          for (const c of selectableVisible) next.delete(c.id);
+                        } else {
+                          for (const c of selectableVisible) next.add(c.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    className="text-xs rounded px-2 py-1.5 border"
+                    style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
+                  >
+                    {allVisibleSelected
+                      ? `Untick ${selectableVisible.length}`
+                      : `Tick ${filtering ? `all ${selectableVisible.length} shown` : `all ${selectableVisible.length}`}`}
+                  </button>
+                )}
+              </div>
+
+              {selected.size > 0 && (
+                <div
+                  className="mt-2 rounded border px-3 py-2 flex items-center gap-3 flex-wrap text-sm"
+                  style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.text }}
+                >
+                  <span>
+                    <strong>{selected.size}</strong> selected
+                    {filtering && selected.size !== visibleClasses.length && (
+                      <span className="text-xs" style={{ color: COLORS.muted }}>
+                        {' '}— including classes the search is hiding
+                      </span>
+                    )}
+                  </span>
+                  {/* Inline confirmation, the way every other destructive
+                      control in the admin console asks. */}
+                  {confirmBulk ? (
+                    <>
+                      <span className="text-xs" style={{ color: COLORS.warn }}>
+                        Delete {selected.size} class{selected.size === 1 ? '' : 'es'}? This cannot be undone.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={deleteSelected}
+                        disabled={bulkBusy}
+                        className="text-xs rounded px-3 py-1.5 disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--error-strong)', color: 'var(--surface)' }}
+                      >
+                        {bulkBusy ? 'Deleting…' : `Yes, delete ${selected.size}`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmBulk(false)}
+                        disabled={bulkBusy}
+                        className="text-xs hover:underline disabled:opacity-50"
+                        style={{ color: COLORS.muted }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmBulk(true)}
+                        className="text-xs rounded px-3 py-1.5 border"
+                        style={{ borderColor: 'var(--error-strong)', color: 'var(--error-strong)', backgroundColor: 'var(--surface)' }}
+                      >
+                        Delete selected
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(new Set())}
+                        className="text-xs hover:underline"
+                        style={{ color: COLORS.muted }}
+                      >
+                        Clear selection
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               <p className="text-xs mt-3" style={{ color: COLORS.muted }}>
                 Tick <strong>Must qualify</strong> on a class that is entered by
                 qualifying, such as a Grand &amp; Reserve champion class — exhibitors
                 can&rsquo;t enter it themselves, and the desk enters the horses called
                 back. Every unticked class is open entry.
               </p>
-              <div className="space-y-3 mt-3">
-                {classesByDate.map(([date, dayClasses]) => (
-                  <div key={date}>
-                    <p
-                      className="text-xs font-medium mb-1 flex items-center gap-2"
-                      style={{ color: COLORS.muted }}
-                    >
-                      {date} — {dayClasses.length} class
-                      {dayClasses.length === 1 ? '' : 'es'}
-                      {dayClasses.length > 1 && (
-                        <span style={{ color: COLORS.border }}>· drag to reorder</span>
-                      )}
-                      {savingOrder && (
-                        <span style={{ color: COLORS.done }}>· saving…</span>
-                      )}
-                    </p>
-                    <Droppable droppableId={date}>
-                      {(dropProvided) => (
-                        <ul
-                          ref={dropProvided.innerRef}
-                          {...dropProvided.droppableProps}
-                          className="space-y-1"
+
+              {filtering && (
+                <p className="text-xs mt-2" style={{ color: COLORS.muted }}>
+                  Showing matches only — clear the search to drag classes into a
+                  new running order.
+                </p>
+              )}
+
+              {visibleClasses.length === 0 ? (
+                <p className="text-sm mt-3" style={{ color: COLORS.muted }}>
+                  No class matches “{query.trim()}”.
+                </p>
+              ) : filtering ? (
+                /* Filtered: no dragging. A drop index into a list with rows
+                   missing from it would reorder the wrong classes, and a
+                   handle that silently does the wrong thing is worse than a
+                   handle that is not there. */
+                <div className="space-y-3 mt-3">
+                  {visibleByDate.map(([date, dayClasses]) => (
+                    <div key={date}>
+                      <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
+                        {date} — {dayClasses.length} match{dayClasses.length === 1 ? '' : 'es'}
+                      </p>
+                      <ul className="space-y-1">
+                        {dayClasses.map((c) => (
+                          <ClassRow
+                            key={c.id}
+                            cls={c}
+                            selected={selected.has(c.id)}
+                            onToggleSelect={() => toggleSelected(c.id)}
+                            qualifyPending={pendingQualify.has(c.id)}
+                            onToggleQualify={() => toggleQualification(c)}
+                            onDelete={() => removeClass(c.id)}
+                            deleteDisabled={busy}
+                            highlighted={added?.id === c.id}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <div className="space-y-3 mt-3">
+                    {classesByDate.map(([date, dayClasses]) => (
+                      <div key={date}>
+                        <p
+                          className="text-xs font-medium mb-1 flex items-center gap-2"
+                          style={{ color: COLORS.muted }}
                         >
-                          {dayClasses.map((c, index) => (
-                            <Draggable key={c.id} draggableId={c.id} index={index}>
-                              {(dragProvided, snapshot) => (
-                                <li
-                                  ref={dragProvided.innerRef}
-                                  {...dragProvided.draggableProps}
-                                  className="flex items-center justify-between gap-2 text-sm border-b py-1"
-                                  style={{
-                                    borderColor: COLORS.borderSoft,
-                                    backgroundColor: snapshot.isDragging
-                                      ? COLORS.highlight
-                                      : 'transparent',
-                                    ...dragProvided.draggableProps.style,
-                                  }}
-                                >
-                                  <span className="flex items-center gap-2 min-w-0" style={{ color: COLORS.text }}>
-                                    <span
-                                      {...dragProvided.dragHandleProps}
-                                      className="cursor-grab active:cursor-grabbing select-none shrink-0"
-                                      title="Drag to reorder"
-                                      aria-label="Drag to reorder"
-                                      style={{ color: COLORS.border }}
-                                    >
-                                      ⠿
-                                    </span>
-                                    <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
-                                      #{c.class_number}
-                                    </span>
-                                    <span className="truncate">{c.class_name}</span>
-                                  </span>
-                                  <span className="flex items-center gap-4 shrink-0">
-                                    <label
-                                      className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
-                                      style={{ color: COLORS.text }}
-                                      title="Ticked: entry is by qualifying — the top placings from the qualifying classes are called back, so exhibitors can't enter it themselves (the desk still can). Unticked: open entry."
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={c.entered_by_qualification}
-                                        disabled={pendingQualify.has(c.id)}
-                                        onChange={() => toggleQualification(c)}
-                                      />
-                                      Must qualify
-                                    </label>
-                                    <button
-                                      type="button"
-                                      disabled={busy}
-                                      onClick={() => removeClass(c.id)}
-                                      className="text-xs hover:underline disabled:opacity-50"
-                                      style={{ color: 'var(--error-strong)' }}
-                                    >
-                                      Delete
-                                    </button>
-                                  </span>
-                                </li>
-                              )}
-                            </Draggable>
-                          ))}
-                          {dropProvided.placeholder}
-                        </ul>
-                      )}
-                    </Droppable>
+                          {date} — {dayClasses.length} class
+                          {dayClasses.length === 1 ? '' : 'es'}
+                          {dayClasses.length > 1 && (
+                            <span style={{ color: COLORS.border }}>· drag to reorder</span>
+                          )}
+                          {savingOrder && (
+                            <span style={{ color: COLORS.done }}>· saving…</span>
+                          )}
+                        </p>
+                        <Droppable droppableId={date}>
+                          {(dropProvided) => (
+                            <ul
+                              ref={dropProvided.innerRef}
+                              {...dropProvided.droppableProps}
+                              className="space-y-1"
+                            >
+                              {dayClasses.map((c, index) => (
+                                <Draggable key={c.id} draggableId={c.id} index={index}>
+                                  {(dragProvided, snapshot) => (
+                                    <ClassRow
+                                      cls={c}
+                                      selected={selected.has(c.id)}
+                                      onToggleSelect={() => toggleSelected(c.id)}
+                                      qualifyPending={pendingQualify.has(c.id)}
+                                      onToggleQualify={() => toggleQualification(c)}
+                                      onDelete={() => removeClass(c.id)}
+                                      deleteDisabled={busy}
+                                      highlighted={added?.id === c.id}
+                                      drag={{ provided: dragProvided, isDragging: snapshot.isDragging }}
+                                    />
+                                  )}
+                                </Draggable>
+                              ))}
+                              {dropProvided.placeholder}
+                            </ul>
+                          )}
+                        </Droppable>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </DragDropContext>
+                </DragDropContext>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1535,6 +1790,114 @@ function ClassesStep({
         hint={`${classes.length} class${classes.length === 1 ? '' : 'es'} saved`}
       />
     </section>
+  );
+}
+
+// ── One row of the class list ──────────────────────────────────────────────────
+
+/**
+ * A class on the schedule: tick to sweep, tick to mark Must qualify, or delete.
+ *
+ * One component for both lists. The whole list is draggable and the searched
+ * one is not — a drop index into a list with rows filtered out of it moves the
+ * wrong classes — and everything else about the row is the same, so the two
+ * must not be two pieces of markup that can drift.
+ */
+function ClassRow({
+  cls,
+  selected,
+  onToggleSelect,
+  qualifyPending,
+  onToggleQualify,
+  onDelete,
+  deleteDisabled,
+  highlighted,
+  drag,
+}: {
+  cls: ClassItem;
+  selected: boolean;
+  onToggleSelect: () => void;
+  qualifyPending: boolean;
+  onToggleQualify: () => void;
+  onDelete: () => void;
+  deleteDisabled: boolean;
+  /** Just added by the by-name form — marked so it can be found in a long list. */
+  highlighted: boolean;
+  drag?: { provided: DraggableProvided; isDragging: boolean };
+}) {
+  const entered = cls.entry_count ?? 0;
+  return (
+    <li
+      id={`class-row-${cls.id}`}
+      ref={drag?.provided.innerRef}
+      {...(drag?.provided.draggableProps ?? {})}
+      className="flex items-center justify-between gap-2 text-sm border-b py-1"
+      style={{
+        borderColor: COLORS.borderSoft,
+        backgroundColor: drag?.isDragging || highlighted ? COLORS.highlight : 'transparent',
+        ...(drag?.provided.draggableProps.style ?? {}),
+      }}
+    >
+      <span className="flex items-center gap-2 min-w-0" style={{ color: COLORS.text }}>
+        <input
+          type="checkbox"
+          checked={selected}
+          disabled={entered > 0}
+          onChange={onToggleSelect}
+          aria-label={`Select ${cls.class_name}`}
+          title={
+            entered > 0
+              ? `${entered} entr${entered === 1 ? 'y' : 'ies'} in this class — delete it on its own if you mean to lose ${entered === 1 ? 'it' : 'them'}`
+              : `Select ${cls.class_name}`
+          }
+          className="shrink-0"
+        />
+        {drag && (
+          <span
+            {...drag.provided.dragHandleProps}
+            className="cursor-grab active:cursor-grabbing select-none shrink-0"
+            title="Drag to reorder"
+            aria-label="Drag to reorder"
+            style={{ color: COLORS.border }}
+          >
+            ⠿
+          </span>
+        )}
+        <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
+          #{cls.class_number}
+        </span>
+        <span className="truncate">{cls.class_name}</span>
+        {entered > 0 && (
+          <span className="text-xs shrink-0" style={{ color: COLORS.muted }}>
+            · {entered} entered
+          </span>
+        )}
+      </span>
+      <span className="flex items-center gap-4 shrink-0">
+        <label
+          className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
+          style={{ color: COLORS.text }}
+          title="Ticked: entry is by qualifying — the top placings from the qualifying classes are called back, so exhibitors can't enter it themselves (the desk still can). Unticked: open entry."
+        >
+          <input
+            type="checkbox"
+            checked={cls.entered_by_qualification}
+            disabled={qualifyPending}
+            onChange={onToggleQualify}
+          />
+          Must qualify
+        </label>
+        <button
+          type="button"
+          disabled={deleteDisabled}
+          onClick={onDelete}
+          className="text-xs hover:underline disabled:opacity-50"
+          style={{ color: 'var(--error-strong)' }}
+        >
+          Delete
+        </button>
+      </span>
+    </li>
   );
 }
 
@@ -1569,6 +1932,7 @@ function AddNamedClass({
   refreshClasses,
   saveOrder,
   onClose,
+  onCreated,
 }: {
   preset: 'blank' | 'grand';
   showId: string;
@@ -1581,6 +1945,8 @@ function AddNamedClass({
   refreshClasses: () => Promise<ClassItem[] | null>;
   saveOrder: (ordered: ClassItem[]) => Promise<void>;
   onClose: () => void;
+  /** The class landed: its id, and where on the schedule it went. */
+  onCreated: (classId: string, message: string) => void;
 }) {
   const halter = disciplines.find((d) => /halter/i.test(d.name) && !/performance/i.test(d.name));
   const startDiscipline = (preset === 'grand' && halter ? halter : disciplines[0])?.id ?? '';
@@ -1596,7 +1962,6 @@ function AddNamedClass({
   const [qualifyTouched, setQualifyTouched] = useState(preset === 'grand');
   const [placeAfter, setPlaceAfter] = useState<string>('auto');
   const [saving, setSaving] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const disc = disciplines.find((d) => d.id === disciplineId);
   const div = divisions.find((d) => d.id === divisionId);
@@ -1622,11 +1987,32 @@ function AddNamedClass({
   }, [preset, dayClasses, disciplineId, divisionId]);
   const afterId = placeAfter === 'auto' ? autoAfter?.id ?? 'end' : placeAfter;
 
+  /**
+   * The class already on that day under that name, if there is one.
+   *
+   * Pressing the Grand & Reserve shortcut twice produces the same suggested
+   * name twice, and so does typing a name the grid already generated — and
+   * two classes sharing a name on one day is a schedule the show bill cannot
+   * print and the gate cannot call. Keyed on the name rather than on the
+   * discipline-and-division cell, because "Grand & Reserve Amateur Mares" and
+   * "Grand & Reserve Amateur Geldings" are legitimately the same cell on the
+   * same day. `POST /shows/{id}/classes` refuses it either way; this is so
+   * nobody fills the form in first.
+   */
+  const clash = useMemo(() => {
+    const wanted = effectiveName.trim().toLowerCase();
+    if (!wanted) return null;
+    return (
+      classes.find(
+        (c) => c.class_date === date && c.class_name.trim().toLowerCase() === wanted,
+      ) ?? null
+    );
+  }, [classes, date, effectiveName]);
+
   async function submit() {
     const className = effectiveName.trim();
-    if (!className || !disciplineId || !divisionId) return;
+    if (!className || !disciplineId || !divisionId || clash) return;
     setError(null);
-    setNotice(null);
     setSaving(true);
     try {
       const res = await fetch(`/api/shows/${showId}/classes`, {
@@ -1661,12 +2047,7 @@ function AddNamedClass({
         }
       }
 
-      setNotice(`Added "${className}" on ${date}, ${where}.`);
-      setName('');
-      setNameTouched(false);
-      setQualifyTouched(preset === 'grand');
-      setMustQualify(preset === 'grand');
-      setPlaceAfter('auto');
+      onCreated(created.id, `Added “${className}” on ${date}, ${where}.`);
     } finally {
       setSaving(false);
     }
@@ -1803,16 +2184,23 @@ function AddNamedClass({
         <button
           type="button"
           onClick={submit}
-          disabled={saving || !effectiveName.trim()}
-          title={!effectiveName.trim() ? 'Give the class a name' : undefined}
+          disabled={saving || !effectiveName.trim() || clash !== null}
+          title={
+            clash
+              ? `${date} already runs a class called “${clash.class_name}” (#${clash.class_number}). Change the name or the day.`
+              : !effectiveName.trim()
+                ? 'Give the class a name'
+                : undefined
+          }
           className="text-sm rounded px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
         >
           {saving ? 'Adding…' : 'Add class'}
         </button>
-        {notice && (
-          <span className="text-xs" role="status" style={{ color: COLORS.done }}>
-            ✓ {notice}
+        {clash && (
+          <span className="text-xs" role="alert" style={{ color: 'var(--error-strong)' }}>
+            Already on {date} as #{clash.class_number} {clash.class_name}. Change the
+            name or the day.
           </span>
         )}
       </div>

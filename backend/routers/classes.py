@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
@@ -26,7 +28,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.apha import zone_individual_work_note
 from rules.disciplines import classify_class_name, entered_by_qualification
 from schemas import (
-    ClassCreate, ClassUpdate, ClassOut, ClassReorder,
+    ClassCreate, ClassUpdate, ClassOut, ClassReorder, ClassBulkDelete,
     ClassAssociationCreate, ClassAssociationOut,
     ClassSanctioningReplace, ClassSanctioningOut,
     BulkClassCreate,
@@ -215,6 +217,78 @@ async def _get_or_create_unassigned(show_id: UUID, db: AsyncSession) -> tuple[Di
         .on_conflict_do_nothing()
     )
     return discipline, division
+
+
+def normalized_class_name(name: str) -> str:
+    """The key the same-day duplicate rule compares on.
+
+    Matches SQL's ``lower(btrim(class_name))`` exactly — the comparison happens
+    in the database, and a normalisation that disagreed with it would refuse
+    nothing while looking as though it refused everything.
+    """
+    return name.strip().lower()
+
+
+def bulk_delete_blocker(classes: list) -> Optional[str]:
+    """Why this sweep cannot go ahead, or None.
+
+    A class cascades to its entries and its placings, so a bulk delete over a
+    ticked list is the one place "delete" can quietly cost somebody their
+    entry. Refused all-or-nothing and by name, because the answer is to untick
+    those rows — a partial delete would leave the secretary working out which
+    of forty went.
+    """
+    blocked = sorted(
+        (cls for cls in classes if cls.entries or cls.results),
+        key=lambda cls: (cls.class_date, cls.sort_order or 0),
+    )
+    if not blocked:
+        return None
+    named = ", ".join(f"#{cls.class_number} {cls.class_name}" for cls in blocked[:3])
+    more = len(blocked) - 3
+    return (
+        "Nothing was deleted. These classes have entries or placings on them: "
+        f"{named}{f', and {more} more' if more > 0 else ''}. Untick them and try "
+        "again, or delete one on its own if you do mean to lose its entries."
+    )
+
+
+async def _assert_name_free(
+    show_id: UUID, class_date, class_name: str, db: AsyncSession
+) -> None:
+    """Refuse a second class of the same name on the same day.
+
+    Two classes sharing a name on one day is never a schedule anybody meant:
+    the show bill cannot tell them apart, the gate cannot call one of them, and
+    an exhibitor picking from the list is choosing at random. It is, though,
+    exactly what a double-pressed grid cell or a second press of *Add a Grand &
+    Reserve class* produces, which is how a schedule ends up carrying one.
+
+    Keyed on the **name**, not on the (discipline, division) cell. For anything
+    the grid creates the two are the same question, since it names every class
+    "{Division} {Discipline}" — but a show legitimately runs "Grand & Reserve
+    Amateur Mares" and "Grand & Reserve Amateur Geldings" on the same day in
+    the same cell, and a cell-keyed rule would refuse the second one.
+
+    The day is part of the key because the same class run on the Saturday and
+    again on the Sunday is two classes, judged and numbered separately.
+    """
+    result = await db.execute(
+        select(Class.class_number)
+        .where(
+            Class.show_id == show_id,
+            Class.class_date == class_date,
+            func.lower(func.btrim(Class.class_name)) == normalized_class_name(class_name),
+        )
+        .limit(1)
+    )
+    number = result.scalar_one_or_none()
+    if number is not None:
+        raise HTTPException(
+            409,
+            f'"{class_name.strip()}" is already on the schedule for {class_date}, '
+            f"as class #{number}.",
+        )
 
 
 async def _renumber_classes(show_id: UUID, db: AsyncSession) -> None:
@@ -487,6 +561,12 @@ async def create_class(
     if not division or division.show_id != show_id:
         raise HTTPException(400, "Division does not belong to this show")
 
+    # One class of a given name per show day. Checked here, on the endpoint both
+    # halves of the Class Builder post to, rather than only in the screen that
+    # greys out a taken grid cell — a lock on a screen is an affordance, and the
+    # rule has to hold for anything that reaches the API.
+    await _assert_name_free(show_id, body.class_date, body.class_name, db)
+
     # Register the (discipline, division) membership on demand. Creating a
     # class is itself the statement that this division is offered under this
     # discipline, so we upsert the pair instead of rejecting it — the matrix
@@ -712,6 +792,52 @@ async def delete_class(
     await db.delete(class_)
     await db.commit()
     await _renumber_classes(show_id, db)
+
+
+@router.post("/bulk-delete", dependencies=[Depends(require_admin_or_show_admin)])
+async def bulk_delete_classes(
+    show_id: UUID,
+    body: ClassBulkDelete,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take several classes off the schedule at once, and renumber once.
+
+    Deleting them one at a time works and is what the class list did before
+    this, but each delete renumbers the whole show — so clearing forty classes
+    off a mis-built schedule was forty round trips, each rewriting every class
+    number, with the list shuffling under the secretary between them.
+
+    **All or nothing, and it refuses a class anybody has entered.** A class
+    cascades to its entries and its placings, so a sweep over a ticked list is
+    the one place where "delete" can quietly cost somebody their entry — and
+    forty ticks is not the deliberate act that one Delete button is. The single
+    delete above is unchanged: deleting one class, named on its own row, is
+    still the office's to make.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+
+    ids = list(dict.fromkeys(body.class_ids))
+    result = await db.execute(
+        select(Class)
+        .options(selectinload(Class.entries), selectinload(Class.results))
+        .where(Class.show_id == show_id, Class.id.in_(ids))
+    )
+    rows = result.scalars().all()
+    if len(rows) != len(ids):
+        raise HTTPException(404, "One or more of those classes are not in this show")
+
+    refusal = bulk_delete_blocker(list(rows))
+    if refusal:
+        raise HTTPException(409, refusal)
+
+    for cls in rows:
+        await db.delete(cls)
+    await db.commit()
+    await _renumber_classes(show_id, db)
+    return {"deleted": len(rows)}
 
 
 # ── Bulk Class Import from APHA Standard Classes ────────────────────────────────
