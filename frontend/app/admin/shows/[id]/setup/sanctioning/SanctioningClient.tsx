@@ -546,7 +546,7 @@ export default function SanctioningClient({
               className="underline"
               style={{ color: 'var(--accent)' }}
             >
-              Step 5: Class Builder
+              Step 4: Class Builder
             </Link>{' '}
             and come back — the clubs and their rates above save either way.
           </div>

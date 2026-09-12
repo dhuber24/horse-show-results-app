@@ -18,7 +18,7 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
 }
 
 /**
- * Step 6: club sanctioning, all three of its questions on one screen.
+ * Step 5: club sanctioning, all three of its questions on one screen.
  *
  * After the Class Builder, not before it. Which clubs sanction the show can be
  * answered any time; what each charges per class and which classes it approves
@@ -54,7 +54,7 @@ export default async function SetupSanctioningPage({
       showId={id}
       showName={show.name}
       current="sanctioning"
-      title="Step 6: Sanctioning"
+      title="Step 5: Sanctioning"
       subtitle="Optional. Pick the clubs whose points apply, set what each charges and how, and tick the classes each one approves — a club sanctions a list of classes, not the whole schedule."
       stepsInput={{ ...stepsInput, sanctioningCount: current.length }}
       skipLabel="Skip — no club sanctioning"

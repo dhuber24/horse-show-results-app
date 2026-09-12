@@ -30,7 +30,7 @@ async function fetchJudgingSystems(
  * needs in front of them. A banner above the class wizard could say none of
  * that; it could only link away from the screen somebody had just opened.
  *
- * The route is unchanged, the same way Step 1 stays on `/edit` and Step 5 on
+ * The route is unchanged, the same way Step 1 stays on `/edit` and Step 4 on
  * `/classes`: a step is a position in the flow, not a folder.
  *
  * Only pattern and timed classes appear. A rail class is placed, not scored,

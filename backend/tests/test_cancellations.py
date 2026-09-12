@@ -21,6 +21,7 @@ from cancellations import (
     is_cancelled,
     is_on_roster,
     may_self_cancel,
+    registration_blocker,
     self_cancel_deadline,
 )
 
@@ -100,3 +101,50 @@ def test_the_secretarys_shell_row_is_not_a_sign_up():
 def test_no_row_at_all_is_not_on_the_roster():
     assert is_on_roster(None) is False
     assert is_cancelled(None) is False
+
+
+# ── What stops a registration being taken apart ──────────────────────────────
+#
+# Cancelling and removing share one rule and differ in one fact. A cancellation
+# keeps the row, so the payments on it survive; a removal deletes the row, and
+# the payments would go with it.
+
+def _blocker(**overrides):
+    facts = dict(paid_out=False, in_settled_pot=False, competed=False, has_payments=False)
+    facts.update(overrides)
+    return registration_blocker(**facts)
+
+
+def test_a_registration_with_nothing_on_it_can_be_removed():
+    """Including one the exhibitor made themselves — signing up is no longer a
+    reason the office cannot take somebody off the show."""
+    assert _blocker() is None
+
+
+def test_payments_stop_a_removal_and_point_at_the_cancel():
+    blocked = _blocker(has_payments=True)
+    assert blocked.code == "PAYMENTS_RECORDED"
+    assert "Cancel it instead" in blocked.message
+
+
+def test_payments_are_no_reason_to_refuse_a_cancellation():
+    """The cancel never passes `has_payments`: keeping the money on the account
+    is what a cancellation is for."""
+    assert registration_blocker(paid_out=False, in_settled_pot=False, competed=False) is None
+
+
+def test_a_placing_stops_both():
+    assert _blocker(competed=True).code == "RESULTS_RECORDED"
+
+
+def test_a_settled_pot_stops_both_even_without_a_payout():
+    """Settling is irreversible. Taking an entry out of a settled pot would
+    change a pool whose payouts are already written."""
+    assert _blocker(in_settled_pot=True).code == "SIDE_POT_SETTLED"
+    assert _blocker(paid_out=True).code == "SIDE_POT_SETTLED"
+
+
+def test_competing_is_reported_ahead_of_the_payments():
+    """Somebody who has been placed and has paid is told about the placing:
+    cancelling would not get the office past that one either."""
+    assert _blocker(competed=True, has_payments=True).code == "RESULTS_RECORDED"

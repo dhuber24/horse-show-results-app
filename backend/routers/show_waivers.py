@@ -458,10 +458,29 @@ async def record_paper_signature(
 
     `on_paper` is set here rather than accepted from the caller, so the two
     routes into this table stay honest about which one a row came through.
+
+    A futurity's release may arrive with no name: the desk records it as one
+    "signed release on file" tick, and the exhibitor's own name is what goes on
+    the row — the name the office would have typed off the blank in all but the
+    rarest case. Every other waiver still needs the name as signed, since the
+    show's own release is where a guardian signing for a minor matters.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     waiver = await _get_waiver_or_404(show_id, waiver_id, db)
     await _assert_exhibitor_on_roster(show_id, exhibitor_id, db)
+    if not (body.signed_name or "").strip():
+        if waiver.futurity_id is None:
+            raise HTTPException(422, "Type the name as it is signed on the blank.")
+        exhibitor = await db.get(Exhibitor, exhibitor_id)
+        if exhibitor is None:
+            raise HTTPException(404, "Exhibitor not found")
+        body = body.model_copy(
+            update={
+                "signed_name": exhibitor.full_name,
+                "signed_by_guardian": False,
+                "guardian_relationship": None,
+            }
+        )
     actor = await db.get(User, safe_uuid(x_user_id))
     return await _sign(waiver, exhibitor_id, body, on_paper=True, actor=actor, db=db)
 

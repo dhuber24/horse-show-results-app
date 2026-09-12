@@ -261,6 +261,7 @@ def _build_waiver_check(waiver: ShowWaiver, signature: Optional[ShowWaiverSignat
         "waiver_id": waiver.id,
         "title": waiver.title,
         "is_required": waiver.is_required,
+        "futurity_id": waiver.futurity_id,
         "status": "signed" if signature else "unsigned",
         "signed_name": signature.signed_name if signature else None,
         "signed_at": signature.signed_at if signature else None,

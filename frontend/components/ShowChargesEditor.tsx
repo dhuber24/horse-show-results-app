@@ -19,7 +19,7 @@ import {
  * `per_entry` row like a jackpot is published text only and bills nobody
  * here — the pot's own buy-in is what actually charges anyone.
  *
- * One editor, used by setup Step 4 and the Entry Fees screen, because both
+ * One editor, used by setup Step 7 (Fees) and the Entry Fees screen, because both
  * were writing the same `show_fees` rows with different vocabulary. There is
  * one place these rows are shaped, and one box they live in — a class fee
  * does not get a second home outside it. `boxed` lets a caller that already
@@ -37,7 +37,7 @@ import {
  * not ones a club like WSCA or MNSPHC sanctions outright, which already
  * carry their own price. That used to be a checkbox a manager had to tick per
  * fee; it no longer is. Which classes belong to a club is already decided
- * elsewhere (Sanctioned Classes, Step 6) by what the classes themselves say,
+ * elsewhere (Sanctioned Classes, Step 5) by what the classes themselves say,
  * so there was nothing left for a second, fee-level toggle to add.
  */
 
@@ -374,10 +374,10 @@ export default function ShowChargesEditor({
   showId: string;
   initialCharges: ShowCharge[];
   /** The show's classes, so an automatic charge can be narrowed to some of
-   *  them (migration 137). Empty is a fair answer and not an error — Step 4
-   *  comes before the Class Builder, so a show being set up in order genuinely
-   *  has none yet, and the picker says so rather than rendering an empty list
-   *  that reads as a fault. */
+   *  them (migration 137). Empty is a fair answer and not an error — the fees
+   *  step comes after the Class Builder now, but somebody can still reach it
+   *  before building a schedule, and the picker says so rather than rendering
+   *  an empty list that reads as a fault. */
   classes?: ScopeClass[];
   /** How many judges are on this show's panel. A per-judge charge multiplies by
    *  it, so a show with none assigned yet bills nothing for one — which the
@@ -389,7 +389,7 @@ export default function ShowChargesEditor({
   /** False when a parent already renders the outer "Class Fees" box (Entry
    *  Fees, which also holds the per-class pricing table below this) — skips
    *  this component's own border and top-level heading so there is exactly
-   *  one box, not two. Defaults to true for Step 4, which has no per-class
+   *  one box, not two. Defaults to true for the fees step, which has no per-class
    *  table and owns nothing else to share a box with. */
   boxed?: boolean;
 }) {

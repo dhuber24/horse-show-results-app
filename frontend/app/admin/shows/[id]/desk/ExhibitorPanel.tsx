@@ -237,9 +237,14 @@ export default function ExhibitorPanel({
       'Could not undo that sign-off.',
     );
 
+  // A futurity release is recorded as "on file" with no name: the backend puts
+  // the exhibitor's own name on it, and refuses the same empty body on any
+  // other waiver.
   const recordWaiver = (
     waiverId: string,
-    body: { signed_name: string; signed_by_guardian: boolean; guardian_relationship: string | null },
+    body:
+      | { signed_name: string; signed_by_guardian: boolean; guardian_relationship: string | null }
+      | Record<string, never>,
   ) =>
     run(
       `waiver-${waiverId}`,
@@ -311,7 +316,7 @@ export default function ExhibitorPanel({
         fetch(`/api/shows/${showId}/desk/exhibitors/${exhibitor.exhibitor_id}`, {
           method: 'DELETE',
         }),
-      'Could not take them off the roster.',
+      'Could not remove that registration.',
     );
     if (ok) onRemoved();
   };
@@ -913,6 +918,9 @@ export default function ExhibitorPanel({
                 onRecord={async (body) => {
                   await recordWaiver(waiver.waiver_id, body);
                 }}
+                onMarkOnFile={async () => {
+                  await recordWaiver(waiver.waiver_id, {});
+                }}
                 onUndo={() => undoWaiver(waiver.waiver_id)}
               />
             ))}
@@ -952,10 +960,10 @@ export default function ExhibitorPanel({
 
       {/* The office's half of the two-week rule: an exhibitor may cancel their
           own registration up to a fortnight before the show, and inside that
-          window this is the only door. Distinct from "Take off the roster"
-          below, which is the undo for adding the wrong person — this one is
-          for a registration that was real, and it keeps the row so the
-          payments on it survive. */}
+          window this is the only door. Distinct from "Remove from this show"
+          below, which deletes the registration outright — this one is for a
+          registration that was real, and it keeps the row so the payments on
+          it survive. */}
       {exhibitor.signed_up && !exhibitor.cancelled_at && exhibitor.show_entry_id && (
         <div className="text-sm">
           {confirmCancel ? (
@@ -1013,26 +1021,39 @@ export default function ExhibitorPanel({
         </div>
       )}
 
-      {/* Only ever an undo for adding the wrong person: the backend refuses
-          once entries, pots, reservations, or payments exist. */}
-      {!exhibitor.signed_up &&
-        exhibitor.entries.length === 0 &&
-        potCount === 0 &&
-        exhibitor.show_entry_id && (
-          <div className="text-sm">
-            {confirmRemove ? (
-              <span className="flex items-center gap-2 flex-wrap">
-                <span style={{ color: 'var(--text-deep)' }}>
-                  Take {exhibitor.exhibitor_name} off this show&rsquo;s roster?
-                </span>
+      {/* Removing takes the registration off the show entirely, however it got
+          there — a self-registration included. Refused while payments are on
+          the account, because the row carries them and a refund is a negative
+          payment, never a deletion; the cancel above is the answer then. The
+          backend enforces the same rule, and refuses on a placing or a settled
+          pot as well. */}
+      {exhibitor.show_entry_id && (
+        <div className="text-sm">
+          {confirmRemove ? (
+            <div
+              className="rounded-lg border p-3 space-y-2"
+              style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)' }}
+            >
+              <p style={{ color: 'var(--error-strong)' }}>
+                Remove {exhibitor.exhibitor_name} from this show?{' '}
+                {exhibitor.cancelled_at
+                  ? 'Their cancelled registration is deleted and they drop off the desk.'
+                  : exhibitor.entries.length > 0 || potCount > 0
+                    ? `This deletes their registration, their ${exhibitor.entries.length} class ${
+                        exhibitor.entries.length === 1 ? 'entry' : 'entries'
+                      }, stalls, shavings and camping, and any side pot or futurity entries.`
+                    : 'This deletes their registration, along with any stalls, shavings or camping they booked.'}{' '}
+                It cannot be undone{exhibitor.signed_up ? ' — they would have to sign up again' : ''}.
+              </p>
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={removeFromRoster}
                   disabled={busy.has('remove-roster')}
-                  className="text-sm font-medium px-3 py-1 rounded disabled:opacity-50"
+                  className="text-sm font-medium px-3 py-1.5 rounded disabled:opacity-50"
                   style={{ backgroundColor: 'var(--error)', color: 'var(--surface)' }}
                 >
-                  {busy.has('remove-roster') ? 'Removing…' : 'Yes, remove'}
+                  {busy.has('remove-roster') ? 'Removing…' : 'Yes, remove from show'}
                 </button>
                 <button
                   type="button"
@@ -1040,22 +1061,28 @@ export default function ExhibitorPanel({
                   className="text-sm hover:underline"
                   style={{ color: COLORS.muted }}
                 >
-                  Cancel
+                  Keep them
                 </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmRemove(true)}
-                className="text-xs hover:underline"
-                style={{ color: COLORS.muted }}
-                title="Added the wrong person? They have nothing on file yet, so this can be undone."
-              >
-                Take off the roster
-              </button>
-            )}
-          </div>
-        )}
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRemove(true)}
+              disabled={exhibitor.payment_count > 0}
+              className="text-xs hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed"
+              style={{ color: COLORS.muted }}
+              title={
+                exhibitor.payment_count > 0
+                  ? 'They have payments recorded, and removing the registration would delete them. Cancel the registration instead — it keeps the payments on their account to refund.'
+                  : 'Delete this registration and everything it booked, as if they had never signed up.'
+              }
+            >
+              Remove from this show
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

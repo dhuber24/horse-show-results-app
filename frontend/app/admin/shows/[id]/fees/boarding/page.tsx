@@ -19,7 +19,7 @@ export default async function BoardingFeesPage({ params }: { params: Promise<{ i
   ]);
 
   // Everything except the charges the show applies automatically — those are
-  // edited on Entry Fees and in setup Step 4, and offering them here as well
+  // edited on Entry Fees and in setup Step 7, and offering them here as well
   // would be two screens writing one row in two vocabularies.
   const boardingFees = fees.filter((f: { unit: string }) => !isAutomaticUnit(f.unit));
 

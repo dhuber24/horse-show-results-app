@@ -54,7 +54,7 @@ export default function FeesClient({
   initialCharges: ShowCharge[];
   judgeCount: number;
   /** The show's classes, for narrowing an automatic charge to some of them.
-   *  Empty until Step 5 builds them, which is the ordinary case here. */
+   *  Built in Step 4, so a show set up in order has them by now. */
   classes: ScopeClass[];
   /** A `futurity` fee row from before this screen stopped offering one. Shown
    *  so it can be removed deliberately — a show that also sets up a real
@@ -119,7 +119,7 @@ export default function FeesClient({
             futurities were their own programme.
             {futurityCount > 0
               ? ' It is charged on top of the futurity’s own pricing, so every entrant is being billed twice.'
-              : ' Remove it once the futurity is set up in Step 7, or entrants will be billed for both.'}
+              : ' Remove it if you set up a futurity in Step 6, or entrants will be billed for both.'}
           </p>
           <button
             type="button"

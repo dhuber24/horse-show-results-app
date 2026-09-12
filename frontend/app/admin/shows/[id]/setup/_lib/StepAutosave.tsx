@@ -34,7 +34,7 @@ import {
  *
  * The Save buttons that remain (Lodging, Sanctioning) still work and still say
  * what they did; this is a second door onto the same function, not a
- * replacement for it. Step 4's "Save & continue to Classes" is the one that
+ * replacement for it. The fees step's "Save & continue to Classes" is the one that
  * went — it did nothing the Next link does not now do for itself.
  */
 

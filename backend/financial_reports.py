@@ -375,7 +375,7 @@ def _charges_applied(fin: dict) -> dict:
             "in the Revenue Summary.",
         ] if rows else [
             "This show applies no automatic charges. They are set up under "
-            "Other fees in Step 4 of show setup."
+            "Other fees in Step 7 of show setup."
         ],
     }
 

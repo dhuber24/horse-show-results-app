@@ -50,6 +50,7 @@ from cancellations import (
     CancellationBlocked,
     cancel_registration,
     is_on_roster,
+    remove_registration,
 )
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
@@ -65,6 +66,7 @@ from models import (
 from routers.show_financials import _load_financials
 from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
+from rules.apha import division_for_class
 from schemas import ShowDeskExhibitorAdd, ShowDeskOut, ShowDeskRosterRow
 
 router = APIRouter(
@@ -226,6 +228,7 @@ async def get_desk(
             "billed_cents": account["bill"]["total_cents"],
             "net_paid_cents": account["net_paid_cents"],
             "balance_cents": account["balance_cents"],
+            "payment_count": len(account["payments"]),
         })
 
     # Alphabetical, because the desk's question is "where is Susan Miller", not
@@ -243,11 +246,12 @@ async def get_desk(
         if check["status"] != "valid"
     )
 
+    show_type_code = show.show_type.code if show.show_type else None
     return {
         "show_id": show.id,
         "show_name": show.name,
         "show_status": show.status,
-        "show_type_code": show.show_type.code if show.show_type else None,
+        "show_type_code": show_type_code,
         "classes": [
             {
                 "id": cls.id,
@@ -259,6 +263,17 @@ async def get_desk(
                 "entry_fee_cents": cls.entry_fee_cents,
                 "discipline_name": cls.discipline.name if cls.discipline else None,
                 "division_name": cls.division.name if cls.division else None,
+                # The APHA division an entry in this class is filed under — the
+                # same answer `POST .../entries` fills in, from the same
+                # function. The desk states it rather than asking, and its SPB
+                # and Novice checks read it. Only at an APHA show.
+                "apha_division": (
+                    division_for_class(
+                        cls.division.name if cls.division else None, cls.class_name
+                    )
+                    if show_type_code == "APHA"
+                    else None
+                ),
                 "entry_count": entry_count_by_class.get(cls.id, 0),
             }
             for cls in classes
@@ -433,13 +448,20 @@ async def remove_exhibitor_from_roster(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Undo adding the wrong person to the roster.
+    """Remove an exhibitor's registration from the show, however they got on it.
 
-    Only ever an undo: refused once anything hangs off the row, because
-    `show_entries` cascades to reservations, payments, and side pot entries and
-    a mis-click should not be able to delete a recorded payment. Someone who has
-    entered a class is removed by removing their entries first, which is the
-    same order the office would do it on paper.
+    A self-registration and a desk-added walk-up are removed the same way, and
+    whatever the registration booked goes with it — class entries, stalls,
+    futurity enrollments, side pot buy-ins — in the one press the screen
+    confirms. This used to be only an undo for adding the wrong person, refusing
+    anybody who had signed themselves up and anybody with an entry, which left
+    the office no way to take a self-registration off the show at all.
+
+    Still refused while payments are recorded against the row: `show_entries`
+    cascades to `show_payments`, and a refund is a negative payment rather than
+    a deletion. The answer there is `POST .../cancel`, which keeps the money on
+    their account. Refused on a placing or a settled pot for the same reason a
+    cancellation is. See `cancellations.remove_registration`.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
 
@@ -456,27 +478,7 @@ async def remove_exhibitor_from_roster(
     if not show_entry:
         raise HTTPException(404, "That exhibitor is not on this show's roster")
 
-    if show_entry.registered_at is not None:
-        raise HTTPException(
-            409,
-            "This exhibitor signed themselves up for the show; their registration "
-            "cannot be removed from the desk.",
-        )
-    if show_entry.payments:
-        raise HTTPException(409, "This exhibitor has payments recorded at this show.")
-    if show_entry.reservations:
-        raise HTTPException(409, "This exhibitor has stalls or camping reserved at this show.")
-    if show_entry.side_pot_entries:
-        raise HTTPException(409, "Take this exhibitor out of their side pots first.")
-
-    entry_result = await db.execute(
-        select(Entry.id)
-        .join(Class, Entry.class_id == Class.id)
-        .where(Class.show_id == show_id, Entry.exhibitor_id == exhibitor_id)
-        .limit(1)
-    )
-    if entry_result.scalar_one_or_none():
-        raise HTTPException(409, "Remove this exhibitor's class entries first.")
-
-    await db.delete(show_entry)
-    await db.commit()
+    try:
+        await remove_registration(show_entry, show_id, db)
+    except CancellationBlocked as blocked:
+        raise HTTPException(409, {"code": blocked.code, "message": blocked.message}) from None

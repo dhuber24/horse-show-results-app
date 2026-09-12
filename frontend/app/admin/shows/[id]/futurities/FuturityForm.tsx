@@ -504,7 +504,7 @@ export default function FuturityForm({
         >
           {classes.length === 0 ? (
             <p className="text-sm" style={{ color: COLORS.muted }}>
-              This show has no classes yet — build the schedule in Step 5 first.
+              This show has no classes yet — build the schedule in Step 4: Class Builder first.
             </p>
           ) : (
             classes.map((c) => (

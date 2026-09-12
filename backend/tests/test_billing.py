@@ -131,7 +131,7 @@ def test_a_dual_sanctioned_class_carries_both_fees():
 
 
 def test_a_designation_for_a_club_the_show_dropped_charges_nothing():
-    """Removing a club in Step 6 leaves its class designations behind. They
+    """Removing a club in Step 5 leaves its class designations behind. They
     must price at zero rather than at whatever the club used to charge."""
     dropped = make_sanctioning("WSCA", fee_amount_cents=200)
     cls = make_class(sanctioning=[make_class_sanction(dropped)])

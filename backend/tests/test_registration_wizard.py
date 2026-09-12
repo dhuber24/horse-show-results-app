@@ -25,7 +25,8 @@ from horse_eligibility import (
     registration_codes,
 )
 from routers.my_shows import resume_step
-from rules.apha import DIVISIONS, divisions_for_bracket
+from rules.apha import DIVISIONS, division_for_class, divisions_for_bracket
+from schemas import StaffWaiverSignatureCreate, WaiverSignatureCreate
 
 
 # ── The division picker ──────────────────────────────────────────────────────
@@ -119,6 +120,33 @@ def test_every_division_returned_is_one_an_entry_may_actually_store():
     for bracket in brackets:
         for division in divisions_for_bracket(bracket) or ():
             assert division in DIVISIONS
+
+
+def test_the_desk_files_the_same_division_the_class_names():
+    """Neither entry form asks for a division now. `division_for_class` is what
+    the staff endpoint fills in and what the desk prints beside its picker, so
+    the two cannot disagree about a class."""
+    assert division_for_class("Amateur", "Amateur Western Pleasure") == "AMATEUR"
+    assert division_for_class("Unassigned", "Youth WT 5-10 Showmanship") == "YOUTH_WALK_TROT_5_10"
+
+
+def test_a_class_that_does_not_say_files_no_division():
+    assert division_for_class("Yearling Stallions") is None
+    assert division_for_class(None, None) is None
+
+
+# ── Signing a release at the desk ────────────────────────────────────────────
+
+def test_the_desk_may_mark_a_release_on_file_without_a_name():
+    """A futurity release is one tick at the desk; the endpoint puts the
+    exhibitor's name on it. The schema lets the name be left out so that tick
+    has something to send — the endpoint still refuses it on any other waiver."""
+    assert StaffWaiverSignatureCreate().signed_name is None
+
+
+def test_an_exhibitor_signing_for_themselves_still_types_their_name():
+    with pytest.raises(ValueError):
+        WaiverSignatureCreate(signed_name="")
 
 
 # ── The horse's papers ───────────────────────────────────────────────────────

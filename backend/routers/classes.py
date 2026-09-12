@@ -250,7 +250,7 @@ async def _show_sanctioning_or_404(
         raise HTTPException(
             404,
             "This show does not carry that sanctioning. Enrol the club in setup "
-            "Step 6 first.",
+            "Step 5 first.",
         )
     return row
 

@@ -160,7 +160,7 @@ def sanction_rates(show) -> dict:
     """What each club this show carries charges per class it sanctions.
 
     `{association_id: fee_amount_cents}`, read off `show_sanctioning` — the
-    amount the manager set in setup Step 6 and which the public show bill has
+    amount the manager set in setup Step 5 and which the public show bill has
     always printed as "$2.00 per class". Clubs with no fee set are kept out, so
     a show that enrolled a club without pricing it bills nothing rather than
     zero-value lines.

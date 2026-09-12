@@ -39,6 +39,51 @@ function matchesFilter(exhibitor: DeskExhibitor, filter: Filter): boolean {
   }
 }
 
+/**
+ * One person on the roster, however many exhibitor records they turn up under.
+ *
+ * A back number lives on the exhibitor record, one per show, so somebody who
+ * appears twice with two numbers is two records with the same name — an old
+ * account's record left behind when the account went and a new one made when
+ * they signed up again, or a walk-up the office typed in before finding the
+ * existing profile. Listing each record as its own row put the same person on
+ * the desk twice. Grouped by name here, every back number's details sit under
+ * one entry; nothing is merged, and each record keeps its own panel, classes,
+ * paperwork and account, because a name is not proof two records are the same
+ * person and the office can see both side by side to judge.
+ */
+type PersonGroup = { key: string; name: string; members: DeskExhibitor[] };
+
+function personKey(exhibitor: DeskExhibitor): string {
+  return exhibitor.exhibitor_name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** The live registration first, then a desk-added one, then a cancelled one. */
+function memberRank(exhibitor: DeskExhibitor): number {
+  if (exhibitor.cancelled_at) return 2;
+  return exhibitor.signed_up ? 0 : 1;
+}
+
+function groupByPerson(exhibitors: DeskExhibitor[]): PersonGroup[] {
+  const groups = new Map<string, PersonGroup>();
+  for (const exhibitor of exhibitors) {
+    const key = personKey(exhibitor);
+    const group = groups.get(key) ?? { key, name: exhibitor.exhibitor_name, members: [] };
+    group.members.push(exhibitor);
+    groups.set(key, group);
+  }
+  for (const group of groups.values()) {
+    group.members.sort(
+      (a, b) =>
+        memberRank(a) - memberRank(b) ||
+        (a.back_number ?? Number.MAX_SAFE_INTEGER) - (b.back_number ?? Number.MAX_SAFE_INTEGER),
+    );
+    group.name = group.members[0].exhibitor_name;
+  }
+  // The backend already sorts the roster alphabetically; Map keeps that order.
+  return Array.from(groups.values());
+}
+
 function haystack(exhibitor: DeskExhibitor): string {
   return [
     exhibitor.exhibitor_name,
@@ -95,21 +140,26 @@ export default function DeskClient({
     load();
   }, [load]);
 
-  const shown = useMemo(() => {
-    if (!desk) return [];
-    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return desk.exhibitors
-      .filter((e) => matchesFilter(e, filter))
-      .filter((e) => {
-        if (tokens.length === 0) return true;
-        const hay = haystack(e);
-        return tokens.every((t) => hay.includes(t));
-      });
-  }, [desk, query, filter]);
+  const people = useMemo(() => groupByPerson(desk?.exhibitors ?? []), [desk]);
 
-  const selected = useMemo(
-    () => desk?.exhibitors.find((e) => e.exhibitor_id === selectedId) ?? null,
-    [desk, selectedId],
+  // A person is listed when any of their records matches — somebody searched
+  // for by the back number on their older record is still the same person.
+  const shown = useMemo(() => {
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return people.filter((group) =>
+      group.members.some(
+        (e) =>
+          matchesFilter(e, filter) &&
+          (tokens.length === 0 || tokens.every((t) => haystack(e).includes(t))),
+      ),
+    );
+  }, [people, query, filter]);
+
+  // Selection is still an exhibitor id — the by-class view and the add form both
+  // hand one over — and the panel shows the whole person that record belongs to.
+  const selectedGroup = useMemo(
+    () => people.find((g) => g.members.some((e) => e.exhibitor_id === selectedId)) ?? null,
+    [people, selectedId],
   );
 
   // A selection that filters itself out of the list stays open — the desk is
@@ -135,7 +185,7 @@ export default function DeskClient({
         className="rounded-lg border p-4 grid grid-cols-2 sm:grid-cols-4 gap-4"
         style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}
       >
-        <Stat label="Exhibitors" value={String(t.exhibitors)} />
+        <Stat label="Exhibitors" value={String(people.length)} />
         <Stat label="Entries" value={String(t.entries)} />
         <Stat
           label="No back #"
@@ -196,8 +246,8 @@ export default function DeskClient({
               {(Object.keys(FILTER_LABELS) as Filter[]).map((f) => {
                 const count =
                   f === 'all'
-                    ? desk.exhibitors.length
-                    : desk.exhibitors.filter((e) => matchesFilter(e, f)).length;
+                    ? people.length
+                    : people.filter((g) => g.members.some((e) => matchesFilter(e, f))).length;
                 const disabled = f !== 'all' && count === 0 && filter !== f;
                 return (
                   <button
@@ -255,36 +305,46 @@ export default function DeskClient({
                 className="rounded-lg border divide-y overflow-hidden lg:max-h-[70vh] lg:overflow-y-auto"
                 style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}
               >
-                {shown.map((ex) => {
-                  const isSelected = ex.exhibitor_id === selectedId;
-                  const alerts = healthAlerts(ex).length;
-                  const unsigned = unsignedWaivers(ex).length;
+                {shown.map((group) => {
+                  const members = group.members;
+                  const isSelected = selectedGroup?.key === group.key;
+                  const classCount = members.reduce((n, e) => n + e.entries.length, 0);
+                  const potCount = members.reduce((n, e) => n + e.side_pot_ids.length, 0);
+                  const toCheck = members.reduce((n, e) => n + e.paperwork_outstanding, 0);
+                  const alerts = members.some((e) => healthAlerts(e).length > 0);
+                  const unsigned = members.some((e) => unsignedWaivers(e).length > 0);
+                  const owing = members.reduce((n, e) => n + Math.max(e.balance_cents, 0), 0);
+                  const numbers = members
+                    .map((e) => e.back_number)
+                    .filter((n): n is number => n != null)
+                    .map((n) => `#${n}`);
                   return (
-                    <li key={ex.exhibitor_id}>
+                    <li key={group.key}>
                       <button
                         type="button"
-                        onClick={() => setSelectedId(ex.exhibitor_id)}
+                        onClick={() => setSelectedId(members[0].exhibitor_id)}
                         className="w-full text-left px-3 py-2.5 transition-colors hover:bg-amber-50"
                         style={isSelected ? { backgroundColor: 'var(--bg-subtle)' } : undefined}
                       >
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="font-medium truncate" style={{ color: COLORS.text }}>
-                            {ex.exhibitor_name}
+                            {group.name}
                           </span>
                           <span className="font-mono text-sm shrink-0" style={{ color: COLORS.accent }}>
-                            {ex.back_number != null ? `#${ex.back_number}` : '—'}
+                            {numbers.length > 0 ? numbers.join(' · ') : '—'}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-1 text-xs" style={{ color: COLORS.muted }}>
-                          <span>{ex.entries.length} class{ex.entries.length === 1 ? '' : 'es'}</span>
-                          {ex.side_pot_ids.length > 0 && <span>· {ex.side_pot_ids.length} pot{ex.side_pot_ids.length === 1 ? '' : 's'}</span>}
-                          {ex.paperwork_outstanding > 0 && (
-                            <span style={{ color: 'var(--warning)' }}>· {ex.paperwork_outstanding} to check</span>
+                          <span>{classCount} class{classCount === 1 ? '' : 'es'}</span>
+                          {members.length > 1 && <span>· {members.length} registrations</span>}
+                          {potCount > 0 && <span>· {potCount} pot{potCount === 1 ? '' : 's'}</span>}
+                          {toCheck > 0 && (
+                            <span style={{ color: 'var(--warning)' }}>· {toCheck} to check</span>
                           )}
-                          {alerts > 0 && <span style={{ color: 'var(--error-strong)' }}>· ⚠ health</span>}
-                          {unsigned > 0 && <span style={{ color: 'var(--warning)' }}>· unsigned</span>}
-                          {ex.balance_cents > 0 && (
-                            <span style={{ color: 'var(--error)' }}>· {formatMoney(ex.balance_cents)} owing</span>
+                          {alerts && <span style={{ color: 'var(--error-strong)' }}>· ⚠ health</span>}
+                          {unsigned && <span style={{ color: 'var(--warning)' }}>· unsigned</span>}
+                          {owing > 0 && (
+                            <span style={{ color: 'var(--error)' }}>· {formatMoney(owing)} owing</span>
                           )}
                         </div>
                       </button>
@@ -296,17 +356,52 @@ export default function DeskClient({
           </div>
 
           <div>
-            {selected ? (
-              <ExhibitorPanel
-                showId={showId}
-                desk={desk}
-                exhibitor={selected}
-                associations={associations}
-                breeds={breeds}
-                colors={colors}
-                onChanged={load}
-                onRemoved={() => setSelectedId(null)}
-              />
+            {selectedGroup ? (
+              <div className="space-y-6">
+                {selectedGroup.members.length > 1 && (
+                  <div
+                    className="rounded-lg border p-3 text-sm"
+                    style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
+                  >
+                    <strong>{selectedGroup.name}</strong> is on this show under{' '}
+                    {selectedGroup.members.length} exhibitor records, each with its own back number,
+                    classes, paperwork and account — shown together below. If they are the same
+                    person, remove the one that should not be here.
+                  </div>
+                )}
+                {selectedGroup.members.map((member, index) => (
+                  <div key={member.exhibitor_id} className="space-y-2">
+                    {selectedGroup.members.length > 1 && (
+                      <p
+                        className="text-xs font-semibold uppercase tracking-wide"
+                        style={{ color: COLORS.accent }}
+                      >
+                        {member.back_number != null ? `Back #${member.back_number}` : 'No back number'}
+                        {' · '}
+                        {member.cancelled_at
+                          ? 'cancelled registration'
+                          : member.signed_up
+                            ? 'signed up'
+                            : 'added at the desk'}
+                      </p>
+                    )}
+                    <ExhibitorPanel
+                      showId={showId}
+                      desk={desk}
+                      exhibitor={member}
+                      associations={associations}
+                      breeds={breeds}
+                      colors={colors}
+                      onChanged={load}
+                      onRemoved={() => {
+                        // Keep the person open on whichever record is left.
+                        const next = selectedGroup.members.find((_, i) => i !== index);
+                        setSelectedId(next?.exhibitor_id ?? null);
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
             ) : (
               <div
                 className="rounded-lg border p-8 text-center"

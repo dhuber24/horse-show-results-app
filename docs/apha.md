@@ -874,7 +874,7 @@ Backend endpoints:
 - `GET /apha-standard-classes/divisions`
 - `POST /shows/{show_id}/classes/bulk`
 
-Class setup itself is **setup Step 6** at `/admin/shows/[id]/classes`, which serves
+Class setup itself is **setup Step 4** at `/admin/shows/[id]/classes`, which serves
 every show type and follows `show.show_type_id` for its standard library. The
 old per-association `APHAClassPicker.tsx` was removed in the wizard rebuild and
 is not coming back — the association-specific part of class setup is the catalog,

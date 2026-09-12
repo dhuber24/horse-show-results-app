@@ -3,8 +3,10 @@ import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { ScopeClass, ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow } from './FeesClient';
+import EarlierFees, { type ClubFee } from './EarlierFees';
 import StepLayout from '../_lib/StepLayout';
 import { fetchStepCounts } from '../_lib/fetchStepCounts';
+import { loadFuturities } from '../../futurities/loadFuturity';
 
 async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
   const headers = await getAuthHeaders();
@@ -19,7 +21,7 @@ async function fetchAuthed<T>(url: string, fallback: T): Promise<T> {
 // class is priced three ways depending on how the horse got there, entries
 // close on a stated date after which every class carries a late fee, and
 // there is an office fee per horse that depends on club membership. That
-// lives in Step 7 now. Shows set up before migration 107 may still carry the
+// lives in Step 6 now. Shows set up before migration 107 may still carry the
 // old row; the futurity step links to it rather than this screen silently
 // repricing anything.
 const LEGACY_FUTURITY_CODE = 'futurity';
@@ -31,13 +33,16 @@ export default async function SetupFeesPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [allFees, judges, classes, stepsInput] = await Promise.all([
+  const [allFees, judges, classes, clubs, futurities, stepsInput] = await Promise.all([
     fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
     fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
-    // For the class-scope picker on an automatic charge. Step 4 comes
-    // before the Class Builder, so an empty list is the ordinary answer
-    // for a show being set up in order -- the picker says so.
+    // For the class-scope picker on an automatic charge. The Class Builder
+    // is Step 4, so a show set up in order has its schedule by now.
     fetchAuthed<ScopeClass[]>(`${API_URL}/shows/${id}/classes/`, []),
+    // What Steps 5 and 6 already charge, quoted above the Class Fees box so
+    // this step shows the whole bill rather than the show's third of it.
+    fetchAuthed<ClubFee[]>(`${API_URL}/shows/${id}/classes/sanctioning`, []),
+    loadFuturities(id),
     fetchStepCounts(id),
   ]);
   // The show's own class fees, picked out by unit rather than by a list of
@@ -54,18 +59,21 @@ export default async function SetupFeesPage({
       showId={id}
       showName={show.name}
       current="fees"
-      title="Step 4: Show Fees"
-      subtitle="Every class fee this show adds — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge. Per-class pricing is set once classes exist in Step 5; a club's sanction fee is Step 6, and futurity pricing comes from Step 7."
+      title="Step 7: Show Fees"
+      subtitle="Every class fee this show adds on top of the clubs' and the futurity's — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge."
       stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
     >
-      <FeesClient
-        showId={id}
-        initialCharges={charges}
-        judgeCount={judges.length}
-        classes={classes}
-        legacyFuturityFee={legacyFuturityFee}
-        futurityCount={stepsInput.futurityCount}
-      />
+      <div className="space-y-6">
+        <EarlierFees showId={id} clubs={clubs} futurities={futurities} />
+        <FeesClient
+          showId={id}
+          initialCharges={charges}
+          judgeCount={judges.length}
+          classes={classes}
+          legacyFuturityFee={legacyFuturityFee}
+          futurityCount={stepsInput.futurityCount}
+        />
+      </div>
     </StepLayout>
   );
 }

@@ -2,6 +2,67 @@
 
 ## September 2026
 
+### Setup In The Order Its Answers Come, And A Desk That Lists People
+
+A round of show-setup and registration-desk fixes, most of them about a screen
+asking a question the app could already answer, or not saying where it went next.
+
+**Fees moved after Sanctioning and Futurities.** The wizard is now 1 Basics &
+Staff, 2 Judges, 3 Lodging, **4 Class Builder, 5 Sanctioning, 6 Futurities,
+7 Fees**, 8 Judge Cards, 9 Show Bill. Fees sat before the Class Builder, so it
+knew nothing about two of the three ways a show charges and its class-scope
+picker was empty on any show set up in order. It now opens with an
+**Already priced in earlier steps** panel quoting each club's rate and approved
+classes and each futurity's categories, office fee and late fee, read-only with
+links back. Sanctioning and Futurities stay after the Class Builder, because both
+pick from the class list — moving them ahead of it would bring back the split
+that made Sanctioning Step 6 in the first place.
+
+**The Class Builder reads as a sequence.** It ran as a small stepper until all
+three parts had data and then as an overview of three boxes, so the same parts
+were a sequence on a new show and three unrelated sections on a built one. There
+is now one always-visible progress bar (*Step N of 3*, what each part holds,
+dimmed with a reason when its prerequisites are missing), every part ends in a
+button naming where it goes, and the last one walks into Step 5. Step 3 is
+**Build Classes**. The grid pins its discipline row and division column and has a
+second, synced scrollbar along its top, since the bottom one is below the fold on
+any grid wide enough to need it; the sticky footer had to move above the pinned
+header, which painted over it.
+
+**A Grand & Reserve class can be added.** The grid names every class
+"{Division} {Discipline}", which no championship class is, so there was nowhere
+to put one. **Add a class by name** takes the name, the day, where in the day it
+runs and whether entry is by qualifying; its Grand & Reserve shortcut opens on
+Halter, ticks Must qualify, and places the class after the last class that day in
+the same cell. **Must qualify** is now one checkbox per class — it replaced a
+*by qualification* badge beside an *Open entry* / *By qualification* toggle.
+
+**The desk removes any registration.** `DELETE /desk/exhibitors/{id}` refused
+anybody who had signed themselves up, so a self-registration could only be
+cancelled, never taken off. It now drops everything the registration booked and
+then the row, sharing `cancellations._drop_bookings` with the cancel. It is still
+refused while a payment is recorded, since the row cascades to `show_payments`
+and a refund is never a deletion. The shared refusal also blocks a registration
+in a *settled* side pot that paid it nothing, which the cancel used to clear out
+from under the pot's written payouts.
+
+**The desk's entry form is a class and a horse.** Its APHA division and
+relationship-to-owner pickers went, the same way the exhibitor's did: the
+division comes off the class (`rules.apha.division_for_class`, which the entry
+endpoint also uses to fill a blank) and is stated under the picker, and the
+relationship is derived from ownership or the horse link.
+
+**One person, one row.** The dev MNSPHC show listed "Dan Huber" twice with
+numbers 24 and 6 — two `exhibitors` rows, the older one's `user_id` nulled when
+its account was deleted. The desk now groups its roster by name and stacks each
+record's panel under one entry with a note that they are separate records. It
+does not merge them: a name is not proof of identity.
+
+**A futurity release is a tick.** *Signed release on file* replaces the
+name-typing form on a futurity's release only; the endpoint writes the
+exhibitor's own name. The show's own releases still take the name as signed,
+because that is where a guardian signing for a minor matters.
+
 ### The $36 Class That Billed $552
 
 Reported as "something is off with the class registration": charges for youth

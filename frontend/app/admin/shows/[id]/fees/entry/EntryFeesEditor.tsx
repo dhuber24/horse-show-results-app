@@ -11,7 +11,7 @@ import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEdit
  * class fee lives in a box outside this one.
  *
  * The per-horse and per-judge tables that used to live here were a second
- * implementation of the same `show_fees` editing that setup Step 4 needed, in a
+ * implementation of the same `show_fees` editing that the setup fees step needed, in a
  * different vocabulary — and one of them wrote a `per_judge` unit that did not
  * say what it multiplied by. Both screens now render `ShowChargesEditor`, so
  * there is one shape for a charge and one place it is written. Here it renders

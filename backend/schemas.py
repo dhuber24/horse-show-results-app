@@ -2010,6 +2010,9 @@ class WaiverCheckOut(BaseModel):
     waiver_id: UUID
     title: str
     is_required: bool = True
+    # Set on a futurity's release (migration 109), which the desk records with
+    # a single "on file" tick rather than a transcribed name.
+    futurity_id: Optional[UUID] = None
     status: Literal["signed", "unsigned"] = "unsigned"
     signed_name: Optional[str] = None
     signed_at: Optional[datetime] = None
@@ -2164,7 +2167,16 @@ class WaiverSignatureCreate(BaseModel):
 
 class StaffWaiverSignatureCreate(WaiverSignatureCreate):
     """Staff recording a paper blank handed in at the counter. Same fact, other
-    route — `on_paper` is set by the endpoint, not by the caller."""
+    route — `on_paper` is set by the endpoint, not by the caller.
+
+    `signed_name` may be left out **on a futurity release only**, where the desk
+    offers a single "signed release on file" tick rather than a name to type:
+    the endpoint records the exhibitor's own name. The show's own entry blank
+    and releases still take the name as signed, because those are where a
+    guardian signing for a minor has to be told apart.
+    """
+
+    signed_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class WaiverSignatureOut(BaseModel):
@@ -3686,6 +3698,10 @@ class ShowDeskClassOut(BaseModel):
     # Riding style and age/skill bracket — the two axes the picker groups by.
     discipline_name: Optional[str] = None
     division_name: Optional[str] = None
+    # The APHA division an entry here is filed under, read off the bracket by
+    # `rules.apha.division_for_class`. None at a non-APHA show, and where the
+    # class does not say — an entry is then filed with no division.
+    apha_division: Optional[str] = None
     entry_count: int = 0
 
 
@@ -3759,6 +3775,11 @@ class ShowDeskExhibitorOut(BaseModel):
     billed_cents: int = 0
     net_paid_cents: int = 0
     balance_cents: int = 0
+    # How many payment rows are on the account, refunds included. Not the same
+    # question as `net_paid_cents`: a payment and its refund net to zero and are
+    # still two records of money that moved, which is what keeps the desk from
+    # removing the registration they hang off (it offers the cancel instead).
+    payment_count: int = 0
 
 
 class ShowDeskTotalsOut(BaseModel):

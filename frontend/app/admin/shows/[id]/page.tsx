@@ -18,7 +18,7 @@ import {
 const tiles = (showId: string) => [
   // Staff and the class schedule were tiles of their own. Both are things you
   // set up once, before the show runs, so both are steps of the setup wizard —
-  // staff in Step 1 next to the dates, classes in Step 5.
+  // staff in Step 1 next to the dates, classes in Step 4.
   {
     href: `/admin/shows/${showId}/setup`,
     title: 'Setup',

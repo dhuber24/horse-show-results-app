@@ -144,6 +144,19 @@ def divisions_for_bracket(bracket_name, class_name=None):
     return None
 
 
+def division_for_class(bracket_name, class_name=None):
+    """The one APHA division this class files an entry under, or None.
+
+    What both entry doors store when nobody says otherwise, and what the desk
+    shows beside its class picker: `divisions_for_bracket`, taken only when it
+    names exactly one. None means the class does not say, and the entry is
+    filed with no division rather than a guess. One function so the staff
+    endpoint's fill and the desk screen's label cannot disagree about a class.
+    """
+    named = divisions_for_bracket(bracket_name, class_name)
+    return named[0] if named and len(named) == 1 else None
+
+
 # "Ages 5-10", "11-18", "5 - 10". The upper half of a stated range, which is
 # what tells the two Walk-Trot bands apart when the bracket does not phrase its
 # limit as "N & Under".

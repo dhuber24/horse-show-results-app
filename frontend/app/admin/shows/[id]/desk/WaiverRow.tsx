@@ -16,6 +16,12 @@ import type { WaiverCheck } from './types';
  * running on clipboards still needs its outstanding count to work, and the
  * alternative is an office that knows who signed electronically and has no idea
  * about everyone else.
+ *
+ * **A futurity's release is one tick instead** — "signed release on file". The
+ * office is confirming the paper is in the folder, not transcribing it, and the
+ * backend records the exhibitor's own name for it. The show's own entry blank
+ * and releases keep the name form, because those are where a guardian signing
+ * for a minor has to be told apart.
  */
 
 function formatWhen(iso: string) {
@@ -31,6 +37,7 @@ export default function WaiverRow({
   waiver,
   busy,
   onRecord,
+  onMarkOnFile,
   onUndo,
 }: {
   waiver: WaiverCheck;
@@ -40,6 +47,8 @@ export default function WaiverRow({
     signed_by_guardian: boolean;
     guardian_relationship: string | null;
   }) => Promise<void>;
+  /** A futurity release: record that a signed copy is on file, no name typed. */
+  onMarkOnFile: () => Promise<void>;
   onUndo: () => void;
 }) {
   const [recording, setRecording] = useState(false);
@@ -48,6 +57,65 @@ export default function WaiverRow({
   const [relationship, setRelationship] = useState('');
 
   const signed = waiver.status === 'signed';
+
+  if (waiver.futurity_id) {
+    // Signed by the exhibitor in the app: ticked, and not the desk's to untick
+    // by accident — the Undo beside it is the deliberate way to remove it.
+    const signedInApp = signed && !waiver.on_paper;
+    return (
+      <div className="py-2 border-t first:border-t-0" style={{ borderColor: 'var(--bg-subtle)' }}>
+        <div className="flex items-start justify-between gap-3">
+          <label
+            className="flex items-start gap-2 text-sm min-w-0 cursor-pointer"
+            style={{ color: COLORS.text }}
+            title={
+              signedInApp
+                ? 'The exhibitor signed this release in the app'
+                : signed
+                  ? 'Untick if the release was marked against the wrong person'
+                  : 'Tick once the signed release is in the show office'
+            }
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0"
+              checked={signed}
+              disabled={busy || signedInApp}
+              onChange={(e) => {
+                if (e.target.checked) void onMarkOnFile();
+                else onUndo();
+              }}
+            />
+            <span className="min-w-0">
+              <span className="font-medium">{waiver.title}</span>
+              {!waiver.is_required && (
+                <span className="ml-2 text-xs" style={{ color: COLORS.muted }}>optional</span>
+              )}
+              <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }} suppressHydrationWarning>
+                {signedInApp
+                  ? `Signed in the app by ${waiver.signed_name}${waiver.signed_at ? ` · ${formatWhen(waiver.signed_at)}` : ''}`
+                  : signed
+                    ? `Signed release on file${waiver.recorded_by_name ? ` · recorded by ${waiver.recorded_by_name}` : ''}${waiver.signed_at ? ` · ${formatWhen(waiver.signed_at)}` : ''}`
+                    : 'Signed release on file'}
+              </span>
+            </span>
+          </label>
+          {signedInApp && (
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={busy}
+              title="Remove this signature — use when it was recorded against the wrong person"
+              className="text-xs hover:underline disabled:opacity-50 shrink-0"
+              style={{ color: COLORS.muted }}
+            >
+              Undo
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const submit = async () => {
     if (!signedName.trim()) return;

@@ -4,6 +4,7 @@ import { fetchVenues, fetchShowTypes } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import WizardStepper from '../_wizard/WizardStepper';
+import { buildSteps } from '../_wizard/steps';
 import Step1Client, { type ExistingSecretary } from './Step1Client';
 
 async function fetchSecretaries(): Promise<ExistingSecretary[]> {
@@ -32,6 +33,23 @@ export default async function NewShowPage() {
     fetchSecretaries(),
   ]);
 
+  // The same list every setup step and the hub draw, read from `buildSteps`
+  // rather than typed out here — a hand-written copy fell behind the wizard
+  // twice and showed a five-step order that no longer existed. Nothing is
+  // linkable or done yet, because the show does not exist until this step saves.
+  const steps = buildSteps({
+    showId: '',
+    judgeCount: 0,
+    sanctioningCount: 0,
+    lodgingFeeCount: 0,
+    feesCount: 0,
+    classCount: 0,
+    futurityCount: 0,
+    scoredClassCount: 0,
+    cardedClassCount: 0,
+    showbillReady: false,
+  }).map((step) => ({ ...step, href: null, done: false }));
+
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
@@ -46,20 +64,11 @@ export default async function NewShowPage() {
           New Show
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          Step 1 of 5: basic show information and Show Secretary.
+          Step 1 of {steps.length}: basic show information and Show Secretary.
         </p>
       </div>
 
-      <WizardStepper
-        current="basic"
-        steps={[
-          { key: 'basic', label: '1. Basics', href: null, done: false },
-          { key: 'judges', label: '2. Judges', href: null, done: false },
-          { key: 'sanctioning', label: '3. Sanctioning', href: null, done: false },
-          { key: 'lodging', label: '4. Lodging', href: null, done: false },
-          { key: 'fees', label: '5. Fees', href: null, done: false },
-        ]}
-      />
+      <WizardStepper current="basic" steps={steps} />
 
       <Step1Client
         callerRole={role}

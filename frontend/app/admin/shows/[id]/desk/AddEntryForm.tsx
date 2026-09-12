@@ -5,11 +5,9 @@ import { COLORS } from './types';
 import type { Desk, DeskClass, DeskExhibitor, ProfileHorse } from './types';
 import { formatMoney } from '@/lib/financials';
 import {
-  APHA_DIVISIONS,
   ATTESTATION_REQUIRED_DIVISIONS,
   NOVICE_ELIGIBILITY_STATEMENT,
-  RELATIONSHIP_OPTION_GROUPS,
-  RELATIONSHIP_REQUIRED_DIVISIONS,
+  divisionLabel,
 } from '@/lib/apha';
 
 /**
@@ -18,11 +16,20 @@ import {
  * The desk asks this question two ways — "what else is this person riding?" on
  * their panel, and "who else is in this class?" from the by-class view — and
  * they are the same form with one side pinned. Writing it twice would have
- * meant two copies of the SPB guard, the relationship-required rule, and the
- * horse lookup, which is exactly the kind of pair that drifts.
+ * meant two copies of the SPB guard, the Novice declaration, and the horse
+ * lookup, which is exactly the kind of pair that drifts.
  *
  * Pin the exhibitor by passing `exhibitor`, or the class by passing `cls`. The
  * other side gets a picker.
+ *
+ * **No division picker and no relationship picker**, the same as the
+ * exhibitor's own form. The division was chosen when the class was built — its
+ * bracket says Amateur or Youth 14-18 — so the class is the answer and the
+ * screen states it. How the exhibitor is related to the horse's owner is
+ * derived from ownership or read off their horse link, which is where the
+ * profile keeps it. `POST .../entries` fills both from those same sources, so
+ * sending nothing here stores exactly what a picker with one right answer
+ * would have.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -52,8 +59,6 @@ export default function AddEntryForm({
   const [pickedClassId, setPickedClassId] = useState('');
   const [pickedExhibitorId, setPickedExhibitorId] = useState('');
   const [horseId, setHorseId] = useState('');
-  const [aphaDivision, setAphaDivision] = useState('');
-  const [relationship, setRelationship] = useState('');
   const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [horses, setHorses] = useState<ProfileHorse[]>([]);
   const [horsesLoading, setHorsesLoading] = useState(false);
@@ -139,9 +144,13 @@ export default function AddEntryForm({
     [horses, takenInClass],
   );
 
+  // Off the class, never off a picker — the same `division_for_class` answer
+  // the entry endpoint files. Empty means the class does not say, and the entry
+  // goes in with no division.
+  const aphaDivision = (isApha && activeClass?.apha_division) || '';
+
   const selectedHorse = horses.find((h) => h.id === horseId);
   const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
-  const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
   // The Novice divisions turn on points and earnings the app does not hold, so
   // the entry carries a declaration instead of a check. The backend enforces it;
   // blocking here keeps the desk from posting an entry it knows will 422.
@@ -163,8 +172,8 @@ export default function AddEntryForm({
       horse_id: horseId,
       is_disqualified: false,
     };
-    if (isApha && aphaDivision) body.apha_division = aphaDivision;
-    if (isApha && relationship) body.relationship_to_owner = relationship;
+    // Neither the division nor the relationship to the owner is sent: the
+    // endpoint fills both from the class and the horse link.
     if (needsNoviceDeclaration && noviceDeclared) body.attestations = ['novice_eligibility'];
 
     const res = await fetch('/api/entries', {
@@ -275,39 +284,18 @@ export default function AddEntryForm({
         </select>
       </div>
 
-      {isApha && (
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={aphaDivision}
-            onChange={(e) => setAphaDivision(e.target.value)}
-            aria-label="APHA division"
-            className="flex-1 min-w-[160px] border rounded px-3 py-2 text-sm"
-            style={{ borderColor: COLORS.border }}
-          >
-            <option value="">APHA division — not specified</option>
-            {APHA_DIVISIONS.map((d) => (
-              <option key={d.value} value={d.value}>{d.label}</option>
-            ))}
-          </select>
-          {needsRelationship && (
-            <select
-              value={relationship}
-              onChange={(e) => setRelationship(e.target.value)}
-              aria-label="Relationship to owner"
-              className="flex-1 min-w-[160px] border rounded px-3 py-2 text-sm"
-              style={{ borderColor: COLORS.border }}
-            >
-              <option value="">Relationship to owner…</option>
-              {RELATIONSHIP_OPTION_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.options.map((r) => (
-                    <option key={r} value={r}>{r}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          )}
-        </div>
+      {/* Stated, not asked: it goes on the entry and is reported to APHA, so
+          the desk should see what is being filed — but it follows from the
+          class, and a control with one correct answer is not a question. */}
+      {isApha && activeClass && aphaDivision && (
+        <p
+          className="text-xs"
+          style={{ color: 'var(--text-deep)' }}
+          title="Filed on the entry and reported to APHA. It follows from the class's bracket, set when the class was built."
+        >
+          Division: <strong>{divisionLabel(aphaDivision)}</strong>
+          <span style={{ color: COLORS.muted }}> — from the class.</span>
+        </p>
       )}
 
       {needsNoviceDeclaration && (

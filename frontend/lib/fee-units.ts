@@ -124,7 +124,7 @@ export function isClassFeeEditorUnit(unit: string): boolean {
 }
 
 /** How a club's sanction fee is charged (migration 133) — `show_sanctioning.
- *  fee_unit`, offered in setup Step 6. Mirrors `billing.CLUB_SANCTION_UNITS`.
+ *  fee_unit`, offered in setup Step 5. Mirrors `billing.CLUB_SANCTION_UNITS`.
  *
  *  The same words as a show fee's, because they mean the same thing and the
  *  backend prices both through one `charge_multiplier`. `per_judge_per_entry`

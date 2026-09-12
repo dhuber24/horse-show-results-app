@@ -61,6 +61,9 @@ export interface WaiverCheck {
   waiver_id: string;
   title: string;
   is_required: boolean;
+  /** Set on a futurity's release, which the desk records with one "signed
+   *  release on file" tick rather than a transcribed name. */
+  futurity_id: string | null;
   status: 'signed' | 'unsigned';
   signed_name: string | null;
   signed_at: string | null;
@@ -87,6 +90,10 @@ export interface DeskClass {
   entry_fee_cents: number;
   discipline_name: string | null;
   division_name: string | null;
+  /** The APHA division an entry in this class is filed under, read off its
+   *  bracket — decided when the class was built, so the desk states it rather
+   *  than asking. Null at a non-APHA show, and where the class does not say. */
+  apha_division: string | null;
   entry_count: number;
 }
 
@@ -150,6 +157,10 @@ export interface DeskExhibitor {
   net_paid_cents: number;
   /** Positive means they owe the show; negative means they have overpaid. */
   balance_cents: number;
+  /** Payment rows on the account, refunds included. Any at all and the
+   *  registration can be cancelled but not removed — removing it would delete
+   *  the record of money that moved. */
+  payment_count: number;
 }
 
 export interface DeskTotals {

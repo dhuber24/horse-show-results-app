@@ -58,29 +58,24 @@ export function buildSteps({
       href: `/admin/shows/${showId}/setup/lodging`,
       done: lodgingFeeCount > 0,
     },
-    {
-      key: 'fees',
-      label: '4. Fees',
-      href: `/admin/shows/${showId}/setup/fees`,
-      done: feesCount > 0,
-    },
     // Classes keep their own URL rather than moving under /setup, the same way
     // Step 1 stays on /edit — the class wizard is deep-linked from the schedule
     // and the dashboard, and a step is a position in the flow, not a folder.
     {
       key: 'classes',
-      label: '5. Class Builder',
+      label: '4. Class Builder',
       href: `/admin/shows/${showId}/classes`,
       done: classCount > 0,
     },
     // After the schedule exists, not before it. Club sanctioning is three
     // questions — which clubs, what each charges (an amount and a unit, since
     // migration 133), and which classes each one approves — and only the first
-    // can be answered without a class list. Asking it third meant the answer lived in three places: a step, a
-    // box on the fees step, and a screen hanging off Classes.
+    // can be answered without a class list. Asking it before the schedule meant
+    // the answer lived in three places: a step, a box on the fees step, and a
+    // screen hanging off Classes.
     {
       key: 'sanctioning',
-      label: '6. Sanctioning',
+      label: '5. Sanctioning',
       href: `/admin/shows/${showId}/setup/sanctioning`,
       done: sanctioningCount > 0,
     },
@@ -89,9 +84,22 @@ export function buildSteps({
     // the schedule exists. Keeps its own URL because the dashboard reaches it.
     {
       key: 'futurities',
-      label: '7. Futurities',
+      label: '6. Futurities',
       href: `/admin/shows/${showId}/futurities`,
       done: futurityCount > 0,
+    },
+    // After the two steps that price things of their own, so the fees step can
+    // show what the clubs and the futurity already charge beside the show's own
+    // class fees — one screen with the whole of what an exhibitor will be
+    // billed, rather than a fees step that knew nothing about two of the ways a
+    // show charges. Also after the schedule, so narrowing a fee to some classes
+    // has classes to pick from; it used to sit before the Class Builder, where
+    // that picker was always empty on a show set up in order.
+    {
+      key: 'fees',
+      label: '7. Fees',
+      href: `/admin/shows/${showId}/setup/fees`,
+      done: feesCount > 0,
     },
     // Which card each scored class is marked on. A step of its own rather than
     // a notice at the top of the Class Builder: it is a per-class designation
