@@ -308,7 +308,12 @@ Worth knowing before debugging a symptom against the wrong setting.
 
 ## Operations
 
-- Use an always-on paid Render plan for both services.
+- Use an always-on paid Render plan for both services. Free spins down after
+  fifteen minutes and wakes in about a minute, which the two-hop
+  browser → web → API architecture turns into a timeout rather than a slow page;
+  free also blocks the SMTP ports the mailer is configured for. What the paid
+  plans cost as traffic grows, and where the current ones run out, is
+  [`scaling.md`](scaling.md).
 - Keep the services in the same region as practical; the Blueprint uses Ohio,
   near a US East Neon database.
 - Run migrations as a deliberate pre-release step, after branching the database

@@ -52,6 +52,7 @@ There is no local Postgres service. The app uses `DATABASE_URL` for Neon.
 | Historical change log | `IMPROVEMENTS.md` |
 | Contributor workflow | `CONTRIBUTING.md` |
 | Production deployment, environments, readiness | `docs/deployment.md` |
+| Capacity ceilings and what hosting costs at scale | `docs/scaling.md` |
 
 ## Key Source Files
 
