@@ -2,6 +2,97 @@
 
 ## September 2026
 
+### The Quick Class Picker Offers Every Class The Show Could Run
+
+A follow-on to the collapse below, and it finishes the job. The disciplines and
+divisions had stopped being steps but were still something to *add* — a panel
+over the grid, opened from two buttons, before the cell you wanted would take a
+click. They are the grid's axes now and nothing else: the picker draws every
+column and row the show could use, its own merged with its show type's standard
+library, so **a show with nothing set up at all opens on a full grid** — 26
+disciplines by 18 divisions on APHA — and the first thing anybody does is click
+the class they want. Clicking a square where the show has neither row creates the
+discipline, the division and the class on that one press.
+
+Sweeping a column the show has never used creates it **once**: the drain carries
+a map of what it has already resolved, which is safe to rely on because nothing
+else creates either any more. Six cells down a new column is one discipline
+create, one division create apiece and six class creates — verified against the
+server log.
+
+**Both axes are alphabetical**, as are the by-name form's two pickers, which now
+offer the library as well. `sort_order` means nothing for a name the show has not
+used, and a thirty-name axis is read by hunting for a name.
+
+The three things this step can do are one row of buttons at the top — **Quick
+Class Picker**, **+ Add a class by name**, **+ Add a Grand & Reserve class** —
+and the picker folds, so a built show's class list is readable. The two by-name
+buttons used to sit under the grid, which put them below the fold whenever it was
+open and moved them whenever it was not.
+
+Removal survives as an × on a heading, in the one case where it does anything: a
+name somebody typed themselves whose classes have since gone. A library name is a
+column whether or not the show has a row for it, and a row with classes is
+refused by the endpoint. Two bugs turned up building that, both found by driving
+the screen. The × never appeared, because "how many classes use this" was read
+off the axis endpoint's `class_count` — which a class delete does not refresh; it
+is counted from the loaded class list now, which cannot drift. And a name typed
+into the by-name form's *+ Add a new…* box was concatenated onto the picker's
+options, so the moment the save made it real the list held it twice and React
+reported duplicate keys.
+
+### The Class Builder Is One Screen
+
+Setup Step 4 ran three screens of its own behind a *Step N of 3* progress bar:
+pick the show's disciplines and save, pick its divisions and save, and only then
+reach the grid that crosses the two into classes. That is three screens to answer
+one question. A discipline is a **column** of that grid and a division is a
+**row** of it — neither is read anywhere else in setup, and a show is no closer
+to having a schedule for having named either — so the first two steps were
+vocabulary somebody had to learn and finish before the screen they came for would
+do anything.
+
+They are a panel over the grid now. Two buttons beside the show-day picker,
+*Disciplines (22)* and *Divisions (14)*, open `AxisPanel`: what this show already
+has, the standard library for its show type, and a box for a custom name. Nothing
+was dropped in the collapse — the libraries, the custom names and removal are all
+still there, a scroll from the grid rather than a step away from it, and the grid
+redraws behind the panel as they are used, which is the one thing the separate
+steps could never show.
+
+**Every pick saves on the click, so the panel has no Save button.** Clicking a
+standard name adds that column; clicking a name's × takes it away. That is the
+bargain the grid cells already struck, and it is what makes the panel safe to
+close: nothing is ever sitting ticked and unsaved for somebody to lose by
+navigating away, which is what the two steps it replaces did every time their
+Save was missed. The × is disabled on an axis that has classes, with the count in
+its tooltip, rather than offering the click and taking a 409.
+
+The panel opens on the axis that is empty and only then, so a new show lands with
+the discipline library showing. There is no auto-advance from one to the other:
+the empty grid below names the half that is still missing and offers the button,
+which is enough without walking somebody through two panels in order. The two
+buttons sit beside the day picker rather than as a `+` on the ends of the grid —
+the spreadsheet idiom would read better, but a show with twenty-two disciplines
+is several screens wide and that cell is off the right-hand edge.
+
+The by-name form's discipline and division pickers each end in **+ Add a new …**,
+which reveals a name box beside the select and creates the row without closing
+the half-filled form. It exists because the panel is now on the same screen:
+without it, needing a discipline mid-form still meant abandoning the form.
+
+Two consequences worth recording. The step lost its own footer — everything on
+the screen saves on the press that makes it, and the bar's only remaining button
+went where `StepLayout`'s Next already goes — so the guard that stopped somebody
+leaving mid-queue is a `StepAutosave` flush instead, waiting for the class-create
+queue to drain before Back or Next navigates. And writing that flush as *await
+the drain promise* introduced a real bug, caught by driving the screen rather
+than by any check: `drainQueue` clears its processing flag **before** its closing
+refresh, so a cell clicked during that second lands in a queue whose loop has
+already exited, and gating the next drain on "one is in flight" meant nothing
+ever started it. Clicking six cells produced two classes. `addCell` calls the
+drainer unconditionally again, and the flush waits on the queue itself.
+
 ### The Setup Wizard's Steps Are Tabs, And A Skippable Step Says So At The Top
 
 Two changes to how somebody moves through show setup.

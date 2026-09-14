@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   DragDropContext,
   Droppable,
@@ -9,6 +8,7 @@ import {
   type DraggableProvided,
   type DropResult,
 } from '@hello-pangea/dnd';
+import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
 
 export type StandardItem = {
   id: string;
@@ -58,9 +58,6 @@ export type ClassItem = {
   entry_count?: number;
 };
 
-/** The setup step after this one, so Build Classes can end by walking into it. */
-export type NextSetupStep = { href: string; label: string };
-
 const COLORS = {
   text: 'var(--foreground)',
   muted: 'var(--muted)',
@@ -73,13 +70,82 @@ const COLORS = {
   done: 'var(--success)',
 } as const;
 
-type Step = 1 | 2 | 3;
+/** Which of the grid's two axes something is about. */
+type Axis = 'discipline' | 'division';
 
-const STEP_NAMES: Record<Step, string> = {
-  1: 'Disciplines',
-  2: 'Divisions',
-  3: 'Build Classes',
+/** The by-name form's "add a new one" row in a discipline or division picker.
+ *  Never a stored value — see the note where it is handled. */
+const ADD_AXIS_OPTION = '__add__';
+
+/** What each axis is called: the picker's field label, and the word for one. */
+const AXIS_COPY: Record<Axis, { singular: string; noun: string }> = {
+  discipline: { singular: 'Discipline', noun: 'discipline' },
+  division: { singular: 'Division', noun: 'division' },
 };
+
+/** Names are matched on case and surrounding space alone, the same comparison
+ *  the bulk create endpoints dedupe on. */
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * One column or row the picker offers.
+ *
+ * `id` is the show's own `disciplines` / `divisions` row **when this show has
+ * one** — and null for a name that exists only in the standard library. That is
+ * the whole of what made the old two-step flow necessary: a library name had to
+ * be turned into a show row on a screen of its own before the grid would offer
+ * the cell. The picker offers every cell now and the row is created on the click
+ * that needs it, so "add the discipline" stops being a thing anybody does.
+ */
+type AxisOption = {
+  /** Normalised name. Stable across a create, which the id is not. */
+  key: string;
+  name: string;
+  id: string | null;
+  /** Classes on this show using it — counted from the loaded class list rather
+   *  than read off the axis endpoint's `class_count`. The client holds every
+   *  class for the show, so the count is exact, and it cannot go stale behind a
+   *  class delete that only re-reads the classes. */
+  classCount: number;
+  inLibrary: boolean;
+};
+
+/**
+ * The show's own rows merged with the standard library, alphabetically.
+ *
+ * Alphabetical rather than by `sort_order`, because a library name has no
+ * position on this show and a grid of thirty columns is read by hunting for a
+ * name. Where both carry a name, the show's spelling wins: it is what its
+ * existing classes were named from.
+ */
+function mergeAxisOptions(
+  showRows: { id: string; name: string }[],
+  library: StandardItem[],
+  classCountByRowId: Map<string, number>,
+): AxisOption[] {
+  const byKey = new Map<string, AxisOption>();
+  for (const row of showRows) {
+    const key = normalizeName(row.name);
+    if (!key) continue;
+    byKey.set(key, {
+      key,
+      name: row.name.trim(),
+      id: row.id,
+      classCount: classCountByRowId.get(row.id) ?? 0,
+      inLibrary: false,
+    });
+  }
+  for (const item of library) {
+    const key = normalizeName(item.name);
+    if (!key) continue;
+    const held = byKey.get(key);
+    if (held) byKey.set(key, { ...held, inLibrary: true });
+    else byKey.set(key, { key, name: item.name.trim(), id: null, classCount: 0, inLibrary: true });
+  }
+  return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /**
  * Mirrors `rules.disciplines.entered_by_qualification` on the backend: the two
@@ -95,18 +161,21 @@ function looksLikeQualifyingClass(name: string): boolean {
 }
 
 /**
- * The Class Builder: disciplines, then divisions, then the classes built from
- * the two.
+ * The Class Builder: one screen, with the grid on it.
  *
- * It used to run two ways. Until all three parts had something in them it was a
- * wizard with a small stepper; after that it landed on an overview of three
- * boxes, each opening one part with a "Back to setup overview" link and a Save
- * that returned there. So the same three parts read as a sequence on a new show
- * and as three unrelated sections on a built one, and neither said what came
- * next. Now there is one shape: the progress bar across the top is always there,
- * always says which part you are in and what each holds, and reaches any part
- * whose prerequisites exist in one click; and every part ends in a button that
- * names where it goes.
+ * It used to be three screens behind a progress bar — pick the disciplines and
+ * save, pick the divisions and save, and only then reach the grid that crosses
+ * the two. That made somebody learn a sequence in order to answer one question:
+ * a discipline is a column of this grid and a division is a row of it, neither
+ * is read anywhere else in setup, and a show is not any closer to having a
+ * schedule for having named either. So the two pickers are a panel over the
+ * grid they draw, opened from the axis they change, and a pick saves on the
+ * click the same way a grid cell does.
+ *
+ * Nothing was dropped in the collapse. The standard libraries, custom names and
+ * removal are all still here — a scroll from the grid rather than a step away
+ * from it, and with the grid redrawing behind the panel as they are used, which
+ * is the one thing the separate steps could never show.
  */
 export default function ClassWizardClient({
   showId,
@@ -118,7 +187,6 @@ export default function ClassWizardClient({
   standardDisciplines,
   standardDivisions,
   standardLibraryLabel,
-  nextStep = null,
 }: {
   showId: string;
   showStartDate: string;
@@ -129,20 +197,7 @@ export default function ClassWizardClient({
   standardDisciplines: StandardItem[];
   standardDivisions: StandardItem[];
   standardLibraryLabel: string;
-  nextStep?: NextSetupStep | null;
 }) {
-  const router = useRouter();
-
-  // Opens on the first part with nothing in it — and on Build Classes once
-  // both building blocks exist, because that is where the work is and the
-  // progress bar reaches the other two in one click.
-  const initialStep: Step = initialDisciplines.length === 0
-    ? 1
-    : initialDivisions.length === 0
-      ? 2
-      : 3;
-
-  const [step, setStep] = useState<Step>(initialStep);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -150,26 +205,8 @@ export default function ClassWizardClient({
   const [divisions, setDivisions] = useState<DivisionItem[]>(initialDivisions);
   const [classes, setClasses] = useState<ClassItem[]>(initialClasses);
 
-  const canOpen = (target: Step): boolean =>
-    target === 1 ||
-    (target === 2 && disciplines.length > 0) ||
-    (target === 3 && disciplines.length > 0 && divisions.length > 0);
-
-  function goTo(target: Step) {
-    if (!canOpen(target)) return;
-    setError(null);
-    setStep(target);
-  }
-
   return (
-    <div className="space-y-6">
-      <ProgressBar
-        step={step}
-        counts={{ 1: disciplines.length, 2: divisions.length, 3: classes.length }}
-        canOpen={canOpen}
-        onJump={goTo}
-      />
-
+    <div className="space-y-4">
       {error && (
         <div
           className="rounded border px-3 py-2 text-sm"
@@ -180,660 +217,33 @@ export default function ClassWizardClient({
         </div>
       )}
 
-      {step === 1 && (
-        <DisciplineStep
-          showId={showId}
-          existing={disciplines}
-          standardOptions={standardDisciplines}
-          standardLabel={standardLibraryLabel}
-          busy={busy}
-          setBusy={setBusy}
-          setError={setError}
-          onRefreshed={(rows) => setDisciplines(rows)}
-          onSaved={(rows) => {
-            setDisciplines(rows);
-            router.refresh();
-            setStep(2);
-          }}
-        />
-      )}
-      {step === 2 && (
-        <DivisionStep
-          showId={showId}
-          disciplines={disciplines}
-          existing={divisions}
-          standardOptions={standardDivisions}
-          standardLabel={standardLibraryLabel}
-          busy={busy}
-          setBusy={setBusy}
-          setError={setError}
-          onBack={() => goTo(1)}
-          onRefreshed={(rows) => setDivisions(rows)}
-          onSaved={(rows) => {
-            setDivisions(rows);
-            router.refresh();
-            setStep(3);
-          }}
-        />
-      )}
-      {step === 3 && (
-        <ClassesStep
-          showId={showId}
-          showStartDate={showStartDate}
-          showEndDate={showEndDate}
-          disciplines={disciplines}
-          divisions={divisions}
-          classes={classes}
-          busy={busy}
-          setBusy={setBusy}
-          setError={setError}
-          onChanged={(rows) => setClasses(rows)}
-          onBack={() => goTo(2)}
-          nextStep={nextStep}
-          onDone={() => router.push(nextStep?.href ?? `/admin/shows/${showId}/setup`)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Progress bar ───────────────────────────────────────────────────────────────
-
-/**
- * The three parts, in order, always on screen.
- *
- * Each card says which part it is ("Step 2 of 3"), what it holds, and whether
- * it is where you are; a part that cannot be worked yet is dimmed and its
- * tooltip says what to do first, rather than accepting the click and showing an
- * empty grid.
- */
-function ProgressBar({
-  step,
-  counts,
-  canOpen,
-  onJump,
-}: {
-  step: Step;
-  counts: Record<Step, number>;
-  canOpen: (target: Step) => boolean;
-  onJump: (target: Step) => void;
-}) {
-  const status: Record<Step, string> = {
-    1: counts[1] === 0 ? 'None yet' : `${counts[1]} added`,
-    2: counts[2] === 0 ? 'None yet' : `${counts[2]} added`,
-    3: counts[3] === 0 ? 'No classes yet' : `${counts[3]} class${counts[3] === 1 ? '' : 'es'}`,
-  };
-  const locked: Record<Step, string> = {
-    1: '',
-    2: 'Add at least one discipline first',
-    3: 'Add at least one discipline and one division first',
-  };
-
-  return (
-    <nav aria-label="Class Builder progress">
-      <ol className="grid grid-cols-3 gap-2">
-        {([1, 2, 3] as Step[]).map((key) => {
-          const current = key === step;
-          const done = counts[key] > 0;
-          const open = canOpen(key);
-          return (
-            <li key={key}>
-              <button
-                type="button"
-                onClick={() => onJump(key)}
-                disabled={!open}
-                aria-current={current ? 'step' : undefined}
-                title={open ? `Step ${key} of 3: ${STEP_NAMES[key]}` : locked[key]}
-                className="w-full h-full text-left rounded-lg px-3 py-2 disabled:cursor-not-allowed"
-                style={{
-                  border: current
-                    ? `2px solid ${COLORS.warn}`
-                    : `1px solid ${done ? 'var(--success-border)' : COLORS.border}`,
-                  backgroundColor: current
-                    ? COLORS.warnSoft
-                    : done
-                      ? 'var(--success-bg)'
-                      : COLORS.bg,
-                  opacity: open ? 1 : 0.55,
-                }}
-              >
-                <span className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold shrink-0"
-                    style={{
-                      backgroundColor: done ? COLORS.done : current ? COLORS.warn : COLORS.muted,
-                      color: 'var(--surface)',
-                    }}
-                  >
-                    {done ? '✓' : key}
-                  </span>
-                  <span className="text-xs" style={{ color: COLORS.muted }}>
-                    Step {key} of 3
-                  </span>
-                </span>
-                <span className="block text-sm font-semibold mt-1" style={{ color: COLORS.text }}>
-                  {STEP_NAMES[key]}
-                </span>
-                <span className="block text-xs mt-0.5" style={{ color: current ? COLORS.warn : COLORS.muted }}>
-                  {status[key]}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
-}
-
-// ── Step header and footer ─────────────────────────────────────────────────────
-
-function StepHeader({ step, children }: { step: Step; children: React.ReactNode }) {
-  return (
-    <div>
-      <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-        Step {step} of 3: {STEP_NAMES[step]}
-      </h2>
-      <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-        {children}
-      </p>
-    </div>
-  );
-}
-
-/**
- * The bar every part ends with. It sticks to the bottom of the viewport because
- * the standard libraries and the class grid are long enough to push a static
- * footer out of sight — and a button you have to scroll to find reads as a
- * button that doesn't exist. Both buttons name where they go, which is most of
- * what makes the three parts read as a sequence.
- */
-function StepFooter({
-  onBack,
-  backLabel,
-  onAction,
-  actionLabel,
-  disabled,
-  disabledTitle,
-  hint,
-}: {
-  onBack?: () => void;
-  backLabel?: string;
-  onAction: () => void;
-  actionLabel: string;
-  disabled?: boolean;
-  /** Why the action is unavailable, for the disabled button's tooltip. */
-  disabledTitle?: string;
-  hint?: string;
-}) {
-  return (
-    <div
-      // z-40 sits above the class grid's pinned header row and column (z-10 to
-      // z-30), which would otherwise paint over this bar as the grid passes
-      // under it.
-      className="sticky bottom-0 z-40 -mx-4 -mb-4 px-4 py-3 border-t flex items-center justify-between gap-3 flex-wrap"
-      style={{
-        borderColor: COLORS.border,
-        backgroundColor: COLORS.bg,
-        // Reads as a bar floating over the content it covers mid-scroll,
-        // rather than a row that has cut the grid in half.
-        boxShadow: '0 -2px 6px rgba(26, 28, 32, 0.08)',
-      }}
-    >
-      {onBack ? (
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm rounded px-3 py-2 border"
-          style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
-        >
-          ← {backLabel ?? 'Back'}
-        </button>
-      ) : (
-        <span />
-      )}
-      <div className="flex items-center gap-3 flex-wrap justify-end">
-        {hint && (
-          <span className="text-xs" style={{ color: COLORS.muted }}>
-            {hint}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onAction}
-          disabled={disabled}
-          title={disabled ? disabledTitle : undefined}
-          className="text-sm rounded px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
-        >
-          {actionLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Steps 1 and 2: picking from a library ──────────────────────────────────────
-
-/**
- * Disciplines and divisions are picked the same way — chips already on the
- * show, a standard library to click, and custom names — and differ only in
- * the words and in what a save sends. One component, so the two cannot drift
- * apart in how they behave.
- */
-function LibraryPicker({
-  noun,
-  existing,
-  standardOptions,
-  standardLabel,
-  busy,
-  onRemoveExisting,
-  checked,
-  setChecked,
-  customAdds,
-  setCustomAdds,
-}: {
-  noun: 'discipline' | 'division';
-  existing: { id: string; name: string; class_count?: number }[];
-  standardOptions: StandardItem[];
-  standardLabel: string;
-  busy: boolean;
-  onRemoveExisting: (id: string) => void;
-  checked: Set<string>;
-  setChecked: (next: Set<string>) => void;
-  customAdds: string[];
-  setCustomAdds: (next: string[]) => void;
-}) {
-  const [customDraft, setCustomDraft] = useState('');
-  const existingNames = useMemo(
-    () => new Set(existing.map((d) => d.name.trim().toLowerCase())),
-    [existing],
-  );
-  const available = useMemo(
-    () => standardOptions.filter((o) => !existingNames.has(o.name.trim().toLowerCase())),
-    [standardOptions, existingNames],
-  );
-
-  function toggle(name: string) {
-    const next = new Set(checked);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    setChecked(next);
-  }
-
-  function addCustom() {
-    const name = customDraft.trim();
-    if (!name) return;
-    const lower = name.toLowerCase();
-    if (existingNames.has(lower) || customAdds.some((n) => n.toLowerCase() === lower)) {
-      setCustomDraft('');
-      return;
-    }
-    setCustomAdds([...customAdds, name]);
-    setCustomDraft('');
-  }
-
-  return (
-    <>
-      {existing.length > 0 && (
-        <div>
-          <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
-            Already added
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {existing.map((d) => (
-              <span
-                key={d.id}
-                className="inline-flex items-center gap-1.5 text-xs rounded px-2 py-1 border"
-                style={{ borderColor: 'var(--success-border)', backgroundColor: 'var(--success-bg)', color: COLORS.done }}
-              >
-                ✓ {d.name}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onRemoveExisting(d.id)}
-                  aria-label={`Remove ${d.name}`}
-                  title={
-                    d.class_count
-                      ? `Cannot remove — ${d.class_count} class${d.class_count === 1 ? '' : 'es'} use this ${noun}`
-                      : `Remove ${d.name}`
-                  }
-                  className="text-xs leading-none disabled:opacity-50"
-                  style={{ color: COLORS.muted }}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
-          Standard library ({standardLabel})
-        </p>
-        <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
-          Click an item to add it to the show; click again to remove it.
-        </p>
-        {available.length === 0 ? (
-          <p className="text-xs" style={{ color: COLORS.muted }}>
-            All standard {noun}s have already been added. Use custom below for
-            anything else.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {available.map((opt) => {
-              const selected = checked.has(opt.name);
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => toggle(opt.name)}
-                  aria-pressed={selected}
-                  className="text-sm rounded px-3 py-1.5 border"
-                  style={{
-                    borderColor: selected ? COLORS.warn : COLORS.border,
-                    backgroundColor: selected ? COLORS.highlight : 'var(--surface)',
-                    color: selected ? COLORS.warn : COLORS.text,
-                    fontWeight: selected ? 600 : 400,
-                  }}
-                >
-                  {selected ? '✓ ' : '+ '}
-                  {opt.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <p className="text-xs font-medium mb-1" style={{ color: COLORS.muted }}>
-          Custom {noun}s
-        </p>
-        <div className="flex items-center gap-2 flex-wrap">
-          {customAdds.map((n) => (
-            <span
-              key={n}
-              className="inline-flex items-center gap-1.5 text-sm rounded px-2 py-1 border border-dashed"
-              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.warn }}
-            >
-              {n}
-              <button
-                type="button"
-                onClick={() => setCustomAdds(customAdds.filter((x) => x !== n))}
-                aria-label={`Remove ${n}`}
-                className="text-xs leading-none"
-                style={{ color: COLORS.muted }}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          <input
-            type="text"
-            placeholder={`Add custom ${noun}…`}
-            value={customDraft}
-            onChange={(e) => setCustomDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addCustom();
-              }
-            }}
-            className="text-sm border rounded px-2 py-1"
-            style={{ borderColor: COLORS.border, minWidth: '14rem' }}
-          />
-          <button
-            type="button"
-            onClick={addCustom}
-            disabled={!customDraft.trim()}
-            className="text-sm rounded px-3 py-1 border disabled:opacity-50"
-            style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
-          >
-            Add
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function continueLabel(busy: boolean, toAdd: number, destination: string): string {
-  if (busy) return 'Saving…';
-  return toAdd > 0
-    ? `Save ${toAdd} & continue to ${destination} →`
-    : `Continue to ${destination} →`;
-}
-
-// ── Step 1: Disciplines ────────────────────────────────────────────────────────
-
-function DisciplineStep({
-  showId,
-  existing,
-  standardOptions,
-  standardLabel,
-  busy,
-  setBusy,
-  setError,
-  onRefreshed,
-  onSaved,
-}: {
-  showId: string;
-  existing: DisciplineItem[];
-  standardOptions: StandardItem[];
-  standardLabel: string;
-  busy: boolean;
-  setBusy: (b: boolean) => void;
-  setError: (msg: string | null) => void;
-  onRefreshed: (rows: DisciplineItem[]) => void;
-  onSaved: (rows: DisciplineItem[]) => void;
-}) {
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [customAdds, setCustomAdds] = useState<string[]>([]);
-  const newNames = [...Array.from(checked), ...customAdds];
-
-  async function remove(id: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/shows/${showId}/disciplines/${id}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 204) {
-        const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Failed to remove discipline.');
-        return;
-      }
-      const listRes = await fetch(`/api/shows/${showId}/disciplines`, { cache: 'no-store' });
-      onRefreshed(await listRes.json());
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function save() {
-    setError(null);
-    setBusy(true);
-    try {
-      if (newNames.length > 0) {
-        const res = await fetch(`/api/shows/${showId}/disciplines`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ names: newNames }),
-        });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) {
-          setError(json?.detail || 'Failed to save disciplines.');
-          return;
-        }
-      }
-      // Re-fetch the full list so we have IDs from any newly created rows.
-      const listRes = await fetch(`/api/shows/${showId}/disciplines`, { cache: 'no-store' });
-      const listJson = (await listRes.json()) as DisciplineItem[];
-      onSaved(listJson);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const nothingYet = newNames.length === 0 && existing.length === 0;
-
-  return (
-    <section
-      className="p-4 rounded-lg border space-y-4"
-      style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-    >
-      <StepHeader step={1}>
-        The riding styles this show offers — Halter, Western Pleasure, Trail. Pick
-        from the standard list, add your own, or both. Next you pick the divisions,
-        then combine the two into classes.
-      </StepHeader>
-
-      <LibraryPicker
-        noun="discipline"
-        existing={existing}
-        standardOptions={standardOptions}
-        standardLabel={standardLabel}
+      <ClassBuilder
+        showId={showId}
+        showStartDate={showStartDate}
+        showEndDate={showEndDate}
+        disciplines={disciplines}
+        divisions={divisions}
+        classes={classes}
+        standardDisciplines={standardDisciplines}
+        standardDivisions={standardDivisions}
+        standardLibraryLabel={standardLibraryLabel}
         busy={busy}
-        onRemoveExisting={remove}
-        checked={checked}
-        setChecked={setChecked}
-        customAdds={customAdds}
-        setCustomAdds={setCustomAdds}
+        setBusy={setBusy}
+        setError={setError}
+        onDisciplinesChanged={setDisciplines}
+        onDivisionsChanged={setDivisions}
+        onClassesChanged={setClasses}
       />
-
-      <StepFooter
-        onAction={save}
-        disabled={busy || nothingYet}
-        disabledTitle={nothingYet ? 'Pick at least one discipline, or add a custom one' : undefined}
-        actionLabel={continueLabel(busy, newNames.length, 'Divisions')}
-        hint={`${existing.length} on this show`}
-      />
-    </section>
+    </div>
   );
 }
 
-// ── Step 2: Divisions ──────────────────────────────────────────────────────────
+// ── Building the classes ───────────────────────────────────────────────────────
 
-function DivisionStep({
-  showId,
-  disciplines,
-  existing,
-  standardOptions,
-  standardLabel,
-  busy,
-  setBusy,
-  setError,
-  onBack,
-  onRefreshed,
-  onSaved,
-}: {
-  showId: string;
-  disciplines: DisciplineItem[];
-  existing: DivisionItem[];
-  standardOptions: StandardItem[];
-  standardLabel: string;
-  busy: boolean;
-  setBusy: (b: boolean) => void;
-  setError: (msg: string | null) => void;
-  onBack: () => void;
-  onRefreshed: (rows: DivisionItem[]) => void;
-  onSaved: (rows: DivisionItem[]) => void;
-}) {
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [customAdds, setCustomAdds] = useState<string[]>([]);
-  const newNames = [...Array.from(checked), ...customAdds];
-
-  async function remove(id: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/shows/${showId}/divisions/${id}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 204) {
-        const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Failed to remove division.');
-        return;
-      }
-      const listRes = await fetch(`/api/shows/${showId}/divisions`, { cache: 'no-store' });
-      onRefreshed(await listRes.json());
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function save() {
-    setError(null);
-    setBusy(true);
-    try {
-      if (newNames.length > 0) {
-        // Wire new divisions to every existing discipline so the (Discipline,
-        // Division) pair is registered for any class built in step 3.
-        const res = await fetch(`/api/shows/${showId}/divisions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            names: newNames,
-            discipline_ids: disciplines.map((d) => d.id),
-          }),
-        });
-        const json = await res.json().catch(() => null);
-        if (!res.ok) {
-          setError(json?.detail || 'Failed to save divisions.');
-          return;
-        }
-      }
-      const listRes = await fetch(`/api/shows/${showId}/divisions`, { cache: 'no-store' });
-      const listJson = (await listRes.json()) as DivisionItem[];
-      onSaved(listJson);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const nothingYet = newNames.length === 0 && existing.length === 0;
-
-  return (
-    <section
-      className="p-4 rounded-lg border space-y-4"
-      style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
-    >
-      <StepHeader step={2}>
-        The age, skill, or horse-age brackets — Amateur, Youth 14-18, Two-Year-Olds.
-        Every division is offered under each discipline from step 1. Next you build
-        the classes by pairing the two up.
-      </StepHeader>
-
-      <LibraryPicker
-        noun="division"
-        existing={existing}
-        standardOptions={standardOptions}
-        standardLabel={standardLabel}
-        busy={busy}
-        onRemoveExisting={remove}
-        checked={checked}
-        setChecked={setChecked}
-        customAdds={customAdds}
-        setCustomAdds={setCustomAdds}
-      />
-
-      <StepFooter
-        onBack={onBack}
-        backLabel="Back to Disciplines"
-        onAction={save}
-        disabled={busy || nothingYet}
-        disabledTitle={nothingYet ? 'Pick at least one division, or add a custom one' : undefined}
-        actionLabel={continueLabel(busy, newNames.length, 'Build Classes')}
-        hint={`${existing.length} on this show`}
-      />
-    </section>
-  );
-}
-
-// ── Step 3: Build Classes ──────────────────────────────────────────────────────
-
-function cellKey(disciplineId: string, divisionId: string): string {
-  return `${disciplineId}::${divisionId}`;
+/** Keyed on names rather than ids: a cell the show has never used has no ids to
+ *  key on, and the id a name gets is decided by the click that creates it. */
+function cellKey(disciplineKey: string, divisionKey: string): string {
+  return `${disciplineKey}::${divisionKey}`;
 }
 
 function enumerateDates(start: string, end: string): string[] {
@@ -924,20 +334,22 @@ function DualScrollBox({ children, maxHeight }: { children: React.ReactNode; max
   );
 }
 
-function ClassesStep({
+function ClassBuilder({
   showId,
   showStartDate,
   showEndDate,
   disciplines,
   divisions,
   classes,
+  standardDisciplines,
+  standardDivisions,
+  standardLibraryLabel,
   busy,
   setBusy,
   setError,
-  onChanged,
-  onBack,
-  nextStep,
-  onDone,
+  onDisciplinesChanged,
+  onDivisionsChanged,
+  onClassesChanged,
 }: {
   showId: string;
   showStartDate: string;
@@ -945,15 +357,22 @@ function ClassesStep({
   disciplines: DisciplineItem[];
   divisions: DivisionItem[];
   classes: ClassItem[];
+  standardDisciplines: StandardItem[];
+  standardDivisions: StandardItem[];
+  standardLibraryLabel: string;
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
-  onChanged: (rows: ClassItem[]) => void;
-  onBack: () => void;
-  nextStep: NextSetupStep | null;
-  onDone: () => void;
+  onDisciplinesChanged: (rows: DisciplineItem[]) => void;
+  onDivisionsChanged: (rows: DivisionItem[]) => void;
+  onClassesChanged: (rows: ClassItem[]) => void;
 }) {
+  const onChanged = onClassesChanged;
   const [classDate, setClassDate] = useState(showStartDate);
+  // The Quick Class Picker is open by default: it is the tool this step is for,
+  // and it is capped at 70vh, so an open one does not run away with the page.
+  // It folds because a schedule of a hundred classes is read below it.
+  const [pickerOpen, setPickerOpen] = useState(true);
   // The schedule can run to hundreds of rows; it lives below the picker and
   // stays folded so the grid — the thing being worked in — owns the screen.
   // Adding a class by name opens it, because the point of that form is the row
@@ -985,17 +404,60 @@ function ClassesStep({
   // Serialize class creates: clicking "+" enqueues a job and a single drainer
   // POSTs them one at a time, so the backend's per-create renumber can't race
   // with itself when the secretary clicks several cells quickly.
-  const queueRef = useRef<{ disciplineId: string; divisionId: string; classDate: string }[]>([]);
+  const queueRef = useRef<
+    { discipline: AxisOption; division: AxisOption; classDate: string }[]
+  >([]);
   const processingRef = useRef(false);
+  // Leaving the step waits for the cells still saving. The finish button used
+  // to be disabled while the queue drained; with one screen there is no finish
+  // button, and the way out is the wizard's own Back / Next, which flushes what
+  // the step has in flight before it navigates.
+  //
+  // Written as a wait on the queue rather than as an awaited drain promise:
+  // a click can legitimately start a *new* drain while the previous one is
+  // still finishing its refresh, so "the drain that is running" is not one
+  // promise to hold. It is a no-op when nothing is queued — the contract every
+  // step flush has to keep — and gives up after a while rather than trapping
+  // somebody on the step behind a request that is never coming back.
+  useRegisterStepAutosave(async () => {
+    const deadline = Date.now() + 15_000;
+    while ((queueRef.current.length > 0 || processingRef.current) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  });
 
   const dates = useMemo(() => enumerateDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
 
-  const disciplineById = useMemo(
-    () => new Map(disciplines.map((d) => [d.id, d])),
+  // Every column and every row the picker offers: what this show already uses,
+  // plus its show type's standard library, alphabetically. A name the show has
+  // never used is an ordinary cell — clicking it creates the row it needs.
+  const classesPerAxisRow = useMemo(() => {
+    const byDiscipline = new Map<string, number>();
+    const byDivision = new Map<string, number>();
+    for (const c of classes) {
+      byDiscipline.set(c.discipline_id, (byDiscipline.get(c.discipline_id) ?? 0) + 1);
+      byDivision.set(c.division_id, (byDivision.get(c.division_id) ?? 0) + 1);
+    }
+    return { discipline: byDiscipline, division: byDivision };
+  }, [classes]);
+
+  const disciplineOptions = useMemo(
+    () => mergeAxisOptions(disciplines, standardDisciplines, classesPerAxisRow.discipline),
+    [disciplines, standardDisciplines, classesPerAxisRow.discipline],
+  );
+  const divisionOptions = useMemo(
+    () => mergeAxisOptions(divisions, standardDivisions, classesPerAxisRow.division),
+    [divisions, standardDivisions, classesPerAxisRow.division],
+  );
+
+  // A class stores ids; the grid is keyed on names. These two turn one into the
+  // other so an existing class can mark its cell ✓.
+  const disciplineKeyById = useMemo(
+    () => new Map(disciplines.map((d) => [d.id, normalizeName(d.name)])),
     [disciplines],
   );
-  const divisionById = useMemo(
-    () => new Map(divisions.map((d) => [d.id, d])),
+  const divisionKeyById = useMemo(
+    () => new Map(divisions.map((d) => [d.id, normalizeName(d.name)])),
     [divisions],
   );
 
@@ -1005,15 +467,16 @@ function ClassesStep({
   // Grand & Reserve class filed under Halter × Amateur is a call-back from the
   // ordinary Amateur Halter class, not that class, and adding one must not
   // make the grid claim the other already exists.
-  const takenForDate = useMemo(
-    () =>
-      new Set(
-        classes
-          .filter((c) => c.class_date === classDate && !c.entered_by_qualification)
-          .map((c) => cellKey(c.discipline_id, c.division_id)),
-      ),
-    [classes, classDate],
-  );
+  const takenForDate = useMemo(() => {
+    const taken = new Set<string>();
+    for (const c of classes) {
+      if (c.class_date !== classDate || c.entered_by_qualification) continue;
+      const dk = disciplineKeyById.get(c.discipline_id);
+      const vk = divisionKeyById.get(c.division_id);
+      if (dk && vk) taken.add(cellKey(dk, vk));
+    }
+    return taken;
+  }, [classes, classDate, disciplineKeyById, divisionKeyById]);
 
   // For the existing-classes display, group by date so a multi-day show
   // doesn't blob into one undifferentiated list.
@@ -1099,6 +562,165 @@ function ClassesStep({
     return json;
   }
 
+  /**
+   * Creating the show's own row for a grid axis.
+   *
+   * Posted one name at a time to the bulk endpoint rather than to the single
+   * create: `/disciplines/bulk` is what infers a score type from the name (a
+   * standard row's if it matches one, `_infer_score_type`'s otherwise), and the
+   * single create makes the caller state it. A class inherits its score type
+   * from its discipline, so guessing it here would be guessing how every class
+   * in that column is judged.
+   *
+   * A new division is offered under every discipline the show has. A new
+   * discipline gets no matching backfill and needs none — `POST
+   * /shows/{id}/classes` upserts the `(discipline, division)` membership as it
+   * creates the class, which is what lets the picker offer every cell.
+   *
+   * The id comes out of the create's own response rather than a re-read, so a
+   * sweep that opens six new columns is six calls rather than twelve. A name
+   * the bulk endpoint skipped is one this show already had under a spelling
+   * this caller did not know about, and only that falls back to a re-read.
+   */
+  async function createAxisRow(
+    axis: Axis,
+    name: string,
+    disciplineIds: string[],
+  ): Promise<string | null> {
+    const path = axis === 'discipline' ? 'disciplines' : 'divisions';
+    const body: Record<string, unknown> = { names: [name] };
+    if (axis === 'division') body.discipline_ids = disciplineIds;
+    const wanted = normalizeName(name);
+    try {
+      const res = await fetch(`/api/shows/${showId}/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(json?.detail || `Failed to add “${name}”.`);
+        return null;
+      }
+      const made = (json as { id: string; name: string }[] | null)?.find(
+        (r) => normalizeName(r.name) === wanted,
+      );
+      if (made) return made.id;
+    } catch {
+      setError(`Failed to add “${name}”.`);
+      return null;
+    }
+    const rows = await refreshAxis(axis);
+    return rows?.find((r) => normalizeName(r.name) === wanted)?.id ?? null;
+  }
+
+  /**
+   * The show row id for one axis name, creating it if this show has never used
+   * it.
+   *
+   * `known` is what the caller has already resolved on this run, so six cells
+   * swept in one new column create that column once. `rows` is the caller's own
+   * view of the show — for the drain that is the list from the render the drain
+   * started in, which is complete, because the only thing that adds a
+   * discipline or a division now is this function.
+   */
+  async function axisIdFor(
+    axis: Axis,
+    option: AxisOption,
+    rows: { id: string; name: string }[],
+    known: Map<string, string>,
+    disciplineIds: string[],
+  ): Promise<string | null> {
+    const held = known.get(option.key);
+    if (held) return held;
+    if (option.id) {
+      known.set(option.key, option.id);
+      return option.id;
+    }
+    const existing = rows.find((r) => normalizeName(r.name) === option.key);
+    if (existing) {
+      known.set(option.key, existing.id);
+      return existing.id;
+    }
+    const made = await createAxisRow(axis, option.name, disciplineIds);
+    if (made) known.set(option.key, made);
+    return made;
+  }
+
+  /**
+   * Taking a column or a row off the picker.
+   *
+   * Only offered where it changes what is on screen: a show row with no classes
+   * whose name the standard library does not carry. A library name is a column
+   * whether or not this show has a row for it, so deleting that row would look
+   * like nothing happening — and a row with classes is refused by the endpoint
+   * anyway. That leaves the case this exists for: a name somebody typed
+   * themselves, whose classes have since gone.
+   */
+  async function removeAxisRow(axis: Axis, id: string) {
+    setError(null);
+    setBusy(true);
+    const path = axis === 'discipline' ? 'disciplines' : 'divisions';
+    try {
+      const res = await fetch(`/api/shows/${showId}/${path}/${id}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const j = await res.json().catch(() => null);
+        setError(j?.detail || `Failed to remove the ${AXIS_COPY[axis].noun}.`);
+      }
+    } catch {
+      setError(`Failed to remove the ${AXIS_COPY[axis].noun}.`);
+    } finally {
+      setBusy(false);
+    }
+    await refreshAxis(axis);
+  }
+
+  /** Re-reads one axis, so the picker gains the column or row a create just
+   *  made. How many classes use it is counted from the class list instead. */
+  async function refreshAxis(
+    axis: Axis,
+  ): Promise<{ id: string; name: string }[] | null> {
+    const path = axis === 'discipline' ? 'disciplines' : 'divisions';
+    const res = await fetch(`/api/shows/${showId}/${path}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    if (axis === 'discipline') {
+      const rows = (await res.json()) as DisciplineItem[];
+      onDisciplinesChanged(rows);
+      return rows;
+    }
+    const rows = (await res.json()) as DivisionItem[];
+    onDivisionsChanged(rows);
+    return rows;
+  }
+
+  /**
+   * The ids for one (discipline, division) pair, creating either row as needed.
+   *
+   * The by-name form's door onto the same thing the picker's cells do — its
+   * pickers offer the standard library too, so it can be filling in a class
+   * under a discipline this show has never used.
+   */
+  async function resolveAxisPair(
+    discipline: AxisOption,
+    division: AxisOption,
+  ): Promise<{ disciplineId: string; divisionId: string } | null> {
+    const known = { discipline: new Map<string, string>(), division: new Map<string, string>() };
+    const disciplineIds = disciplines.map((d) => d.id);
+    const disciplineId = await axisIdFor('discipline', discipline, disciplines, known.discipline, disciplineIds);
+    if (!disciplineId) return null;
+    const divisionId = await axisIdFor(
+      'division',
+      division,
+      divisions,
+      known.division,
+      Array.from(new Set([...disciplineIds, disciplineId])),
+    );
+    if (!divisionId) return null;
+    if (!discipline.id) await refreshAxis('discipline');
+    if (!division.id) await refreshAxis('division');
+    return { disciplineId, divisionId };
+  }
+
   /** Saves a whole-show running order and renumbers to match. Numbers run
    *  1..N across the whole show, ordered by date then position, so any move
    *  persists the full ordered id list. */
@@ -1153,14 +775,21 @@ function ClassesStep({
     await saveOrder(reordered);
   }
 
-  // Clicking a "+" cell adds that class immediately — no separate confirm step.
-  function addCell(disciplineId: string, divisionId: string) {
-    const k = cellKey(disciplineId, divisionId);
+  // Clicking a "+" cell adds that class immediately — no separate confirm step,
+  // and no separate step to put its column or its row on the show first.
+  function addCell(discipline: AxisOption, division: AxisOption) {
+    const k = cellKey(discipline.key, division.key);
     const dk = `${classDate}::${k}`;
     if (takenForDate.has(k) || queuedKeys.has(dk)) return;
     setAdded(null);
     setQueuedKeys((prev) => new Set(prev).add(dk));
-    queueRef.current.push({ disciplineId, divisionId, classDate });
+    queueRef.current.push({ discipline, division, classDate });
+    // Always call it. `drainQueue`'s own `processingRef` guard is what stops a
+    // second drainer running alongside the first, and it clears that flag
+    // *before* its closing refresh — so a cell clicked during that refresh has
+    // to be able to start the next drain. Gating this call on "is a drain in
+    // flight" instead loses the click: the running drain's loop has already
+    // found the queue empty and exited, and nothing starts another.
     void drainQueue();
   }
 
@@ -1169,24 +798,49 @@ function ClassesStep({
     processingRef.current = true;
     setError(null);
     const processed: string[] = [];
+    // What this drain has resolved or created, so a sweep down a column the
+    // show has never used creates that column once rather than per cell. Seeded
+    // empty and carried across the whole loop; `disciplines` / `divisions` from
+    // this closure are the rest of the answer, and between them they are
+    // complete, because nothing else creates either any more.
+    const known = { discipline: new Map<string, string>(), division: new Map<string, string>() };
+    const madeAxis = { discipline: false, division: false };
     try {
       while (queueRef.current.length > 0) {
         const job = queueRef.current.shift()!;
-        const dk = `${job.classDate}::${cellKey(job.disciplineId, job.divisionId)}`;
-        const disc = disciplineById.get(job.disciplineId);
-        const div = divisionById.get(job.divisionId);
-        if (!disc || !div) {
-          processed.push(dk);
-          continue;
-        }
-        const className = `${div.name} ${disc.name}`;
+        const dk = `${job.classDate}::${cellKey(job.discipline.key, job.division.key)}`;
+        const className = `${job.division.name} ${job.discipline.name}`;
         try {
+          const disciplineIds = Array.from(
+            new Set([...disciplines.map((d) => d.id), ...known.discipline.values()]),
+          );
+          const disciplineId = await axisIdFor(
+            'discipline',
+            job.discipline,
+            disciplines,
+            known.discipline,
+            disciplineIds,
+          );
+          if (!job.discipline.id && disciplineId) madeAxis.discipline = true;
+          const divisionId = disciplineId
+            ? await axisIdFor(
+                'division',
+                job.division,
+                divisions,
+                known.division,
+                Array.from(new Set([...disciplineIds, disciplineId])),
+              )
+            : null;
+          if (!job.division.id && divisionId) madeAxis.division = true;
+          // `createAxisRow` has already said why on the error banner.
+          if (!disciplineId || !divisionId) continue;
+
           const res = await fetch(`/api/shows/${showId}/classes`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              discipline_id: job.disciplineId,
-              division_id: job.divisionId,
+              discipline_id: disciplineId,
+              division_id: divisionId,
               class_name: className,
               class_date: job.classDate,
               status: 'OPEN',
@@ -1204,6 +858,11 @@ function ClassesStep({
       }
     } finally {
       processingRef.current = false;
+      // One re-read of each axis this drain opened, rather than one per column:
+      // the ids came out of the creates themselves, and this is only so the
+      // picker's headers know which rows the show now owns.
+      if (madeAxis.discipline) await refreshAxis('discipline');
+      if (madeAxis.division) await refreshAxis('division');
       await refreshClasses();
       // Drop only the markers this drainer handled. Successful cells are now
       // "taken" via `classes`; failed cells fall back to "+" so they retry.
@@ -1316,210 +975,268 @@ function ClassesStep({
     }
   }
 
-  const noBuildingBlocks = disciplines.length === 0 || divisions.length === 0;
   const adding = queuedKeys.size > 0;
+  // A show type with no standard library and a show that has never used a
+  // discipline leaves nothing to draw. The by-name form is the way in.
+  const pickerEmpty = disciplineOptions.length === 0 || divisionOptions.length === 0;
+
+  /** Opens the by-name form, or closes it if that button already opened it.
+   *  The two buttons sit beside the picker permanently now, so each has to be
+   *  able to put away what it opened. */
+  function toggleNamedForm(kind: 'blank' | 'grand') {
+    setNamedClassPreset((held) =>
+      held?.kind === kind ? null : { kind, nonce: Date.now() },
+    );
+  }
 
   return (
     <section
       className="p-4 rounded-lg border space-y-4"
       style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
     >
-      <StepHeader step={3}>
-        Every class is a division in a discipline. Pick the show day, then click a
-        square in the grid to add that class — it saves straight away and is
-        numbered in running order. For a class with a name of its own, such as a
-        Grand &amp; Reserve champion class, use <em>Add a class by name</em> under
-        the grid.
-      </StepHeader>
+      <p className="text-xs" style={{ color: COLORS.muted }}>
+        Every class is a division in a discipline — a row and a column of the{' '}
+        <em>Quick Class Picker</em>. Pick the show day, then click a square to add
+        that class; it saves straight away and is numbered in running order. The
+        picker offers this show&rsquo;s own disciplines and divisions plus the{' '}
+        {standardLibraryLabel} standard library, so a square you click is added to
+        the show whether or not it has been used here before. For a class with a
+        name of its own, such as a Grand &amp; Reserve champion class, use{' '}
+        <em>Add a class by name</em>.
+      </p>
 
-      {/* ── The grid ──────────────────────────────────────────────────── */}
-      <div
-        className="rounded border p-3 space-y-3"
-        style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
-      >
-        <div className="flex items-end gap-3 flex-wrap">
-          <label className="block">
-            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-              Show day
-            </span>
-            <select
-              value={classDate}
-              onChange={(e) => setClassDate(e.target.value)}
-              className="border rounded px-3 py-2 text-sm"
-              style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
-            >
-              {dates.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </label>
-          <p className="text-xs" style={{ color: COLORS.muted }}>
-            <span style={{ fontWeight: 600 }}>+</span> adds the class ·{' '}
-            <span style={{ fontWeight: 600 }}>✓</span> is already a class on this day
-          </p>
-        </div>
-
-        {noBuildingBlocks ? (
-          <p className="text-sm" style={{ color: COLORS.muted }}>
-            Add at least one discipline and one division in steps 1 and 2 to build
-            classes here.
-          </p>
-        ) : (
-          <DualScrollBox maxHeight="70vh">
-            {/* Separate borders rather than collapsed: a collapsed border belongs
-                to the table, not the cell, so it would scroll away from a
-                sticky header and leave the names floating over the grid. */}
-            <table className="text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-              <thead>
-                <tr>
-                  <th
-                    className="sticky left-0 top-0 z-30 text-left font-semibold pr-3 py-2 border-b align-bottom"
-                    style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft, color: COLORS.text }}
-                    scope="col"
-                  >
-                    Division ╲ Discipline
-                  </th>
-                  {disciplines.map((disc) => (
-                    <th
-                      key={disc.id}
-                      className="sticky top-0 z-20 font-medium text-xs px-2 py-2 border-b text-center align-bottom"
-                      style={{
-                        borderColor: COLORS.border,
-                        backgroundColor: COLORS.warnSoft,
-                        color: COLORS.warn,
-                        minWidth: '5rem',
-                      }}
-                      title={disc.name}
-                      scope="col"
-                    >
-                      {disc.name}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {divisions.map((div) => (
-                  <tr key={div.id}>
-                    <th
-                      className="sticky left-0 z-10 text-left font-normal pr-3 py-1.5 border-b"
-                      style={{
-                        borderColor: COLORS.borderSoft,
-                        backgroundColor: COLORS.warnSoft,
-                        color: COLORS.text,
-                      }}
-                      scope="row"
-                    >
-                      {div.name}
-                    </th>
-                    {disciplines.map((disc) => {
-                      const k = cellKey(disc.id, div.id);
-                      const taken = takenForDate.has(k);
-                      const queued = queuedKeys.has(`${classDate}::${k}`);
-                      const disabled = taken || queued;
-                      const title = taken
-                        ? `${div.name} ${disc.name} is already on the schedule for ${classDate}`
-                        : queued
-                          ? `Adding ${div.name} ${disc.name}…`
-                          : `Add ${div.name} ${disc.name}`;
-                      return (
-                        <td
-                          key={disc.id}
-                          className="text-center border-b p-0.5"
-                          style={{ borderColor: COLORS.borderSoft }}
-                        >
-                          <button
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => addCell(disc.id, div.id)}
-                            title={title}
-                            aria-label={title}
-                            className="w-full text-xs font-medium rounded px-2 py-1"
-                            style={{
-                              backgroundColor: taken
-                                ? 'var(--border-subtle)'
-                                : queued
-                                  ? COLORS.highlight
-                                  : 'var(--surface)',
-                              color: taken
-                                ? COLORS.muted
-                                : queued
-                                  ? COLORS.warn
-                                  : COLORS.text,
-                              border: queued
-                                ? `1px solid ${COLORS.warn}`
-                                : `1px solid ${COLORS.border}`,
-                              cursor: disabled ? 'not-allowed' : 'pointer',
-                              minWidth: '3.5rem',
-                            }}
-                          >
-                            {taken ? '✓' : queued ? '…' : '+'}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </DualScrollBox>
-        )}
-
-        {adding && (
-          <p className="text-xs font-medium pt-1" style={{ color: COLORS.warn }}>
-            Adding {queuedKeys.size} class{queuedKeys.size === 1 ? '' : 'es'}…
-          </p>
-        )}
+      {/* ── What this step can do, in one row ─────────────────────────────
+          The picker folds because a built show is read below it, and the two
+          by-name buttons sit beside its toggle rather than under the grid:
+          under a picker that is open and 70vh tall, they were below the fold,
+          and under one that is closed they moved. */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setPickerOpen((open) => !open)}
+          aria-expanded={pickerOpen}
+          title="The grid of every division crossed with every discipline — click a square to add that class"
+          className="text-sm rounded px-3 py-1.5 border"
+          style={{
+            borderColor: pickerOpen ? COLORS.warn : COLORS.border,
+            backgroundColor: pickerOpen ? COLORS.highlight : 'var(--surface)',
+            color: pickerOpen ? COLORS.warn : COLORS.text,
+            fontWeight: pickerOpen ? 600 : 400,
+          }}
+        >
+          <span aria-hidden>{pickerOpen ? '▾' : '▸'}</span> Quick Class Picker
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleNamedForm('blank')}
+          aria-expanded={namedClassPreset?.kind === 'blank'}
+          className="text-sm rounded px-3 py-1.5 border"
+          style={{
+            borderColor: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.border,
+            backgroundColor: namedClassPreset?.kind === 'blank' ? COLORS.highlight : 'var(--surface)',
+            color: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.text,
+          }}
+        >
+          + Add a class by name
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleNamedForm('grand')}
+          aria-expanded={namedClassPreset?.kind === 'grand'}
+          className="text-sm rounded px-3 py-1.5 border"
+          style={{
+            borderColor: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.border,
+            backgroundColor: namedClassPreset?.kind === 'grand' ? COLORS.highlight : 'var(--surface)',
+            color: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.text,
+          }}
+          title="A championship class the top placings are called back to — entry is by qualifying"
+        >
+          + Add a Grand &amp; Reserve class
+        </button>
       </div>
 
-      {/* ── A class the grid cannot name ──────────────────────────────── */}
-      {!noBuildingBlocks && (
-        namedClassPreset ? (
-          <AddNamedClass
-            key={namedClassPreset.nonce}
-            preset={namedClassPreset.kind}
-            showId={showId}
-            dates={dates}
-            defaultDate={classDate}
-            disciplines={disciplines}
-            divisions={divisions}
-            classes={classes}
-            setError={setError}
-            refreshClasses={refreshClasses}
-            saveOrder={saveOrder}
-            onClose={() => setNamedClassPreset(null)}
-            // A class you have just named is one you want to see on the
-            // schedule — so the form closes, the list opens, any filter that
-            // would have hidden the new row is cleared, and the page scrolls
-            // to it. It used to stay open over a folded list, reporting the
-            // save in a line of text above a form nobody needed any more.
-            onCreated={(id, message) => {
-              setNamedClassPreset(null);
-              setQuery('');
-              setListOpen(true);
-              setAdded({ id, message });
-            }}
-          />
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setNamedClassPreset({ kind: 'blank', nonce: Date.now() })}
-              className="text-sm rounded px-3 py-1.5 border"
-              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
-            >
-              + Add a class by name
-            </button>
-            <button
-              type="button"
-              onClick={() => setNamedClassPreset({ kind: 'grand', nonce: Date.now() })}
-              className="text-sm rounded px-3 py-1.5 border"
-              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
-              title="A championship class the top placings are called back to — entry is by qualifying"
-            >
-              + Add a Grand &amp; Reserve class
-            </button>
+      {/* ── The Quick Class Picker ────────────────────────────────────── */}
+      {pickerOpen && (
+        <div
+          className="rounded border p-3 space-y-3"
+          style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
+        >
+          <div className="flex items-end gap-3 flex-wrap">
+            <label className="block">
+              <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                Show day
+              </span>
+              <select
+                value={classDate}
+                onChange={(e) => setClassDate(e.target.value)}
+                className="border rounded px-3 py-2 text-sm"
+                style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)' }}
+              >
+                {dates.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </label>
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              <span style={{ fontWeight: 600 }}>+</span> adds the class ·{' '}
+              <span style={{ fontWeight: 600 }}>✓</span> is already a class on this day
+            </p>
           </div>
-        )
+
+          {pickerEmpty ? (
+            <p className="text-sm" style={{ color: COLORS.muted }}>
+              This show type has no standard disciplines or divisions to draw a
+              grid from. Use <em>Add a class by name</em> — its pickers take a name
+              of your own.
+            </p>
+          ) : (
+            <DualScrollBox maxHeight="70vh">
+              {/* Separate borders rather than collapsed: a collapsed border belongs
+                  to the table, not the cell, so it would scroll away from a
+                  sticky header and leave the names floating over the grid. */}
+              <table className="text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+                <thead>
+                  <tr>
+                    <th
+                      className="sticky left-0 top-0 z-30 text-left font-semibold pr-3 py-2 border-b align-bottom"
+                      style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft, color: COLORS.text }}
+                      scope="col"
+                    >
+                      Division ╲ Discipline
+                    </th>
+                    {disciplineOptions.map((disc) => (
+                      <th
+                        key={disc.key}
+                        className="sticky top-0 z-20 font-medium text-xs px-2 py-2 border-b text-center align-bottom"
+                        style={{
+                          borderColor: COLORS.border,
+                          backgroundColor: COLORS.warnSoft,
+                          color: COLORS.warn,
+                          minWidth: '5rem',
+                        }}
+                        title={disc.name}
+                        scope="col"
+                      >
+                        {disc.name}
+                        <AxisRemove
+                          axis="discipline"
+                          option={disc}
+                          busy={busy}
+                          onRemove={removeAxisRow}
+                        />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {divisionOptions.map((div) => (
+                    <tr key={div.key}>
+                      <th
+                        className="sticky left-0 z-10 text-left font-normal pr-3 py-1.5 border-b"
+                        style={{
+                          borderColor: COLORS.borderSoft,
+                          backgroundColor: COLORS.warnSoft,
+                          color: COLORS.text,
+                        }}
+                        scope="row"
+                      >
+                        {div.name}
+                        <AxisRemove
+                          axis="division"
+                          option={div}
+                          busy={busy}
+                          onRemove={removeAxisRow}
+                        />
+                      </th>
+                      {disciplineOptions.map((disc) => {
+                        const k = cellKey(disc.key, div.key);
+                        const taken = takenForDate.has(k);
+                        const queued = queuedKeys.has(`${classDate}::${k}`);
+                        const disabled = taken || queued;
+                        const title = taken
+                          ? `${div.name} ${disc.name} is already on the schedule for ${classDate}`
+                          : queued
+                            ? `Adding ${div.name} ${disc.name}…`
+                            : `Add ${div.name} ${disc.name}`;
+                        return (
+                          <td
+                            key={disc.key}
+                            className="text-center border-b p-0.5"
+                            style={{ borderColor: COLORS.borderSoft }}
+                          >
+                            <button
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => addCell(disc, div)}
+                              title={title}
+                              aria-label={title}
+                              className="w-full text-xs font-medium rounded px-2 py-1"
+                              style={{
+                                backgroundColor: taken
+                                  ? 'var(--border-subtle)'
+                                  : queued
+                                    ? COLORS.highlight
+                                    : 'var(--surface)',
+                                color: taken
+                                  ? COLORS.muted
+                                  : queued
+                                    ? COLORS.warn
+                                    : COLORS.text,
+                                border: queued
+                                  ? `1px solid ${COLORS.warn}`
+                                  : `1px solid ${COLORS.border}`,
+                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                minWidth: '3.5rem',
+                              }}
+                            >
+                              {taken ? '✓' : queued ? '…' : '+'}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </DualScrollBox>
+          )}
+
+          {adding && (
+            <p className="text-xs font-medium pt-1" style={{ color: COLORS.warn }}>
+              Adding {queuedKeys.size} class{queuedKeys.size === 1 ? '' : 'es'}…
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── A class the picker cannot name ────────────────────────────── */}
+      {namedClassPreset && (
+        <AddNamedClass
+          key={namedClassPreset.nonce}
+          preset={namedClassPreset.kind}
+          showId={showId}
+          dates={dates}
+          defaultDate={classDate}
+          disciplineOptions={disciplineOptions}
+          divisionOptions={divisionOptions}
+          classes={classes}
+          setError={setError}
+          resolveAxisPair={resolveAxisPair}
+          refreshClasses={refreshClasses}
+          saveOrder={saveOrder}
+          onClose={() => setNamedClassPreset(null)}
+          // A class you have just named is one you want to see on the
+          // schedule — so the form closes, the list opens, any filter that
+          // would have hidden the new row is cleared, and the page scrolls
+          // to it. It used to stay open over a folded list, reporting the
+          // save in a line of text above a form nobody needed any more.
+          onCreated={(id, message) => {
+            setNamedClassPreset(null);
+            setQuery('');
+            setListOpen(true);
+            setAdded({ id, message });
+          }}
+        />
       )}
 
       {/* ── The schedule so far ───────────────────────────────────────────
@@ -1771,25 +1488,66 @@ function ClassesStep({
         </div>
       )}
 
-      {/* Classes save as they are added, so this finishes the part rather than
-          saving it — and carries on into the next setup step, which is where a
-          secretary who has just built a schedule is going. */}
-      <StepFooter
-        onBack={onBack}
-        backLabel="Back to Divisions"
-        onAction={onDone}
-        disabled={busy || adding}
-        disabledTitle={adding ? 'Wait for the classes being added to save' : undefined}
-        actionLabel={
-          adding
-            ? 'Adding…'
-            : nextStep
-              ? `Done — continue to ${nextStep.label} →`
-              : 'Done — back to setup →'
-        }
-        hint={`${classes.length} class${classes.length === 1 ? '' : 'es'} saved`}
-      />
+      {/* No footer of its own. Everything on this screen saves on the press
+          that makes it, so there is nothing left for a Save to do — and the
+          step's own Back / Next sits directly below this box in `StepLayout`.
+          The bar that used to be here walked the three inner steps; with one
+          screen its only remaining button went where the footer underneath it
+          already goes. */}
     </section>
+  );
+}
+
+/**
+ * The picker's options plus the ones typed into the by-name form, alphabetically.
+ *
+ * Keyed rather than concatenated, because the moment a typed name is saved it
+ * becomes a real option too and the form would then be holding both — two
+ * `<option>`s under one key, which React reports as duplicate children and
+ * which reads on screen as the name listed twice. The saved one wins.
+ */
+function withLocalOptions(base: AxisOption[], local: AxisOption[]): AxisOption[] {
+  const byKey = new Map(base.map((o) => [o.key, o]));
+  for (const o of local) if (!byKey.has(o.key)) byKey.set(o.key, o);
+  return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ── Taking a column or a row off the picker ────────────────────────────────────
+
+/**
+ * The × on a picker heading — and it is there for one case only.
+ *
+ * A standard-library name is a column whether or not this show has a row for
+ * it, so removing that row would change nothing on screen; a row with classes
+ * is refused by the endpoint, and its classes are what somebody actually means
+ * to delete. What is left is a name somebody typed themselves whose classes
+ * have since gone — an extra column nothing else can now clear. Rendering the ×
+ * anywhere else would be a control that mostly does nothing.
+ */
+function AxisRemove({
+  axis,
+  option,
+  busy,
+  onRemove,
+}: {
+  axis: Axis;
+  option: AxisOption;
+  busy: boolean;
+  onRemove: (axis: Axis, id: string) => Promise<void>;
+}) {
+  if (!option.id || option.inLibrary || option.classCount > 0) return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void onRemove(axis, option.id!)}
+      aria-label={`Remove ${option.name}`}
+      title={`Remove “${option.name}” — nothing on this show uses it, and it is not a standard ${AXIS_COPY[axis].noun}`}
+      className="ml-1 text-xs leading-none align-middle disabled:opacity-40"
+      style={{ color: COLORS.muted }}
+    >
+      ×
+    </button>
   );
 }
 
@@ -1925,10 +1683,11 @@ function AddNamedClass({
   showId,
   dates,
   defaultDate,
-  disciplines,
-  divisions,
+  disciplineOptions,
+  divisionOptions,
   classes,
   setError,
+  resolveAxisPair,
   refreshClasses,
   saveOrder,
   onClose,
@@ -1938,22 +1697,50 @@ function AddNamedClass({
   showId: string;
   dates: string[];
   defaultDate: string;
-  disciplines: DisciplineItem[];
-  divisions: DivisionItem[];
+  /** The same alphabetical options the picker draws its columns and rows from —
+   *  this show's own plus the standard library — so a class can be filed under
+   *  a discipline this show has not used yet. */
+  disciplineOptions: AxisOption[];
+  divisionOptions: AxisOption[];
   classes: ClassItem[];
   setError: (msg: string | null) => void;
+  /** Turns the picked pair into show row ids, creating either row if this show
+   *  has never used it. */
+  resolveAxisPair: (
+    discipline: AxisOption,
+    division: AxisOption,
+  ) => Promise<{ disciplineId: string; divisionId: string } | null>;
   refreshClasses: () => Promise<ClassItem[] | null>;
   saveOrder: (ordered: ClassItem[]) => Promise<void>;
   onClose: () => void;
   /** The class landed: its id, and where on the schedule it went. */
   onCreated: (classId: string, message: string) => void;
 }) {
-  const halter = disciplines.find((d) => /halter/i.test(d.name) && !/performance/i.test(d.name));
-  const startDiscipline = (preset === 'grand' && halter ? halter : disciplines[0])?.id ?? '';
-  const startDivision = divisions[0]?.id ?? '';
+  // Names typed into a picker's "+ Add a new…" box. Held here rather than
+  // written straight to the show: somebody who types a name and then closes the
+  // form should not have left a column behind on the grid. `resolveAxisPair`
+  // creates it on the save that actually needs it.
+  const [localOptions, setLocalOptions] = useState<{ discipline: AxisOption[]; division: AxisOption[] }>({
+    discipline: [],
+    division: [],
+  });
+  const allDisciplines = useMemo(
+    () => withLocalOptions(disciplineOptions, localOptions.discipline),
+    [disciplineOptions, localOptions.discipline],
+  );
+  const allDivisions = useMemo(
+    () => withLocalOptions(divisionOptions, localOptions.division),
+    [divisionOptions, localOptions.division],
+  );
 
-  const [disciplineId, setDisciplineId] = useState(startDiscipline);
-  const [divisionId, setDivisionId] = useState(startDivision);
+  const halter = disciplineOptions.find(
+    (d) => /halter/i.test(d.name) && !/performance/i.test(d.name),
+  );
+  const startDiscipline = (preset === 'grand' && halter ? halter : disciplineOptions[0])?.key ?? '';
+  const startDivision = divisionOptions[0]?.key ?? '';
+
+  const [disciplineKey, setDisciplineKey] = useState(startDiscipline);
+  const [divisionKey, setDivisionKey] = useState(startDivision);
   const [date, setDate] = useState(defaultDate);
   // Untouched, the name follows the pickers; once somebody types, it is theirs.
   const [name, setName] = useState('');
@@ -1962,9 +1749,45 @@ function AddNamedClass({
   const [qualifyTouched, setQualifyTouched] = useState(preset === 'grand');
   const [placeAfter, setPlaceAfter] = useState<string>('auto');
   const [saving, setSaving] = useState(false);
+  // Which picker is being added to from inside the form, if either. Picking
+  // "Add a new…" never becomes the select's value — the value stays the last
+  // real option, so the control snaps back to it and the new name is typed in a
+  // box beside it instead. A select left reading "Add a new…" is a form that
+  // looks like it is about to submit something that does not exist.
+  const [addingAxis, setAddingAxis] = useState<Axis | null>(null);
+  const [axisDraft, setAxisDraft] = useState('');
 
-  const disc = disciplines.find((d) => d.id === disciplineId);
-  const div = divisions.find((d) => d.id === divisionId);
+  // A discipline or division this form has selected can go while it is open —
+  // the × on a picker heading, or another tab. Fall back to the first that is
+  // still there rather than leaving a select showing nothing.
+  useEffect(() => {
+    if (allDisciplines.length > 0 && !allDisciplines.some((d) => d.key === disciplineKey)) {
+      setDisciplineKey(allDisciplines[0].key);
+    }
+  }, [allDisciplines, disciplineKey]);
+  useEffect(() => {
+    if (allDivisions.length > 0 && !allDivisions.some((d) => d.key === divisionKey)) {
+      setDivisionKey(allDivisions[0].key);
+    }
+  }, [allDivisions, divisionKey]);
+
+  function commitAxisDraft() {
+    const name = axisDraft.trim();
+    if (!addingAxis || !name) return;
+    const key = normalizeName(name);
+    const list = addingAxis === 'discipline' ? allDisciplines : allDivisions;
+    if (!list.some((o) => o.key === key)) {
+      const option: AxisOption = { key, name, id: null, classCount: 0, inLibrary: false };
+      setLocalOptions((prev) => ({ ...prev, [addingAxis]: [...prev[addingAxis], option] }));
+    }
+    if (addingAxis === 'discipline') setDisciplineKey(key);
+    else setDivisionKey(key);
+    setAddingAxis(null);
+    setAxisDraft('');
+  }
+
+  const disc = allDisciplines.find((d) => d.key === disciplineKey);
+  const div = allDivisions.find((d) => d.key === divisionKey);
   const suggestedName = disc && div
     ? `${preset === 'grand' ? 'Grand & Reserve ' : ''}${div.name} ${disc.name}`
     : '';
@@ -1979,12 +1802,14 @@ function AddNamedClass({
   // last class that day in the same cell, which is where the classes it calls
   // back from run. Otherwise, and when there is no such class, the end of the day.
   const autoAfter = useMemo(() => {
-    if (preset !== 'grand') return null;
+    // A cell this show has never used has no id to match on, and no classes in
+    // it either, so there is nothing to run after.
+    if (preset !== 'grand' || !disc?.id || !div?.id) return null;
     const sameCell = dayClasses.filter(
-      (c) => c.discipline_id === disciplineId && c.division_id === divisionId,
+      (c) => c.discipline_id === disc.id && c.division_id === div.id,
     );
     return sameCell.length > 0 ? sameCell[sameCell.length - 1] : null;
-  }, [preset, dayClasses, disciplineId, divisionId]);
+  }, [preset, dayClasses, disc?.id, div?.id]);
   const afterId = placeAfter === 'auto' ? autoAfter?.id ?? 'end' : placeAfter;
 
   /**
@@ -2011,16 +1836,23 @@ function AddNamedClass({
 
   async function submit() {
     const className = effectiveName.trim();
-    if (!className || !disciplineId || !divisionId || clash) return;
+    if (!className || !disc || !div || clash) return;
     setError(null);
     setSaving(true);
     try {
+      // The picked discipline or division may be a standard-library name, or
+      // one typed into this form, that the show has no row for yet. Create them
+      // here rather than when they were picked, so a form somebody closed
+      // leaves nothing behind.
+      const pair = await resolveAxisPair(disc, div);
+      if (!pair) return;
+
       const res = await fetch(`/api/shows/${showId}/classes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          discipline_id: disciplineId,
-          division_id: divisionId,
+          discipline_id: pair.disciplineId,
+          division_id: pair.divisionId,
           class_name: className,
           class_date: date,
           status: 'OPEN',
@@ -2082,32 +1914,76 @@ function AddNamedClass({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="block text-xs" style={{ color: COLORS.muted }}>
-          Discipline
-          <select
-            value={disciplineId}
-            onChange={(e) => setDisciplineId(e.target.value)}
-            className="mt-1 w-full border rounded px-2 py-1.5 text-sm"
-            style={fieldStyle}
-          >
-            {disciplines.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs" style={{ color: COLORS.muted }}>
-          Division
-          <select
-            value={divisionId}
-            onChange={(e) => setDivisionId(e.target.value)}
-            className="mt-1 w-full border rounded px-2 py-1.5 text-sm"
-            style={fieldStyle}
-          >
-            {divisions.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        </label>
+        {(['discipline', 'division'] as Axis[]).map((axis) => {
+          const copy = AXIS_COPY[axis];
+          // Alphabetical, the same order the picker's columns and rows run in:
+          // these lists carry a show type's whole standard library, and a
+          // thirty-name select is read by hunting for a name.
+          const rows = axis === 'discipline' ? allDisciplines : allDivisions;
+          const value = axis === 'discipline' ? disciplineKey : divisionKey;
+          const set = axis === 'discipline' ? setDisciplineKey : setDivisionKey;
+          return (
+            <label key={axis} className="block text-xs" style={{ color: COLORS.muted }}>
+              {copy.singular}
+              <select
+                value={value}
+                onChange={(e) => {
+                  if (e.target.value === ADD_AXIS_OPTION) {
+                    setAddingAxis(axis);
+                    setAxisDraft('');
+                    return;
+                  }
+                  set(e.target.value);
+                }}
+                className="mt-1 w-full border rounded px-2 py-1.5 text-sm"
+                style={fieldStyle}
+              >
+                {rows.map((d) => (
+                  <option key={d.key} value={d.key}>{d.name}</option>
+                ))}
+                <option value={ADD_AXIS_OPTION}>+ Add a new {copy.noun}…</option>
+              </select>
+              {addingAxis === axis && (
+                <span className="mt-1 flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={axisDraft}
+                    onChange={(e) => setAxisDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitAxisDraft();
+                      }
+                      if (e.key === 'Escape') setAddingAxis(null);
+                    }}
+                    placeholder={`New ${copy.noun} name…`}
+                    aria-label={`New ${copy.noun} name`}
+                    className="flex-1 min-w-0 border rounded px-2 py-1.5 text-sm"
+                    style={fieldStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={commitAxisDraft}
+                    disabled={!axisDraft.trim()}
+                    className="text-xs rounded px-2 py-1.5 shrink-0 disabled:opacity-50"
+                    style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddingAxis(null)}
+                    className="text-xs hover:underline shrink-0"
+                    style={{ color: COLORS.muted }}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              )}
+            </label>
+          );
+        })}
         <label className="block text-xs" style={{ color: COLORS.muted }}>
           Show day
           <select

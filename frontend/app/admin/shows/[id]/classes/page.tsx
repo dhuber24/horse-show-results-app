@@ -2,12 +2,10 @@ import { fetchShow, fetchClasses, fetchShowTypes, fetchDisciplines, fetchDivisio
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import StepLayout from '../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
-import { buildSteps } from '../../_wizard/steps';
 import ClassWizardClient, {
   type DisciplineItem,
   type DivisionItem,
   type ClassItem,
-  type NextSetupStep,
   type StandardItem,
 } from './_wizard/ClassWizardClient';
 
@@ -89,7 +87,13 @@ async function fetchStandardLibrary(
  *  and one to Judging Cards. Both are steps of their own now (5 and 8), which
  *  the stepper above already shows and the Next link already walks into. A
  *  banner pointing at the next step is a second door, and it sat above the
- *  three-screen wizard somebody came here to use. */
+ *  wizard somebody came here to use.
+ *
+ *  The step is **one screen**. It ran as three inside this one — Disciplines,
+ *  Divisions, then the grid that crosses them — and the first two are now a
+ *  panel over the grid they draw, opened from the axis they change. The show's
+ *  disciplines and divisions are still fetched here, and still passed in with
+ *  the standard libraries the panel picks from; what went is the sequence. */
 export default async function ShowClassesPage({
   params,
 }: {
@@ -111,19 +115,6 @@ export default async function ShowClassesPage({
     show.show_type_code ?? null,
   );
 
-  // Build Classes ends by walking into whichever setup step follows this one,
-  // named the way the stepper names it, so the last button in the Class
-  // Builder says where it goes rather than just "Finish".
-  const steps = buildSteps(stepsInput);
-  const here = steps.findIndex((s) => s.key === 'classes');
-  const following = here >= 0 ? steps[here + 1] : undefined;
-  const nextStep: NextSetupStep | null = following?.href
-    ? {
-        href: following.href,
-        label: following.label.replace(/^(\d+)\.\s*/, 'Step $1: '),
-      }
-    : null;
-
   return (
     <StepLayout
       showId={id}
@@ -143,7 +134,6 @@ export default async function ShowClassesPage({
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
         standardLibraryLabel={standardLibrary.label}
-        nextStep={nextStep}
       />
     </StepLayout>
   );
