@@ -57,7 +57,14 @@ export default async function SetupSanctioningPage({
       title="Step 5: Sanctioning"
       subtitle="Optional. Pick the clubs whose points apply, set what each charges and how, and tick the classes each one approves — a club sanctions a list of classes, not the whole schedule."
       stepsInput={{ ...stepsInput, sanctioningCount: current.length }}
-      skipLabel="Skip — no club sanctioning"
+      skip={
+        current.length === 0
+          ? {
+              label: 'Skip — no club sanctioning',
+              note: 'A show that no club sanctions needs nothing here. You can add one later; the fee only bills once a club, its rate and its classes all exist.',
+            }
+          : undefined
+      }
     >
       <SanctioningClient
         showId={id}

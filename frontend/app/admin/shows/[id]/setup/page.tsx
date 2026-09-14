@@ -47,7 +47,14 @@ export default async function SetupHubPage({
         </p>
       </div>
 
-      <WizardStepper current="basic" steps={steps} />
+      {/* `current="hub"`, not `"basic"`: on the hub no step is open, and a tab
+          bar that filled in Basics would be telling somebody they are on a step
+          they have not opened. */}
+      <WizardStepper
+        current="hub"
+        steps={steps}
+        hubHref={`/admin/shows/${id}/setup`}
+      />
 
       <ul className="space-y-3">
         {steps.map((step) => (

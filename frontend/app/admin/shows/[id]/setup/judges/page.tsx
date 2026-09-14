@@ -24,8 +24,16 @@ export default async function SetupJudgesPage({
       showName={show.name}
       current="judges"
       title="Step 2: Judges"
-      subtitle="Pick the judges officiating this show. Their details come from the judge registry; you can skip and add later."
+      subtitle="Pick the judges officiating this show. Their details come from the judge registry."
       stepsInput={{ ...stepsInput, judgeCount: judgeData.judges.length }}
+      skip={
+        judgeData.judges.length === 0
+          ? {
+              label: 'Skip — add judges later',
+              note: 'The panel can be picked any time before the show. One thing waits on it: a club or show fee priced per judge quotes nothing until there is a panel to multiply by.',
+            }
+          : undefined
+      }
     >
       <JudgesEditor
         showId={id}

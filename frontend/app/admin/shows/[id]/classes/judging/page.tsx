@@ -62,7 +62,14 @@ export default async function JudgingClassesPage({
       title="Step 8: Judge Cards"
       subtitle="How each scored class is marked. Give a class a card and the scribe records the maneuvers and penalties the judge calls; the total comes from those rather than being worked out on paper and typed in. Leave it unset and the class scores exactly as it does today."
       stepsInput={stepsInput}
-      skipLabel="Skip — score by total"
+      skip={
+        stepsInput.cardedClassCount === 0
+          ? {
+              label: 'Skip — score by total',
+              note: 'An unmarked class scores exactly as it did before cards existed: the scribe types the judge’s total and the app places on it.',
+            }
+          : undefined
+      }
     >
       <JudgingClassesClient showId={id} classes={scored} systems={systems} />
     </StepLayout>

@@ -2,6 +2,54 @@
 
 ## September 2026
 
+### The Setup Wizard's Steps Are Tabs, And A Skippable Step Says So At The Top
+
+Two changes to how somebody moves through show setup.
+
+**The step rail is a tab bar that wraps.** It was `1 ─ 2 ─ 3 …` on a single
+`overflow-x-auto` line, and nine labelled steps is about 1,000px of it — so on
+every screen this app is used on, steps five onwards sat off the right-hand edge
+with nothing to say they existed. A manager who wanted Fees either scrolled a
+strip they had no reason to think scrolled, or walked back out to the setup hub.
+The steps wrap now: two rows on a laptop, four on a phone, every step one press
+from every other, with **All steps** leading and pointing at the hub. The wizard
+has an order; nobody walks it in order twice.
+
+It is deliberately **not** an ARIA tab widget. Each tab is a route, so the markup
+is a `<nav>` of links carrying `aria-current="step"` — `role="tab"` would promise
+a screen reader a panel relationship that does not exist when the press navigates
+away. It sticks to the top of the page only from `sm` up, because a four-row bar
+pinned to a phone is half the viewport. Every tab still goes through
+`AutosaveNavLink`, so jumping from Lodging to Show Bill writes the stall fee on
+the way out exactly as the Next button did.
+
+The footer lost its **Setup hub** button — same destination as the new **All
+steps** tab through the same flush — and is Back and Next alone.
+
+**A skippable step says so above the form.** *Skip — no club sanctioning* used to
+be one more button in a footer row that already held Back, Setup hub and Next, so
+the manager who most needed it — the one this step is not their show's business
+at all — found out only after reading the whole screen for something to fill in.
+It sits between the tabs and the content now, with a line beside it saying what
+skipping costs: that a per-judge fee quotes nothing until a panel exists, that an
+unmarked class scores the way it always did, that what a class costs is set on
+the class rather than on the fees step.
+
+Three more steps offer one: **Judges**, **Lodging** and **Fees**. All three were
+already telling people to skip, in prose, with no control to press — Step 2's
+subtitle literally read "you can skip and add later". Each is offered **only
+while the step is empty**, since a show that has set a futurity up is not
+skipping anything. Basics, the Class Builder and the Show Bill still have none:
+`PUBLISHED` requires a class, and a button telling somebody they may skip the
+schedule is worse than silence.
+
+One bug fell out of the rewrite and is worth recording. `stepName()` — the helper
+that strips "5. " off a step label — was exported from the tab bar's `'use
+client'` module and called by `StepLayout`, a server component. `tsc` passed,
+ESLint passed, and every step page rendered an error boundary reading *"Attempted
+to call stepName() from the server"*. It lives in the plain `_wizard/steps.ts`
+now. Type imports across that boundary stay fine; they are erased.
+
 ### A Class Builder You Can Search, Sweep, And Not Duplicate Into
 
 Three fixes to the Class Builder, all of them about what happens after the

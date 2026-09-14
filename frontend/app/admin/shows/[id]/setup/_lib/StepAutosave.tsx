@@ -119,12 +119,14 @@ export function AutosaveNavLink({
   style,
   children,
   ariaCurrent,
+  title,
 }: {
   href: string;
   className?: string;
   style?: React.CSSProperties;
   children: React.ReactNode;
   ariaCurrent?: 'step';
+  title?: string;
 }) {
   const flush = useStepAutosaveFlush();
   const [busy, setBusy] = useState(false);
@@ -136,6 +138,7 @@ export function AutosaveNavLink({
       disabled={busy}
       className={className}
       style={style}
+      title={title}
       onClick={async () => {
         setBusy(true);
         try {

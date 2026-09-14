@@ -62,6 +62,14 @@ export default async function SetupFeesPage({
       title="Step 7: Show Fees"
       subtitle="Every class fee this show adds on top of the clubs' and the futurity's — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge."
       stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
+      skip={
+        charges.length === 0
+          ? {
+              label: 'Skip — no charges on top of the class fee',
+              note: 'What each class costs is set on the class itself. This step is only for what a show adds on top of that — an office fee, an association assessment, an all-day pass.',
+            }
+          : undefined
+      }
     >
       <div className="space-y-6">
         <EarlierFees showId={id} clubs={clubs} futurities={futurities} />

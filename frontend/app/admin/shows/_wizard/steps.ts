@@ -1,5 +1,18 @@
 import type { StepDef, WizardStepKey } from './WizardStepper';
 
+/**
+ * A step's name without its number — the tab's badge and the step's own title
+ * already carry that.
+ *
+ * It lives here rather than beside the tab bar that uses it because `StepLayout`
+ * is a server component and `WizardStepper` is a client one: exporting a plain
+ * function from a `'use client'` module and calling it on the server is a
+ * runtime error, not a type error, so nothing catches it until the page renders.
+ */
+export function stepName(label: string): string {
+  return label.replace(/^\d+\.\s*/, '');
+}
+
 export type WizardStepsInput = {
   showId: string;
   judgeCount: number;

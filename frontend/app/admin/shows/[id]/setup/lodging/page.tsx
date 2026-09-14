@@ -37,8 +37,16 @@ export default async function SetupLodgingPage({
       showName={show.name}
       current="lodging"
       title="Step 3: Lodging & Boarding"
-      subtitle="Stall fees, shavings, and camping. Skip any that don't apply."
+      subtitle="Stall fees, shavings, and camping — each its own card, each optional."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
+      skip={
+        lodgingFees.length === 0
+          ? {
+              label: 'Skip — nothing to book here',
+              note: 'A day-haul show that sells no stalls, shavings or camping needs none of these. These are the lines exhibitors reserve a quantity of at sign-up; what a class costs is set in the Class Builder.',
+            }
+          : undefined
+      }
     >
       <LodgingClient
         showId={id}

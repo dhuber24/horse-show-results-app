@@ -49,8 +49,13 @@ export default async function FuturitiesPage({
       title="Step 6: Futurities"
       subtitle="Optional. A futurity runs its own classes at its own prices, closes entries on its own deadline, and hands out Hi-Point awards — everything its entry form states is set up here."
       stepsInput={stepsInput}
-      skipLabel={
-        futurities.length === 0 ? 'Skip — no futurity at this show' : undefined
+      skip={
+        futurities.length === 0
+          ? {
+              label: 'Skip — no futurity at this show',
+              note: 'Most shows run none. Nothing else in setup depends on this step.',
+            }
+          : undefined
       }
     >
       <FuturitiesManager showId={id} initialFuturities={futurities} classes={classes} />

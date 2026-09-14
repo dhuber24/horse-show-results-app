@@ -68,7 +68,9 @@ export default async function NewShowPage() {
         </p>
       </div>
 
-      <WizardStepper current="basic" steps={steps} />
+      {/* No hub link: the show does not exist yet, which is also why every step
+          here is an unlinked preview of what is coming. */}
+      <WizardStepper current="basic" steps={steps} hubHref={null} />
 
       <Step1Client
         callerRole={role}
