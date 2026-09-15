@@ -192,7 +192,18 @@ class Show(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     venue_rel = relationship("Venue", back_populates="shows")
-    show_type = relationship("ShowType", back_populates="shows")
+    # `lazy="selectin"` for the same reason `show_category` below is, plus one
+    # this relationship learned the hard way. Two routers load the same Show row
+    # in one request with `populate_existing=True` and *different* loader
+    # options -- the desk asks for `show_type`, `show_financials` asks for
+    # `fees` / `judges` / `sanctioning` -- and a refresh erases every
+    # relationship the second query did not name. So whichever ran first lost
+    # its eager load, and the desk's `show.show_type` read became lazy IO inside
+    # an async request. It only *looked* like it worked: the ShowType stays
+    # reachable through the identity map at a show whose classes carry
+    # `class_associations` rows, and that is a weak reference and an accident. A
+    # selectin load rides along on every refresh, so no caller has to know.
+    show_type = relationship("ShowType", back_populates="shows", lazy="selectin")
     # `lazy="selectin"` for the reason `Class.sanctioning` is: the show payload is
     # built by hand for every row of the show list, so an unloaded relationship
     # here is either N+1 lazy IO or a MissingGreenlet inside an async request.

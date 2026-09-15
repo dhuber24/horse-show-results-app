@@ -2,6 +2,35 @@
 
 ## September 2026
 
+### The Registration Desk Loaded The Show Twice And Threw Away The First Read
+
+`GET /shows/{id}/desk` returned a 500 with an empty body at every show whose
+classes carry no `class_associations` rows -- which is every schedule built by
+hand, and so every brand-new show. The screen said "Could not load the desk."
+
+Two loaders in one request, both `select(...).populate_existing()`, with
+different options: `show_desk._get_show_or_404` asks for `show_type`, and
+`show_financials._get_show_or_404`, called moments later through
+`_load_financials`, asks for `fees`, `judges` and `sanctioning`. A refresh
+erases every relationship the second query did not name, so the desk's own
+eager load was discarded and `show.show_type.code` at the end of the handler
+was lazy IO inside an async request -- `MissingGreenlet`. Both loaders were
+written, with comments, to defend against `db.get(..., options=[...])`
+dropping its options on a row already in the identity map; neither could see
+the other.
+
+It had looked fine because `ClassAssociation.show_type` is `lazy="selectin"`.
+At a show whose classes came from an APHA or AQHA catalog import, those rows
+held the ShowType in the session's identity map, and the lazy load resolved
+from there without touching the database. A weak reference and an accident --
+and one that held at exactly the shows that were already set up, and not at
+the one somebody had just built.
+
+`Show.show_type` is `lazy="selectin"` now, beside `show_category`,
+`affiliations` and `sanctioning`, which are eager for the same reason. It
+rides along on every refresh, so no caller has to know what any other caller
+loaded. `tests/test_show_loading.py` pins it.
+
 ### The Quick Class Picker Offers Every Class The Show Could Run
 
 A follow-on to the collapse below, and it finishes the job. The disciplines and
