@@ -34,7 +34,7 @@ Codex note: when changing show visibility, scribe access, or result entry behavi
 
 ## Show Setup Wizard
 
-Show creation runs through a nine-step wizard. Each step is a separate route, reachable from every other through the tab bar described below, and none of them blocks the rest — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, lodging-fee codes, class-fee units, class count, sanctioning count, futurity count, how many scored classes carry a card, and whether the published show bill is a bill yet). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
+Show creation runs through a ten-step wizard. Each step is a separate route, reachable from every other through the tab bar described below, and none of them blocks the rest — secretaries can come back later via the setup hub at `/admin/shows/[id]/setup`, which shows per-step completion derived from data presence (judges count, lodging-fee codes, class-fee units, class count, sanctioning count, futurity count, how many scored classes carry a card, and whether the published show bill is a bill yet). A completed step's badge reads **Edit**, not "Done": the row is still a link, so the badge names what clicking it does.
 
 **Leaving a step saves it.** Every step used to end in a Save button, and moving on without pressing it lost whatever had been typed — silently, because walking the wizard looks like progress rather than like discarding a form. `setup/_lib/StepAutosave.tsx` turns that round: a step's client registers a `flush`, and every control that leaves the step (the footer's Back / Next, and every tab) awaits it before navigating. Two rules keep it safe on forms that already had Save buttons — **a flush that throws stops the navigation**, because the step's error is on screen at that point and carrying somebody forward from a 422 is the loss this replaces; and **a flush must be a no-op when nothing is dirty**, because these fire on every press of every tab and an unconditional write would rewrite a step somebody only passed through. Lodging and Sanctioning keep their Save buttons, which are now a second door onto the same function.
 
@@ -42,7 +42,7 @@ The hub and every step page read those counts from one helper, `setup/_lib/fetch
 
 ### The Tab Bar, And What It Replaced
 
-`_wizard/WizardStepper.tsx` renders the nine steps as **tabs that wrap**, with **All steps** leading and pointing at the hub. It was a numbered rail — `1 ─ 2 ─ 3 …` on one `overflow-x-auto` line — and at nine steps with their labels that line is about 1,000px wide, so on every screen this app is used on, steps five onwards sat off the right-hand edge with nothing to say they existed. A manager who wanted Fees had to scroll a strip they had no reason to think scrolled, or go back to the hub. Wrapping puts every step one press from every other: two rows on a laptop, four on a phone. The wizard has an order; nobody walks it in order twice.
+`_wizard/WizardStepper.tsx` renders the ten steps as **tabs that wrap**, with **All steps** leading and pointing at the hub. It was a numbered rail — `1 ─ 2 ─ 3 …` on one `overflow-x-auto` line — and at nine steps with their labels that line is about 1,000px wide, so on every screen this app is used on, steps five onwards sat off the right-hand edge with nothing to say they existed. A manager who wanted Fees had to scroll a strip they had no reason to think scrolled, or go back to the hub. Wrapping puts every step one press from every other: two rows on a laptop, four on a phone. The wizard has an order; nobody walks it in order twice.
 
 Three details are load-bearing:
 
@@ -63,11 +63,11 @@ Two rules decide where one appears:
 
 The `label` names the *answer* ("Skip — no club sanctioning"), not the act of leaving: bare *Skip* reads as putting a job off rather than as recording that there is none. The `note` beside it says what skipping costs, which is the half a manager cannot work out from the screen — that a per-judge fee quotes nothing until a panel exists, that an unmarked class scores the way it always did, that what a class costs is set on the class rather than here.
 
-The footer is Back and Next alone now. Its **Setup hub** button went when the tab bar grew an **All steps** tab: same destination, same flush, and the footer is for walking the flow one step at a time. Which is also why Step 9 reads **Done — back to the show →** where the others read Next: with the hub button gone, the last step's footer would otherwise have been a lone Back button, and a wizard whose final screen only goes backwards is one people leave through the browser.
+The footer is Back and Next alone now. Its **Setup hub** button went when the tab bar grew an **All steps** tab: same destination, same flush, and the footer is for walking the flow one step at a time. Which is also why Step 10 reads **Done — back to the show →** where the others read Next: with the hub button gone, the last step's footer would otherwise have been a lone Back button, and a wizard whose final screen only goes backwards is one people leave through the browser.
 
 Eligible to start the wizard: `ADMIN`, `SHOW_MANAGER`, `SHOW_SECRETARY`. Show Managers creating a show have an auto-inserted `show_managers` row; Step 1's staff roster is where any further assignment happens.
 
-**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit`, Step 4 is `/admin/shows/[id]/classes`, Step 6 is `/admin/shows/[id]/futurities` and Step 8 is `/admin/shows/[id]/classes/judging`, because all four are deep-linked from elsewhere and were screens before the wizard reached them. `/admin/shows/[id]/setup/paperwork` runs the other way — it is a redirect, not a step (see below), as is `/admin/shows/[id]/classes/sanctioning`, whose screen is now part of Step 5. A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all nine.
+**Not every step lives under `/setup`, and not everything under `/setup` is a step.** Step 1 is `/admin/shows/[id]/edit`, Step 4 is `/admin/shows/[id]/classes`, Step 6 is `/admin/shows/[id]/futurities` and Step 8 is `/admin/shows/[id]/classes/judging`, because all four are deep-linked from elsewhere and were screens before the wizard reached them. `/admin/shows/[id]/classes/sanctioning` runs the other way — it is a redirect, not a step, and its screen is now part of Step 5. A step is a position in a flow, not a folder; `StepLayout` is what makes a route a step, and it is the same component in all ten.
 
 **The steps that need a class schedule come after the one that builds it.** Sanctioning was Step 3, before there were any classes — so two of its three questions could not be answered there and had been scattered: what a club charges per class sat in a box on the fees step, and which classes it approves sat on a screen hanging off the class list. Judge Cards was a notice at the top of the class wizard for the same reason. Both are now steps after the Class Builder, in the order the answers come. **Fees follows them for the same reason read the other way**: the fees step quotes what the clubs and the futurity charge, and narrows a fee to some classes, so it needs Sanctioning, Futurities and the schedule to exist first. The order is 4 Class Builder, 5 Sanctioning, 6 Futurities, 7 Fees.
 
@@ -97,7 +97,7 @@ that remains the default and the recommendation. A generated bill cannot fall
 out of date with the schedule it describes: a secretary who adds a class or
 moves a fee has already updated it.
 
-Step 9 adds the other option (migration 127). The reason is not laziness on the
+Step 10 adds the other option (migration 127). The reason is not laziness on the
 show's part. A club's show bill is usually a designed document — sponsor logos,
 the club's own wording, the entry blank on the back, an award list this app has
 no table for — laid out and sent to the printer well before anything is keyed in
@@ -133,11 +133,13 @@ downloading the file are **public**, like the generated bill and like
 `/shows/[id]/schedule`: a show bill is the prize list a stranger reads to decide
 whether to enter.
 
-### Paperwork Requirements Are Not A Setup Step
+### Paperwork Requirements Have Two Doors
 
-Which health documents a show requires (`shows.requires_coggins` / `requires_health_certificate` + window / `requires_vaccination` + window + notes, migration 097) and the waivers exhibitors sign (`show_waivers`, migration 099) are set at **`/admin/shows/[id]/desk/paperwork`**, reached from a button on the registration desk. `/admin/shows/[id]/setup/paperwork` redirects there.
+Which health documents a show requires (`shows.requires_coggins` / `requires_health_certificate` + window / `requires_vaccination` + window + notes, migration 097) and the waivers exhibitors sign (`show_waivers`, migration 099) are set in **two places that render the same screen**: setup **Step 9** at `/admin/shows/[id]/setup/paperwork`, and `/admin/shows/[id]/desk/paperwork`, reached from a button on the registration desk.
 
-It was briefly a wizard step and that was the wrong place. Setup is answered once and closed; this is the standing order the desk reads every time somebody registers, and it is the registration side that discovers it is wrong — the checklist asking for a document this show does not want, or not asking for one it does. Putting the switch beside the checklist means the person who notices can fix it.
+Both were right at different moments, which is why there are two. The **first** answer is given while the show is being built — a manager setting a show up is asking "what do I require of an exhibitor?" right then, and for a while the wizard did not ask, so the only screen that did was one they had no reason to open yet. Every answer **after** that comes from the registration side, which is where a wrong one is discovered: the checklist asking for a document this show does not want, or not asking for one it does. Putting the switch beside the checklist means the person who notices can fix it without walking back through setup.
+
+What there is exactly one of is the implementation — `PaperworkClient`, `PATCH /shows/{id}` and `/shows/{id}/waivers`. The step sits **before the Show Bill** because the bill prints these requirements, the same ordering rule that puts Sanctioning and Futurities before Fees, and it ticks done unconditionally because every show requires a Coggins from the moment it is created.
 
 Coggins defaults on; CVI and vaccinations are opt-in, because they follow from state lines and venue rules rather than from the breed association. Waiver text is free-form — it comes from the venue's insurer or the fair board, and this app has no business supplying it.
 

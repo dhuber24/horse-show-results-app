@@ -131,6 +131,10 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
       return counts.cardedClassCount === 0
         ? `${counts.scoredClassCount} scored class${counts.scoredClassCount === 1 ? '' : 'es'}, none given a card yet.`
         : `${counts.cardedClassCount} of ${counts.scoredClassCount} scored classes marked on a card.`;
+    case 'paperwork':
+      return counts.healthPaperCount === 0
+        ? 'No health papers required. Set what a horse must arrive with, and what the rider signs.'
+        : `${counts.healthPaperCount} health document${counts.healthPaperCount === 1 ? '' : 's'} required, plus whatever the exhibitor signs.`;
     case 'showbill':
       return counts.showbillReady
         ? 'Check the show bill, or upload your own in place of it.'

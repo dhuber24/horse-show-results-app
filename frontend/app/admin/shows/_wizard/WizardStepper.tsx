@@ -12,6 +12,7 @@ export type WizardStepKey =
   | 'sanctioning'
   | 'futurities'
   | 'judgecards'
+  | 'paperwork'
   | 'showbill';
 
 export type StepDef = {

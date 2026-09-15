@@ -47,6 +47,7 @@ export default async function NewShowPage() {
     futurityCount: 0,
     scoredClassCount: 0,
     cardedClassCount: 0,
+    healthPaperCount: 0,
     showbillReady: false,
   }).map((step) => ({ ...step, href: null, done: false }));
 

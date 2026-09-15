@@ -619,8 +619,13 @@ export default function ExhibitorPanel({
           Memberships
         </p>
         {exhibitor.memberships.length === 0 ? (
+          // Not "this profile has none": the list is scoped to the bodies this
+          // show runs under, so an Open show with no club sanctioning shows
+          // nothing here however many cards the exhibitor holds. Saying the
+          // profile is empty would send staff off to check a profile that is
+          // fine.
           <p className="text-sm" style={{ color: COLORS.muted }}>
-            No association memberships on this profile.
+            No memberships for this show to check.
           </p>
         ) : (
           exhibitor.memberships.map((check) => {
@@ -757,8 +762,11 @@ export default function ExhibitorPanel({
                       })()}
 
                       {horse.registrations.length === 0 ? (
+                        // Scoped to the show's own associations, like the
+                        // memberships above — a horse papered with four bodies
+                        // shows none of them at a show that runs under none.
                         <p className="text-sm pt-2 border-t" style={{ borderColor: COLORS.borderSoft, color: COLORS.muted }}>
-                          No registration numbers on file for this horse.
+                          No registration papers for this show to check.
                         </p>
                       ) : (
                         horse.registrations.map((check) => {

@@ -2,6 +2,42 @@
 
 ## September 2026
 
+### A Show Only Asks For The Paperwork Of The Bodies It Runs Under
+
+The registration desk listed every membership on the exhibitor's profile and
+every registration on the horse's, whatever show you were standing at. An
+**Open show with no club sanctioning** therefore asked staff to inspect APHA,
+MNSPHC and WSCA membership cards and four sets of registration papers, and
+counted all nine in that exhibitor's outstanding total -- checks nobody working
+that show could ever clear, sitting beside the ones that matter.
+
+A card belongs to the person and papers belong to the horse; neither belongs to
+a weekend. What the office may ask for is the intersection with the show's own
+breed body and its sanctioning clubs. `exhibitor_profile` had always prompted
+from that list and `horse_eligibility` had always flagged against it -- the
+desk was the third reader and did not, so `_show_associations` moved out of
+`routers/show_registration.py` into `show_associations.py` where all three read
+it. An empty list means **nothing to ask for, never everything**: there is
+deliberately no `associations` row for OPEN, so an Open show with no clubs drops
+both sections entirely, and the desk's empty states now say "for this show to
+check" rather than claiming the profile is bare.
+
+### Paperwork Requirements Are A Setup Step Again, Without Leaving The Desk
+
+Which health papers a horse must arrive with -- Coggins, a CVI, vaccination
+records -- has been the show's own choice since migration 097, and the desk has
+only ever chased the ones a show turns on. What was missing is that the screen
+lived at `/admin/shows/{id}/desk/paperwork` and nothing in the setup wizard
+asked the question, so a manager building a show had no way to find it.
+
+It is **Step 9** now, before the Show Bill, because the bill prints these
+requirements -- the same ordering rule that puts Sanctioning and Futurities
+before Fees. The desk screen is unchanged and both routes render the same
+`PaperworkClient` against the same endpoints: the first answer is given while
+the show is built, and every revision after that is made by whoever is working
+registration. The step ticks `done: true` like Basics rather than on a count,
+because every show requires a Coggins from the moment it is created.
+
 ### The Registration Desk Loaded The Show Twice And Threw Away The First Read
 
 `GET /shows/{id}/desk` returned a 500 with an empty body at every show whose

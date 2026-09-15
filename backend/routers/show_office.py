@@ -105,6 +105,7 @@ from schemas import (
     StaffHorseCreate,
     VerificationChecklistOut,
 )
+from show_associations import asked_of, show_associations
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Show Office"])
 
@@ -349,6 +350,20 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     roster = await _load_roster(show_id, db)
     health = await health_by_horse(roster.horse_ids(), show, db)
 
+    # Which memberships and which registration papers this show may ask for.
+    # An exhibitor's profile carries every card they hold and a horse carries
+    # every body it is papered with; only the ones this show runs under are the
+    # office's business. Before this the desk listed all of them, so an Open
+    # show with no club sanctioning asked staff to inspect APHA, WSCA and
+    # MNSPHC cards and counted each one as outstanding -- a check nobody at
+    # that show could ever clear, sitting beside the ones that matter. The same
+    # list the registration screen prompts from and the horse picker flags
+    # against, so the exhibitor's card and the horse's papers cannot drift.
+    # Empty at an Open show with no clubs, which drops both sections entirely.
+    asked_association_ids = {
+        association_id for association_id, _code in await show_associations(show, db)
+    }
+
     verification_result = await db.execute(
         select(ShowVerification).where(ShowVerification.show_id == show_id)
     )
@@ -394,7 +409,7 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     for exhibitor_id, exhibitor in roster.exhibitors.items():
         memberships = []
         for reg in sorted(
-            exhibitor.registrations or [],
+            asked_of(exhibitor.registrations or [], asked_association_ids),
             key=lambda r: (r.association.code if r.association else ""),
         ):
             key = _verification_key(
@@ -421,7 +436,7 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
 
             horse_regs = []
             for reg in sorted(
-                horse.registrations or [],
+                asked_of(horse.registrations or [], asked_association_ids),
                 key=lambda r: (r.association.code if r.association else ""),
             ):
                 key = _verification_key(

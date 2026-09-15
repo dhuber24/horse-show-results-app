@@ -33,6 +33,12 @@ export type WizardStepsInput = {
   scoredClassCount: number;
   /** How many of those actually carry a `judging_system_id`. */
   cardedClassCount: number;
+  /** How many kinds of health paper this show makes a horse arrive with —
+   *  Coggins, a CVI, vaccination records. Never zero in practice unless the
+   *  show has deliberately turned Coggins off, which is why the Paperwork step
+   *  does not tick on a count. It is here so the hub can say what is required
+   *  rather than only that the step exists. */
+  healthPaperCount: number;
   /** Whether the show's bill is a bill yet — the generated one has classes on
    *  it, or the show uploaded its own file. Not "has the manager visited this
    *  step": every show has a generated bill by default, so a step that went
@@ -129,21 +135,33 @@ export function buildSteps({
       // keeps the show bill from ticking itself on arrival.
       done: classCount > 0 && (scoredClassCount === 0 || cardedClassCount > 0),
     },
+    // Before the show bill, which prints the health papers this step turns on —
+    // the same reason Sanctioning and Futurities come before Fees. It is a step
+    // at all because a manager building a show looks for "what do I require of
+    // an exhibitor?" while they are building it; it keeps its desk address too,
+    // because the answer is the desk's standing order and the people who revise
+    // it are the people working registration. One screen, two doors.
+    {
+      key: 'paperwork',
+      label: '9. Paperwork',
+      href: `/admin/shows/${showId}/setup/paperwork`,
+      // Always answered: every show requires a negative Coggins from the moment
+      // it is created, so there is no un-started state to tick towards. Same
+      // reasoning as Basics, and the opposite of the show bill — a tick that
+      // would be true of every show on creation has to mean the show genuinely
+      // has an answer, not that somebody has visited.
+      done: true,
+    },
     // Last, because the show bill is what every step before it adds up to — the
-    // judges, the clubs, the fees and the class schedule, on one sheet. This is
-    // where the manager either checks that sheet or hands over the one their
-    // club already had printed.
+    // judges, the clubs, the fees, the class schedule and the papers a horse
+    // arrives with, on one sheet. This is where the manager either checks that
+    // sheet or hands over the one their club already had printed.
     {
       key: 'showbill',
-      label: '9. Show Bill',
+      label: '10. Show Bill',
       href: `/admin/shows/${showId}/setup/showbill`,
       done: showbillReady,
     },
-    // Paperwork is deliberately not a step. What a show requires of an exhibitor
-    // — health documents, the entry blank, the release — is answered during
-    // registration, so it lives at `/admin/shows/{id}/desk/paperwork` beside the
-    // desk that checks it. Setting it up once and never reopening it is exactly
-    // the failure mode; the desk reads it every time somebody registers.
   ];
 }
 

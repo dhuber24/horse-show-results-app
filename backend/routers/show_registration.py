@@ -68,6 +68,7 @@ from horse_eligibility import (
     registration_codes,
 )
 from reservations import minimum_shortfall
+from show_associations import show_associations
 from billing import (
     build_bill,
     charge_lines,
@@ -324,29 +325,11 @@ def _signup_out(show_entry: Optional[ShowEntry]) -> Optional[dict]:
 async def _show_associations(show: Show, db: AsyncSession) -> list[tuple]:
     """The bodies this show runs under, as `(association_id, code)` pairs.
 
-    The breed body it is approved by and every club sanctioning it — the same
-    two questions Show Details answers under "Approved by" and "Clubs". Read
-    against `associations` rather than `show_types`, because a membership
-    number is a property of the person and that is where those live (there is
-    deliberately no `associations` row for OPEN, so an Open show with no clubs
-    returns an empty list and the membership prompt is dropped entirely).
+    Moved to `show_associations.py` so the registration screen, the horse picker
+    and the registration desk read one list rather than three. Kept as a name
+    here because this module calls it from three places.
     """
-    pairs: list[tuple] = []
-    if show.show_type and show.show_type.code and show.show_type.code != "OPEN":
-        breed = await db.execute(
-            select(Association.id, Association.code).where(
-                Association.code == show.show_type.code
-            )
-        )
-        pairs.extend(breed.all())
-    club_ids = [row.association_id for row in (show.sanctioning or [])]
-    if club_ids:
-        clubs = await db.execute(
-            select(Association.id, Association.code).where(Association.id.in_(club_ids))
-        )
-        pairs.extend(clubs.all())
-    seen: set = set()
-    return [(aid, code) for aid, code in pairs if not (aid in seen or seen.add(aid))]
+    return await show_associations(show, db)
 
 
 async def _profile_status(show: Show, exhibitor: Exhibitor, db: AsyncSession) -> dict:
@@ -1047,7 +1030,7 @@ async def preview_registration(
     # The bodies this show runs under. The same list the membership checklist
     # is built from, so the exhibitor's card and the horse's papers are judged
     # against one set of associations rather than two that can drift apart.
-    show_associations = await _show_associations(show, db)
+    association_pairs = await _show_associations(show, db)
 
     classes_result = await db.execute(
         select(Class)
@@ -1218,7 +1201,7 @@ async def preview_registration(
                 ),
                 "registration_flags": horse_registration_flags(
                     h,
-                    show_associations,
+                    association_pairs,
                     {
                         r.association_id
                         for r in registrations_by_horse.get(h.id, [])

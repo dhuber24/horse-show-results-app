@@ -1,3 +1,4 @@
+import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
 import type { WizardStepsInput } from '../../../_wizard/steps';
@@ -35,7 +36,8 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
 }
 
 export async function fetchStepCounts(showId: string): Promise<WizardStepsInput> {
-  const [judges, sanctioning, fees, classes, futurities, showbill] = await Promise.all([
+  const [show, judges, sanctioning, fees, classes, futurities, showbill] = await Promise.all([
+    fetchShow(showId),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
       `${API_URL}/shows/${showId}/sanctioning/`,
@@ -71,6 +73,14 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
     futurityCount: futurities.length,
     scoredClassCount: scoredClasses.length,
     cardedClassCount: scoredClasses.filter((c) => c.judging_system_id).length,
+    // Coggins is on unless the show turns it off; a CVI and vaccination records
+    // are off unless it turns them on. Counted rather than listed because the
+    // hub prints one line per step.
+    healthPaperCount: [
+      show.requires_coggins ?? true,
+      show.requires_health_certificate ?? false,
+      show.requires_vaccination ?? false,
+    ].filter(Boolean).length,
     // An uploaded bill is a bill on its own; a generated one is only a bill once
     // there is a schedule on it. Every show defaults to the generated option, so
     // marking the step done on arrival would make the tick mean nothing.
