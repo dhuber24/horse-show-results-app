@@ -121,6 +121,8 @@ def _serialize(show: Show) -> dict:
         "requires_vaccination": show.requires_vaccination,
         "vaccination_valid_days": show.vaccination_valid_days,
         "vaccination_notes": show.vaccination_notes,
+        # Whether the originals are produced at the counter (migration 138).
+        "requires_physical_document_check": show.requires_physical_document_check,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),

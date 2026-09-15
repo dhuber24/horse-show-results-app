@@ -150,6 +150,8 @@ class ShowUpdate(BaseModel):
     requires_vaccination: Optional[bool] = None
     vaccination_valid_days: Optional[int] = Field(default=None, ge=1, le=3650)
     vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
+    # Whether the originals have to be produced at the counter (migration 138).
+    requires_physical_document_check: Optional[bool] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -240,6 +242,10 @@ class ShowOut(BaseModel):
     requires_vaccination: bool = False
     vaccination_valid_days: int = 365
     vaccination_notes: Optional[str] = None
+    # Serialized in `routers/shows._serialize` as well as declared here -- that
+    # function builds the payload by hand, so a column named in only one of the
+    # two reads back as this default whatever is stored.
+    requires_physical_document_check: bool = True
     affiliations: list[ShowAffiliationOut] = []
     # Club sanctioning (NSBA, WSCA, ...), for the show bill and the exhibitor's
     # show-details screen. Forward-referenced because ShowSanctioningOut belongs
@@ -2089,6 +2095,12 @@ class VerificationChecklistOut(BaseModel):
     show_id: UUID
     exhibitors: list[VerificationExhibitorOut] = Field(default_factory=list)
     totals: VerificationTotalsOut = Field(default_factory=VerificationTotalsOut)
+    # Whether this show asks for the originals at the counter (migration 138).
+    # False and the health rows are still listed and still signable -- the
+    # office may record a paper it was handed -- but the inspection is not
+    # counted as outstanding, so the desk says so rather than leaving staff to
+    # wonder why a row it is showing them is not in the tally.
+    requires_physical_document_check: bool = True
 
 
 # ── Health flags ───────────────────────────────────────────────────────────────
@@ -3809,6 +3821,10 @@ class ShowDeskOut(BaseModel):
     show_name: str
     show_status: str
     show_type_code: Optional[str] = None
+    # Whether this show asks for the health originals at the counter
+    # (migration 138). The health rows are listed either way; when false the
+    # inspection sign-off is optional and is not in `paperwork_outstanding`.
+    requires_physical_document_check: bool = True
     classes: list[ShowDeskClassOut] = Field(default_factory=list)
     side_pots: list[ShowDeskSidePotOut] = Field(default_factory=list)
     exhibitors: list[ShowDeskExhibitorOut] = Field(default_factory=list)

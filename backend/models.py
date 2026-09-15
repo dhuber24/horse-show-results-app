@@ -188,6 +188,14 @@ class Show(Base):
     requires_vaccination = Column(Boolean, nullable=False, server_default="false")
     vaccination_valid_days = Column(Integer, nullable=False, server_default="365")
     vaccination_notes = Column(Text, nullable=True)
+    # Whether the originals have to be produced at the counter (migration 138).
+    # The columns above say which papers this show requires; this one says
+    # whether the upload settles it. True -- every show's behaviour before this
+    # -- means the desk owes an inspection sign-off per required document, which
+    # is the only thing that answers "does this paper describe this horse". A
+    # show that accepts the file as sufficient sets it false, and the health
+    # rows stay visible and signable but stop being counted as outstanding.
+    requires_physical_document_check = Column(Boolean, nullable=False, server_default="true")
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 

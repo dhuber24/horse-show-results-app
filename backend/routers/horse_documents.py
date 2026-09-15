@@ -153,6 +153,23 @@ def health_requirements(show) -> list["HealthRequirement"]:
     return [requirement_for(show, document_type) for document_type in required]
 
 
+def requires_physical_check(show) -> bool:
+    """Does this show want the originals produced at the counter?
+
+    The `requires_*` flags above say *which* papers a horse must have; this says
+    whether the upload settles it. They are different questions and the desk has
+    always answered the second one for itself, with yes: every required document
+    produced an inspection sign-off counted as paperwork the office owed,
+    whether or not that show ever meant to look at paper.
+
+    True for a show row that predates migration 138, which is exactly what every
+    one of them already did. False does not hide the health rows — the office
+    may still record a document it was handed, and that still clears the flag —
+    it only stops counting the sign-off as outstanding.
+    """
+    return bool(getattr(show, "requires_physical_document_check", True))
+
+
 def effective_expiry(
     issue_date: Optional[date], expiry_date: Optional[date], valid_days: Optional[int]
 ) -> Optional[date]:

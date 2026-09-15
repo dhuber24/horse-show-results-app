@@ -88,6 +88,7 @@ from routers.horse_documents import (
     load_health_documents,
     paperwork_deadline,
     requirement_for,
+    requires_physical_check,
 )
 from routers.people import (
     assert_registrations_available,
@@ -350,6 +351,16 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     roster = await _load_roster(show_id, db)
     health = await health_by_horse(roster.horse_ids(), show, db)
 
+    # Does this show want the paper produced at the counter (migration 138)?
+    # The health rows are built either way -- the office may still record a
+    # document it was handed at a show that did not ask for one -- but a show
+    # that accepts the upload as sufficient owes no sign-off, so the inspection
+    # is neither counted as outstanding nor added to the sweep totals. The same
+    # reasoning as `asked_association_ids` below: a check nobody working that
+    # show can meaningfully clear is one they learn to scroll past, and it
+    # spends the credibility of the checks that matter.
+    physical_check = requires_physical_check(show)
+
     # Which memberships and which registration papers this show may ask for.
     # An exhibitor's profile carries every card they hold and a horse carries
     # every body it is papered with; only the ones this show runs under are the
@@ -456,7 +467,8 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
                 )
                 verification = by_key.get(key)
                 inspection = _build_inspection(health_snapshot(check), verification)
-                distinct_status[key] = inspection["status"]
+                if physical_check:
+                    distinct_status[key] = inspection["status"]
                 health_out.append({**check, "inspection": inspection})
 
             horses_out.append({
@@ -485,9 +497,12 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         outstanding = sum(1 for c in all_checks if c["status"] != "verified")
         # The health *status* is not counted — a lapsed Coggins is the
         # exhibitor's job, not a sign-off the desk owes. The inspection is.
-        outstanding += sum(
-            1 for h in horses_out for c in h["health"] if c["inspection"]["status"] != "verified"
-        )
+        # Only where this show asks for the paper at the counter, though.
+        if physical_check:
+            outstanding += sum(
+                1 for h in horses_out for c in h["health"]
+                if c["inspection"]["status"] != "verified"
+            )
         outstanding += sum(1 for w in waiver_checks if w["is_required"] and w["status"] != "signed")
         if emergency_contact["status"] == "missing":
             outstanding += 1
@@ -525,7 +540,14 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     for status in distinct_status.values():
         totals[status] += 1
 
-    return {"show_id": show_id, "exhibitors": exhibitors_out, "totals": totals}
+    return {
+        "show_id": show_id,
+        "exhibitors": exhibitors_out,
+        "totals": totals,
+        # Reported so the desk can say why a health row it is still showing is
+        # not being counted, rather than leaving staff to wonder.
+        "requires_physical_document_check": physical_check,
+    }
 
 
 @router.get(

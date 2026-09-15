@@ -54,6 +54,9 @@ def make_show(**overrides) -> SimpleNamespace:
         requires_vaccination=False,
         vaccination_valid_days=365,
         vaccination_notes=None,
+        # Whether the originals are produced at the counter (migration 138).
+        # True is what every show did before the column existed.
+        requires_physical_document_check=True,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

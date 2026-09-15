@@ -252,6 +252,9 @@ async def get_desk(
         "show_name": show.name,
         "show_status": show.status,
         "show_type_code": show_type_code,
+        # Quoted from the checklist rather than read off the show again, so the
+        # desk cannot disagree with the tally it is drawing (migration 138).
+        "requires_physical_document_check": checklist["requires_physical_document_check"],
         "classes": [
             {
                 "id": cls.id,

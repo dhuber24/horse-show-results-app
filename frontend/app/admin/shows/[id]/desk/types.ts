@@ -180,6 +180,11 @@ export interface Desk {
   show_name: string;
   show_status: string;
   show_type_code: string | null;
+  /** Whether this show asks for the health originals at the counter
+   *  (migration 138). The health rows are listed either way — the office may
+   *  still record a paper it was handed — but when false the sign-off is
+   *  optional and is not in `paperwork_outstanding`. */
+  requires_physical_document_check: boolean;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
   exhibitors: DeskExhibitor[];

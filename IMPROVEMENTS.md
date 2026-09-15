@@ -2,6 +2,40 @@
 
 ## September 2026
 
+### Requiring A Document And Wanting To See It Are Two Questions
+
+Migration 097 let a show say **which** health papers it requires. It never let
+the show say whether the exhibitor has to bring the original -- and the desk
+answered that for itself, with yes. Every required document produced an
+inspection sign-off counted in the office's outstanding paperwork, so a show
+perfectly happy with the uploaded Coggins got a row per horse per document that
+nobody working it could meaningfully clear. That is the same failure the
+association scoping above fixed on the membership half of the same panel.
+
+`shows.requires_physical_document_check` (migration 138) is the second question,
+asked on the Paperwork step only once something is required -- and stored
+regardless, so ticking a document off and on again does not lose the answer. It
+defaults **true**, because that is exactly what every existing show already did;
+defaulting the other way would have silently emptied a live show's chase list.
+Unticked, the health rows are still listed and still signable -- the office may
+record a paper it is handed, and that attestation still clears the horse's flag
+-- they simply stop counting toward `outstanding` and the sweep totals, and the
+desk prints a line where those rows are saying why. A row that is listed and not
+counted otherwise reads as one staff forgot.
+
+The step's copy came down with it. The health card asks for what to select
+rather than explaining what the office chases; the rules behind each line -- why
+a Coggins carries its own expiry, why a CVI is dated from issue, why the app
+cannot supply a vaccination list -- ride on each row's `title`, which is the
+rule this app already follows on the exhibitor's own registration screen.
+
+And every waiver added on that step is now **required**. The form used to offer
+the choice; an optional waiver is a row nobody chases and nobody at the desk can
+tell from one somebody forgot to chase, and a show that merely wants something
+read publishes it on the show bill. `show_waivers.is_required` stays -- rows
+filed before this, and a futurity's own release, may still be optional, and the
+list goes on marking those.
+
 ### A Show Only Asks For The Paperwork Of The Bodies It Runs Under
 
 The registration desk listed every membership on the exhibitor's profile and

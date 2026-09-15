@@ -143,6 +143,10 @@ What there is exactly one of is the implementation — `PaperworkClient`, `PATCH
 
 Coggins defaults on; CVI and vaccinations are opt-in, because they follow from state lines and venue rules rather than from the breed association. Waiver text is free-form — it comes from the venue's insurer or the fair board, and this app has no business supplying it.
 
+Once something is required the step asks a second question: **must the exhibitor produce the original at the counter?** (`shows.requires_physical_document_check`, migration 138). Which papers a show requires and whether it wants to see them are different questions, and the desk had been answering the second one for itself — every required document produced an inspection sign-off counted as outstanding, whether or not that show ever meant to look at paper. It defaults true, which is what every show already did. Unticked, the health rows are still listed and still signable — the office may record a paper it is handed, and that still clears the flag — they simply stop counting as paperwork the desk owes, and the desk prints a line saying so where the rows are.
+
+Every waiver added here is **required**. The form used to offer the choice, and an optional waiver is a row nobody chases and nobody can tell from one somebody forgot to chase; a show that only wants something read publishes it on the show bill. `show_waivers.is_required` stays, because rows filed before this and a futurity's own release may still be optional, and the list marks those.
+
 ## Class Setup Origins
 
 The old per-show Standard Library matrix picker (`MatrixSetupClient`, `POST /shows/{show_id}/setup/apply`) was removed when the wizard shipped. Per-show divisions, sections, division-section memberships, and classes are now created via the Class Builder — setup Step 4, `/admin/shows/[id]/classes` — either manually or via the Schedule Builder / Standard Library quick-start documented below. The `/standard-setup/catalog` endpoint and the `standard_classes` / `standard_division_sections` tables remain in place and are still used by the Classes-page importers.
@@ -464,7 +468,7 @@ This used to be a hard block on both entry paths. It was the wrong tool: refusin
 
 ### What a show requires
 
-Coggins is universal. A Certificate of Veterinary Inspection follows from crossing a state line, and which vaccinations count comes from the venue rather than the breed association — so those two are **opt-in per show** (migration 097, set at `/admin/shows/[id]/desk/paperwork`). Deriving a flat "no CVI on file" flag would light up every in-state horse at every show, and staff would learn to ignore the whole panel; the policy has to exist before the derivation is worth having.
+Coggins is universal. A Certificate of Veterinary Inspection follows from crossing a state line, and which vaccinations count comes from the venue rather than the breed association — so those two are **opt-in per show** (migration 097, set at `/admin/shows/[id]/setup/paperwork` or `/admin/shows/[id]/desk/paperwork`). Deriving a flat "no CVI on file" flag would light up every in-state horse at every show, and staff would learn to ignore the whole panel; the policy has to exist before the derivation is worth having.
 
 | Document | Default | How long it stays good |
 | --- | --- | --- |

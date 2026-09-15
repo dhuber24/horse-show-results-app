@@ -25,6 +25,7 @@ from routers.horse_documents import (
     health_status,
     latest_expiry,
     requirement_for,
+    requires_physical_check,
 )
 from tests.factories import make_show
 
@@ -56,6 +57,26 @@ def test_a_show_predating_the_policy_columns_falls_back_to_the_defaults():
 
     assert requirement_for(bare, "HEALTH_CERTIFICATE").valid_days == 30
     assert requirement_for(bare, "VACCINATION").valid_days == 365
+
+
+def test_which_papers_and_whether_to_bring_them_are_separate_questions():
+    """Migration 138. A show may require a current Coggins and be perfectly
+    happy with the uploaded copy — that is not the same show as one whose desk
+    holds the paper. Turning the second off changes nothing about the first."""
+    show = make_show(requires_physical_document_check=False)
+
+    assert [r.document_type for r in health_requirements(show)] == ["COGGINS"]
+    assert requires_physical_check(show) is False
+
+
+def test_a_show_predating_the_physical_check_column_still_expects_the_paper():
+    """Every show before migration 138 owed an inspection sign-off on every
+    required document. A row with no column must go on doing exactly that —
+    defaulting the other way would silently empty the desk's chase list."""
+    bare = make_show()
+    del bare.requires_physical_document_check
+
+    assert requires_physical_check(bare) is True
 
 
 def test_vaccination_notes_ride_along_only_on_the_vaccination_requirement():

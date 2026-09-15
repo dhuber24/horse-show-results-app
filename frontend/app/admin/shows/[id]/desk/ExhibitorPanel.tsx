@@ -650,6 +650,16 @@ export default function ExhibitorPanel({
         <p className="text-xs font-semibold uppercase tracking-wide mt-4 mb-1" style={{ color: COLORS.accent }}>
           Horses
         </p>
+        {/* A health row that is listed but not counted needs saying so, or it
+            reads as a sign-off the desk has forgotten. This show takes the
+            uploaded document as sufficient (setup Step 9); staff may still
+            record a paper they are handed, and that still clears the flag. */}
+        {!desk.requires_physical_document_check && (
+          <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
+            This show does not ask for health papers at the counter, so those sign-offs are
+            optional and are not counted above.
+          </p>
+        )}
         {exhibitor.horses.length === 0 ? (
           <p className="text-sm" style={{ color: COLORS.muted }}>
             Not entered on any horse yet — papers are checked once a horse is in a class.

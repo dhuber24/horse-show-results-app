@@ -258,6 +258,11 @@ export default function ShowbillDocument({
         }`
       : null,
   ].filter(Boolean) as string[];
+  // Whether to bring the originals, printed only where something is required
+  // (migration 138). An exhibitor reading the bill is deciding what to put in
+  // the truck, and "upload it" and "bring it" are different instructions.
+  const healthPapersInPerson =
+    healthPapers.length > 0 && show.requires_physical_document_check !== false;
 
   return (
     <article
@@ -581,6 +586,9 @@ export default function ShowbillDocument({
               <ul className="space-y-0.5">
                 {healthPapers.map((paper) => <li key={paper}>{paper}</li>)}
               </ul>
+              {healthPapersInPerson && (
+                <p className="mt-1">Bring the originals — the show office checks them at the desk.</p>
+              )}
             </Fact>
           )}
         </div>

@@ -50,7 +50,7 @@ export default async function SetupPaperworkPage({
       showName={show.name}
       current="paperwork"
       title="Step 9: Paperwork Requirements"
-      subtitle="Which health documents a horse must arrive with, and what the exhibitor signs. Only what you turn on here is asked for at registration or checked at the desk."
+      subtitle="Setup any requirements for exhibitor and/or horse documentation."
       stepsInput={stepsInput}
     >
       <PaperworkClient
@@ -62,6 +62,8 @@ export default async function SetupPaperworkPage({
           requires_vaccination: show.requires_vaccination ?? false,
           vaccination_valid_days: show.vaccination_valid_days ?? 365,
           vaccination_notes: show.vaccination_notes ?? null,
+          requires_physical_document_check:
+            show.requires_physical_document_check ?? true,
         }}
         initialWaivers={waivers}
       />

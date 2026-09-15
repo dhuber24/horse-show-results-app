@@ -62,6 +62,8 @@ export default async function DeskPaperworkPage({
           requires_vaccination: show.requires_vaccination ?? false,
           vaccination_valid_days: show.vaccination_valid_days ?? 365,
           vaccination_notes: show.vaccination_notes ?? null,
+          requires_physical_document_check:
+            show.requires_physical_document_check ?? true,
         }}
         initialWaivers={waivers}
       />
