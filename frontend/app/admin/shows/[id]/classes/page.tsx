@@ -21,7 +21,7 @@ async function fetchStandardLibrary(
   showTypes: { id: string; code: string }[],
   showTypeId: string,
   showTypeCode: string | null,
-): Promise<{ disciplines: StandardItem[]; divisions: StandardItem[]; label: string }> {
+): Promise<{ disciplines: StandardItem[]; divisions: StandardItem[] }> {
   // A breed show picks from its own association's catalog. OPEN has no
   // association of its own, so it pulls the AQHA + APHA standard catalogs
   // instead - the disciplines and divisions both associations run are a good
@@ -32,7 +32,6 @@ async function fetchStandardLibrary(
   const sourceIds = isOpen
     ? showTypes.filter((t) => t.code === 'AQHA' || t.code === 'APHA').map((t) => t.id)
     : [showTypeId];
-  const label = isOpen ? 'AQHA / APHA shared' : (showTypeCode ?? 'standard');
 
   const disciplineLists = await Promise.all(
     sourceIds.map((id) =>
@@ -70,7 +69,6 @@ async function fetchStandardLibrary(
   return {
     disciplines: dedupe(disciplineLists),
     divisions: dedupe(divisionLists),
-    label,
   };
 }
 
@@ -90,10 +88,10 @@ async function fetchStandardLibrary(
  *  wizard somebody came here to use.
  *
  *  The step is **one screen**. It ran as three inside this one — Disciplines,
- *  Divisions, then the grid that crosses them — and the first two are now a
- *  panel over the grid they draw, opened from the axis they change. The show's
- *  disciplines and divisions are still fetched here, and still passed in with
- *  the standard libraries the panel picks from; what went is the sequence. */
+ *  Divisions, then the grid that crosses them — and the first two are now the
+ *  grid's own columns and rows. The show's disciplines and divisions are still
+ *  fetched here, and still passed in beside the standard libraries they are
+ *  merged with; what went is the sequence. */
 export default async function ShowClassesPage({
   params,
 }: {
@@ -133,7 +131,6 @@ export default async function ShowClassesPage({
         initialClasses={classes as ClassItem[]}
         standardDisciplines={standardLibrary.disciplines}
         standardDivisions={standardLibrary.divisions}
-        standardLibraryLabel={standardLibrary.label}
       />
     </StepLayout>
   );

@@ -186,7 +186,6 @@ export default function ClassWizardClient({
   initialClasses,
   standardDisciplines,
   standardDivisions,
-  standardLibraryLabel,
 }: {
   showId: string;
   showStartDate: string;
@@ -196,7 +195,6 @@ export default function ClassWizardClient({
   initialClasses: ClassItem[];
   standardDisciplines: StandardItem[];
   standardDivisions: StandardItem[];
-  standardLibraryLabel: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +224,6 @@ export default function ClassWizardClient({
         classes={classes}
         standardDisciplines={standardDisciplines}
         standardDivisions={standardDivisions}
-        standardLibraryLabel={standardLibraryLabel}
         busy={busy}
         setBusy={setBusy}
         setError={setError}
@@ -343,7 +340,6 @@ function ClassBuilder({
   classes,
   standardDisciplines,
   standardDivisions,
-  standardLibraryLabel,
   busy,
   setBusy,
   setError,
@@ -359,7 +355,6 @@ function ClassBuilder({
   classes: ClassItem[];
   standardDisciplines: StandardItem[];
   standardDivisions: StandardItem[];
-  standardLibraryLabel: string;
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (msg: string | null) => void;
