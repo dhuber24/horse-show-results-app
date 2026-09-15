@@ -994,29 +994,67 @@ function ClassBuilder({
       className="p-4 rounded-lg border space-y-4"
       style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
     >
-      <p className="text-xs" style={{ color: COLORS.muted }}>
-        Every class is a division in a discipline — a row and a column of the{' '}
-        <em>Quick Class Picker</em>. Pick the show day, then click a square to add
-        that class; it saves straight away and is numbered in running order. The
-        picker offers this show&rsquo;s own disciplines and divisions plus the{' '}
-        {standardLibraryLabel} standard library, so a square you click is added to
-        the show whether or not it has been used here before. For a class with a
-        name of its own, such as a Grand &amp; Reserve champion class, use{' '}
-        <em>Add a class by name</em>.
-      </p>
+      <ul className="text-xs list-disc pl-4 space-y-1" style={{ color: COLORS.muted }}>
+        <li>
+          Create classes using the Class Picker to quickly add pre-built
+          discipline and division combinations, or use the <strong>+ Add Class</strong>{' '}
+          button to manually enter your own class details.
+        </li>
+        <li>Select a date before using the Class Picker.</li>
+        <li>
+          Once a class is created, it can be reordered by clicking and dragging it
+          to the proper order.
+        </li>
+        <li>
+          Check the <strong>Must Qualify</strong> box for any class that requires
+          an exhibitor/horse to qualify; i.e. Grand and Reserve.
+        </li>
+      </ul>
 
-      {/* ── What this step can do, in one row ─────────────────────────────
-          The picker folds because a built show is read below it, and the two
-          by-name buttons sit beside its toggle rather than under the grid:
-          under a picker that is open and 70vh tall, they were below the fold,
-          and under one that is closed they moved. */}
-      <div className="flex flex-wrap gap-2">
+      {/* ── What this step can do ─────────────────────────────────────────
+          Stacked rather than in a row, in the order somebody reaches for
+          them: naming a class is the deliberate one-off, and the picker is
+          the bulk tool underneath. Each opens directly above the picker, so
+          a form never appears under 70vh of grid.
+
+          `inline-flex` so the column is only as wide as its widest label and
+          all three buttons match it, rather than three ragged widths or
+          three stretched to the page. */}
+      <div className="inline-flex flex-col gap-2 items-stretch">
+        <button
+          type="button"
+          onClick={() => toggleNamedForm('blank')}
+          aria-expanded={namedClassPreset?.kind === 'blank'}
+          title="Name a class yourself and file it under any discipline and division"
+          className="text-sm rounded px-3 py-1.5 border text-left"
+          style={{
+            borderColor: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.border,
+            backgroundColor: namedClassPreset?.kind === 'blank' ? COLORS.highlight : 'var(--surface)',
+            color: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.text,
+          }}
+        >
+          + Add Class
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleNamedForm('grand')}
+          aria-expanded={namedClassPreset?.kind === 'grand'}
+          className="text-sm rounded px-3 py-1.5 border text-left"
+          style={{
+            borderColor: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.border,
+            backgroundColor: namedClassPreset?.kind === 'grand' ? COLORS.highlight : 'var(--surface)',
+            color: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.text,
+          }}
+          title="A championship class the top placings are called back to — entry is by qualifying"
+        >
+          + Add a Grand &amp; Reserve Class
+        </button>
         <button
           type="button"
           onClick={() => setPickerOpen((open) => !open)}
           aria-expanded={pickerOpen}
           title="The grid of every division crossed with every discipline — click a square to add that class"
-          className="text-sm rounded px-3 py-1.5 border"
+          className="text-sm rounded px-3 py-1.5 border text-left"
           style={{
             borderColor: pickerOpen ? COLORS.warn : COLORS.border,
             backgroundColor: pickerOpen ? COLORS.highlight : 'var(--surface)',
@@ -1026,34 +1064,40 @@ function ClassBuilder({
         >
           <span aria-hidden>{pickerOpen ? '▾' : '▸'}</span> Quick Class Picker
         </button>
-        <button
-          type="button"
-          onClick={() => toggleNamedForm('blank')}
-          aria-expanded={namedClassPreset?.kind === 'blank'}
-          className="text-sm rounded px-3 py-1.5 border"
-          style={{
-            borderColor: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.border,
-            backgroundColor: namedClassPreset?.kind === 'blank' ? COLORS.highlight : 'var(--surface)',
-            color: namedClassPreset?.kind === 'blank' ? COLORS.warn : COLORS.text,
-          }}
-        >
-          + Add a class by name
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleNamedForm('grand')}
-          aria-expanded={namedClassPreset?.kind === 'grand'}
-          className="text-sm rounded px-3 py-1.5 border"
-          style={{
-            borderColor: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.border,
-            backgroundColor: namedClassPreset?.kind === 'grand' ? COLORS.highlight : 'var(--surface)',
-            color: namedClassPreset?.kind === 'grand' ? COLORS.warn : COLORS.text,
-          }}
-          title="A championship class the top placings are called back to — entry is by qualifying"
-        >
-          + Add a Grand &amp; Reserve class
-        </button>
       </div>
+
+      {/* ── A class the picker cannot name ──────────────────────────────
+          Above the picker, not below it: the picker is capped at 70vh, so a
+          form opened underneath it was off the bottom of the screen and read
+          as a button that had done nothing. */}
+      {namedClassPreset && (
+        <AddNamedClass
+          key={namedClassPreset.nonce}
+          preset={namedClassPreset.kind}
+          showId={showId}
+          dates={dates}
+          defaultDate={classDate}
+          disciplineOptions={disciplineOptions}
+          divisionOptions={divisionOptions}
+          classes={classes}
+          setError={setError}
+          resolveAxisPair={resolveAxisPair}
+          refreshClasses={refreshClasses}
+          saveOrder={saveOrder}
+          onClose={() => setNamedClassPreset(null)}
+          // A class you have just named is one you want to see on the
+          // schedule — so the form closes, the list opens, any filter that
+          // would have hidden the new row is cleared, and the page scrolls
+          // to it. It used to stay open over a folded list, reporting the
+          // save in a line of text above a form nobody needed any more.
+          onCreated={(id, message) => {
+            setNamedClassPreset(null);
+            setQuery('');
+            setListOpen(true);
+            setAdded({ id, message });
+          }}
+        />
+      )}
 
       {/* ── The Quick Class Picker ────────────────────────────────────── */}
       {pickerOpen && (
@@ -1086,8 +1130,8 @@ function ClassBuilder({
           {pickerEmpty ? (
             <p className="text-sm" style={{ color: COLORS.muted }}>
               This show type has no standard disciplines or divisions to draw a
-              grid from. Use <em>Add a class by name</em> — its pickers take a name
-              of your own.
+              grid from. Use <em>+ Add Class</em> — its pickers take a name of your
+              own.
             </p>
           ) : (
             <DualScrollBox maxHeight="70vh">
@@ -1207,36 +1251,6 @@ function ClassBuilder({
             </p>
           )}
         </div>
-      )}
-
-      {/* ── A class the picker cannot name ────────────────────────────── */}
-      {namedClassPreset && (
-        <AddNamedClass
-          key={namedClassPreset.nonce}
-          preset={namedClassPreset.kind}
-          showId={showId}
-          dates={dates}
-          defaultDate={classDate}
-          disciplineOptions={disciplineOptions}
-          divisionOptions={divisionOptions}
-          classes={classes}
-          setError={setError}
-          resolveAxisPair={resolveAxisPair}
-          refreshClasses={refreshClasses}
-          saveOrder={saveOrder}
-          onClose={() => setNamedClassPreset(null)}
-          // A class you have just named is one you want to see on the
-          // schedule — so the form closes, the list opens, any filter that
-          // would have hidden the new row is cleared, and the page scrolls
-          // to it. It used to stay open over a folded list, reporting the
-          // save in a line of text above a form nobody needed any more.
-          onCreated={(id, message) => {
-            setNamedClassPreset(null);
-            setQuery('');
-            setListOpen(true);
-            setAdded({ id, message });
-          }}
-        />
       )}
 
       {/* ── The schedule so far ───────────────────────────────────────────
@@ -1659,7 +1673,7 @@ function ClassRow({
   );
 }
 
-// ── Add a class by name ────────────────────────────────────────────────────────
+// ── Add a class by name, or a championship class ─────────────────────────────
 
 /**
  * A class the grid cannot name.
@@ -1895,12 +1909,12 @@ function AddNamedClass({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold" style={{ color: COLORS.text }}>
-            {preset === 'grand' ? 'Add a Grand & Reserve class' : 'Add a class by name'}
+            {preset === 'grand' ? 'Add a Grand & Reserve Class' : 'Add Class'}
           </h3>
           <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
             {preset === 'grand'
               ? 'The top placings from the classes before it are called back, so entry is by qualifying. Name it the way your show bill does — "Grand & Reserve Amateur Mares".'
-              : 'For a class the grid cannot name. It is filed under the discipline and division you pick.'}
+              : 'Enter your own class details. It is filed under the discipline and division you pick.'}
           </p>
         </div>
         <button
