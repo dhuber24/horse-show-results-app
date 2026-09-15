@@ -1709,6 +1709,45 @@ class ExhibitorCompetitionCardOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ── Staff association certifications ──────────────────────────────────────────
+#
+# What a show manager or secretary is carded with, stored in
+# `show_secretary_certifications` -- one row per (user, association), with the
+# association's own identifier for that person where they have one.
+#
+# The table is named for the secretary because that is the only role that could
+# record one when it was added. It is keyed on `users.id` and holds no role of
+# its own, so a manager's certification is the same row shape and belongs in the
+# same table; renaming it is a backward-incompatible migration of the kind that
+# has taken this site down once already, for no behaviour anybody would notice.
+#
+# **Nothing here is verified.** A number typed in is a claim about a body this
+# app has no standing with -- the same rule that makes an exhibitor's membership
+# advisory rather than blocking, read from the staff side.
+
+class StaffCertificationOut(BaseModel):
+    association_id: UUID
+    association_code: str
+    association_name: str
+    association_type: str
+    secretary_id_number: Optional[str] = None
+
+
+class StaffCertificationIn(BaseModel):
+    association_id: UUID
+    secretary_id_number: Optional[str] = Field(default=None, max_length=100)
+
+
+class StaffCertificationsReplace(BaseModel):
+    """The caller's complete certification list, not a delta.
+
+    A replace rather than an add, because the questionnaire that writes it shows
+    every row at once and unticking one is how somebody corrects a mistake --
+    with an add-only endpoint that correction would have nowhere to go.
+    """
+    certifications: list[StaffCertificationIn] = Field(default_factory=list)
+
+
 # ── Exhibitors ────────────────────────────────────────────────────────────────
 
 class ExhibitorCreate(BaseModel):

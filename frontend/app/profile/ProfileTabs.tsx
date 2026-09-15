@@ -92,7 +92,9 @@ export default function ProfileTabs({
   showHistory,
   initialTab,
 }: Props) {
-  const isExhibitor = role === 'EXHIBITOR' && exhibitor !== null;
+  // The record, not the role — a show manager who also competes has horses and
+  // a show history to reach, and holds one account to reach them from.
+  const isExhibitor = exhibitor !== null;
   const isTrainer = role === 'TRAINER';
   const allowedTabs: Tab[] = isExhibitor
     ? ['account', 'memberships', 'horses', 'history']

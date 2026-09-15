@@ -15,7 +15,8 @@ from dependencies import require_admin, require_admin_or_show_admin, require_aut
 from routers.horse_access import approval_url, build_access_request, notify_request
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, Trainer, Judge, Association, Class, Show
+from staff_certifications import plan_certification_changes
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show
 from schemas import (
     UserCreate, UserOut,
     CreatedHorseResult,
@@ -26,6 +27,7 @@ from schemas import (
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
     ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate, ExhibitorRegistrationOut,
     ExhibitorCompetitionCardCreate, ExhibitorCompetitionCardUpdate, ExhibitorCompetitionCardOut,
+    StaffCertificationOut, StaffCertificationsReplace,
 )
 
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER", "JUDGE"}
@@ -379,6 +381,87 @@ async def clear_current_user_security_question(
     user.security_answer_set_at = None
     clear_security_answer_throttle(user)
     await db.commit()
+
+
+@users_router.get("/me/certifications", response_model=list[StaffCertificationOut])
+async def list_own_certifications(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """The associations the caller says they are carded with.
+
+    Show staff only in practice, but gated on nothing but a session: the row is
+    the caller's own, and a role check here would refuse an ADMIN reading the
+    list they are about to edit."""
+    result = await db.execute(
+        select(ShowSecretaryCertification)
+        .options(selectinload(ShowSecretaryCertification.association))
+        .where(ShowSecretaryCertification.user_id == safe_uuid(user_id))
+    )
+    rows = result.scalars().all()
+    rows.sort(key=lambda r: (r.association.association_type, r.association.name))
+    return [
+        StaffCertificationOut(
+            association_id=row.association_id,
+            association_code=row.association.code,
+            association_name=row.association.name,
+            association_type=row.association.association_type,
+            secretary_id_number=row.secretary_id_number,
+        )
+        for row in rows
+    ]
+
+
+@users_router.put("/me/certifications", response_model=list[StaffCertificationOut])
+async def replace_own_certifications(
+    body: StaffCertificationsReplace,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the caller's certification list with what they just ticked.
+
+    **Nothing is verified and nothing is refused over.** The app holds no
+    standing with any of these bodies -- it cannot tell a real APHA show
+    management number from a typo, and the one thing worse than an unverified
+    number is a registration screen that turns somebody away over one. This is
+    the same call `exhibitor_registrations` makes about a membership card.
+
+    An unknown association id is still a 400: that is a malformed request rather
+    than an unverifiable claim, and storing a row pointing at nothing would put
+    a certification on the profile that no screen could ever render.
+    """
+    uid = safe_uuid(user_id)
+
+    requested = []
+    for cert in body.certifications:
+        assoc = await db.get(Association, cert.association_id)
+        if not assoc:
+            raise HTTPException(400, f"Unknown association: {cert.association_id}")
+        requested.append((assoc.id, cert.secretary_id_number))
+
+    existing_result = await db.execute(
+        select(ShowSecretaryCertification).where(ShowSecretaryCertification.user_id == uid)
+    )
+    existing = {row.association_id: row for row in existing_result.scalars().all()}
+
+    plan = plan_certification_changes(existing, requested)
+
+    for association_id in plan["remove"]:
+        await db.delete(existing[association_id])
+
+    for association_id, number in plan["upsert"].items():
+        row = existing.get(association_id)
+        if row:
+            row.secretary_id_number = number
+        else:
+            db.add(ShowSecretaryCertification(
+                user_id=uid,
+                association_id=association_id,
+                secretary_id_number=number,
+            ))
+
+    await db.commit()
+    return await list_own_certifications(user_id=user_id, db=db)
 
 
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])

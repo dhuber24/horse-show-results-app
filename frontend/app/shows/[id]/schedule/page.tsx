@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import { canActAsExhibitor } from '@/lib/exhibitor-access';
 import { fetchShow, fetchClasses, fetchProgramIndex } from '@/lib/api';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import ShowHubHeader from '../_components/ShowHubHeader';
@@ -34,7 +35,7 @@ async function fetchRegisteredClassIds(showId: string, userId: string): Promise<
 export default async function ShowSchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const isExhibitor = (session?.user as { role?: string } | undefined)?.role === 'EXHIBITOR';
+  const isExhibitor = session ? await canActAsExhibitor() : false;
 
   const [show, classes, programIndex, registeredClassIds, back] = await Promise.all([
     fetchShow(id),

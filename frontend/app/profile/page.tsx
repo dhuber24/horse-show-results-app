@@ -2,6 +2,7 @@ import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import type { MyShow } from '@/lib/my-shows';
+import { loadExhibitor } from '@/lib/exhibitor-access';
 import ProfileTabs from './ProfileTabs';
 
 export default async function ProfilePage({
@@ -13,7 +14,6 @@ export default async function ProfilePage({
   const session = await auth();
   if (!session?.user) redirect('/login');
 
-  const userId = (session.user as any).id;
   const role = (session.user as any).role;
 
   const headers = await getAuthHeaders();
@@ -31,7 +31,18 @@ export default async function ProfilePage({
   let trainerAffiliations: any[] = [];
   let showHistory: MyShow[] = [];
 
-  if (role === 'EXHIBITOR') {
+  // Memoised per request, and the same lookup the navbar above this page made.
+  const exhibitorRow = await loadExhibitor();
+
+  // The exhibitor tabs follow the exhibitor *record*, not the role. A show
+  // manager or secretary who ticked "I also compete" at signup holds one
+  // account with an `exhibitors` row on it, and their horses and show history
+  // have to be reachable from somewhere. The row is created on their behalf
+  // only where the role guarantees one -- an EXHIBITOR account with no row is
+  // an account that predates `_ensure_role_profile` and is repaired here, while
+  // creating one for every scribe who opened their profile would hand out the
+  // exhibitor profile the questionnaire exists to ask about.
+  if (role === 'EXHIBITOR' || exhibitorRow) {
     // The exhibitor record itself, not the dashboard's summary of it.
     //
     // This used to read `GET /dashboard/exhibitor/{userId}`, whose payload is
@@ -43,11 +54,10 @@ export default async function ProfilePage({
     // saw a blank profile, retyped the fields they noticed, and silently lost
     // the ones they did not. `by-user` returns the whole `ExhibitorOut`, which
     // is the same row `/shows/[id]/register` prefills its step one from.
-    const exRes = await fetch(`${API_URL}/exhibitors/by-user/${userId}`, { headers: headers!, cache: 'no-store' });
-    if (exRes.ok) exhibitor = await exRes.json();
+    exhibitor = exhibitorRow;
 
     // Auto-create the exhibitor record on first visit if it doesn't exist yet
-    if (!exhibitor) {
+    if (!exhibitor && role === 'EXHIBITOR') {
       const createRes = await fetch(`${API_URL}/exhibitors/me`, {
         method: 'POST',
         headers: headers!,

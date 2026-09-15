@@ -3,6 +3,7 @@ import { Fragment } from 'react';
 import { fetchShow, fetchClasses, fetchMyShowStanding } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import { auth } from '@/auth';
+import { canActAsExhibitor } from '@/lib/exhibitor-access';
 import type { MyShowStanding } from '@/lib/my-shows';
 import ExhibitorShowHub from './_components/ExhibitorShowHub';
 import VisitorShowView from './_components/VisitorShowView';
@@ -20,7 +21,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const session = await auth();
   const role = (session?.user as any)?.role;
   const canScore = (role === 'ADMIN' || role === 'SCRIBE');
-  const canSelfRegister = role === 'EXHIBITOR';
+  // Having an exhibitor record is what lets somebody enter a show — the same
+  // test `show_registration.py` applies, rather than the narrower role check
+  // this used to make. A show manager who also competes holds one account.
+  const canSelfRegister = session ? await canActAsExhibitor() : false;
 
   // A visitor with no account gets the event details and the two things they
   // can act on, not a class list. The classes fetch is skipped entirely for

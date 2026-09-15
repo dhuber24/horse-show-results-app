@@ -1,48 +1,31 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
-interface AphaCert {
-  status: 'idle' | 'checking' | 'found' | 'not-found' | 'error';
-  first_name?: string;
-  last_name?: string;
-  expiration_date?: string;
-  expired?: boolean;
-}
-
+/**
+ * Create the account, and nothing else.
+ *
+ * This screen used to carry an APHA Show Management Certification panel that
+ * looked the signer-up's email up against APHA's certified list on blur. Two
+ * things were wrong with it. GaitDesk runs AQHA, ApHC, FQHR and unaffiliated
+ * shows as readily as APHA ones, so naming one registry on the only screen
+ * every new manager sees told the other four they were in the wrong place. And
+ * a lookup against somebody else's list is a verification this app has no
+ * standing to make — see the note on `PUT /users/me/certifications`.
+ *
+ * What association somebody is carded with is now asked at `/welcome`, one
+ * step behind this, where the full association list can actually be fetched.
+ */
 export default function ShowManagerRegisterForm() {
   const router = useRouter();
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [aphaCert, setAphaCert] = useState<AphaCert>({ status: 'idle' });
-
-  const lookupApha = useCallback(async (email: string) => {
-    if (!email || !email.includes('@')) return;
-    setAphaCert({ status: 'checking' });
-    try {
-      const res = await fetch(`/api/apha/verify-secretary?email=${encodeURIComponent(email)}`);
-      const data = await res.json();
-      if (!res.ok) { setAphaCert({ status: 'error' }); return; }
-      if (data.found) {
-        setAphaCert({ status: 'found', first_name: data.first_name, last_name: data.last_name, expiration_date: data.expiration_date, expired: data.expired });
-      } else {
-        setAphaCert({ status: 'not-found' });
-      }
-    } catch {
-      setAphaCert({ status: 'error' });
-    }
-  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    if (e.target.name === 'email') setAphaCert({ status: 'idle' });
-  };
-
-  const handleEmailBlur = () => {
-    if (form.email) lookupApha(form.email);
   };
 
   const handleSubmit = async () => {
@@ -87,7 +70,7 @@ export default function ShowManagerRegisterForm() {
       return;
     }
 
-    router.push('/admin/shows/new');
+    router.push('/welcome');
     router.refresh();
   };
 
@@ -111,7 +94,6 @@ export default function ShowManagerRegisterForm() {
               placeholder={field.placeholder}
               value={(form as Record<string, string>)[field.name]}
               onChange={handleChange}
-              onBlur={field.name === 'email' ? handleEmailBlur : undefined}
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
@@ -119,31 +101,16 @@ export default function ShowManagerRegisterForm() {
         ))}
       </div>
 
-      {/* APHA certification lookup — recommended for managers */}
-      <div className="rounded-lg border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>APHA Show Management Certification</p>
-          <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
-            Recommended
-          </span>
-        </div>
-        <p className="text-xs" style={{ color: 'var(--muted)' }}>
-          APHA recommends that Show Managers hold an active APHA Show Management Certification
-          when hosting APHA-sanctioned events.{' '}
-          <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer"
-            className="underline" style={{ color: 'var(--accent)' }}>
-            View certified list
-          </a>
-        </p>
-        <AphaCertBadge cert={aphaCert} />
-      </div>
-
+      {/* The old copy here said an admin reviews a hosting request and creates
+          the show on approval. There has been no per-show approval gate for a
+          long time — a manager creates the show themselves at
+          /admin/shows/new, and POST /shows/ links them to it automatically. */}
       <div className="rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}>
         <p className="font-medium mb-1" style={{ color: 'var(--foreground)' }}>What happens next?</p>
         <ol className="space-y-1 list-decimal list-inside" style={{ color: 'var(--text-deep)' }}>
           <li>Create your account and log in immediately.</li>
-          <li>Submit a show hosting request with your association and venue details.</li>
-          <li>An admin reviews your request — on approval, your show is created automatically.</li>
+          <li>Tell us which associations you are certified with — or skip it.</li>
+          <li>Build your first show, whatever body it runs under.</li>
         </ol>
       </div>
 
@@ -162,52 +129,5 @@ export default function ShowManagerRegisterForm() {
         {loading ? 'Creating account…' : 'Create Show Manager Account'}
       </button>
     </div>
-  );
-}
-
-function AphaCertBadge({ cert }: { cert: AphaCert }) {
-  if (cert.status === 'idle') {
-    return <p className="text-xs" style={{ color: 'var(--muted)' }}>Enter your email above to check your certification status.</p>;
-  }
-  if (cert.status === 'checking') {
-    return <p className="text-xs" style={{ color: 'var(--muted)' }}>Checking APHA certification…</p>;
-  }
-  if (cert.status === 'found') {
-    const expLabel = cert.expiration_date
-      ? `Expires ${new Date(cert.expiration_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-      : '';
-    if (cert.expired) {
-      return (
-        <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
-          <span className="font-semibold">⚠ Certification expired</span>
-          {expLabel && <span className="ml-1">— {expLabel}</span>}
-        </div>
-      );
-    }
-    return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}>
-        <span className="font-semibold">✓ APHA Show Management Certification verified</span>
-        {expLabel && <span className="ml-1">— {expLabel}</span>}
-      </div>
-    );
-  }
-  if (cert.status === 'not-found') {
-    return (
-      <div className="text-xs px-2 py-1.5 rounded" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
-        <span className="font-semibold">Not found in APHA certified list</span>
-        <span className="block mt-0.5">
-          This is recommended but not required. You can still register and host APHA events.
-        </span>
-      </div>
-    );
-  }
-  return (
-    <p className="text-xs" style={{ color: 'var(--muted)' }}>
-      Could not reach the APHA certification list.{' '}
-      <a href="https://apha.com/competition/show-management" target="_blank" rel="noopener noreferrer"
-        className="underline" style={{ color: 'var(--accent)' }}>
-        Verify manually
-      </a>.
-    </p>
   );
 }

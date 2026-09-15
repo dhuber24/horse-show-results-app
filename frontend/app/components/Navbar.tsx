@@ -2,9 +2,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { auth } from '@/auth';
 import SignOutButton from '../SignOutButton';
+import { canActAsExhibitor } from '@/lib/exhibitor-access';
 
 export default async function Navbar() {
   const session = await auth();
+  // The exhibitor row, not the role: a show manager who ticked "I also
+  // compete" at signup has entries and a bill of their own to reach. Memoised
+  // per request, and skipped entirely when nobody is signed in.
+  const isExhibitor = session ? await canActAsExhibitor() : false;
 
   return (
     <nav style={{ backgroundColor: 'var(--slate)', borderBottom: '3px solid var(--accent)' }}
@@ -37,7 +42,7 @@ export default async function Navbar() {
             <span className="text-sm hidden md:block" style={{ color: 'var(--on-slate-muted)' }}>
               {session.user?.name} · {session.user?.role}
             </span>
-            {session.user?.role === 'EXHIBITOR' && (
+            {isExhibitor && (
               <Link href="/my-shows"
                 className="text-sm px-3 py-2 rounded font-medium transition"
                 style={{ backgroundColor: 'var(--slate-raised)', color: 'var(--on-slate)' }}>

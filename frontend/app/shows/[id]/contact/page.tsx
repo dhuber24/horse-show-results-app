@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
+import { canActAsExhibitor } from '@/lib/exhibitor-access';
 import { fetchShow, fetchMyShowStanding } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import type { MyShowStanding } from '@/lib/my-shows';
@@ -32,7 +33,7 @@ async function loadMe(): Promise<{ full_name: string; email: string } | null> {
 export default async function ContactShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
-  const isExhibitor = (session?.user as { role?: string } | undefined)?.role === 'EXHIBITOR';
+  const isExhibitor = session ? await canActAsExhibitor() : false;
 
   const headers = isExhibitor ? await getAuthHeaders() : null;
   const [show, me, standing] = await Promise.all([

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
+import { loadExhibitor } from '@/lib/exhibitor-access';
 import { redirect } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import NewHorseWizard from './NewHorseWizard';
@@ -21,17 +22,16 @@ export default async function NewHorsePage({
   const session = await auth();
   if (!session?.user) redirect('/login');
 
-  const userId = (session.user as any).id;
-  const role = (session.user as any).role;
-  if (role !== 'EXHIBITOR') redirect('/profile');
-
   const headers = await getAuthHeaders();
 
-  const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
-  const dash = await dashRes.json();
-  const exhibitorId: string | null = dash.exhibitor?.id ?? null;
-  // /profile creates the exhibitor row on first visit — bounce there if it's missing.
-  if (!exhibitorId) redirect('/profile?tab=horses');
+  // Keeping horses follows the exhibitor record rather than the role, so a show
+  // manager who also competes can keep their own. This replaced a role check
+  // plus a `GET /dashboard/exhibitor/{userId}` read — that payload is the
+  // dashboard's entry list and the exhibitor on it is there to name the page.
+  // /profile creates the row on first visit, so a missing one bounces there.
+  const exhibitor = await loadExhibitor();
+  if (!exhibitor) redirect('/profile?tab=horses');
+  const exhibitorId = exhibitor.id;
 
   // Only the ids are needed, to mark search hits already on the profile.
   const horsesRes = await fetch(`${API_URL}/exhibitors/${exhibitorId}/my-horses`, { headers: headers!, cache: 'no-store' });

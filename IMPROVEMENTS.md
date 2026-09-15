@@ -2,6 +2,76 @@
 
 ## September 2026
 
+### An App For One Association Is Not This App
+
+Both show-staff signup screens named exactly one breed registry, and the only
+thing they did with it was refuse. `/register/show-manager` looked the email
+being registered up against APHA's certified list on blur and printed a badge;
+`/register/show-secretary` did the same and **disabled the submit button**
+without a live hit.
+
+Three things were wrong with that, and only the first is about APHA. It turned
+an unverifiable claim into a hard stop -- GaitDesk holds no standing with any
+association and cannot tell a real certification number from a typo, which is
+precisely why an exhibitor's membership is advisory and a lapsed Coggins flags
+rather than blocks. It locked out any secretary whose email on APHA's list is
+not the one they sign up with, an outage with no way through. And naming one
+registry on the only screen every new staff member sees told the AQHA, ApHC,
+FQHR and unaffiliated shows this app equally serves that they were in the wrong
+product.
+
+The certification picker beside it had never worked at all. It fetched
+`/api/associations` on mount, and that route requires a session -- which
+somebody creating an account does not have. So it 401'd, rendered "No
+certifications selected", and every secretary who ever used that screen filed
+nothing. The APHA gate could not fire either, since APHA could never be ticked.
+
+**The questions moved behind the account.** `/register/*` collects a name, an
+email and a password; `/welcome` asks the rest, where a session exists and the
+full association list can actually load -- breed registries and clubs in one
+list, each with an optional ID number, drawn with the same split
+`AssociationSelect` already uses. `PUT /users/me/certifications` stores what was
+ticked in `show_secretary_certifications`, refusing nothing but an association
+id that does not exist.
+
+That table keeps its name. It is keyed on `users.id` and carries no role of its
+own, so a manager's certification is the same fact in the same shape, and a
+rename is the backward-incompatible migration that took this site down once
+already (133) in exchange for nothing anybody would notice.
+
+Everything on the step is skippable and **nothing marks it done**. Every
+question is optional, so a column recording that somebody skipped an optional
+question is one nothing would ever read.
+
+### One Account, Both Jobs
+
+Show managers compete at other people's shows. The app had no way to say so: a
+`users` row carries one `role`, and eight frontend screens asked
+`role === 'EXHIBITOR'` before showing My Shows, the profile's horses and
+memberships tabs, or a show's sign-up button.
+
+The backend never asked that question. `show_registration._exhibitor_for_user`
+looks up `Exhibitor.user_id` and 403s when there is none, and `my_shows` reads
+the same row -- **the `exhibitors` row is the permission**, and the frontend was
+the half using a narrower test. So the fix is not a second role or a role array:
+it is a checkbox at `/welcome` that calls the role-agnostic
+`POST /exhibitors/me`, and eight screens reading
+`canActAsExhibitor()` / `loadExhibitor()` (`frontend/lib/exhibitor-access.ts`)
+instead. Tick it and the next step is the exhibitor profile form -- the
+registration wizard's own `ProfileStep`, against the same
+`PATCH /exhibitors/{id}`, so these boxes keep exactly one writer.
+
+Deliberately not a flag on the session token: the JWT is minted at sign-in, so
+somebody who ticked the box would carry a stale `false` onto the screen they are
+sent to immediately afterwards. The lookup is memoised per request instead, so
+the navbar and the page beneath it share one.
+
+The row is added and never taken away -- the checkbox locks once a profile
+exists, because unticking a box is not how somebody should be able to walk away
+from entries, horses and a show bill. And `/profile` still auto-creates the row
+only for an `EXHIBITOR` account missing one; handing one to every scribe who
+opened their profile would give away the thing the questionnaire exists to ask.
+
 ### Requiring A Document And Wanting To See It Are Two Questions
 
 Migration 097 let a show say **which** health papers it requires. It never let

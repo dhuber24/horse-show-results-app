@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
+import { loadExhibitor } from '@/lib/exhibitor-access';
 import { redirect, notFound } from 'next/navigation';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import EditMyHorseForm, { HorseSectionKey } from './EditMyHorseForm';
@@ -26,16 +27,14 @@ export default async function ExhibitorHorsePage({
   const session = await auth();
   if (!session?.user) redirect('/login');
 
-  const userId = (session.user as any).id;
-  const role = (session.user as any).role;
-  if (role !== 'EXHIBITOR') redirect('/profile');
-
   const headers = await getAuthHeaders();
 
-  // Fetch the caller's exhibitor record so we can compare against horse.owner_exhibitor_id
-  const dashRes = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, { headers: headers!, cache: 'no-store' });
-  const dash = await dashRes.json();
-  const exhibitorId: string | null = dash.exhibitor?.id ?? null;
+  // The caller's own exhibitor record, to compare against horse.owner_exhibitor_id.
+  // Its presence is also what admits them to this screen at all — a show manager
+  // who competes keeps horses like anybody else.
+  const exhibitor = await loadExhibitor();
+  if (!exhibitor) redirect('/profile');
+  const exhibitorId: string | null = exhibitor.id;
 
   const [horseRes, regsRes] = await Promise.all([
     fetch(`${API_URL}/horses/${id}`, { headers: headers!, cache: 'no-store' }),
