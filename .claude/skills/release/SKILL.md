@@ -277,6 +277,7 @@ part that used to be guesswork.
 
 ## Gotchas
 
+- **The script runs `RUN_TESTS.sh` through Git Bash by name, not through PATH.** On Windows `bash` is `C:\WINDOWS\system32\bash.exe` -- the WSL launcher -- and the backend suite runs in Docker Desktop's *Windows* CLI. Inside WSL `docker` is the Linux client talking to `/var/run/docker.sock`, which is absent unless that distro has Docker Desktop's WSL integration switched on; it reports the backend image as missing and the release stops on a suite that passes perfectly well from Git Bash. The failure names the image, so it reads as a stale build rather than as the wrong shell. If Git Bash is absent the script falls back to PATH and says so.
 - **`git push` deploys, once CI is green.** There is no separate release button
   and no staging environment. A push with an unrelated WIP commit ships that too.
 - **Reach production with `-DatabaseUrl`, never by editing `.env`.** The local

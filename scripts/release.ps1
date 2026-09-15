@@ -743,13 +743,35 @@ if ($carriesSchema) {
 
 if (-not $SkipTests) {
     Write-Head "Tests"
-    $bash = Get-Command bash -ErrorAction SilentlyContinue
+
+    # Git Bash by preference, and by name rather than through PATH. On Windows
+    # `bash` resolves to C:\WINDOWS\system32\bash.exe -- the WSL launcher --
+    # and RUN_TESTS.sh runs its backend suite through Docker Desktop's *Windows*
+    # CLI. Inside WSL `docker` is the Linux client talking to
+    # /var/run/docker.sock, which is absent unless that distro has Docker
+    # Desktop's WSL integration switched on. It reports the backend image as
+    # missing, RUN_TESTS.sh fails the backend check, and the release stops on a
+    # suite that passes perfectly well from Git Bash. The failure names the
+    # image, so it reads as a stale build rather than as the wrong shell.
+    $bash = @(
+        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+
     if (-not $bash) {
-        Stop-Release "bash not found on PATH; cannot run RUN_TESTS.sh." @(
+        $onPath = Get-Command bash -ErrorAction SilentlyContinue
+        if ($onPath) {
+            $bash = $onPath.Source
+            Write-Warn "Git Bash not found; using $bash"
+            Write-Info "If the backend check reports a missing image, this is why."
+        }
+    }
+    if (-not $bash) {
+        Stop-Release "bash not found; cannot run RUN_TESTS.sh." @(
             "Run the suite yourself and re-run with -SkipTests."
         )
     }
-    & bash "RUN_TESTS.sh"
+    & $bash "RUN_TESTS.sh"
     if ($LASTEXITCODE -ne 0) {
         Stop-Release "RUN_TESTS.sh failed." @(
             "CI runs the same checks and gates the deploy, so this would have",
