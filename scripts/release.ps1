@@ -1001,6 +1001,10 @@ if ($checks.State -eq 'unknown') {
 
 # ══ 10b. Did the new build actually reach production? ═════════════════════════
 
+# Whether a build swap was actually *observed*, as against merely hoped for. The
+# closing summary reads this rather than asserting it -- see the CI note there.
+$buildConfirmed = $false
+
 if ($touchesWeb -or $touchesApi) {
     Write-Head "Waiting for the new build to serve"
     Write-Info "Comparing what production serves now against what it served before the push."
@@ -1008,7 +1012,9 @@ if ($touchesWeb -or $touchesApi) {
     if ($touchesWeb) {
         if ($null -eq $webBefore) {
             Write-Warn "no pre-push frontend fingerprint -- cannot confirm the web service."
-        } elseif (-not (Wait-ForFingerprint -Label "gaitdesk.com" -Before $webBefore -Probe { Get-WebFingerprint })) {
+        } elseif (Wait-ForFingerprint -Label "gaitdesk.com" -Before $webBefore -Probe { Get-WebFingerprint }) {
+            $buildConfirmed = $true
+        } else {
             Write-Warn "frontend assets unchanged after 12 minutes."
             Write-Info "Either the build is slow, or Render never started it. Check the"
             Write-Info "gaitdesk-web service in the Render dashboard before assuming it shipped."
@@ -1017,7 +1023,9 @@ if ($touchesWeb -or $touchesApi) {
     if ($touchesApi) {
         if ($null -eq $apiBefore) {
             Write-Warn "no pre-push API fingerprint -- cannot confirm the api service."
-        } elseif (-not (Wait-ForFingerprint -Label "api.gaitdesk.com" -Before $apiBefore -Probe { Get-ApiFingerprint })) {
+        } elseif (Wait-ForFingerprint -Label "api.gaitdesk.com" -Before $apiBefore -Probe { Get-ApiFingerprint }) {
+            $buildConfirmed = $true
+        } else {
             # Not a failure on its own: openapi.json is identical across builds
             # whenever a release changed only a function body.
             Write-Info "API surface unchanged -- expected if this release touched no routes or schemas."
@@ -1077,7 +1085,13 @@ if ($checks.State -eq 'passed') {
 } else {
     Write-Info "  * CI was NOT read          -- verify it by hand; see above"
 }
-Write-Info "  * the new build is serving -- what production returns actually changed"
+if ($buildConfirmed) {
+    Write-Info "  * the new build is serving -- what production returns actually changed"
+} elseif ($touchesWeb -or $touchesApi) {
+    Write-Info "  * the build swap was NOT confirmed -- check Render before assuming it shipped"
+} else {
+    Write-Info "  * no build swap to confirm -- this release touched neither service"
+}
 Write-Host ""
 
 # The push already happened, so this is not "the release failed" -- it is "the

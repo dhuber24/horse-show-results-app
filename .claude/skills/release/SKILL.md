@@ -268,6 +268,16 @@ than reporting a green watch:
   printed was wrong as well as premature. When the state really is `unknown`,
   the closing summary says CI was **not** read rather than claiming it went
   green, which is the one run where that claim matters most.
+
+  **Both lines of that summary report, they do not assert.** The build-swap line
+  had the same defect and was caught by the release that fixed the CI one: the
+  script printed "Nothing to confirm -- this release touched neither frontend/
+  nor backend/" and then closed by claiming "the new build is serving -- what
+  production returns actually changed". `$buildConfirmed` is set only where a
+  fingerprint actually moved, so the summary now distinguishes a confirmed swap
+  from nothing to confirm from **a swap that was expected and never seen** —
+  that last being the case where Render silently did not deploy, which is the
+  whole reason the check exists.
 - **That the new build is actually serving.** `Get-WebFingerprint` hashes the
   content-addressed `/_next/static/…` assets the home page references plus
   `sw.js`'s `Last-Modified`; `Get-ApiFingerprint` hashes `openapi.json`. Both
