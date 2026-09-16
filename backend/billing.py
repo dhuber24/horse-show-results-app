@@ -77,6 +77,21 @@ AUTOMATIC_FEE_UNITS = (
     "per_judge_per_entry",
 )
 
+# The units a fee is quoted "per class" in, and so the ones that may name which
+# classes -- every class unless somebody narrows it. One of them bills
+# (`per_judge_per_entry`, through the scope in `scoped_class_ids`); the other
+# two are price-list text that bills nobody, and their list is read by the show
+# bill alone: "$28 per class" over a 170-class schedule has to be able to say
+# which classes cost $28.
+#
+# Not the same list as `AUTOMATIC_FEE_UNITS` and must not be merged into it --
+# adding `per_entry` there would bill every class twice, for the reason above.
+PER_CLASS_FEE_UNITS = (
+    "per_entry",
+    "per_judge_per_entry",
+    "per_class_per_horse",
+)
+
 
 def has_early_rate(fee) -> bool:
     """Whether this fee actually offers an early rate.
@@ -326,12 +341,11 @@ def scoped_class_ids(fee) -> Optional[set]:
     bill at every show that predates the feature.
 
     Only automatic units have a count for this to narrow. A reserved fee bills
-    from a quantity somebody booked and a price-list row bills nobody, so a
-    scope on either would be a control with no reader; the endpoint refuses to
-    store one, and this re-checks the unit on read for the same defence-in-depth
-    reason `has_early_rate` and `reservations.required_quantity` do -- a scope
-    stored before a guard existed must not go on narrowing a charge from a
-    control no screen offers any more.
+    from a quantity somebody booked and a price-list row bills nobody. A
+    per-class price-list row (`per_entry`, `per_class_per_horse`) may carry a
+    class list (`PER_CLASS_FEE_UNITS`), but only for the show bill to print, so
+    this re-checks the unit on read: billing must never start reading a list
+    that was stored to be published.
     """
     if fee.unit not in AUTOMATIC_FEE_UNITS:
         return None

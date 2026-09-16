@@ -2,6 +2,89 @@
 
 ## September 2026
 
+### A Local Change That Never Reached The Browser
+
+The per-class class list shipped, passed a browser check, and was still not on
+the manager's own screen: their fees step was running code from two rounds of
+edits earlier, through every reload. The dev server was sending the new file.
+The service worker was not asking for it.
+
+`public/sw.js` served scripts, styles, images and fonts cache-first, on the
+grounds that Next content-hashes chunk filenames. A production build does;
+`next dev` does not — the fees step is
+`/_next/static/chunks/app/admin/shows/[id]/setup/fees/page.js` whatever is in it.
+So on `localhost` the worker handed back the first copy of each page it had ever
+fetched. The browser check missed it because Playwright starts a fresh profile
+every run, with no worker installed.
+
+- **The worker is never registered in development**, and
+  `ServiceWorkerRegistration` unregisters one a previous visit installed and
+  deletes its `gaitdesk-*` caches.
+- **Cache-first now matches `/_next/static/` alone** (`gaitdesk-v3`). The old
+  destination rule also covered `/public` files and `/_next/image` URLs, which
+  are not hashed in production either, so a replaced logo could stay on screen
+  indefinitely.
+- A browser already holding a stale chunk is running the old registration code,
+  so it needs **one hard refresh** (Ctrl+Shift+R) or two ordinary reloads to pick
+  this up.
+
+### The Fees Step Opens On The Fees
+
+Three changes to setup Step 7 and the Class Fees box it shares with
+`/admin/shows/[id]/fees/entry`, all in the direction of less on screen.
+
+**Already priced in earlier steps moved to the bottom.** It quotes what the
+clubs and the futurity charge, read-only, and it opened the step -- so a
+manager arriving to set the show's own fees scrolled past a panel of figures
+they could not edit here to reach the one box they could.
+
+**The quick-add presets are gone.** Six chips ("Office fee (per horse, per
+judge)", "All-day fee (per horse, per judge)", a jackpot…) sat above the list
+and read as fees the show already had; two of them were the same unit under two
+names. **+ Add a fee** asks for a name, an amount and a unit, which is all a
+fee is.
+
+**The class list is on the fees quoted per class.** It was offered on every
+automatic unit, reading *Applies to all classes*, so every per-horse and
+per-exhibitor row carried a collapsed list of the whole schedule nobody had a
+use for -- while the fees that most needed one, the `per_entry` class rates,
+could not have one at all. "$28 per class" over a 170-class schedule does not
+tell an exhibitor which classes cost $28.
+
+Now the list is on exactly the units whose label says *per class* --
+`per_entry`, `per_judge_per_entry`, `per_class_per_horse`
+(`billing.PER_CLASS_FEE_UNITS`, `offersClassList` in `lib/fee-units.ts`, a test
+holding the list to the labels). It reads *Choose which classes use the fee*,
+with **every class ticked by default** under a **Select all** box, and a
+manager narrows a fee by unticking.
+
+- **The list opens the moment a per-class unit is picked** -- on a new fee, or
+  when a saved fee's unit is changed to one. It first shipped as a collapsed
+  one-line toggle under the row, and choosing *per class* read as though no
+  list existed. A fee that loads already per class starts closed, so a dozen
+  of them do not bury the page in class lists.
+
+- **Every class ticked is saved as no rows**, never as a list of every id, so
+  it keeps covering classes added to the schedule later. Ticking the last
+  unticked box goes back to that.
+- **Every class unticked cannot be saved** -- `[]` would mean every class while
+  every box read empty. `isDirty` counts it as an edit, so the step's Next stops
+  on the error rather than carrying the manager on and dropping it; an
+  unparseable amount now does the same.
+- **The endpoint accepts a list on `per_entry` and `per_class_per_horse`**,
+  which it used to refuse. On `per_judge_per_entry` the list narrows the
+  charge; on the other two, **the show bill prints it** under the fee,
+  collapsed into ranges -- *Classes 1–3, 7* -- and `billing.scoped_class_ids`
+  re-checks the unit so a list stored to be published is never billed. A fee on
+  every class prints nothing extra.
+- **Boarding Fees no longer offers the per-class units** or lists those rows;
+  they are in the Class Fees box, beside the list that may narrow them.
+- A per-horse or per-exhibitor charge offers no list. A row already carrying
+  one from before keeps it on screen until cleared, since billing still honours
+  it. (None exist on the development database.)
+- Club sanction fees are unchanged: a club's rate already applies to the
+  classes designated for it in Step 5.
+
 ### An App For One Association Is Not This App
 
 Both show-staff signup screens named exactly one breed registry, and the only

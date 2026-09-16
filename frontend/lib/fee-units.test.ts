@@ -22,6 +22,7 @@ import {
   canHaveMinimumQuantity,
   groupFees,
   isClubSanctionUnit,
+  offersClassList,
 } from './fee-units';
 
 const fee = (unit: string, id = unit) => ({ id, unit });
@@ -146,6 +147,30 @@ describe('canHaveMinimumQuantity', () => {
   it('refuses one on a stall count or a camping line', () => {
     for (const unit of ['per_stall', 'per_night', 'per_day', 'per_show']) {
       expect(canHaveMinimumQuantity(unit)).toBe(false);
+    }
+  });
+});
+
+describe('offersClassList', () => {
+  it('offers a class list on every unit quoted per class', () => {
+    for (const unit of ['per_entry', 'per_judge_per_entry', 'per_class_per_horse']) {
+      expect(offersClassList(unit)).toBe(true);
+    }
+  });
+
+  it('matches the units whose label says "per class", and no others', () => {
+    // The rule is stated to managers in those words, so the list and the
+    // labels must not drift apart.
+    const labelled = Object.entries(UNIT_LABEL)
+      .filter(([, label]) => label.includes('per class'))
+      .map(([unit]) => unit)
+      .sort();
+    expect(labelled).toEqual(['per_class_per_horse', 'per_entry', 'per_judge_per_entry']);
+  });
+
+  it('does not offer one on a charge about the horse or the person', () => {
+    for (const unit of ['per_horse', 'per_exhibitor', 'per_judge_per_horse', 'per_judge_per_exhibitor']) {
+      expect(offersClassList(unit)).toBe(false);
     }
   });
 });

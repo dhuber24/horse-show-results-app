@@ -37,7 +37,7 @@ const COLORS = {
  * classes it approves, a futurity's categories beside its deadline — so this
  * quotes them and links back rather than offering a second place to edit the
  * same number. The links leave through `AutosaveNavLink`, so anything unsaved
- * in the Class Fees box below is written first, the same as the footer's.
+ * in the Class Fees box above is written first, the same as the footer's.
  */
 export default function EarlierFees({
   showId,
@@ -58,7 +58,7 @@ export default function EarlierFees({
           Already priced in earlier steps
         </h2>
         <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-          Charged on top of the class fees below. Change them on their own step.
+          Charged on top of the class fees above. Change them on their own step.
         </p>
       </div>
 

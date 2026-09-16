@@ -868,7 +868,8 @@ class ShowFeeCreate(BaseModel):
     min_quantity: int = Field(default=0, ge=0, le=999)
     # Which classes this charge applies to (migration 137). Empty means the
     # whole schedule, which is the ordinary case; a list narrows it. Only
-    # meaningful on an automatic unit -- the router refuses one elsewhere.
+    # meaningful on an automatic or per-class unit -- the router refuses one
+    # elsewhere, since the unit families live in billing.py.
     class_ids: list[UUID] = Field(default_factory=list)
 
 

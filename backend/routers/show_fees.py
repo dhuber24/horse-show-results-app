@@ -5,7 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from uuid import UUID
 
-from billing import AUTOMATIC_FEE_UNITS, RESERVABLE_FEE_UNITS, EARLY_RATE_FEE_UNITS
+from billing import (
+    AUTOMATIC_FEE_UNITS,
+    EARLY_RATE_FEE_UNITS,
+    PER_CLASS_FEE_UNITS,
+    RESERVABLE_FEE_UNITS,
+)
 from reservations import REQUIRABLE_FEE_UNITS
 from database import get_db
 from dependencies import require_admin_or_show_admin
@@ -131,8 +136,11 @@ async def _resolve_scope_classes(
     Two guards, and both are the same rule the early rate and the minimum
     quantity already follow.
 
-    **Only an automatic unit has a count to narrow.** A reserved fee bills from
-    a quantity somebody booked and a price-list row bills nobody, so a scope on
+    **Only an automatic or a per-class unit takes a class list.** An automatic
+    charge has a count to narrow; a per-class price-list row may narrow the
+    classes its price is quoted on, which the show bill prints. Empty is every
+    class on both. A reserved fee bills
+    from a quantity somebody booked and a flat price bills nobody, so a scope on
     either is a control with no reader -- and one stored anyway would sit in the
     data looking like it did something.
 
@@ -142,13 +150,13 @@ async def _resolve_scope_classes(
     """
     if class_ids is None:
         return None
-    if class_ids and unit not in AUTOMATIC_FEE_UNITS:
+    if class_ids and unit not in AUTOMATIC_FEE_UNITS and unit not in PER_CLASS_FEE_UNITS:
         raise HTTPException(
             422,
-            "Only an automatic charge can be limited to particular classes. "
-            "A reserved fee is billed from the quantity somebody books, and a "
-            "price-list row is not billed at all, so neither has a count for "
-            "the class list to narrow.",
+            "Only a fee charged per class, or per horse, exhibitor or judge, "
+            "can be limited to particular classes. A reserved fee is billed "
+            "from the quantity somebody books, and a flat price is not billed "
+            "at all, so neither has a class list to narrow.",
         )
     wanted = list(dict.fromkeys(class_ids))
     if not wanted:

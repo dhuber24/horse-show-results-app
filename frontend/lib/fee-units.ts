@@ -117,10 +117,32 @@ export function isAutomaticUnit(unit: string): boolean {
 export const CLASS_FEE_EDITOR_UNITS = [
   ...AUTOMATIC_FEE_UNITS,
   'per_entry',
+  'per_class_per_horse',
 ] as const satisfies readonly FeeUnit[];
 
 export function isClassFeeEditorUnit(unit: string): boolean {
   return (CLASS_FEE_EDITOR_UNITS as readonly string[]).includes(unit);
+}
+
+/**
+ * The units a fee is quoted "per class" in, and so the ones the Class Fees box
+ * offers a class list on. Mirrors `PER_CLASS_FEE_UNITS` in backend/billing.py.
+ *
+ * Every unit whose label says "per class", and only those. Every class is
+ * ticked by default and the manager unticks to narrow. `per_judge_per_entry`
+ * bills, and its list narrows the charge; `per_entry` and `per_class_per_horse`
+ * bill nobody, and a narrowed list is what the show bill prints beside the
+ * price. A per-horse or per-exhibitor charge is about the horse or the person,
+ * and gets no list at all.
+ */
+export const PER_CLASS_FEE_UNITS = [
+  'per_entry',
+  'per_judge_per_entry',
+  'per_class_per_horse',
+] as const satisfies readonly FeeUnit[];
+
+export function offersClassList(unit: string): boolean {
+  return (PER_CLASS_FEE_UNITS as readonly string[]).includes(unit);
 }
 
 /** How a club's sanction fee is charged (migration 133) — `show_sanctioning.

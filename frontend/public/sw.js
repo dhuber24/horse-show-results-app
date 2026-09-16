@@ -2,7 +2,10 @@
 // purge mechanism — `activate` deletes every cache that is not this one — so a
 // name that never changes is a cache that is never cleared. v1 held the four
 // precached shells below from whenever a browser first installed it, forever.
-const CACHE_NAME = 'gaitdesk-v2';
+//
+// v3: static caching narrowed to `/_next/static/` (see the fetch handler), and
+// bumped so a browser holding v2's stale development chunks drops them.
+const CACHE_NAME = 'gaitdesk-v3';
 
 // Public shells worth having when the network is gone. Deliberately short, and
 // deliberately only routes that exist and need no session: a precache fetch
@@ -76,16 +79,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first, which stays safe because Next content-hashes
-  // every chunk filename. A new build produces new URLs that miss this cache and
-  // are fetched fresh; the stale entries are for URLs nothing asks for any more,
-  // and the CACHE_NAME bump is what eventually collects them.
-  if (
-    request.destination === 'style' ||
-    request.destination === 'script' ||
-    request.destination === 'image' ||
-    request.destination === 'font'
-  ) {
+  // Build assets: cache-first, which is only safe for a URL that changes when its
+  // content does. A production build content-hashes everything under
+  // `/_next/static/` (or scopes it by build id), so a new build asks for new URLs
+  // that miss this cache; the stale entries are for URLs nothing asks for any
+  // more, and the CACHE_NAME bump is what eventually collects them.
+  //
+  // Nothing else qualifies. This used to cache any script, style, image or font
+  // by destination — which took in `/public` files like the logo and every
+  // `/_next/image` URL, none of them hashed, so replacing one kept the old copy
+  // on screen indefinitely. And `next dev` hashes nothing, not even here, which
+  // is why ServiceWorkerRegistration never registers this worker in development.
+  if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;

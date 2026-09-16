@@ -27,6 +27,9 @@
 import { groupFees, unitLabel } from '@/lib/fee-units';
 
 export type ShowbillClassRow = {
+  /** Optional so a caller building rows by hand still type-checks; without it
+   *  a fee's class list has nothing to resolve against and is not printed. */
+  id?: string;
   class_number: string;
   class_name: string;
   class_date: string;
@@ -61,7 +64,52 @@ type Fee = {
   notes: string | null;
   early_amount_cents: number | null;
   early_deadline: string | null;
+  /** The classes the fee is narrowed to (migration 137). Empty is every class,
+   *  and prints nothing; a narrowed list is where an exhibitor reads which. */
+  class_ids?: string[];
 };
+
+/**
+ * Which classes a fee applies to, as the bill prints them: "Classes 4–9, 12".
+ *
+ * A narrowed per-class price with no classes beside it cannot be worked into a
+ * bill — "$28 per class" over a 170-class schedule does not say which classes
+ * cost $28 — so the list has to be on the page, not only in the editor. A fee
+ * on every class (an empty list) prints nothing extra. Runs of
+ * three or more adjacent classes collapse to a range, read off the schedule's
+ * own order rather than by parsing numbers, since a class number is published
+ * identity and not always an integer. Classes not on this bill (a DRAFT class,
+ * say) are skipped, and a list covering every class on it reads "All classes".
+ */
+function feeClassesText(ids: string[] | undefined, classes: ShowbillClassRow[]): string | null {
+  if (!ids || ids.length === 0) return null;
+  const wanted = new Set(ids);
+  const positions = classes.flatMap((c, i) => (c.id && wanted.has(c.id) ? [i] : []));
+  if (positions.length === 0) return null;
+  if (positions.length === classes.length) return 'All classes';
+
+  const parts: string[] = [];
+  let start = positions[0];
+  let prev = start;
+  const flush = () => {
+    if (prev - start >= 2) {
+      parts.push(`${classes[start].class_number}–${classes[prev].class_number}`);
+    } else {
+      for (let i = start; i <= prev; i++) parts.push(classes[i].class_number);
+    }
+  };
+  for (const i of positions.slice(1)) {
+    if (i === prev + 1) {
+      prev = i;
+      continue;
+    }
+    flush();
+    start = i;
+    prev = i;
+  }
+  flush();
+  return `${positions.length === 1 ? 'Class' : 'Classes'} ${parts.join(', ')}`;
+}
 
 /** One heading, its "what these amounts mean" line, and the rows under it. */
 function FeeGroup({
@@ -88,18 +136,23 @@ function FeeRow({
   amountCents,
   notes,
   early,
+  classesText,
 }: {
   label: string;
   unitText: string;
   amountCents: number;
   notes?: string | null;
   early?: string | null;
+  classesText?: string | null;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2 text-sm">
       <div style={{ color: 'var(--foreground)' }}>
         {label}
         <span className="text-xs" style={{ color: 'var(--muted)' }}> ({unitText})</span>
+        {classesText && (
+          <div className="text-xs" style={{ color: 'var(--foreground)' }}>{classesText}</div>
+        )}
         {notes && <div className="text-xs" style={{ color: 'var(--muted)' }}>{notes}</div>}
         {early && (
           <div className="text-xs font-medium" style={{ color: 'var(--success)' }}>{early}</div>
@@ -421,6 +474,7 @@ export default function ShowbillDocument({
                   unitText={unitLabel(fee.unit)}
                   amountCents={fee.amount_cents}
                   notes={fee.notes}
+                  classesText={feeClassesText(fee.class_ids, classes)}
                   early={
                     fee.early_amount_cents != null && fee.early_deadline != null
                       ? `${formatMoney(fee.early_amount_cents)} if reserved by ${formatShortDate(

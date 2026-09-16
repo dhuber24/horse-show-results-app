@@ -39,7 +39,7 @@ export default async function SetupFeesPage({
     // For the class-scope picker on an automatic charge. The Class Builder
     // is Step 4, so a show set up in order has its schedule by now.
     fetchAuthed<ScopeClass[]>(`${API_URL}/shows/${id}/classes/`, []),
-    // What Steps 5 and 6 already charge, quoted above the Class Fees box so
+    // What Steps 5 and 6 already charge, quoted below the Class Fees box so
     // this step shows the whole bill rather than the show's third of it.
     fetchAuthed<ClubFee[]>(`${API_URL}/shows/${id}/classes/sanctioning`, []),
     loadFuturities(id),
@@ -72,7 +72,6 @@ export default async function SetupFeesPage({
       }
     >
       <div className="space-y-6">
-        <EarlierFees showId={id} clubs={clubs} futurities={futurities} />
         <FeesClient
           showId={id}
           initialCharges={charges}
@@ -81,6 +80,11 @@ export default async function SetupFeesPage({
           legacyFuturityFee={legacyFuturityFee}
           futurityCount={stepsInput.futurityCount}
         />
+        {/* Below the Class Fees box, not above it. This step is for setting
+            the show's own fees; the clubs' and the futurity's are reference,
+            and opening on them put a screen of read-only figures between the
+            manager and the one box they came here to fill in. */}
+        <EarlierFees showId={id} clubs={clubs} futurities={futurities} />
       </div>
     </StepLayout>
   );

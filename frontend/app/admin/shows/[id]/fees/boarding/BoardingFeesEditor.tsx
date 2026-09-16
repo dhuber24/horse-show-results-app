@@ -7,7 +7,7 @@ import {
   UNIT_LABEL as UNIT_LABELS,
   canHaveEarlyRate,
   canHaveMinimumQuantity,
-  isAutomaticUnit,
+  isClassFeeEditorUnit,
   type FeeUnit as Unit,
 } from '@/lib/fee-units';
 
@@ -33,16 +33,17 @@ interface Props {
   initialFees: ShowFee[];
 }
 
+// No "per class" units. A fee quoted per class carries a class list, edited in
+// the Class Fees box — offering the unit here as well would be a second screen
+// showing the row without the list it may be narrowed by.
 const BOARDING_UNIT_OPTIONS: Unit[] = [
   'flat',
-  'per_entry',
   'per_night',
   'per_day',
   'per_stall',
   'per_bag',
   'per_show',
   'percent_of_entry',
-  'per_class_per_horse',
 ];
 
 function dollarsFromCents(cents: number): string {
@@ -145,7 +146,7 @@ export default function BoardingFeesEditor({ showId, initialFees }: Props) {
     const res = await fetch(`/api/shows/${showId}/fees/seed`, { method: 'POST' });
     if (res.ok) {
       const seeded: ShowFee[] = await res.json();
-      const boardingSeeded = seeded.filter((f) => !isAutomaticUnit(f.unit));
+      const boardingSeeded = seeded.filter((f) => !isClassFeeEditorUnit(f.unit));
       const merged = [...fees, ...boardingSeeded].sort((a, b) => a.sort_order - b.sort_order);
       setFees(merged);
       refreshDrafts(merged);

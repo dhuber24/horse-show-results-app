@@ -1194,10 +1194,11 @@ def test_a_scope_narrows_and_never_widens_past_the_club_exclusion():
 def test_a_scope_on_a_non_automatic_unit_is_ignored_on_read():
     """Defence in depth, the same as `has_early_rate` re-checking the unit.
 
-    The endpoint refuses to store one, but a row written before that guard
-    existed must not go on narrowing a charge that was never billed anyway —
-    and `per_entry` bills nobody either way, so the assertion is that the unit
-    check happens before the scope is consulted at all.
+    A per-class price-list row may carry a class list now, for the show bill to
+    print — so this is not a stray row, it is any narrowed `per_entry` fee.
+    `per_entry` bills nobody either way, and the assertion is that the unit
+    check happens before the scope is consulted at all: a list stored to be
+    published must never become a list that is billed.
     """
     youth, amateur, entries = _youth_and_open()
     fee = make_fee(
