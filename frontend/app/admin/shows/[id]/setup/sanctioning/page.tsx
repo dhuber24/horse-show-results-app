@@ -1,4 +1,5 @@
 import { fetchShow, fetchClasses } from '@/lib/api';
+import type { PanelJudge } from '@/lib/fee-units';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import SanctioningClient, {
   type AssociationOption,
@@ -45,7 +46,7 @@ export default async function SetupSanctioningPage({
       // A club may price its sanction per judge (migration 133), which
       // multiplies by the panel — so the screen can say what that comes to,
       // and say when a panel with nobody on it means the fee charges nothing.
-      fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
+      fetchAuthed<PanelJudge[]>(`${API_URL}/shows/${id}/judges/`, []),
       fetchStepCounts(id),
     ]);
 
@@ -72,7 +73,7 @@ export default async function SetupSanctioningPage({
         current={current}
         classSanctioning={classSanctioning}
         classes={classes as SanctionedClass[]}
-        judgeCount={judges.length}
+        judges={judges}
       />
     </StepLayout>
   );

@@ -52,3 +52,13 @@ def test_another_exhibitors_number_is_never_borrowed():
 
 def test_unassigned_sorts_after_every_assigned_number():
     assert sorted([None, 42, 1, None, 7], key=sort_key) == [1, 7, 42, None, None]
+
+
+def test_the_lowest_free_number_fills_the_first_gap():
+    """What a sign-up with no requested number is given: the first number
+    nothing holds, not one past the highest."""
+    from backnumbers import lowest_free_number
+
+    assert lowest_free_number(set()) == 1
+    assert lowest_free_number({1, 2, 3}) == 4
+    assert lowest_free_number({1, 3, 24}) == 2

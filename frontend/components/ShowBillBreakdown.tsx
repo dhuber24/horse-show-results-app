@@ -179,10 +179,17 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
  * cannot check. The counts are of that club's own classes only, which is what
  * makes them differ from the show's own charges above.
  */
+/** "× 2 WSCA judges" when the count is one association's carded judges, "× 4
+ *  judges" when it is the whole panel — so a dual-sanctioned bill says whose
+ *  judges a fee was multiplied by. */
+function judgesText(count: number, code: string | null | undefined): string {
+  return `× ${count} ${code ? `${code} ` : ''}judge${count === 1 ? '' : 's'}`;
+}
+
 function SanctionLine({ line }: { line: BillSanctionLine }) {
   const parts = [formatMoney(line.amount_cents)];
   if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
-    parts.push(`× ${line.judge_count} judge${line.judge_count === 1 ? '' : 's'}`);
+    parts.push(judgesText(line.judge_count, line.judge_association_code));
   }
   if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
     parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
@@ -215,7 +222,7 @@ function ChargeLine({ line }: { line: BillChargeLine }) {
     line.unit === 'per_judge_per_exhibitor' ||
     line.unit === 'per_judge_per_entry'
   ) {
-    parts.push(`× ${line.judge_count} judge${line.judge_count === 1 ? '' : 's'}`);
+    parts.push(judgesText(line.judge_count, line.judge_association_code));
   }
   if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
     parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);

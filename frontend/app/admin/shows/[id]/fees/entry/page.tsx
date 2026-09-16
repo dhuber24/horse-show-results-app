@@ -1,7 +1,7 @@
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import { isClassFeeEditorUnit } from '@/lib/fee-units';
+import { breedJudgeCount, isClassFeeEditorUnit, type PanelJudge } from '@/lib/fee-units';
 import type { ShowCharge } from '@/components/ShowChargesEditor';
 import EntryFeesEditor from './EntryFeesEditor';
 
@@ -11,7 +11,7 @@ async function fetchShowFees(showId: string, headers: HeadersInit) {
   return res.json();
 }
 
-async function fetchJudges(showId: string, headers: HeadersInit) {
+async function fetchJudges(showId: string, headers: HeadersInit): Promise<PanelJudge[]> {
   const res = await fetch(`${API_URL}/shows/${showId}/judges/`, { headers, cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
@@ -57,7 +57,7 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
         showId={id}
         initialCharges={charges}
         initialClasses={classes}
-        judgeCount={judges.length}
+        judgeCount={breedJudgeCount(judges, show.show_type_code)}
       />
     </main>
   );

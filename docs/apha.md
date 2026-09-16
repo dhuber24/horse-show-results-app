@@ -52,6 +52,15 @@ Rules:
 `OPEN`, `SOLID_PAINT_BRED`, `AMATEUR`, `NOVICE_AMATEUR`, `AMATEUR_WALK_TROT`,
 `YOUTH`, `NOVICE_YOUTH`, `YOUTH_WALK_TROT_11_18`, `YOUTH_WALK_TROT_5_10`.
 
+**`SOLID_PAINT_BRED` is retired and kept only so old entries read.** SC-325, as
+amended at the 2024 Leadership Gathering, ended the separate Solid Paint-Bred
+showing divisions on 1 January 2025 — both registries compete and are awarded
+together. No bracket resolves to the value any more and no rule refuses a Solid
+Paint-Bred horse anywhere; `horses.is_solid_paint_bred` is a registry fact on
+the horse's card. The value stays in the list, the CHECK and the labels because
+entries filed before 2025 carry it, and removing it would need a migration that
+fails on those rows.
+
 The three Walk-Trot divisions arrived in migration 115; the other six had been
 there since 010. Youth Walk-Trot is **split by age** because APHA runs 11-18
 (YP-109) and 5-10 (YP-110) as separate divisions with separate class lists —
@@ -143,8 +152,10 @@ eligible. It declines when there is no date of birth on file.
 
 **Three classes as 13 and Under.** A show offering a youth division must offer at
 least three (YP-075.A.1, A.2), and they may not be combined. That is a warning on
-the readiness panel, waived in **Zones 12, 13 and 14** — the same zone list the
-equitation class procedures carry. A show that has not stated its zone is told so
+the readiness panel, asked only of a show with **three or more judges** — YP-075-1,
+in effect from 1 January 2026, took the requirement off one- and two-judge shows,
+and the panel is counted the way SC-095's minimums count it — and waived in
+**Zones 12, 13 and 14**, the same zone list the equitation class procedures carry. A show that has not stated its zone is told so
 in the finding, because it may well be exempt. The "may not be combined" half is
 not checked: combining is something management does on the day and the app holds
 no record of it.
@@ -767,17 +778,30 @@ supplied text moved this from "unknown" to "known and unanswerable".
 
 APHA rules live in `backend/rules/apha.py` and are reached the same way every
 other association's are — `rules.get_rules(show.show_type.code)`, then
-`validate_entry`. Two checks are implemented:
+`validate_entry`. The division checks are:
 
 | Rule | Code | What it says |
 | --- | --- | --- |
-| SC-325.A.1 | `APHA_SOLID_PAINT_BRED_OPEN` | A Solid Paint-Bred horse may not enter an Open division class. |
-| AM-300.E, YP-015 | `APHA_RELATIONSHIP_REQUIRED` | Every ownership division — Amateur, Novice Amateur, Amateur Walk-Trot, Youth, Novice Youth and both Youth Walk-Trot divisions — must state the exhibitor's relationship to the horse's owner. |
+| AM-300.E, YP-015 | `APHA_RELATIONSHIP_REQUIRED` | Every ownership division — Amateur, Amateur Walk-Trot, Youth and both Youth Walk-Trot divisions — must state the exhibitor's relationship to the horse's owner. |
 | AM-205, YP-255.A.1 | `APHA_NOVICE_ELIGIBILITY_REQUIRED` | Novice Amateur and Novice Youth entries must carry an eligibility declaration. |
 | migration 115 | `APHA_DIVISION_UNKNOWN` | The named division is not one of the nine. Caught here rather than left to the CHECK constraint, which surfaces as an IntegrityError naming nothing. |
 
-Every shortfall is reported at once — a bare Novice entry comes back short two
-things, and returning only the first sends somebody round the loop twice.
+Every shortfall is reported at once — a youth entry with no relationship for an
+exhibitor past the age cap comes back short two things, and returning only the
+first sends somebody round the loop twice.
+
+**Two checks that used to be here are gone because APHA changed the rules.**
+
+- `APHA_SOLID_PAINT_BRED_OPEN` refused a Solid Paint-Bred horse in an Open class
+  under SC-325.A.1. The separate Solid Paint-Bred showing divisions ended on
+  1 January 2025, so that entry is now one APHA allows — see Divisions above.
+- The **Novice divisions** no longer require a relationship to the owner. AM-210
+  dropped the ownership requirement for Novice Amateur from 2025, and YP-205 for
+  Novice Youth from 2026. Both keep it at APHA-sponsored shows such as the World
+  Show, and the app cannot tell a sponsored show from any other; refusing every
+  Novice entry on a horse somebody else owns at every show, to catch the one show
+  that still asks, is the wrong way round. A relationship the exhibitor has stated
+  on the horses step is still copied onto the entry either way.
 
 `RELATIONSHIP_OPTION_GROUPS` in `frontend/lib/apha.ts` is the picker and
 `RELATIONSHIP_OPTIONS` in `backend/rules/apha.py` is what checks a value that
@@ -830,9 +854,10 @@ holding Novice status at a show offering no Novice class shows in Amateur.
 does not say*, and the entry goes in without one — which is what every entry did
 before the picker existed, and what `validate_entry` returns early on by design.
 It is never turned into a guess: "Yearling Stallions" is almost always an Open
-halter class, and filing it as OPEN would be right most of the time and would
-refuse a Solid Paint-Bred horse (SC-325.A.1) the rest of it — an entry the show
-meant to take, turned away over a division nobody chose.
+halter class, and filing it as OPEN would be right most of the time and wrong the
+rest — a youth or amateur entry in a class the show ran for everyone, filed under
+a division nobody chose, on the entry APHA reads. A bracket still reading "Solid
+Paint-Bred" files nothing either: that division ended in 2025.
 
 The exhibitor's form states the division it derived, so somebody can see what is
 being filed for them, and shows nothing where the class is silent. **The desk
@@ -843,7 +868,7 @@ fills a blank from the class the same way, so both doors store the same thing.
 was a live hole.** The desk endpoint enforced them by hand; the exhibitor's own
 class registration in `routers/show_registration.py` has always validated through
 the rules engine, and `APHARules` was an empty subclass of `DefaultRules`. So an
-exhibitor self-registering could enter a Solid Paint-Bred horse in an Open class.
+exhibitor self-registering was checked against nothing at all.
 Anything added here must go in the rules class, not in a router, or it protects
 one door out of two. `backend/tests/test_apha_rules.py` asserts the dispatcher
 actually returns `APHARules`, because every other test in that file would pass

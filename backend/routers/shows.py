@@ -707,8 +707,8 @@ async def apha_validation(
 
     The entry rules already run at both entry doors and block there, so the
     schedule half is most of what comes back. They are re-run anyway because an
-    entry that passed can stop passing without anybody touching it: a horse
-    flagged Solid Paint-Bred after it was entered, a division corrected at the
+    entry that passed can stop passing without anybody touching it: a horse's
+    foaling date corrected after it was entered, a division corrected at the
     desk, a fifth horse added under SC-185.F.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)

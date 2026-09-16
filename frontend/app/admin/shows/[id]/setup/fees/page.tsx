@@ -1,6 +1,6 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
-import { isClassFeeEditorUnit } from '@/lib/fee-units';
+import { breedJudgeCount, isClassFeeEditorUnit, type PanelJudge } from '@/lib/fee-units';
 import type { ScopeClass, ShowCharge } from '@/components/ShowChargesEditor';
 import FeesClient, { type FeeRow } from './FeesClient';
 import EarlierFees, { type ClubFee } from './EarlierFees';
@@ -35,7 +35,7 @@ export default async function SetupFeesPage({
   const show = await fetchShow(id);
   const [allFees, judges, classes, clubs, futurities, stepsInput] = await Promise.all([
     fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
-    fetchAuthed<unknown[]>(`${API_URL}/shows/${id}/judges/`, []),
+    fetchAuthed<PanelJudge[]>(`${API_URL}/shows/${id}/judges/`, []),
     // For the class-scope picker on an automatic charge. The Class Builder
     // is Step 4, so a show set up in order has its schedule by now.
     fetchAuthed<ScopeClass[]>(`${API_URL}/shows/${id}/classes/`, []),
@@ -75,7 +75,8 @@ export default async function SetupFeesPage({
         <FeesClient
           showId={id}
           initialCharges={charges}
-          judgeCount={judges.length}
+          // The breed body's judges, as `billing.breed_judge_count` bills.
+          judgeCount={breedJudgeCount(judges, show.show_type_code)}
           classes={classes}
           legacyFuturityFee={legacyFuturityFee}
           futurityCount={stepsInput.futurityCount}

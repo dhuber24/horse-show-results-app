@@ -3492,6 +3492,9 @@ class BillChargeLineOut(BaseModel):
     amount_cents: int
     horse_count: int
     judge_count: int
+    # The breed body whose carded judges `judge_count` counts, or None when it
+    # is the whole panel. See `billing.carded_judge_count`.
+    judge_association_code: Optional[str] = None
     quantity: int
     line_total_cents: int
 
@@ -3511,7 +3514,10 @@ class BillSanctionLineOut(BaseModel):
     unit: FeeUnit
     amount_cents: int
     horse_count: int
+    # That club's carded judges, or the whole panel when nobody on it is carded
+    # with the club -- `judge_association_code` says which.
     judge_count: int
+    judge_association_code: Optional[str] = None
     entry_count: int
     quantity: int
     line_total_cents: int
@@ -3837,6 +3843,11 @@ class ShowDeskExhibitorOut(BaseModel):
     billed_cents: int = 0
     net_paid_cents: int = 0
     balance_cents: int = 0
+    # The itemised bill behind `billed_cents`, the same one Financials renders.
+    # The Classes section quotes its class and futurity lines rather than summing
+    # `entry_fee_cents` itself -- a futurity class carries $0 there, because its
+    # price is the enrollment's category, so a sum read $0 for it.
+    bill: Optional[BillOut] = None
     # How many payment rows are on the account, refunds included. Not the same
     # question as `net_paid_cents`: a payment and its refund net to zero and are
     # still two records of money that moved, which is what keeps the desk from
@@ -3856,6 +3867,33 @@ class ShowDeskTotalsOut(BaseModel):
     contacts_missing: int = 0
 
 
+class ShowDeskFuturityPriceOut(BaseModel):
+    id: UUID
+    name: str
+    amount_cents: int = 0
+
+
+class ShowDeskFuturityOut(BaseModel):
+    """A futurity as the desk needs it to enroll a horse entered in its classes.
+
+    A class entry in a futurity class is billed nothing until the horse is
+    enrolled, because the futurity's category supplies the per-class price. So
+    the desk has to know which classes belong to a futurity and what the
+    enrollment asks — the category, the member flag, a membership bought — to
+    close that gap at the counter rather than sending staff to another screen.
+    """
+
+    id: UUID
+    name: str
+    class_ids: list[UUID] = Field(default_factory=list)
+    fee_tiers: list[ShowDeskFuturityPriceOut] = Field(default_factory=list)
+    membership_options: list[ShowDeskFuturityPriceOut] = Field(default_factory=list)
+    office_fee_member_cents: int = 0
+    office_fee_nonmember_cents: int = 0
+    late_fee_cents: int = 0
+    entry_deadline: Optional[date] = None
+
+
 class ShowDeskOut(BaseModel):
     show_id: UUID
     show_name: str
@@ -3867,6 +3905,7 @@ class ShowDeskOut(BaseModel):
     requires_physical_document_check: bool = True
     classes: list[ShowDeskClassOut] = Field(default_factory=list)
     side_pots: list[ShowDeskSidePotOut] = Field(default_factory=list)
+    futurities: list[ShowDeskFuturityOut] = Field(default_factory=list)
     exhibitors: list[ShowDeskExhibitorOut] = Field(default_factory=list)
     totals: ShowDeskTotalsOut = Field(default_factory=ShowDeskTotalsOut)
 

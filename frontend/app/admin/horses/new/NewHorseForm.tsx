@@ -283,7 +283,7 @@ export default function NewHorseForm({ breeds, colors, patterns, exhibitors, ass
               className="h-4 w-4"
             />
             <label htmlFor="is_solid_paint_bred" className="text-sm" style={{ color: 'var(--muted)' }}>
-              Solid Paint-Bred (SPB) - cannot enter Regular Registry Open classes
+              Solid Paint-Bred (SPB)
             </label>
           </div>
         </div>

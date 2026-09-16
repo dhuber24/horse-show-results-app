@@ -7,9 +7,9 @@ modeling that does not exist yet.
 Both entry doors reach these checks through `rules.get_rules` — the show desk
 (`routers/entries.py`) and the exhibitor's own class registration
 (`routers/show_registration.py`). That is why they live here rather than inline
-in a router: both checks below were originally written into the desk endpoint
-only, so an exhibitor self-registering was validated against an empty rule set
-and could enter a Solid Paint-Bred horse in an Open class.
+in a router: the first checks here were originally written into the desk
+endpoint only, so an exhibitor self-registering was validated against an empty
+rule set.
 """
 from __future__ import annotations
 
@@ -23,6 +23,13 @@ from .default import DefaultRules
 # Every APHA division an entry may be made in. Mirrors the CHECK constraint on
 # `entries.apha_division` (migration 115) — the database is what enforces it;
 # this list is what the rules can reason about.
+#
+# SOLID_PAINT_BRED is a retired division kept readable, not one a new entry is
+# filed under. SC-325 as amended in 2024 ended the separate Solid Paint-Bred
+# showing divisions from 1 January 2025: both registries now compete and are
+# awarded together. Entries made before then still carry the value and still
+# have to render, so it stays in this list, the CHECK and the labels — but no
+# bracket resolves to it any more and nothing refuses a Solid Paint-Bred horse.
 DIVISIONS = (
     "OPEN",
     "SOLID_PAINT_BRED",
@@ -74,8 +81,8 @@ DIVISION_LABELS = {
 #
 # **None is never turned into a guess.** "Yearling Stallions" is almost always an
 # Open halter class, and filing it as OPEN would be right most of the time and
-# would refuse a Solid Paint-Bred horse (SC-325.A.1) the rest of it: an entry the
-# show meant to take, turned away over a division nobody chose.
+# wrong the rest: a youth or amateur entry in a class the show ran for everyone,
+# filed under a division nobody chose, on the entry APHA reads.
 #
 # Ordered longest-pattern-first: "Novice Youth" has to be tested before "Youth"
 # and "Amateur Walk-Trot" before both "Amateur" and the walk-trot bands, or a
@@ -88,7 +95,10 @@ _BRACKET_DIVISION_PATTERNS = (
     (r"am(?:ateur)?\s*(?:w[/\-\s]?t|walk[\s\-/]*(?:trot|jog))", ("AMATEUR_WALK_TROT",)),
     (r"\bnovice\s+youth\b", ("NOVICE_YOUTH",)),
     (r"\bnovice\s+am(?:ateur)?\b", ("NOVICE_AMATEUR",)),
-    (r"\bsolid\b|\bspb\b", ("SOLID_PAINT_BRED",)),
+    # No Solid Paint-Bred pattern: that division ended on 1 January 2025 (SC-325),
+    # so a bracket still reading "Solid Paint-Bred" is a leftover rather than a
+    # division the show can run, and it says nothing an entry could be filed under.
+    #
     # Plain "Youth" and plain "Amateur" resolve to exactly one division, not to
     # a pair with their Novice variants. A Novice division is not a choice made
     # *inside* an Amateur class: a show that offers one runs it as its own class,
@@ -176,12 +186,20 @@ def _stated_upper_age(text):
 # The Walk-Trot divisions are in because AM-300.E places the same ownership
 # condition on Amateur Walk-Trot as AM-020 does on Amateur, and YP-015 does the
 # same for youth.
+#
+# **The Novice divisions are out, and were in until APHA changed the rule.**
+# AM-210 dropped the ownership requirement for Novice Amateur from 1 January
+# 2025, and YP-205 did the same for Novice Youth from 1 January 2026. Both keep
+# it at APHA-sponsored shows such as the World Show — but the app cannot tell a
+# sponsored show from any other (the same gap SC-090.P's reserved titles run
+# into), and refusing every Novice entry on a horse somebody else owns at every
+# show, to catch the one show that still asks, is the wrong way round. A value
+# the exhibitor has stated is still copied onto the entry, so a show that does
+# ask still has the answer.
 RELATIONSHIP_REQUIRED_DIVISIONS = frozenset({
     "AMATEUR",
-    "NOVICE_AMATEUR",
     "AMATEUR_WALK_TROT",
     "YOUTH",
-    "NOVICE_YOUTH",
     "YOUTH_WALK_TROT_11_18",
     "YOUTH_WALK_TROT_5_10",
 })
@@ -477,8 +495,9 @@ MINIMUM_OPEN_HALTER_CLASSES = 2
 MINIMUM_PERFORMANCE_CONTESTS = 4
 
 # A class carrying any of these is some other division's, not the Open division.
-# Solid Paint-Bred is in the list for the same reason as Amateur: SC-325 gives it
-# its own division, and SC-095.A asks specifically about Open.
+# Solid Paint-Bred stays in the list for schedules built before 2025, when SC-325
+# still gave it a division of its own; a current schedule carries no such class,
+# so keeping it costs nothing and does not misread an old one.
 _NOT_OPEN_RE = re.compile(
     r"\b(amateur|youth|novice|walk[- ]?trot|lead[- ]?line|futurity|"
     r"solid[- ]paint|spb)\b",
@@ -858,6 +877,12 @@ MINIMUM_THIRTEEN_AND_UNDER_CLASSES = 3
 # procedures already carry — see INDIVIDUAL_WORK_ZONES.
 THIRTEEN_AND_UNDER_EXEMPT_ZONES = frozenset({12, 13, 14})
 
+# YP-075-1, in effect 1 January 2026, asks for the three classes only at a show
+# with three or more judges; one- and two-judge shows are no longer required to
+# offer them. Counted the way SC-095's minimums count the panel (`show_minimums`):
+# the judges assigned to the show.
+THIRTEEN_AND_UNDER_JUDGE_PANEL = 3
+
 # "13 & Under", "13 and Under", "Youth 13 & Under". Only ever consulted for an
 # entry that already names a youth division, which is what makes it safe: a
 # horse-age bracket could not reach it, and "N & Under" is not a shape the horse
@@ -1207,9 +1232,11 @@ class APHARules(DefaultRules):
     def _check_youth_thirteen_and_under(self, show, classes):
         """YP-075.A.1 and A.2 — three classes offered as 13 and Under.
 
-        Required whether the show runs one youth age division or two, and waived
-        in Zones 12, 13 and 14 — the same zone list the equitation class
-        procedures carry.
+        Required whether the show runs one youth age division or two, but only at
+        a show with three or more judges (YP-075-1, from 2026), and waived in
+        Zones 12, 13 and 14 — the same zone list the equitation class procedures
+        carry. A show with no judges assigned yet is not asked either: like the
+        SC-095 minimums, the requirement depends on a panel it does not have.
 
         Counts any bracket stating a cap of thirteen rather than only those that
         also say "Youth", because "13 & Under" is a bracket name a real schedule
@@ -1225,6 +1252,9 @@ class APHARules(DefaultRules):
             getattr(getattr(cls, "division", None), "name", None) or "" for cls in classes or []
         ]
         if not any("youth" in name.lower() for name in brackets):
+            return []
+
+        if len(getattr(show, "judges", None) or []) < THIRTEEN_AND_UNDER_JUDGE_PANEL:
             return []
 
         zone = getattr(show, "apha_zone", None)
@@ -1500,7 +1530,6 @@ class APHARules(DefaultRules):
             ))
             return issues
 
-        issues.extend(self._check_solid_paint_bred(entry, cls, division))
         issues.extend(self._check_relationship_to_owner(entry, cls, division))
         issues.extend(self._check_youth_age(entry, show, cls, context, division))
         issues.extend(self._check_novice_eligibility(entry, cls, division))
@@ -1653,31 +1682,16 @@ class APHARules(DefaultRules):
             horse_id=horse_id,
         )]
 
-    def _check_solid_paint_bred(self, entry, cls, division):
-        """SC-325.A.1 — a Solid Paint-Bred horse may not enter Open classes.
-
-        The Regular Registry and the Solid Paint-Bred Registry compete against
-        each other only where the show says so; a Solid Paint-Bred horse has its
-        own division and entering it in Open is an ineligible entry, not a
-        preference.
-        """
-        if division != "OPEN":
-            return []
-        horse = getattr(entry, "horse", None)
-        if horse is None or not getattr(horse, "is_solid_paint_bred", False):
-            return []
-        return [self._issue(
-            "error",
-            "APHA_SOLID_PAINT_BRED_OPEN",
-            f"{getattr(horse, 'name', None) or 'This horse'} is Solid Paint-Bred and "
-            "may not enter Open division classes (APHA SC-325.A.1).",
-            class_id=getattr(cls, "id", None),
-            horse_id=getattr(horse, "id", None),
-        )]
-
     def _check_relationship_to_owner(self, entry, cls, division):
-        """Amateur, Novice Amateur, Youth and Novice Youth all place ownership
+        """Amateur, Amateur Walk-Trot and the Youth divisions place ownership
         conditions on the exhibitor, so the entry has to state the relationship.
+        The Novice divisions no longer do (AM-210, YP-205) — see
+        `RELATIONSHIP_REQUIRED_DIVISIONS`.
+
+        There is deliberately no Solid Paint-Bred check beside this one. SC-325.A.1
+        kept a Solid Paint-Bred horse out of Open classes until the separate
+        showing divisions ended on 1 January 2025; since then both registries
+        compete together, and refusing that entry turns away a horse APHA allows.
 
         Whitespace does not count as an answer: the field is free text on a form
         somebody tabs through, and a blank-looking value that satisfies the check

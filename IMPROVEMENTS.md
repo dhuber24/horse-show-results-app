@@ -2,6 +2,55 @@
 
 ## September 2026
 
+### APHA Rules Brought Up To The 2025 And 2026 Rule Changes
+
+Checked against the rule change proposals passed at the 2024 APHA Leadership
+Gathering (and APHA's list of rules in effect from 1 January 2026). Three rules
+the app enforced had been changed underneath it, and two of them were refusing
+entries APHA now allows.
+
+- **A Solid Paint-Bred horse may enter Open.** SC-325 ended the separate Solid
+  Paint-Bred showing divisions on 1 January 2025, but both entry doors still
+  refused the entry under SC-325.A.1, and the desk and exhibitor forms disabled
+  the button. The check and both guards are gone, and a "Solid Paint-Bred"
+  bracket no longer files entries under a division of its own.
+  `SOLID_PAINT_BRED` stays valid only so entries made before 2025 still read.
+- **Novice entries no longer require a relationship to the owner.** AM-210
+  (Novice Amateur, 2025) and YP-205 (Novice Youth, 2026) dropped the ownership
+  requirement, but the rules engine refused a Novice entry without one and the
+  answer list had nothing true to pick for a horse owned by somebody unrelated.
+- **One- and two-judge shows are not asked for 13 & Under classes.** YP-075-1
+  (2026) limits the three-class requirement to shows with three or more judges;
+  the readiness panel was warning every youth show.
+
+Not changed, for want of the rule text: AM-300's new Masters Walk-Trot division
+(2026) and SC-095's lowered minimum class counts (2026).
+
+### The Registration Desk Adds Up A Futurity
+
+Six reports from working the desk on the MNSPHC test show, five of them money
+or numbering.
+
+- **The futurity Entries screen 500'd whenever anybody was enrolled.**
+  `_hydrate_entries` and the Hi-Point standings selected `Exhibitor.name`, a
+  column that has never existed (`full_name`). `add_entry` commits before it
+  hydrates, so enrolling a horse saved the row and returned a 500 — the
+  futurity then read "1 entered" beside an Entries list that could not load and
+  showed nobody.
+- **A futurity class entered at the desk billed nothing.** The class carries $0
+  and the enrollment's category is its price; without an enrollment there is no
+  price, and the Classes badge summed `entry_fee_cents` so it could not show the
+  gap either. The badge and fee column now quote the bill, unenrolled horses are
+  flagged with an Enroll button, and entering a futurity class asks for the
+  category in the same press.
+- **Per-judge fees count that association's judges.** A WSCA fee priced per
+  judge multiplied by all four judges on the panel rather than the two carded
+  WSCA. See `billing.carded_judge_count` and the Sharp Edge in `CLAUDE.md`.
+- **Everybody who signs up gets a back number**, the lowest nobody holds or has
+  asked for, and a taken request is an alert that names the holder at the desk.
+- The Classes, Side pots and Paperwork sections fold, and **+ Add a horse** moved
+  up beside the Horses heading.
+
 ### A Local Change That Never Reached The Browser
 
 The per-class class list shipped, passed a browser check, and was still not on

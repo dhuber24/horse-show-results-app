@@ -70,6 +70,7 @@ from horse_eligibility import (
 from reservations import minimum_shortfall
 from show_associations import show_associations
 from billing import (
+    breed_judge_count,
     build_bill,
     charge_lines,
     early_rate_is_open,
@@ -109,6 +110,7 @@ from rules import get_rules
 from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
+from backnumbers import assign_back_number_if_missing
 from schemas import EntryOut
 import standard_classes
 
@@ -633,6 +635,14 @@ async def save_signup(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "You have already signed up for this show")
+
+    # Everybody who signs up leaves with a number. One they asked for is granted
+    # on its own endpoint; somebody who asked for nothing gets the lowest free
+    # one here, after the sign-up is safely committed, so a collision on the
+    # number can never cost them the sign-up. A row that already holds a number
+    # -- a cancelled registration signing up again, say -- keeps it.
+    await assign_back_number_if_missing(show_entry, db)
+    await db.commit()
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     reservation_total = sum(
@@ -1185,10 +1195,9 @@ async def preview_registration(
             {
                 "id": str(h.id),
                 "name": h.name,
-                # Only meaningful at an APHA show, where a Solid Paint-Bred
-                # horse may not go in an Open division class — the same guard
-                # the desk's entry form applies, so the two forms refuse the
-                # same combination rather than one of them finding out later.
+                # A registry fact, shown on the horse's card. It no longer
+                # decides anything about an entry: SC-325 ended the separate
+                # Solid Paint-Bred showing divisions on 1 January 2025.
                 "is_solid_paint_bred": h.is_solid_paint_bred,
                 # What this horse is registered with, and what the show would
                 # ask for that is not there. Warnings only: refusing the entry
@@ -1511,13 +1520,13 @@ async def register_for_show(
 
     # Scoped to the entries just created, which is the same scope the office
     # charge's own distinct-horse count used before it became a fee row.
-    judge_count = len(show.judges or [])
-    _, charge_total = charge_lines(show.fees or [], created, judge_count)
+    judge_count, judge_code = breed_judge_count(show)
+    _, charge_total = charge_lines(show.fees or [], created, judge_count, judge_code)
     # The clubs that charge per horse or per exhibitor rather than per class
     # (migration 133). Scoped to this batch for the same reason the charges
     # above are: this is a receipt for what was just entered, not the whole
     # show bill — which `build_bill` gives them on the sign-up screen.
-    _, club_charge_total = sanction_charge_lines(show, created, judge_count)
+    _, club_charge_total = sanction_charge_lines(show, created)
     sanction_total += club_charge_total
     total_fee = subtotal + sanction_total + charge_total
 

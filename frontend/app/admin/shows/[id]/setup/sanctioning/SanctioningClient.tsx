@@ -5,9 +5,12 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   CLUB_SANCTION_UNITS,
+  cardedJudgeCount,
+  judgesLabel,
   unitLabel,
   usesJudgeCount,
   type ClubSanctionUnit,
+  type PanelJudge,
 } from '@/lib/fee-units';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
 
@@ -124,6 +127,7 @@ function sanctionExplanation(
   cents: number,
   approved: number,
   judgeCount: number,
+  judgeCode: string | null = null,
 ): string {
   if (cents === 0) {
     return 'No fee set — ticking classes for this club charges nobody.';
@@ -144,11 +148,11 @@ function sanctionExplanation(
     case 'per_horse':
       return `${rate} for each horse they enter in its ${classes}.`;
     case 'per_judge_per_exhibitor':
-      return `${rate} × ${judgeCount} judge${judgeCount === 1 ? '' : 's'} = ${formatMoney(
+      return `${rate} × ${judgesLabel(judgeCount, judgeCode)} = ${formatMoney(
         cents * judgeCount,
       )} per exhibitor who enters any of its ${classes}.`;
     case 'per_judge_per_horse':
-      return `${rate} × ${judgeCount} judge${judgeCount === 1 ? '' : 's'} = ${formatMoney(
+      return `${rate} × ${judgesLabel(judgeCount, judgeCode)} = ${formatMoney(
         cents * judgeCount,
       )} for each horse they enter in its ${classes}.`;
     default:
@@ -168,7 +172,7 @@ export default function SanctioningClient({
   current,
   classSanctioning,
   classes,
-  judgeCount,
+  judges,
 }: {
   showId: string;
   associations: AssociationOption[];
@@ -176,11 +180,12 @@ export default function SanctioningClient({
   /** Which classes each enrolled club already approves. */
   classSanctioning: ClassSanctioningRow[];
   classes: SanctionedClass[];
-  /** How many judges are on this show's panel. A club charging per judge
-   *  multiplies by it, so a show with none assigned yet charges nothing for
-   *  one — which the screen says outright rather than leaving the manager to
-   *  find out on somebody's bill. Same reasoning as the Class Fees box. */
-  judgeCount: number;
+  /** This show's judge panel, with what each judge is carded with. A club
+   *  charging per judge multiplies by the judges carded with *that club* — or
+   *  the whole panel when nobody on it is — so a show with none assigned yet
+   *  charges nothing for one, which the screen says outright rather than
+   *  leaving the manager to find out on somebody's bill. */
+  judges: PanelJudge[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -427,6 +432,7 @@ export default function SanctioningClient({
               const isPicked = pickedIds.has(a.id);
               const feeCents = dollarsToCents(fees[a.id] ?? '0');
               const approved = classPicksFor(a.id).size;
+              const clubJudges = cardedJudgeCount(judges, a);
               return (
                 <li
                   key={a.id}
@@ -498,7 +504,8 @@ export default function SanctioningClient({
                             unitFor(a.id),
                             feeCents,
                             approved,
-                            judgeCount,
+                            clubJudges.count,
+                            clubJudges.code,
                           )}
                           className="border rounded px-2 py-2 text-sm"
                           style={{ borderColor: COLORS.border, color: COLORS.text }}
@@ -515,7 +522,8 @@ export default function SanctioningClient({
                           unitFor(a.id),
                           feeCents,
                           approved,
-                          judgeCount,
+                          clubJudges.count,
+                          clubJudges.code,
                         )}
                       </p>
                     </div>
@@ -558,7 +566,8 @@ export default function SanctioningClient({
               name={club.name}
               feeCents={dollarsToCents(fees[club.id] ?? '0')}
               unit={unitFor(club.id)}
-              judgeCount={judgeCount}
+              judgeCount={cardedJudgeCount(judges, club).count}
+              judgeCode={cardedJudgeCount(judges, club).code}
               classes={classes}
               selected={classPicksFor(club.id)}
               onChange={(next) => setClassPicksFor(club.id, next)}
@@ -714,6 +723,7 @@ function ClubClassPicker({
   feeCents,
   unit,
   judgeCount,
+  judgeCode,
   classes,
   selected,
   onChange,
@@ -723,6 +733,7 @@ function ClubClassPicker({
   feeCents: number;
   unit: ClubSanctionUnit;
   judgeCount: number;
+  judgeCode: string | null;
   classes: SanctionedClass[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
@@ -824,7 +835,7 @@ function ClubClassPicker({
                   </strong>{' '}
                   {unitLabel(unit)}
                   {usesJudgeCount(unit) && judgeCount > 0
-                    ? ` (${formatMoney(feeCents)} × ${judgeCount})`
+                    ? ` (${formatMoney(feeCents)} × ${judgesLabel(judgeCount, judgeCode)})`
                     : ''}
                   , to anyone who enters one of them
                 </>

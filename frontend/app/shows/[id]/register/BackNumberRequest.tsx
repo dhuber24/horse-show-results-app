@@ -19,6 +19,13 @@ import { useRouter } from 'next/navigation';
  *  * It does not list the numbers already taken. That is a lot of integers to
  *    ship for a question the 409 answers instantly, by name, at the moment it
  *    actually matters.
+ *
+ * Somebody who never asks is given the lowest free number when they sign up
+ * (`backnumbers.assign_back_number_if_missing`), so by the time this box is on
+ * screen it usually shows a number already — asking here swaps it for theirs.
+ * A number somebody else holds is refused, and the refusal is an alert rather
+ * than small print under the box: the next thing they need to do is pick
+ * another, and they have to see that to do it.
  */
 export default function BackNumberRequest({
   showId,
@@ -37,6 +44,7 @@ export default function BackNumberRequest({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<number | null>(null);
+  const [taken, setTaken] = useState(false);
 
   const parsed = Number(value);
   const isValid = value.trim() !== '' && Number.isInteger(parsed) && parsed >= 1 && parsed <= 9999;
@@ -54,6 +62,7 @@ export default function BackNumberRequest({
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        setTaken(json?.detail?.code === 'BACK_NUMBER_TAKEN');
         setError(
           typeof json?.detail === 'string'
             ? json.detail
@@ -62,6 +71,7 @@ export default function BackNumberRequest({
         setSaving(false);
         return;
       }
+      setTaken(false);
       setSaved(json?.signup?.back_number ?? parsed);
       setSaving(false);
       // The banner on the show page and the bill both read the back number, so
@@ -88,7 +98,9 @@ export default function BackNumberRequest({
         Your back number
       </h2>
       <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-        Ask for a number, or leave it and one will be assigned.
+        {backNumber != null
+          ? 'Ride a number of your own? Ask for it here.'
+          : 'Ask for a number, or leave it and one will be assigned.'}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -101,10 +113,12 @@ export default function BackNumberRequest({
           onChange={(e) => {
             setValue(e.target.value);
             setError(null);
+            setTaken(false);
             setSaved(null);
           }}
           placeholder="e.g. 42"
           aria-label="Preferred back number"
+          aria-invalid={taken || undefined}
           className="w-28 border rounded px-3 py-2 text-sm"
           style={{ borderColor: 'var(--border)' }}
         />
@@ -144,7 +158,16 @@ export default function BackNumberRequest({
       )}
 
       {error && (
-        <p className="text-xs mt-2 font-medium" style={{ color: 'var(--error-strong)' }}>
+        <p
+          role="alert"
+          className="text-sm mt-2 rounded border px-3 py-2"
+          style={{
+            borderColor: 'var(--error-border)',
+            backgroundColor: 'var(--error-bg)',
+            color: 'var(--error-strong)',
+          }}
+        >
+          {taken && <strong>That number is taken. </strong>}
           {error}
         </p>
       )}

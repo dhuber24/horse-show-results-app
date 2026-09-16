@@ -163,6 +163,62 @@ def sanction_fee_unit(row) -> str:
     return getattr(row, "fee_unit", None) or "per_entry"
 
 
+def carded_judge_count(show, association_id=None, code=None) -> tuple[int, Optional[str]]:
+    """How many judges a per-judge fee for one association multiplies by.
+
+    Returns (count, code): the judges on this show's panel carded with that
+    association (`judge_associations`), and the association's code when the
+    count was narrowed to them -- or the whole panel and None when it was not.
+
+    "Per judge" on a club's fee means that club's judges. The MNSPHC show runs
+    four APHA judges, two of them also carded WSCA, and a WSCA fee priced per
+    judge was multiplying by all four. The carding on the judge registry is the
+    only record of who judges for whom, so that is what is counted.
+
+    **A panel with nobody carded for the association counts whole.** A regional
+    club like MNSPHC cards no judges at all -- its All Breed classes are judged
+    by whoever is on the panel -- and a registry where nobody has recorded
+    carding yet is the same shape. Counting zero there would silently drop a
+    fee from every bill; counting the panel is what every bill did before this.
+    The code on the line is what tells the two cases apart on a printed bill.
+    """
+    panel = list(getattr(show, "judges", None) or [])
+    if association_id is None and not code:
+        return len(panel), None
+    carded = 0
+    for assignment in panel:
+        judge = getattr(assignment, "judge", None)
+        for association in (getattr(judge, "associations", None) or []):
+            same_id = (
+                association_id is not None
+                and getattr(association, "id", None) == association_id
+            )
+            same_code = bool(code) and getattr(association, "code", None) == code
+            if same_id or same_code:
+                carded += 1
+                break
+    if carded == 0:
+        return len(panel), None
+    return carded, code
+
+
+def breed_judge_count(show) -> tuple[int, Optional[str]]:
+    """The judge count the show's own automatic charges multiply by.
+
+    Those charges already count only the breed association's own classes
+    (`charge_lines`), so a per-judge one is per *breed association* judge: a
+    WSCA-only judge added to an APHA panel for the All Breed classes does not
+    judge an APHA entry. Matched on the show type's code, which is the same
+    code the breed body carries in `associations`. An Open show has no breed
+    body and counts its whole panel.
+    """
+    show_type = getattr(show, "show_type", None)
+    code = getattr(show_type, "code", None)
+    if not code or code == "OPEN":
+        return len(getattr(show, "judges", None) or []), None
+    return carded_judge_count(show, code=code)
+
+
 def class_carries_sanction(cls, association_id) -> bool:
     """Whether this club is one of the clubs that approves this class."""
     return any(
@@ -221,7 +277,6 @@ def class_sanction_cents(cls, rates: dict) -> int:
 def sanction_charge_lines(
     show,
     entries: Iterable,
-    judge_count: int,
 ) -> tuple[list[dict], int]:
     """The club sanction fees that are charged per exhibitor, not per class.
 
@@ -244,6 +299,9 @@ def sanction_charge_lines(
     so "per judge, per horse" cannot come to mean one thing on a show fee and
     another on a club's. It returns 0 for `per_entry`, which is the second
     guard on the double-charge above.
+
+    A per-judge club fee multiplies by **that club's judges** -- the panel
+    judges carded with it -- not by the whole panel. See `carded_judge_count`.
     """
     entry_list = [e for e in entries if e.class_ is not None]
 
@@ -258,6 +316,12 @@ def sanction_charge_lines(
             e for e in entry_list if class_carries_sanction(e.class_, row.association_id)
         ]
         horse_count = len({e.horse_id for e in club_entries if e.horse_id})
+        association = getattr(row, "association", None)
+        judge_count, judge_code = carded_judge_count(
+            show,
+            association_id=row.association_id,
+            code=association.code if association is not None else None,
+        )
         quantity = charge_multiplier(
             unit,
             horse_count,
@@ -268,7 +332,6 @@ def sanction_charge_lines(
         if quantity <= 0:
             continue
         line_total = amount * quantity
-        association = getattr(row, "association", None)
         lines.append(
             {
                 "association_id": row.association_id,
@@ -284,6 +347,9 @@ def sanction_charge_lines(
                 # against a paper show bill in a way "$180.00" is not.
                 "horse_count": horse_count,
                 "judge_count": judge_count,
+                # Set when the count is that club's carded judges rather than
+                # the whole panel, so the bill can say "2 WSCA judges".
+                "judge_association_code": judge_code,
                 "entry_count": len(club_entries),
                 "quantity": quantity,
                 "line_total_cents": line_total,
@@ -401,6 +467,7 @@ def charge_lines(
     fees: Iterable,
     entries: Iterable,
     judge_count: int,
+    judge_association_code: Optional[str] = None,
 ) -> tuple[list[dict], int]:
     """Itemize the show's own automatic charges for one exhibitor.
 
@@ -494,6 +561,9 @@ def charge_lines(
                 # not foot.
                 "horse_count": fee_horses,
                 "judge_count": judge_count,
+                # The breed body whose carded judges `judge_count` is, or None
+                # for the whole panel -- see `breed_judge_count`.
+                "judge_association_code": judge_association_code,
                 "entry_count": fee_count,
                 # Whether this line was narrowed, so a bill can say so rather
                 # than leaving somebody to wonder why the counts differ from
@@ -706,20 +776,23 @@ def build_bill(
     # so every caller must eager-load both. An unloaded relationship raises
     # MissingGreenlet in an async request, which is loud; defaulting to "this
     # show has no fees" would silently under-bill an entire show, which is not.
-    judge_count = len(show.judges or [])
+    #
+    # A per-judge charge counts the breed body's own judges, and a club's
+    # per-judge fee counts that club's -- never simply the panel, which on a
+    # dual-sanctioned show is both bodies' judges together.
+    judge_count, judge_code = breed_judge_count(show)
     charge_line_list, charge_total = charge_lines(
         show.fees or [],
         entry_list,
         judge_count,
+        judge_code,
     )
     # The clubs that charge per horse or per exhibitor rather than per class
     # (migration 133). Their money is club sanction money like any other, so it
     # totals into `sanction_total_cents` and every screen that reads that figure
     # keeps footing; `class_sanction_total_cents` is kept beside it so a bill
     # can print the per-class portion without summing these in the browser.
-    sanction_line_list, sanction_charge_total = sanction_charge_lines(
-        show, entry_list, judge_count
-    )
+    sanction_line_list, sanction_charge_total = sanction_charge_lines(show, entry_list)
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 
     return {

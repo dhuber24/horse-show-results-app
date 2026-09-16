@@ -43,7 +43,6 @@ from schemas import StaffWaiverSignatureCreate, WaiverSignatureCreate
         ("Am W/T", ("AMATEUR_WALK_TROT",)),
         ("Novice Youth", ("NOVICE_YOUTH",)),
         ("Novice Amateur", ("NOVICE_AMATEUR",)),
-        ("Solid Paint-Bred", ("SOLID_PAINT_BRED",)),
         ("Open", ("OPEN",)),
     ],
 )
@@ -72,7 +71,7 @@ def test_plain_youth_and_amateur_are_not_their_novice_variants():
     "bracket",
     [
         "Youth WT 5-10", "Youth W/T 11-18", "Amateur Walk-Trot", "Novice Youth",
-        "Novice Amateur", "Solid Paint-Bred", "Open", "Youth", "Amateur",
+        "Novice Amateur", "Open", "Youth", "Amateur",
     ],
 )
 def test_every_bracket_that_matches_resolves_to_exactly_one_division(bracket):
@@ -89,12 +88,20 @@ def test_a_bracket_that_says_nothing_files_no_division_at_all(bracket):
     """None is "this class does not say", never a guess.
 
     "Yearling Stallions" is almost always an Open halter class, and filing it as
-    OPEN would be right most of the time and would refuse a Solid Paint-Bred
-    horse (SC-325.A.1) the rest of it -- an entry the show meant to take, turned
-    away over a division nobody chose. The entry is filed with no division,
+    OPEN would be right most of the time and wrong the rest -- a youth or amateur
+    entry in a class the show ran for everyone, filed under a division nobody
+    chose, on the entry APHA reads. The entry is filed with no division,
     which is what every entry did before the picker existed and what
     `validate_entry` returns early on by design.
     """
+    assert divisions_for_bracket(bracket) is None
+
+
+@pytest.mark.parametrize("bracket", ["Solid Paint-Bred", "SPB"])
+def test_a_solid_paint_bred_bracket_is_not_a_division_any_more(bracket):
+    """SC-325 ended the separate Solid Paint-Bred showing divisions on 1 January
+    2025. A bracket still reading that way is a leftover, so it files nothing
+    rather than a division nobody can run."""
     assert divisions_for_bracket(bracket) is None
 
 
@@ -115,7 +122,7 @@ def test_every_division_returned_is_one_an_entry_may_actually_store():
     hand the exhibitor an option the INSERT rejects."""
     brackets = [
         "Youth WT 5-10", "Youth W/T 11-18", "Amateur Walk-Trot", "Novice Youth",
-        "Novice Amateur", "Solid Paint-Bred", "Open", "Youth", "Amateur",
+        "Novice Amateur", "Open", "Youth", "Amateur",
     ]
     for bracket in brackets:
         for division in divisions_for_bracket(bracket) or ():

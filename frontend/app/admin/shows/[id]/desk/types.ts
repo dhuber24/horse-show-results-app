@@ -6,6 +6,7 @@
  * per exhibitor.
  */
 import type { VerificationCheck } from './CheckRow';
+import type { Bill, BillFuturityLine } from '@/lib/my-shows';
 
 export type HealthStatus = 'valid' | 'missing' | 'undated' | 'expired';
 
@@ -157,6 +158,10 @@ export interface DeskExhibitor {
   net_paid_cents: number;
   /** Positive means they owe the show; negative means they have overpaid. */
   balance_cents: number;
+  /** The itemised bill behind `billed_cents` — the same one Financials shows.
+   *  The Classes section quotes it rather than adding up `entry_fee_cents`,
+   *  which reads $0 for every futurity class. */
+  bill: Bill | null;
   /** Payment rows on the account, refunds included. Any at all and the
    *  registration can be cancelled but not removed — removing it would delete
    *  the record of money that moved. */
@@ -187,8 +192,96 @@ export interface Desk {
   requires_physical_document_check: boolean;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
+  futurities: DeskFuturity[];
   exhibitors: DeskExhibitor[];
   totals: DeskTotals;
+}
+
+export interface DeskFuturityPrice {
+  id: string;
+  name: string;
+  amount_cents: number;
+}
+
+/** A futurity as the desk needs it: which classes it prices, and what enrolling
+ *  a horse asks. The enrollments themselves are on each exhibitor's bill. */
+export interface DeskFuturity {
+  id: string;
+  name: string;
+  class_ids: string[];
+  fee_tiers: DeskFuturityPrice[];
+  membership_options: DeskFuturityPrice[];
+  office_fee_member_cents: number;
+  office_fee_nonmember_cents: number;
+  late_fee_cents: number;
+  entry_deadline: string | null;
+}
+
+/** The futurity that prices this class, if any. */
+export function futurityForClass(desk: Desk, classId: string): DeskFuturity | undefined {
+  // `?? []` so a frontend deployed ahead of the backend that adds the field
+  // reads "no futurities" rather than taking the desk down.
+  return (desk.futurities ?? []).find((f) => f.class_ids.includes(classId));
+}
+
+/** This exhibitor's enrollment of one horse in one futurity, off their bill. */
+export function futurityEnrollment(
+  exhibitor: DeskExhibitor | undefined,
+  futurityId: string,
+  horseId: string | null,
+): BillFuturityLine | undefined {
+  if (!exhibitor || !horseId) return undefined;
+  return (exhibitor.bill?.futurity_lines ?? []).find(
+    (l) => l.futurity_id === futurityId && l.horse_id === horseId,
+  );
+}
+
+/**
+ * Horses this exhibitor has put in a futurity's classes without enrolling them
+ * in the futurity.
+ *
+ * A futurity class carries no fee of its own — the enrollment's category is
+ * the price — so an entry like this is billed nothing, and the desk's total
+ * silently reads short. One row per (futurity, horse), with how many of its
+ * classes the horse is in.
+ */
+export function unenrolledFuturityHorses(
+  desk: Desk,
+  exhibitor: DeskExhibitor,
+): { futurity: DeskFuturity; horseId: string; horseName: string; classCount: number }[] {
+  const found = new Map<
+    string,
+    { futurity: DeskFuturity; horseId: string; horseName: string; classCount: number }
+  >();
+  for (const entry of exhibitor.entries) {
+    if (!entry.horse_id) continue;
+    const futurity = futurityForClass(desk, entry.class_id);
+    if (!futurity || futurityEnrollment(exhibitor, futurity.id, entry.horse_id)) continue;
+    const key = `${futurity.id}|${entry.horse_id}`;
+    const row = found.get(key) ?? {
+      futurity,
+      horseId: entry.horse_id,
+      horseName: entry.horse_name ?? 'This horse',
+      classCount: 0,
+    };
+    row.classCount += 1;
+    found.set(key, row);
+  }
+  return Array.from(found.values());
+}
+
+/** The lowest back number nobody else at the show holds or has asked for —
+ *  the same rule the backend assigns at sign-up. */
+export function nextFreeBackNumber(desk: Desk, exceptExhibitorId: string): number {
+  const taken = new Set<number>();
+  for (const e of desk.exhibitors) {
+    if (e.exhibitor_id === exceptExhibitorId) continue;
+    if (e.back_number != null) taken.add(e.back_number);
+    if (e.preferred_back_number != null) taken.add(e.preferred_back_number);
+  }
+  let n = 1;
+  while (taken.has(n)) n += 1;
+  return n;
 }
 
 /** A horse on the exhibitor's own profile — what the class picker offers. */
@@ -196,7 +289,6 @@ export interface ProfileHorse {
   id: string;
   name: string;
   barn_name?: string | null;
-  is_solid_paint_bred?: boolean;
 }
 
 export const COLORS = {

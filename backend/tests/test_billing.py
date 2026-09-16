@@ -8,6 +8,7 @@ collects on them, so a silent regression here charges a real person the wrong
 amount.
 """
 from datetime import date
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -25,6 +26,7 @@ from tests.factories import (
     make_reservation,
     make_sanctioning,
     make_show,
+    make_show_judge,
     make_side_pot,
 )
 
@@ -170,7 +172,7 @@ def test_a_per_class_club_produces_no_exhibitor_level_line():
     show = make_show(sanctioning=[nsba])
     entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(nsba)]))]
 
-    lines, total = billing.sanction_charge_lines(show, entries, judge_count=3)
+    lines, total = billing.sanction_charge_lines(show, entries)
 
     assert lines == []
     assert total == 0
@@ -190,7 +192,7 @@ def test_a_per_horse_club_charges_once_for_each_horse_in_its_own_classes():
         make_entry(cls=cls_a, horse_id=scout),
     ]
 
-    lines, total = billing.sanction_charge_lines(show, entries, judge_count=0)
+    lines, total = billing.sanction_charge_lines(show, entries)
 
     assert total == 9000
     assert lines[0]["horse_count"] == 2
@@ -208,7 +210,7 @@ def test_a_per_horse_club_ignores_horses_it_never_saw():
         make_entry(cls=make_class(), horse_id=uuid4()),
     ]
 
-    _, total = billing.sanction_charge_lines(show, entries, judge_count=0)
+    _, total = billing.sanction_charge_lines(show, entries)
 
     assert total == 4500, "one horse in the club's classes, not two"
 
@@ -222,27 +224,83 @@ def test_a_per_exhibitor_club_charges_nobody_who_entered_none_of_its_classes():
     _, entered = billing.sanction_charge_lines(
         show,
         [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))],
-        judge_count=0,
     )
-    _, elsewhere = billing.sanction_charge_lines(
-        show, [make_entry(cls=make_class())], judge_count=0
-    )
+    _, elsewhere = billing.sanction_charge_lines(show, [make_entry(cls=make_class())])
 
     assert entered == 2000, "once, however many of its classes they entered"
     assert elsewhere == 0
 
 
-def test_a_per_judge_club_fee_multiplies_by_the_panel():
+def test_a_per_judge_club_nobody_is_carded_with_multiplies_by_the_panel():
     """$45 x 4 judges x one horse = $180 — the arithmetic a secretary had been
-    doing by hand into a flat amount."""
+    doing by hand into a flat amount. MNSPHC cards no judges; its classes are
+    judged by whoever is on the panel, so the whole panel is the count."""
     club = make_sanctioning("MNSPHC", fee_amount_cents=4500, fee_unit="per_judge_per_horse")
     show = make_show(sanctioning=[club], judges=make_judges(4))
     entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))]
 
-    lines, total = billing.sanction_charge_lines(show, entries, judge_count=4)
+    lines, total = billing.sanction_charge_lines(show, entries)
 
     assert total == 18000
     assert lines[0]["judge_count"] == 4 and lines[0]["horse_count"] == 1
+    assert lines[0]["judge_association_code"] is None
+
+
+def test_a_per_judge_club_fee_counts_only_the_judges_carded_with_that_club():
+    """The MNSPHC show: four APHA judges, two of them also carded WSCA. A WSCA
+    fee per judge is two judges' worth, not four."""
+    wsca = make_sanctioning("WSCA", fee_amount_cents=500, fee_unit="per_judge_per_horse")
+    show = make_show(
+        sanctioning=[wsca],
+        judges=[
+            make_show_judge(codes=("APHA", "WSCA")),
+            make_show_judge(codes=("APHA",)),
+            make_show_judge(codes=("APHA",)),
+            make_show_judge(codes=("WSCA", "APHA")),
+        ],
+    )
+    entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(wsca)]))]
+
+    lines, total = billing.sanction_charge_lines(show, entries)
+
+    assert total == 1000, "$5.00 x 2 WSCA judges x 1 horse"
+    assert lines[0]["judge_count"] == 2
+    assert lines[0]["judge_association_code"] == "WSCA"
+
+
+def test_the_show_own_per_judge_charge_counts_the_breed_body_judges():
+    """A WSCA-only judge brought in for the All Breed classes does not judge an
+    APHA entry, so the show's own per-judge charge does not count them."""
+    fee = make_fee(unit="per_judge_per_horse", amount_cents=400, code="office", label="Office")
+    show = make_show(
+        fees=[fee],
+        show_type=SimpleNamespace(code="APHA"),
+        judges=[
+            make_show_judge(codes=("APHA",)),
+            make_show_judge(codes=("APHA", "WSCA")),
+            make_show_judge(codes=("WSCA",)),
+        ],
+    )
+
+    bill = billing.build_bill(show, [make_entry()], [])
+
+    assert bill["charge_total_cents"] == 800, "$4.00 x 2 APHA judges x 1 horse"
+    assert bill["charge_lines"][0]["judge_association_code"] == "APHA"
+
+
+def test_an_open_show_per_judge_charge_counts_the_whole_panel():
+    """No breed body, so nobody to narrow the panel to."""
+    fee = make_fee(unit="per_judge_per_horse", amount_cents=400, code="office", label="Office")
+    show = make_show(
+        fees=[fee],
+        show_type=SimpleNamespace(code="OPEN"),
+        judges=[make_show_judge(codes=("APHA",)), make_show_judge(codes=("WSCA",))],
+    )
+
+    bill = billing.build_bill(show, [make_entry()], [])
+
+    assert bill["charge_total_cents"] == 800
+    assert bill["charge_lines"][0]["judge_association_code"] is None
 
 
 def test_a_club_with_a_unit_but_no_amount_bills_nothing():
@@ -252,7 +310,7 @@ def test_a_club_with_a_unit_but_no_amount_bills_nothing():
     show = make_show(sanctioning=[club])
     entries = [make_entry(cls=make_class(sanctioning=[make_class_sanction(club)]))]
 
-    lines, total = billing.sanction_charge_lines(show, entries, judge_count=2)
+    lines, total = billing.sanction_charge_lines(show, entries)
 
     assert (lines, total) == ([], 0)
 
@@ -270,7 +328,7 @@ def test_a_club_row_that_predates_the_unit_still_bills_per_class():
     show = make_show(sanctioning=[legacy])
 
     assert billing.sanction_rates(show) == {legacy.association_id: 300}
-    assert billing.sanction_charge_lines(show, [], judge_count=2) == ([], 0)
+    assert billing.sanction_charge_lines(show, []) == ([], 0)
 
 
 def test_the_bill_totals_both_kinds_of_sanction_money_and_foots():

@@ -141,6 +141,34 @@ async def bulk_update_back_numbers(
     )
     existing_by_exhibitor = {se.exhibitor_id: se for se in existing_result.scalars().all()}
 
+    # Somebody outside this batch already wears the number. Named, so the desk
+    # can tell staff who has 42 rather than only that 42 is a duplicate; rows
+    # inside the batch are excluded because a batch may legitimately swap two
+    # numbers. The unique constraint below is still what makes it safe.
+    if submitted:
+        holders = await db.execute(
+            select(ShowEntry.back_number, Exhibitor.full_name)
+            .join(Exhibitor, Exhibitor.id == ShowEntry.exhibitor_id)
+            .where(
+                ShowEntry.show_id == show_id,
+                ShowEntry.back_number.in_(submitted),
+                ShowEntry.exhibitor_id.not_in(exhibitor_ids),
+            )
+        )
+        clash = holders.first()
+        if clash is not None:
+            number, holder = clash
+            raise HTTPException(
+                409,
+                {
+                    "code": "BACK_NUMBER_TAKEN",
+                    "message": (
+                        f"Back number {number} is already held by {holder}. "
+                        "Pick a different one."
+                    ),
+                },
+            )
+
     for assignment in body.assignments:
         show_entry = existing_by_exhibitor.get(assignment.exhibitor_id)
         if show_entry:

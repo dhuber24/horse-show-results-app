@@ -46,6 +46,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backnumbers import assign_back_number_if_missing
 from cancellations import (
     CancellationBlocked,
     cancel_registration,
@@ -58,6 +59,7 @@ from models import (
     Class,
     Entry,
     Exhibitor,
+    Futurity,
     Horse,
     Show,
     ShowEntry,
@@ -182,6 +184,19 @@ async def get_desk(
         .order_by(SidePot.created_at)
     )
     pots = list(pot_result.scalars().all())
+
+    futurity_result = await db.execute(
+        select(Futurity)
+        .options(
+            selectinload(Futurity.futurity_classes),
+            selectinload(Futurity.fee_tiers),
+            selectinload(Futurity.membership_options),
+        )
+        .where(Futurity.show_id == show_id)
+        .order_by(Futurity.created_at)
+    )
+    futurities = list(futurity_result.scalars().all())
+
     # Keyed by show_entry_id because that is what a pot entry points at — an
     # exhibitor with no roster row cannot be in a pot, which is why the desk
     # creates that row before offering the toggles.
@@ -228,6 +243,7 @@ async def get_desk(
             "billed_cents": account["bill"]["total_cents"],
             "net_paid_cents": account["net_paid_cents"],
             "balance_cents": account["balance_cents"],
+            "bill": account["bill"],
             "payment_count": len(account["payments"]),
         })
 
@@ -268,8 +284,8 @@ async def get_desk(
                 "division_name": cls.division.name if cls.division else None,
                 # The APHA division an entry in this class is filed under — the
                 # same answer `POST .../entries` fills in, from the same
-                # function. The desk states it rather than asking, and its SPB
-                # and Novice checks read it. Only at an APHA show.
+                # function. The desk states it rather than asking, and its Novice
+                # check reads it. Only at an APHA show.
                 "apha_division": (
                     division_for_class(
                         cls.division.name if cls.division else None, cls.class_name
@@ -290,6 +306,32 @@ async def get_desk(
                 "entry_count": len(pot.pot_entries),
             }
             for pot in pots
+        ],
+        # Which classes a futurity prices, and what enrolling a horse in it
+        # asks. The enrollments themselves ride on each exhibitor's bill as
+        # `futurity_lines`, so there is one record of who is in and what it
+        # costs rather than a second list here to disagree with it.
+        "futurities": [
+            {
+                "id": futurity.id,
+                "name": futurity.name,
+                "class_ids": [fc.class_id for fc in futurity.futurity_classes],
+                "fee_tiers": [
+                    {"id": t.id, "name": t.name, "amount_cents": t.amount_cents}
+                    for t in sorted(futurity.fee_tiers, key=lambda t: (t.sort_order, t.name))
+                ],
+                "membership_options": [
+                    {"id": m.id, "name": m.name, "amount_cents": m.amount_cents}
+                    for m in sorted(
+                        futurity.membership_options, key=lambda m: (m.sort_order, m.name)
+                    )
+                ],
+                "office_fee_member_cents": futurity.office_fee_member_cents,
+                "office_fee_nonmember_cents": futurity.office_fee_nonmember_cents,
+                "late_fee_cents": futurity.late_fee_cents,
+                "entry_deadline": futurity.entry_deadline,
+            }
+            for futurity in futurities
         ],
         "exhibitors": exhibitors_out,
         "totals": {
@@ -367,6 +409,12 @@ async def add_exhibitor_to_roster(
             show_entry = existing_result.scalar_one()
         else:
             await db.refresh(show_entry)
+
+    # A walk-up leaves the counter with a number, the same as somebody who
+    # signed themselves up. Staff overwrite it on the panel if the exhibitor
+    # rides a number of their own; an existing roster row keeps what it holds.
+    await assign_back_number_if_missing(show_entry, db)
+    await db.commit()
 
     return {
         "show_entry_id": show_entry.id,

@@ -176,7 +176,6 @@ export default function AddClassEntry({
   const aphaDivision = (isApha && activeClass?.apha_divisions?.[0]) || '';
 
   const selectedHorse = horses.find((h) => h.id === horseId);
-  const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
 
   const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
   // Answered on the horses step. Missing is a prompt with a destination, never
@@ -298,7 +297,6 @@ export default function AddClassEntry({
           {selectableHorses.map((h) => (
             <option key={h.id} value={h.id}>
               {h.name}
-              {h.is_solid_paint_bred ? ' (SPB)' : ''}
               {/* Marked, never enforced — the panel above says what is due. */}
               {healthWarnings(h).length > 0 ? ' ⚠ records due' : ''}
             </option>
@@ -373,37 +371,26 @@ export default function AddClassEntry({
         </label>
       )}
 
-      {spbBlocked && (
-        <p
-          className="text-sm rounded border p-2"
-          style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error)' }}
-        >
-          Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).
-        </p>
-      )}
-
       {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
 
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={submit}
-          disabled={!classId || !horseId || spbBlocked || missingNoviceDeclaration || saving}
+          disabled={!classId || !horseId || missingNoviceDeclaration || saving}
           title={
-            spbBlocked
-              ? 'Solid Paint-Bred horses may not enter Open division classes'
-              : !classId || !horseId
-                ? 'Pick a class and a horse first'
-                : missingNoviceDeclaration
-                  ? 'Tick the eligibility declaration to enter a Novice class'
-                  : undefined
+            !classId || !horseId
+              ? 'Pick a class and a horse first'
+              : missingNoviceDeclaration
+                ? 'Tick the eligibility declaration to enter a Novice class'
+                : undefined
           }
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: 'var(--accent)' }}
         >
           {saving ? 'Entering…' : 'Enter class'}
         </button>
-        {activeClass && horseId && !spbBlocked && (
+        {activeClass && horseId && (
           <span className="text-xs" style={{ color: 'var(--muted)' }}>
             {activeClass.entry_fee_cents > 0
               ? `${formatMoney(

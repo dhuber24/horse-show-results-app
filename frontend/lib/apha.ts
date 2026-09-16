@@ -1,5 +1,11 @@
 // APHA-specific constants and utilities
 
+/**
+ * Every value `entries.apha_division` may hold, for labelling. Solid Paint-Bred
+ * is a retired division kept so entries made before 2025 still read properly:
+ * SC-325 ended the separate showing divisions on 1 January 2025, and no class
+ * resolves to it any more. Mirrors `DIVISIONS` in `backend/rules/apha.py`.
+ */
 export const APHA_DIVISIONS = [
   { value: 'OPEN', label: 'Open' },
   { value: 'SOLID_PAINT_BRED', label: 'Solid Paint-Bred' },
@@ -91,14 +97,6 @@ export const RELATIONSHIP_OPTIONS: readonly string[] =
   RELATIONSHIP_OPTION_GROUPS.flatMap((g) => g.options);
 
 /**
- * Divisions whose eligibility turns on who owns the horse. Mirrors
- * `RELATIONSHIP_REQUIRED_DIVISIONS` in `backend/rules/apha.py` — the backend is
- * what enforces this; the copy here only decides whether to show the field.
- *
- * Open and Solid Paint-Bred are absent on purpose: eligibility there is a
- * property of the horse's registry, and who owns it does not change the answer.
- */
-/**
  * Divisions gated on points and prize money — facts the app does not hold and
  * never will. AM-205 decides Novice Amateur per category at the time status is
  * applied for; YP-255.A.1 caps Novice Youth fence-work earnings at $750. Both
@@ -123,12 +121,21 @@ export const NOVICE_ELIGIBILITY_STATEMENT =
   'Novice division as of January 1 of the current show year. Eligibility is the ' +
   "exhibitor's responsibility (APHA AM-205, YP-255.A.1).";
 
+/**
+ * Divisions whose eligibility turns on who owns the horse. Mirrors
+ * `RELATIONSHIP_REQUIRED_DIVISIONS` in `backend/rules/apha.py` — the backend is
+ * what enforces this; the copy here only decides whether to show the field.
+ *
+ * Open and Solid Paint-Bred are absent on purpose: eligibility there is a
+ * property of the horse's registry, and who owns it does not change the answer.
+ * The Novice divisions are absent because APHA dropped their ownership
+ * requirement — AM-210 for Novice Amateur from 2025, YP-205 for Novice Youth
+ * from 2026.
+ */
 export const RELATIONSHIP_REQUIRED_DIVISIONS = new Set([
   'AMATEUR',
-  'NOVICE_AMATEUR',
   'AMATEUR_WALK_TROT',
   'YOUTH',
-  'NOVICE_YOUTH',
   'YOUTH_WALK_TROT_11_18',
   'YOUTH_WALK_TROT_5_10',
 ]);

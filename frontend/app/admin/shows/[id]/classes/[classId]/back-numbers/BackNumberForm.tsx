@@ -57,8 +57,10 @@ export default function BackNumberForm({ showId, classId, entries }: {
       setMessage({ type: 'success', text: 'Back numbers saved!' });
       router.refresh();
     } else {
-      const data = await res.json();
-      setMessage({ type: 'error', text: data.detail || 'Failed to save back numbers.' });
+      const data = await res.json().catch(() => ({}));
+      // A taken number comes back as `{code, message}`, naming who holds it.
+      const detail = typeof data?.detail === 'string' ? data.detail : data?.detail?.message;
+      setMessage({ type: 'error', text: detail || 'Failed to save back numbers.' });
     }
   };
 

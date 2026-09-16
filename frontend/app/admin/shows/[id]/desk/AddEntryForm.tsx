@@ -1,7 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { COLORS } from './types';
+import {
+  EMPTY_CHOICE,
+  EnrollmentFields,
+  choiceIsComplete,
+  enrollHorse,
+  type EnrollmentChoice,
+} from './FuturityEnrollment';
+import { COLORS, futurityEnrollment, futurityForClass } from './types';
 import type { Desk, DeskClass, DeskExhibitor, ProfileHorse } from './types';
 import { formatMoney } from '@/lib/financials';
 import {
@@ -16,8 +23,8 @@ import {
  * The desk asks this question two ways — "what else is this person riding?" on
  * their panel, and "who else is in this class?" from the by-class view — and
  * they are the same form with one side pinned. Writing it twice would have
- * meant two copies of the SPB guard, the Novice declaration, and the horse
- * lookup, which is exactly the kind of pair that drifts.
+ * meant two copies of the Novice declaration and the horse lookup, which is
+ * exactly the kind of pair that drifts.
  *
  * Pin the exhibitor by passing `exhibitor`, or the class by passing `cls`. The
  * other side gets a picker.
@@ -30,6 +37,11 @@ import {
  * profile keeps it. `POST .../entries` fills both from those same sources, so
  * sending nothing here stores exactly what a picker with one right answer
  * would have.
+ *
+ * **A futurity class asks for the futurity enrollment in the same press.** The
+ * class carries no fee of its own — the enrollment's category is its price — so
+ * entering the class without enrolling the horse billed nothing and left the
+ * desk's total short with nothing on screen to say why.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -64,11 +76,21 @@ export default function AddEntryForm({
   const [horsesLoading, setHorsesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enroll, setEnroll] = useState(true);
+  const [enrollment, setEnrollment] = useState<EnrollmentChoice>(EMPTY_CHOICE);
 
   const isApha = desk.show_type_code === 'APHA';
   const exhibitorId = exhibitor?.exhibitor_id ?? pickedExhibitorId;
   const classId = cls?.id ?? pickedClassId;
   const activeClass = cls ?? desk.classes.find((c) => c.id === pickedClassId);
+  const person = exhibitor ?? desk.exhibitors.find((e) => e.exhibitor_id === pickedExhibitorId);
+
+  // The futurity that prices this class, when the horse is not in it yet.
+  const futurity = classId ? futurityForClass(desk, classId) : undefined;
+  const existingEnrollment = futurity ? futurityEnrollment(person, futurity.id, horseId) : undefined;
+  const offerEnrollment = Boolean(futurity && horseId && !existingEnrollment);
+  const enrolling = offerEnrollment && enroll;
+  const enrollmentIncomplete = enrolling && futurity !== undefined && !choiceIsComplete(futurity, enrollment);
 
   // Who and what is already in the class being filled — a horse can only be in
   // a class once (`entries_class_horse_uniq`), and only pattern classes let one
@@ -149,8 +171,6 @@ export default function AddEntryForm({
   // goes in with no division.
   const aphaDivision = (isApha && activeClass?.apha_division) || '';
 
-  const selectedHorse = horses.find((h) => h.id === horseId);
-  const spbBlocked = isApha && aphaDivision === 'OPEN' && selectedHorse?.is_solid_paint_bred === true;
   // The Novice divisions turn on points and earnings the app does not hold, so
   // the entry carries a declaration instead of a check. The backend enforces it;
   // blocking here keeps the desk from posting an entry it knows will 422.
@@ -181,13 +201,28 @@ export default function AddEntryForm({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    setSaving(false);
 
     if (!res.ok) {
+      setSaving(false);
       const payload = await res.json().catch(() => ({}));
       setError(backendMessage(payload?.detail ?? payload?.error, 'Could not add that entry.'));
       return;
     }
+
+    // The class entry stands whatever happens next. A failed enrollment is
+    // reported against it rather than rolled back, and the panel goes on
+    // offering the enrollment until it is made.
+    let enrollmentProblem: string | null = null;
+    if (enrolling && futurity && person) {
+      enrollmentProblem = await enrollHorse({
+        showId,
+        futurity,
+        exhibitor: person,
+        horseId,
+        choice: enrollment,
+      });
+    }
+    setSaving(false);
 
     // Clear only the side that was being chosen; the pinned side is still the
     // job in hand — six classes on one horse, or a queue of riders for class 14.
@@ -195,6 +230,11 @@ export default function AddEntryForm({
     else {
       setPickedExhibitorId('');
       setHorseId('');
+    }
+    setEnrollment(EMPTY_CHOICE);
+    setEnroll(true);
+    if (enrollmentProblem) {
+      setError(`Entered in the class, but the futurity enrollment did not save: ${enrollmentProblem}`);
     }
     await onAdded();
   };
@@ -231,7 +271,11 @@ export default function AddEntryForm({
               return (
                 <option key={c.id} value={c.id}>
                   {c.class_number} — {c.class_name}
-                  {c.entry_fee_cents > 0 ? ` (${formatMoney(c.entry_fee_cents)})` : ''}
+                  {futurityForClass(desk, c.id)
+                    ? ' (priced by the futurity)'
+                    : c.entry_fee_cents > 0
+                      ? ` (${formatMoney(c.entry_fee_cents)})`
+                      : ''}
                   {ridingAlready ? ' · another horse' : ''}
                 </option>
               );
@@ -278,7 +322,6 @@ export default function AddEntryForm({
           {selectableHorses.map((h) => (
             <option key={h.id} value={h.id}>
               {h.name}
-              {h.is_solid_paint_bred ? ' (SPB)' : ''}
             </option>
           ))}
         </select>
@@ -310,10 +353,43 @@ export default function AddEntryForm({
         </label>
       )}
 
-      {spbBlocked && (
-        <p className="text-sm rounded border border-red-300 bg-red-50 p-2 text-red-700">
-          Solid Paint-Bred horses may not enter Open division classes (APHA SC-325.A.1).
+      {futurity && horseId && existingEnrollment && (
+        <p className="text-xs" style={{ color: COLORS.muted }}>
+          Priced by {futurity.name}:{' '}
+          {existingEnrollment.fee_tier_name ?? 'enrolled'}
+          {existingEnrollment.tier_amount_cents > 0 &&
+            ` — ${formatMoney(existingEnrollment.tier_amount_cents)} per class`}
+          .
         </p>
+      )}
+
+      {offerEnrollment && futurity && (
+        <div
+          className="rounded border p-2 space-y-2"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
+        >
+          <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-deep)' }}>
+            <input
+              type="checkbox"
+              checked={enroll}
+              onChange={(e) => setEnroll(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span>
+              Enroll this horse in <strong>{futurity.name}</strong> too. This class has no fee of
+              its own — the futurity category prices it, so without the enrollment nothing is
+              billed for it.
+            </span>
+          </label>
+          {enroll && (
+            <EnrollmentFields
+              futurity={futurity}
+              value={enrollment}
+              onChange={setEnrollment}
+              idPrefix={`add-entry-${futurity.id}`}
+            />
+          )}
+        </div>
       )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -321,20 +397,27 @@ export default function AddEntryForm({
       <button
         type="button"
         onClick={submit}
-        disabled={!classId || !exhibitorId || !horseId || spbBlocked || missingNoviceDeclaration || saving}
+        disabled={
+          !classId ||
+          !exhibitorId ||
+          !horseId ||
+          missingNoviceDeclaration ||
+          enrollmentIncomplete ||
+          saving
+        }
         title={
-          spbBlocked
-            ? 'Solid Paint-Bred horses may not enter Open division classes'
-            : !classId || !exhibitorId || !horseId
-              ? 'Pick an exhibitor and a horse first'
-              : missingNoviceDeclaration
-                ? 'Novice entries need the eligibility declaration ticked'
+          !classId || !exhibitorId || !horseId
+            ? 'Pick an exhibitor and a horse first'
+            : missingNoviceDeclaration
+              ? 'Novice entries need the eligibility declaration ticked'
+              : enrollmentIncomplete
+                ? 'Pick the futurity category, or untick the enrollment'
                 : undefined
         }
         className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
         style={{ backgroundColor: COLORS.dark, color: COLORS.onDark }}
       >
-        {saving ? 'Adding…' : 'Enter class'}
+        {saving ? 'Adding…' : enrolling ? 'Enter class & enroll' : 'Enter class'}
       </button>
     </div>
   );

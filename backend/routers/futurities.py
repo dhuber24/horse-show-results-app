@@ -807,7 +807,7 @@ async def _hydrate_entries(
     people: dict[UUID, tuple[Optional[int], Optional[str]]] = {}
     if show_entry_ids:
         rows = await db.execute(
-            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.name)
+            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.full_name)
             .join(Exhibitor, Exhibitor.id == ShowEntry.exhibitor_id)
             .where(ShowEntry.id.in_(show_entry_ids))
         )
@@ -1105,7 +1105,7 @@ async def get_standings(
     show_entry_ids = [e.show_entry_id for e in futurity.entries]
     if show_entry_ids:
         rows = await db.execute(
-            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.name)
+            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.full_name)
             .join(Exhibitor, Exhibitor.id == ShowEntry.exhibitor_id)
             .where(ShowEntry.id.in_(show_entry_ids))
         )

@@ -60,8 +60,8 @@ export type HealthCheck = {
 export type PreviewHorse = {
   id: string;
   name: string;
-  /** Only meaningful at an APHA show — a Solid Paint-Bred horse may not enter
-   *  an Open division class. */
+  /** A registry fact for the horse's card. Decides nothing about an entry:
+   *  APHA ended the separate Solid Paint-Bred showing divisions in 2025. */
   is_solid_paint_bred: boolean;
   /** Advisory, never a gate — see `healthWarnings`. */
   health?: HealthCheck[];

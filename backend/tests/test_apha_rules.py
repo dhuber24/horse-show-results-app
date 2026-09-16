@@ -4,7 +4,7 @@ These rules were inline in `routers/entries.py` until Phase 0 of the APHA work,
 which meant they ran at the show desk and nowhere else. The exhibitor's own
 class registration in `routers/show_registration.py` has always validated
 through `rules.get_rules`, and `APHARules` was an empty subclass — so somebody
-self-registering could put a Solid Paint-Bred horse in an Open class.
+self-registering was checked against nothing at all.
 
 The last test here is the one that would catch that regression returning: it
 asserts the dispatcher actually hands back APHARules, because every check below
@@ -77,15 +77,17 @@ def codes(issues):
     return [i["code"] for i in issues]
 
 
-# ── SC-325.A.1: Solid Paint-Bred horses and the Open division ────────────────
+# ── SC-325: Solid Paint-Bred horses show with the Regular Registry ───────────
 
-def test_a_solid_paint_bred_horse_may_not_enter_open(rules, show):
+def test_a_solid_paint_bred_horse_may_enter_open(rules, show):
+    """SC-325.A.1 kept a Solid Paint-Bred horse out of Open classes until the
+    separate showing divisions ended on 1 January 2025. Both registries now
+    compete and are awarded together, so refusing this entry would turn away a
+    horse APHA allows."""
     cls = make_class()
     entry = make_entry(cls=cls, horse=make_horse(is_solid_paint_bred=True), apha_division="OPEN")
 
-    issues = rules.validate_entry(entry, show, cls)
-
-    assert codes(errors(issues)) == ["APHA_SOLID_PAINT_BRED_OPEN"]
+    assert rules.validate_entry(entry, show, cls) == []
 
 
 def test_a_regular_registry_horse_may_enter_open(rules, show):
@@ -95,8 +97,9 @@ def test_a_regular_registry_horse_may_enter_open(rules, show):
     assert rules.validate_entry(entry, show, cls) == []
 
 
-def test_a_solid_paint_bred_horse_may_enter_its_own_division(rules, show):
-    """The bar is on Open specifically, not on the horse showing at all."""
+def test_an_entry_filed_under_the_retired_division_is_still_valid(rules, show):
+    """Entries made before 2025 carry SOLID_PAINT_BRED and still have to load
+    and re-validate on the readiness panel; the value stays in DIVISIONS."""
     cls = make_class()
     entry = make_entry(
         cls=cls,
@@ -117,18 +120,6 @@ def test_a_solid_paint_bred_horse_may_be_shown_by_an_amateur(rules, show):
     )
 
     assert rules.validate_entry(entry, show, cls) == []
-
-
-def test_the_message_names_the_horse(rules, show):
-    """A secretary at the desk with forty entries needs to know which one."""
-    cls = make_class()
-    entry = make_entry(
-        cls=cls,
-        horse=make_horse(name="Painted Sky", is_solid_paint_bred=True),
-        apha_division="OPEN",
-    )
-
-    assert "Painted Sky" in errors(rules.validate_entry(entry, show, cls))[0]["message"]
 
 
 def test_an_entry_with_no_horse_is_not_a_crash(rules, show):
@@ -155,16 +146,33 @@ def test_ownership_divisions_require_a_relationship(rules, show, division):
 
 
 def test_every_shortfall_is_reported_at_once(rules, show):
-    """A Novice entry with neither the relationship nor the declaration gets both
-    back. The routers render every error in the envelope, so fixing one and
-    resubmitting to discover the next is avoidable."""
+    """A youth entry with no relationship stated, for an exhibitor past the age
+    cap, gets both back. The routers render every error in the envelope, so
+    fixing one and resubmitting to discover the next is avoidable."""
     cls = make_class()
-    entry = make_entry(cls=cls, apha_division="NOVICE_AMATEUR")
+    entry = make_entry(
+        cls=cls,
+        exhibitor=make_exhibitor(date_of_birth=date(2006, 5, 1)),
+        apha_division="YOUTH",
+    )
+    show = make_show(start_date=date(2026, 6, 1))
+    context = {"apha_brackets": {cls.id: None}, "apha_entries": []}
 
-    assert sorted(codes(errors(rules.validate_entry(entry, show, cls)))) == [
-        "APHA_NOVICE_ELIGIBILITY_REQUIRED",
+    assert sorted(codes(errors(rules.validate_entry(entry, show, cls, context)))) == [
         "APHA_RELATIONSHIP_REQUIRED",
+        "APHA_YOUTH_TOO_OLD",
     ]
+
+
+@pytest.mark.parametrize("division", ["NOVICE_AMATEUR", "NOVICE_YOUTH"])
+def test_novice_divisions_no_longer_ask_about_the_owner(rules, show, division):
+    """AM-210 (Novice Amateur, from 2025) and YP-205 (Novice Youth, from 2026)
+    dropped the ownership requirement, so a Novice entry on a horse somebody
+    else owns needs only its eligibility declaration."""
+    cls = make_class()
+    entry = make_entry(cls=cls, apha_division=division, attestations=[declaration()])
+
+    assert rules.validate_entry(entry, show, cls) == []
 
 
 @pytest.mark.parametrize("division", sorted(RELATIONSHIP_REQUIRED_DIVISIONS))
@@ -206,10 +214,10 @@ def test_registry_divisions_do_not_ask_about_the_owner(rules, show, division):
 
 def test_an_entry_with_no_division_is_not_checked(rules, show):
     """Which division an entry belongs in is not derivable from the class — the
-    same class runs for Open, Amateur and Youth — so there is nothing to check
-    a Solid Paint-Bred horse against."""
+    same class runs for Open, Amateur and Youth — so there is no ownership
+    division to ask for a relationship against."""
     cls = make_class()
-    entry = make_entry(cls=cls, horse=make_horse(is_solid_paint_bred=True))
+    entry = make_entry(cls=cls)
 
     assert rules.validate_entry(entry, show, cls) == []
 
@@ -217,12 +225,7 @@ def test_an_entry_with_no_division_is_not_checked(rules, show):
 @pytest.mark.parametrize("status", ["WITHDRAWN", "SCRATCHED"])
 def test_an_inactive_entry_is_not_checked(rules, show, status):
     cls = make_class()
-    entry = make_entry(
-        cls=cls,
-        horse=make_horse(is_solid_paint_bred=True),
-        apha_division="OPEN",
-        status=status,
-    )
+    entry = make_entry(cls=cls, apha_division="YOUTH", status=status)
 
     assert rules.validate_entry(entry, show, cls) == []
 
@@ -231,22 +234,17 @@ def test_an_unflushed_entry_is_checked(rules, show):
     """`status` is applied at flush and both callers validate before flushing, so
     None has to count as ENTERED or every rule silently skips."""
     cls = make_class()
-    entry = make_entry(
-        cls=cls,
-        horse=make_horse(is_solid_paint_bred=True),
-        apha_division="OPEN",
-        status=None,
-    )
+    entry = make_entry(cls=cls, apha_division="YOUTH", status=None)
 
-    assert codes(errors(rules.validate_entry(entry, show, cls))) == ["APHA_SOLID_PAINT_BRED_OPEN"]
+    assert codes(errors(rules.validate_entry(entry, show, cls))) == ["APHA_RELATIONSHIP_REQUIRED"]
 
 
-@pytest.mark.parametrize("division", ["open", " Open ", "oPeN"])
+@pytest.mark.parametrize("division", ["youth", " Youth ", "yOuTh"])
 def test_the_division_is_read_case_and_whitespace_insensitively(rules, show, division):
     cls = make_class()
-    entry = make_entry(cls=cls, horse=make_horse(is_solid_paint_bred=True), apha_division=division)
+    entry = make_entry(cls=cls, apha_division=division)
 
-    assert codes(errors(rules.validate_entry(entry, show, cls))) == ["APHA_SOLID_PAINT_BRED_OPEN"]
+    assert codes(errors(rules.validate_entry(entry, show, cls))) == ["APHA_RELATIONSHIP_REQUIRED"]
 
 
 # ── The shape both entry doors render ────────────────────────────────────────
@@ -255,10 +253,11 @@ def test_an_issue_carries_the_ids_as_strings(rules, show):
     """The dict is serialized straight into an HTTP response, so a UUID in it
     would not survive."""
     cls = make_class()
-    horse = make_horse(is_solid_paint_bred=True)
-    entry = make_entry(cls=cls, horse=horse, apha_division="OPEN")
+    show = make_show(start_date=date(2026, 6, 1))
+    entry = _aged_entry(cls, date(2024, 4, 1))  # two years old in 2026
+    horse = entry.horse
 
-    issue = errors(rules.validate_entry(entry, show, cls))[0]
+    issue = errors(rules.validate_entry(entry, show, cls, _age_context(cls, "Ranch Riding")))[0]
 
     assert issue["class_id"] == str(cls.id)
     assert issue["horse_id"] == str(horse.id)
@@ -441,7 +440,8 @@ def test_a_non_apha_show_does_not_get_apha_rules():
     An OPEN show has no APHA divisions and must not be validated as though it
     did."""
     cls = make_class()
-    entry = make_entry(cls=cls, horse=make_horse(is_solid_paint_bred=True), apha_division="OPEN")
+    # A Youth entry with no relationship is refused at an APHA show.
+    entry = make_entry(cls=cls, apha_division="YOUTH")
 
     assert get_rules("OPEN").validate_entry(entry, make_show(), cls) == []
 
@@ -1445,13 +1445,13 @@ def _bracketed(name, bracket):
     return _cls(name, bracket, discipline="Western Pleasure")
 
 
-def _youth_schedule(thirteen_and_under, **show_overrides):
+def _youth_schedule(thirteen_and_under, judges=3, **show_overrides):
     classes = [_bracketed("Youth Western Pleasure", "Youth 18 & Under")]
     classes += [
         _bracketed(f"Youth class {i}", "Youth 13 & Under") for i in range(thirteen_and_under)
     ]
     show = make_show(
-        apha_show_number="26-1", judges=make_judges(1), show_category=SINGLE_JUDGE,
+        apha_show_number="26-1", judges=make_judges(judges), show_category=PAINT_O_RAMA,
         **show_overrides,
     )
     return APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
@@ -1462,6 +1462,13 @@ def test_a_youth_show_needs_three_thirteen_and_under_classes():
     assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(_youth_schedule(3))
 
 
+@pytest.mark.parametrize("judges", [0, 1, 2])
+def test_one_and_two_judge_shows_are_not_asked_for_them(judges):
+    """YP-075-1, from 1 January 2026: the three 13 and Under classes are
+    required only at a show with three or more judges."""
+    assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(_youth_schedule(0, judges=judges))
+
+
 @pytest.mark.parametrize("zone", sorted(THIRTEEN_AND_UNDER_EXEMPT_ZONES))
 def test_zones_twelve_to_fourteen_are_exempt(zone):
     """YP-075.A.1.a and A.2.a — the same zone list the equitation class
@@ -1470,7 +1477,7 @@ def test_zones_twelve_to_fourteen_are_exempt(zone):
 
 
 def test_a_show_with_no_youth_division_is_not_asked_for_youth_classes():
-    show = make_show(apha_show_number="26-1", judges=make_judges(1), show_category=SINGLE_JUDGE)
+    show = make_show(apha_show_number="26-1", judges=make_judges(3), show_category=PAINT_O_RAMA)
     classes = [_bracketed("Open Western Pleasure", "Open")]
     issues = APHARules().validate_show_schedule(show, classes, {"as_of": date(2026, 1, 1)})
     assert "APHA_YOUTH_13_AND_UNDER_SHORT" not in _codes(issues)

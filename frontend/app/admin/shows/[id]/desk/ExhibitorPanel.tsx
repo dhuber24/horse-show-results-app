@@ -1,14 +1,22 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
 import CheckRow, { type VerificationKind } from './CheckRow';
 import DocumentViewer from './DocumentViewer';
+import { UnenrolledFuturityRow } from './FuturityEnrollment';
 import HealthCheckRow from './HealthCheckRow';
 import StaffAddHorseForm, { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
 import WaiverRow from './WaiverRow';
-import { COLORS, healthAlerts } from './types';
+import {
+  COLORS,
+  futurityEnrollment,
+  futurityForClass,
+  healthAlerts,
+  nextFreeBackNumber,
+  unenrolledFuturityHorses,
+} from './types';
 import type { Desk, DeskExhibitor } from './types';
 import { formatMoney } from '@/lib/financials';
 
@@ -51,27 +59,88 @@ function backendMessage(detail: unknown, fallback: string): string {
   return d?.message ?? fallback;
 }
 
+/** Which panel sections staff have folded away. Remembered in this browser
+ *  across exhibitors and visits: the desk is one screen worked all day, and
+ *  somebody who only ever takes entries should not have to fold Paperwork away
+ *  again for every person in the queue. */
+const COLLAPSED_SECTIONS_KEY = 'gaitdesk.desk.collapsedSections';
+
+function useCollapsedSections() {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COLLAPSED_SECTIONS_KEY);
+      if (raw) setCollapsed(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      // Storage blocked or unreadable: every section starts open.
+    }
+  }, []);
+
+  const toggle = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        window.localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify(Array.from(next)));
+      } catch {
+        // Not remembered, but still folded for this visit.
+      }
+      return next;
+    });
+  }, []);
+
+  return { collapsed, toggle };
+}
+
 function Section({
   title,
   hint,
   badge,
+  collapsed,
+  onToggle,
   children,
 }: {
   title: string;
   hint?: string;
   badge?: React.ReactNode;
+  collapsed: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }) {
+  const bodyId = useId();
   return (
     <section className="rounded-lg border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
-      <div className="flex items-baseline justify-between gap-3 mb-2">
+      <div className={`flex items-baseline justify-between gap-3 ${collapsed ? '' : 'mb-2'}`}>
         <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: COLORS.accent }}>
-          {title}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            aria-controls={bodyId}
+            className="flex items-center gap-1.5 uppercase tracking-wide hover:underline"
+          >
+            <span
+              aria-hidden
+              className="inline-block text-xs transition-transform"
+              style={{ transform: collapsed ? 'rotate(-90deg)' : undefined }}
+            >
+              ▾
+            </span>
+            {title}
+          </button>
         </h3>
+        {/* The badge stays up when folded — "3 to check" is the reason to open
+            the section again. */}
         {badge}
       </div>
-      {hint && <p className="text-xs mb-3" style={{ color: COLORS.muted }}>{hint}</p>}
-      {children}
+      {/* Hidden rather than unmounted, so a half-filled entry form survives
+          being folded away and opened again. */}
+      <div id={bodyId} hidden={collapsed}>
+        {hint && <p className="text-xs mb-3" style={{ color: COLORS.muted }}>{hint}</p>}
+        {children}
+      </div>
     </section>
   );
 }
@@ -118,6 +187,7 @@ export default function ExhibitorPanel({
   const [editingContact, setEditingContact] = useState(false);
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const { collapsed, toggle } = useCollapsedSections();
 
   useEffect(() => {
     setBackNumber(exhibitor.back_number?.toString() ?? '');
@@ -158,7 +228,7 @@ export default function ExhibitorPanel({
     }
   };
 
-  const saveBackNumber = () =>
+  const saveBackNumber = (value: string = backNumber) =>
     run(
       'back-number',
       () =>
@@ -170,13 +240,19 @@ export default function ExhibitorPanel({
             assignments: [
               {
                 exhibitor_id: exhibitor.exhibitor_id,
-                back_number: backNumber.trim() === '' ? null : parseInt(backNumber, 10),
+                back_number: value.trim() === '' ? null : parseInt(value, 10),
               },
             ],
           }),
         }),
       'Could not save that back number.',
     );
+
+  const assignNextFree = () => {
+    const next = String(nextFreeBackNumber(desk, exhibitor.exhibitor_id));
+    setBackNumber(next);
+    return saveBackNumber(next);
+  };
 
   const removeEntry = (entryId: string, classId: string) =>
     run(
@@ -324,6 +400,25 @@ export default function ExhibitorPanel({
   const alerts = healthAlerts(exhibitor);
   const potCount = exhibitor.side_pot_ids.length;
   const backNumberDirty = (exhibitor.back_number?.toString() ?? '') !== backNumber.trim();
+  // Somebody else already wears the number being typed. Said before Save rather
+  // than after a 409, and named, because "who has 42?" is the next question.
+  const typedNumber = backNumber.trim() === '' ? null : Number(backNumber);
+  const backNumberHolder =
+    typedNumber === null
+      ? undefined
+      : desk.exhibitors.find(
+          (e) => e.exhibitor_id !== exhibitor.exhibitor_id && e.back_number === typedNumber,
+        );
+
+  // Money quoted off the bill, never re-added here. A futurity class carries no
+  // fee of its own, so summing `entry_fee_cents` read $0 for it.
+  const bill = exhibitor.bill;
+  const classFeesCents = bill
+    ? bill.class_fee_total_cents + bill.class_sanction_total_cents
+    : 0;
+  const futurityCents = bill?.futurity_total_cents ?? 0;
+  const futurityLines = bill?.futurity_lines ?? [];
+  const unenrolled = unenrolledFuturityHorses(desk, exhibitor);
 
   return (
     <div className="space-y-4">
@@ -369,18 +464,50 @@ export default function ExhibitorPanel({
                 </p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={saveBackNumber}
-              disabled={!backNumberDirty || busy.has('back-number')}
-              title={backNumberDirty ? undefined : 'The number on screen is the one on file'}
-              className="px-3 py-2 rounded text-sm font-medium disabled:opacity-50"
-              style={{ backgroundColor: COLORS.accent, color: 'var(--surface)' }}
-            >
-              {busy.has('back-number') ? 'Saving…' : 'Save'}
-            </button>
+            {exhibitor.back_number == null && backNumber.trim() === '' ? (
+              <button
+                type="button"
+                onClick={assignNextFree}
+                disabled={busy.has('back-number')}
+                title="The lowest number nobody at this show holds or has asked for"
+                className="px-3 py-2 rounded text-sm font-medium disabled:opacity-50"
+                style={{ backgroundColor: COLORS.accent, color: 'var(--surface)' }}
+              >
+                {busy.has('back-number')
+                  ? 'Saving…'
+                  : `Assign #${nextFreeBackNumber(desk, exhibitor.exhibitor_id)}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => saveBackNumber()}
+                disabled={!backNumberDirty || Boolean(backNumberHolder) || busy.has('back-number')}
+                title={
+                  backNumberHolder
+                    ? `${backNumberHolder.exhibitor_name} already has this number`
+                    : backNumberDirty
+                      ? undefined
+                      : 'The number on screen is the one on file'
+                }
+                className="px-3 py-2 rounded text-sm font-medium disabled:opacity-50"
+                style={{ backgroundColor: COLORS.accent, color: 'var(--surface)' }}
+              >
+                {busy.has('back-number') ? 'Saving…' : 'Save'}
+              </button>
+            )}
           </div>
         </div>
+
+        {backNumberHolder && backNumberDirty && (
+          <p
+            role="alert"
+            className="mt-2 text-sm rounded px-3 py-2"
+            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
+          >
+            Back #{typedNumber} is already held by <strong>{backNumberHolder.exhibitor_name}</strong>.
+            Pick a different number.
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 pt-3 border-t text-sm" style={{ borderColor: COLORS.borderSoft }}>
           <span style={{ color: COLORS.muted }}>
@@ -463,12 +590,16 @@ export default function ExhibitorPanel({
 
       <Section
         title="Classes"
+        collapsed={collapsed.has('classes')}
+        onToggle={() => toggle('classes')}
         badge={
-          <span className="text-xs" style={{ color: COLORS.muted }}>
-            {formatMoney(exhibitor.entries.reduce(
-              (sum, e) => sum + (desk.classes.find((c) => c.id === e.class_id)?.entry_fee_cents ?? 0),
-              0,
-            ))} in class fees
+          <span
+            className="text-xs text-right"
+            style={{ color: COLORS.muted }}
+            title="Class fees include any club sanction fee charged per class. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
+          >
+            {formatMoney(classFeesCents)} in class fees
+            {(futurityCents > 0 || futurityLines.length > 0) && ` · ${formatMoney(futurityCents)} futurity`}
           </span>
         }
       >
@@ -489,6 +620,11 @@ export default function ExhibitorPanel({
               <tbody>
                 {exhibitor.entries.map((entry) => {
                   const cls = desk.classes.find((c) => c.id === entry.class_id);
+                  const line = bill?.class_lines.find((l) => l.entry_id === entry.entry_id);
+                  const futurity = futurityForClass(desk, entry.class_id);
+                  const enrollment = futurity
+                    ? futurityEnrollment(exhibitor, futurity.id, entry.horse_id)
+                    : undefined;
                   return (
                     <tr key={entry.entry_id} className="border-t" style={{ borderColor: COLORS.borderSoft }}>
                       <td className="py-1.5 pr-3" style={{ color: COLORS.text }}>
@@ -512,7 +648,35 @@ export default function ExhibitorPanel({
                           : '—'}
                       </td>
                       <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: COLORS.muted }}>
-                        {cls ? formatMoney(cls.entry_fee_cents) : '—'}
+                        {futurity ? (
+                          enrollment ? (
+                            <span title={`${futurity.name} — ${enrollment.fee_tier_name ?? 'enrolled'}`}>
+                              {formatMoney(enrollment.tier_amount_cents)}
+                              <span className="block text-xs">futurity</span>
+                            </span>
+                          ) : (
+                            <span
+                              style={{ color: 'var(--warning)' }}
+                              title={`Priced by ${futurity.name}, and this horse is not enrolled in it — see below`}
+                            >
+                              not enrolled
+                            </span>
+                          )
+                        ) : line ? (
+                          <span
+                            title={
+                              line.sanction_cents > 0
+                                ? `${formatMoney(line.fee_cents)} class fee + ${formatMoney(line.sanction_cents)} club sanction`
+                                : undefined
+                            }
+                          >
+                            {formatMoney(line.fee_cents + line.sanction_cents)}
+                          </span>
+                        ) : cls ? (
+                          formatMoney(cls.entry_fee_cents)
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="py-1.5 text-right">
                         <button
@@ -532,6 +696,67 @@ export default function ExhibitorPanel({
           </div>
         )}
 
+        {/* Each enrollment's arithmetic, as the bill charges it. Listed even
+            with no futurity class entered: the office fee is still owed, and a
+            stray enrollment is exactly what staff need to be able to see. */}
+        {futurityLines.length > 0 && (
+          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
+            {futurityLines.map((l) => {
+              const parts = [
+                `${l.fee_tier_name ?? 'Enrolled'} ${formatMoney(l.tier_amount_cents)} × ${l.class_count} class${
+                  l.class_count === 1 ? '' : 'es'
+                }`,
+                `${formatMoney(l.office_fee_cents)} office fee`,
+              ];
+              if (l.late_fee_cents > 0) parts.push(`${formatMoney(l.late_fee_cents)} late fee`);
+              if (l.membership_fee_cents > 0) {
+                parts.push(`${formatMoney(l.membership_fee_cents)} ${l.membership_name ?? 'membership'}`);
+              }
+              return (
+                <li key={l.futurity_entry_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span>
+                    <span style={{ color: COLORS.text }}>
+                      {l.futurity_name} — {l.horse_name ?? 'horse removed'}
+                    </span>
+                    : {parts.join(' + ')}
+                    {l.class_count === 0 && (
+                      <span style={{ color: 'var(--warning)' }}> · not entered in any of its classes yet</span>
+                    )}
+                  </span>
+                  <span className="whitespace-nowrap">
+                    {formatMoney(l.line_total_cents)}{' '}
+                    <Link
+                      href={`/admin/shows/${showId}/futurities/${l.futurity_id}/entries`}
+                      className="hover:underline"
+                      style={{ color: COLORS.accent }}
+                      title="Change the category, membership or withdraw the enrollment"
+                    >
+                      Edit →
+                    </Link>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {unenrolled.length > 0 && (
+          <div className="space-y-2 mb-3">
+            {unenrolled.map((row) => (
+              <UnenrolledFuturityRow
+                key={`${row.futurity.id}-${row.horseId}`}
+                showId={showId}
+                exhibitor={exhibitor}
+                futurity={row.futurity}
+                horseId={row.horseId}
+                horseName={row.horseName}
+                classCount={row.classCount}
+                onEnrolled={onChanged}
+              />
+            ))}
+          </div>
+        )}
+
         <AddEntryForm
           showId={showId}
           desk={desk}
@@ -544,6 +769,8 @@ export default function ExhibitorPanel({
       {desk.side_pots.length > 0 && (
         <Section
           title="Side pots"
+          collapsed={collapsed.has('side_pots')}
+          onToggle={() => toggle('side_pots')}
           hint={
             exhibitor.show_entry_id
               ? 'Buy-ins settle with this exhibitor’s show bill at the end of the show, so being in a pot is what owing the buy-in means. They are not part of the billed and owing figures above — pot money is reported separately on Financials.'
@@ -599,6 +826,8 @@ export default function ExhibitorPanel({
 
       <Section
         title="Paperwork"
+        collapsed={collapsed.has('paperwork')}
+        onToggle={() => toggle('paperwork')}
         hint="Sign off only for documents you have physically inspected. Each sign-off is recorded against the exact value on file at the time — if the exhibitor edits it afterwards, the check reappears as needing another look."
         badge={
           <span
@@ -647,9 +876,44 @@ export default function ExhibitorPanel({
           })
         )}
 
-        <p className="text-xs font-semibold uppercase tracking-wide mt-4 mb-1" style={{ color: COLORS.accent }}>
-          Horses
-        </p>
+        {/* Adding a horse lives under the Horses heading, where somebody looks
+            for it — it used to sit at the foot of the whole Paperwork section,
+            below the releases, where nobody did. */}
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mt-4 mb-1">
+          <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.accent }}>
+            Horses
+          </p>
+          {!addingHorse && (
+            <button
+              type="button"
+              onClick={() => setAddingHorse(true)}
+              className="text-sm hover:underline"
+              style={{ color: COLORS.accent }}
+            >
+              + Add a horse for {exhibitor.exhibitor_name}
+            </button>
+          )}
+        </div>
+        {addingHorse && (
+          <div className="mb-3">
+            <StaffAddHorseForm
+              showId={showId}
+              exhibitorId={exhibitor.exhibitor_id}
+              exhibitorName={exhibitor.exhibitor_name}
+              associations={associations}
+              breeds={breeds}
+              colors={colors}
+              onCreated={async () => {
+                setAddingHorse(false);
+                // Straight into the class picker above: the reason someone adds
+                // a horse at the desk is that they are about to enter it.
+                setHorseListVersion((v) => v + 1);
+                await onChanged();
+              }}
+              onCancel={() => setAddingHorse(false)}
+            />
+          </div>
+        )}
         {/* A health row that is listed but not counted needs saying so, or it
             reads as a sign-off the desk has forgotten. This show takes the
             uploaded document as sufficient (setup Step 9); staff may still
@@ -943,36 +1207,6 @@ export default function ExhibitorPanel({
               />
             ))}
           </>
-        )}
-
-        {addingHorse ? (
-          <div className="mt-3">
-            <StaffAddHorseForm
-              showId={showId}
-              exhibitorId={exhibitor.exhibitor_id}
-              exhibitorName={exhibitor.exhibitor_name}
-              associations={associations}
-              breeds={breeds}
-              colors={colors}
-              onCreated={async () => {
-                setAddingHorse(false);
-                // Straight into the class picker above: the reason someone adds
-                // a horse at the desk is that they are about to enter it.
-                setHorseListVersion((v) => v + 1);
-                await onChanged();
-              }}
-              onCancel={() => setAddingHorse(false)}
-            />
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAddingHorse(true)}
-            className="mt-3 text-sm hover:underline"
-            style={{ color: COLORS.accent }}
-          >
-            + Add a horse for {exhibitor.exhibitor_name}
-          </button>
         )}
       </Section>
 

@@ -85,6 +85,9 @@ export type BillChargeLine = {
   amount_cents: number;
   horse_count: number;
   judge_count: number;
+  /** Set when `judge_count` is one association's carded judges rather than the
+   *  whole panel — see `billing.carded_judge_count`. */
+  judge_association_code?: string | null;
   /** Entries this line is counted against. Always excludes classes a club
    *  (WSCA, MNSPHC, etc.) sanctions outright — those already carry their own
    *  separate price and are not reported to (or paid for by) the breed
@@ -110,6 +113,7 @@ export type BillSanctionLine = {
   amount_cents: number;
   horse_count: number;
   judge_count: number;
+  judge_association_code?: string | null;
   entry_count: number;
   quantity: number;
   line_total_cents: number;

@@ -202,6 +202,46 @@ export function chargeMultiplier(
   }
 }
 
+/** A judge on the show's panel, as `GET /shows/{id}/judges/` returns them. */
+export type PanelJudge = { associations?: { id: string; code: string }[] | null };
+
+/**
+ * How many judges a per-judge fee for one association multiplies by.
+ *
+ * Mirrors `billing.carded_judge_count`, for the setup previews only: the panel
+ * judges carded with that association, or the whole panel when nobody on it is
+ * carded with it (a regional club that cards no judges, or a registry where
+ * carding has not been recorded). `code` is set only when the count was
+ * narrowed, so a preview can say "2 WSCA judges" rather than "2 judges".
+ */
+export function cardedJudgeCount(
+  judges: PanelJudge[],
+  association: { id?: string | null; code?: string | null },
+): { count: number; code: string | null } {
+  const carded = judges.filter((judge) =>
+    (judge.associations ?? []).some(
+      (a) =>
+        (association.id != null && a.id === association.id) ||
+        (association.code != null && association.code !== '' && a.code === association.code),
+    ),
+  ).length;
+  if (carded === 0) return { count: judges.length, code: null };
+  return { count: carded, code: association.code ?? null };
+}
+
+/** The judge count the show's own per-judge charges multiply by: the judges
+ *  carded with its breed body, or the whole panel at an Open show. Mirrors
+ *  `billing.breed_judge_count`. */
+export function breedJudgeCount(judges: PanelJudge[], showTypeCode: string | null | undefined): number {
+  if (!showTypeCode || showTypeCode === 'OPEN') return judges.length;
+  return cardedJudgeCount(judges, { code: showTypeCode }).count;
+}
+
+/** "4 judges", or "2 WSCA judges" when the count is one association's. */
+export function judgesLabel(count: number, code: string | null): string {
+  return `${count} ${code ? `${code} ` : ''}judge${count === 1 ? '' : 's'}`;
+}
+
 /** Whether this unit's charge scales with the judge panel — which is what makes
  *  a show with no judges assigned yet bill nothing for it. */
 export function usesJudgeCount(unit: string): boolean {
