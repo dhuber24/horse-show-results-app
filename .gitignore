@@ -2,6 +2,13 @@
 *.env.local
 __pycache__/
 *.pyc
+# Python virtualenvs. Absent until now, which is how database/.venv came to be
+# committed at 74e5d1a -- 1,012 files of pip and its vendored packages, checked
+# out on Windows with bin/python as a 42-byte dead symlink, so it could not run
+# even if something wanted it to. Nothing does: the backend suite runs in
+# Docker, per the commands in Claude.md.
+.venv/
+venv/
 .next/
 node_modules/
 .claude/scheduled_tasks.lock
