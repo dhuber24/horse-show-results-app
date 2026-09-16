@@ -258,7 +258,7 @@ export default function EditShowForm({
 
         <label className="block">
           <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-            Entry deadline
+            Entry deadline (optional)
           </span>
           <input
             name="entry_deadline"
@@ -268,12 +268,6 @@ export default function EditShowForm({
             className="w-full border rounded px-3 py-2"
             style={{ borderColor: COLORS.border }}
           />
-          <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
-            The day entries close. Recorded, not enforced — it does not close
-            self-registration and it does not add the post-entry fee. An APHA show
-            counts its approval-application deadline back from this date, or from
-            the first day of the show when it is left blank.
-          </span>
         </label>
 
         {categoriesForType.length > 0 && (
@@ -322,12 +316,6 @@ export default function EditShowForm({
           />
           <span className="text-sm" style={{ color: COLORS.text }}>
             A clinic runs alongside this show
-            <span className="block text-xs" style={{ color: COLORS.muted }}>
-              For an APHA two-judge show this lifts the SC-095 minimum class
-              requirements, pending APHA approval. The clinician must be approved by
-              APHA, and the show may not run in conjunction with an approved
-              Paint-O-Rama — neither of which the app can check.
-            </span>
           </span>
         </label>
 
@@ -363,11 +351,6 @@ export default function EditShowForm({
                 <option key={z} value={z}>Zone {z}</option>
               ))}
             </select>
-            <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
-              Zones 12, 13 and 14 change how equitation and horsemanship are run —
-              each exhibitor worked individually from the gate, no rail work. The
-              gate screen shows the rule on those classes.
-            </span>
           </label>
         )}
         {selectedShowType?.code === 'AQHA' && (
