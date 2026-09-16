@@ -258,6 +258,16 @@ than reporting a green watch:
   exits 1, saying in as many words that the deploy is blocked, not merely
   reported. **The pushed commits are not lost** and must not be re-pushed —
   fixing the job and pushing again deploys the lot.
+
+  **A single unreadable response is not an answer.** The call goes out to the
+  open internet, so a DNS blip or the 25s timeout is ordinary; the poll retries
+  and only reports `unknown` after `$CheckErrorLimit` (5) consecutive failures,
+  naming the actual error rather than guessing at a cause. It used to give up on
+  the first one and blame the rate limit — on the migration-138 release that
+  fired with 59 of 60 anonymous requests still available, so the advice it
+  printed was wrong as well as premature. When the state really is `unknown`,
+  the closing summary says CI was **not** read rather than claiming it went
+  green, which is the one run where that claim matters most.
 - **That the new build is actually serving.** `Get-WebFingerprint` hashes the
   content-addressed `/_next/static/…` assets the home page references plus
   `sw.js`'s `Last-Modified`; `Get-ApiFingerprint` hashes `openapi.json`. Both

@@ -150,6 +150,27 @@ cannot make the Neon backup branch, so `-BackedUp` is your word that you did. An
 it cannot tell whether CI passed or whether the new build is live — see "What no
 amount of this tells you" in `.claude/skills/release/SKILL.md`.
 
+### GITHUB_TOKEN
+
+Optional, and only about rate limits. The release script polls GitHub's
+check-runs API to confirm CI went green, which is plain REST against a **public**
+repo and needs no authentication — a token simply lifts the anonymous ceiling
+from 60 requests an hour to 5,000.
+
+Because it is a rate-limit key rather than a credential, create it with **no
+scopes at all** (classic token with nothing ticked, or a fine-grained token with
+no repository access). It can then read nothing that an anonymous request could
+not, which is what makes it safe to leave in a user environment variable:
+
+```powershell
+setx GITHUB_TOKEN "<token>"   # then open a NEW shell -- setx does not affect the current one
+```
+
+Do not reach for a token as the fix for every unreadable checks API. The poll
+retries transient failures on its own now, and the run that prompted this advice
+had 59 of its 60 anonymous requests still unspent — the cause was a blip, not the
+ceiling. Check `https://api.github.com/rate_limit` before assuming.
+
 To classify a migration without releasing anything:
 
 ```powershell

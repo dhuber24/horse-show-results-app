@@ -369,6 +369,10 @@ function Get-RepoSlug {
     return $null
 }
 
+# How many consecutive unreadable responses end the CI wait. Script-scope so the
+# message printed when it gives up can name the same number the loop used.
+$CheckErrorLimit = 5
+
 function Get-CheckRuns {
     param([string]$Slug, [string]$Sha)
     $headers = @{ 'User-Agent' = 'gaitdesk-release'; 'Accept' = 'application/vnd.github+json' }
@@ -376,11 +380,16 @@ function Get-CheckRuns {
     # the poll below stays well inside 60, and a rate-limited answer warns
     # rather than failing a release that has already been pushed.
     if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
+    # Returns a result object rather than the runs, so the caller can tell "the
+    # request failed" from "the commit has no checks yet". Collapsing both to
+    # $null is what let one blip end the wait, and what made the failure get
+    # reported as a rate limit it was not.
     try {
-        return (Invoke-RestMethod -Uri "https://api.github.com/repos/$Slug/commits/$Sha/check-runs" `
-                                  -Headers $headers -TimeoutSec 25).check_runs
+        $runs = (Invoke-RestMethod -Uri "https://api.github.com/repos/$Slug/commits/$Sha/check-runs" `
+                                   -Headers $headers -TimeoutSec 25).check_runs
+        return [pscustomobject]@{ Ok = $true; Runs = @($runs); Error = $null }
     } catch {
-        return $null
+        return [pscustomobject]@{ Ok = $false; Runs = @(); Error = $_.Exception.Message }
     }
 }
 
@@ -389,11 +398,32 @@ function Wait-ForChecks {
 
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $lastLine = ""
+    # One failed request is not an answer. This call goes out to the open
+    # internet, so a DNS blip, a proxy hiccup or the 25s timeout is an ordinary
+    # event -- and giving up on the first one abandoned the whole 15-minute
+    # budget over something that would have answered twenty seconds later. That
+    # is exactly what happened releasing migration 138: the run reported
+    # `unknown`, blamed the rate limit, and 59 of 60 anonymous requests were
+    # still available. Several consecutive failures still end the wait, because
+    # an API that is genuinely unreachable should not be polled for a quarter of
+    # an hour.
+    $errorStreak = 0
+    $errorLimit  = $CheckErrorLimit
+    $lastError   = ""
     while ((Get-Date) -lt $deadline) {
-        $runs = Get-CheckRuns -Slug $Slug -Sha $Sha
-        if ($null -eq $runs) {
-            return [pscustomobject]@{ State = 'unknown'; Failed = @() }
+        $result = Get-CheckRuns -Slug $Slug -Sha $Sha
+        if (-not $result.Ok) {
+            $errorStreak++
+            $lastError = $result.Error
+            if ($errorStreak -ge $errorLimit) {
+                return [pscustomobject]@{ State = 'unknown'; Failed = @(); Error = $lastError }
+            }
+            Write-Info "checks API unreachable ($errorStreak/$errorLimit), retrying -- $lastError"
+            Start-Sleep -Seconds 20
+            continue
         }
+        $errorStreak = 0
+        $runs = $result.Runs
         if (@($runs).Count -eq 0) {
             # GitHub has not registered the workflow yet. Normal for the first
             # few seconds after a push.
@@ -412,12 +442,12 @@ function Wait-ForChecks {
         }) -join '  '
         if ($line -ne $lastLine) { Write-Info $line; $lastLine = $line }
 
-        if ($failed.Count -gt 0)  { return [pscustomobject]@{ State = 'failed'; Failed = $failed } }
-        if ($pending.Count -eq 0) { return [pscustomobject]@{ State = 'passed'; Failed = @() } }
+        if ($failed.Count -gt 0)  { return [pscustomobject]@{ State = 'failed'; Failed = $failed; Error = $null } }
+        if ($pending.Count -eq 0) { return [pscustomobject]@{ State = 'passed'; Failed = @(); Error = $null } }
 
         Start-Sleep -Seconds 20
     }
-    return [pscustomobject]@{ State = 'timeout'; Failed = @() }
+    return [pscustomobject]@{ State = 'timeout'; Failed = @(); Error = $null }
 }
 
 function Get-WebFingerprint {
@@ -957,8 +987,14 @@ if ($checks.State -eq 'timeout') {
     exit 1
 }
 if ($checks.State -eq 'unknown') {
-    Write-Warn "could not read the checks API -- rate limit, or no network."
-    Write-Info "Set GITHUB_TOKEN to lift the 60/hour limit. Verify by hand before walking away."
+    Write-Warn "could not read the checks API after $CheckErrorLimit attempts."
+    if ($checks.Error) { Write-Info "last error: $($checks.Error)" }
+    # Do not guess at the cause. This used to say "rate limit, or no network",
+    # which sent the reader after a token when the limit was barely touched.
+    Write-Info "Check the run by hand before walking away:"
+    Write-Info "  https://github.com/$slug/commits/$head"
+    Write-Info "A token in GITHUB_TOKEN lifts the 60/hour anonymous limit, which"
+    Write-Info "is worth having but is only one of the things that can cause this."
 } else {
     Write-Ok "all checks green -- Render is building now"
 }
@@ -1033,7 +1069,14 @@ if ($clean) {
 }
 Write-Host ""
 Write-Info "Confirmed by this run, not left to the dashboard:"
-Write-Info "  * CI went green            -- without it Render never builds at all"
+# Only claim what was actually observed. This block used to assert CI went green
+# unconditionally -- including on the run where the checks API could not be read
+# at all, which is the one time the reader most needs to be told otherwise.
+if ($checks.State -eq 'passed') {
+    Write-Info "  * CI went green            -- without it Render never builds at all"
+} else {
+    Write-Info "  * CI was NOT read          -- verify it by hand; see above"
+}
 Write-Info "  * the new build is serving -- what production returns actually changed"
 Write-Host ""
 
