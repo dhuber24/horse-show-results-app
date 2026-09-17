@@ -19,7 +19,7 @@ import {
 } from './types';
 import type { Desk, DeskExhibitor } from './types';
 import { formatMoney } from '@/lib/financials';
-import { chargeArithmetic, sanctionArithmetic, type BillClassLine } from '@/lib/my-shows';
+import type { BillClassLine } from '@/lib/my-shows';
 
 /** The subject of a paperwork sign-off, as the backend wants it posted. */
 type Subject = {
@@ -427,16 +427,12 @@ export default function ExhibitorPanel({
   // A per-class charge (the breed body's per-judge assessment) is on the class
   // lines too, so it counts as class money here and shows on each row. Without
   // it a $0 class carrying a $5 assessment read $0 while the header billed $5.
+  // Charges that belong to no class — a per-horse office fee, a club's
+  // per-horse sanction — stay out of this section: it is the classes, and the
+  // header's billed figure already carries the rest.
   const classChargeCents = bill?.class_charge_total_cents ?? 0;
   const classFeesCents = bill
     ? bill.class_fee_total_cents + bill.class_sanction_total_cents + classChargeCents
-    : 0;
-  // Everything else the show and its clubs charge belongs to no class — per
-  // horse, per exhibitor — and is listed under the table with its arithmetic.
-  const otherChargeLines = (bill?.charge_lines ?? []).filter((l) => !l.per_class);
-  const clubChargeLines = bill?.sanction_lines ?? [];
-  const otherChargesCents = bill
-    ? bill.charge_total_cents - classChargeCents + bill.sanction_total_cents - bill.class_sanction_total_cents
     : 0;
   const futurityCents = bill?.futurity_total_cents ?? 0;
   const futurityLines = bill?.futurity_lines ?? [];
@@ -618,10 +614,9 @@ export default function ExhibitorPanel({
           <span
             className="text-xs text-right"
             style={{ color: COLORS.muted }}
-            title="Class fees include any club sanction fee and show assessment charged per class. Other charges are the show's and clubs' per-horse and per-exhibitor fees, listed under the classes. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
+            title="Class fees include any club sanction fee and show assessment charged per class. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
           >
             {formatMoney(classFeesCents)} in class fees
-            {otherChargesCents > 0 && ` · ${formatMoney(otherChargesCents)} other charges`}
             {(futurityCents > 0 || futurityLines.length > 0) && ` · ${formatMoney(futurityCents)} futurity`}
           </span>
         }
@@ -718,32 +713,6 @@ export default function ExhibitorPanel({
               </tbody>
             </table>
           </div>
-        )}
-
-        {/* The charges that belong to no class — a per-horse drug fee, a club's
-            per-horse sanction fee — with the arithmetic the exhibitor's own bill
-            prints. Before this they were inside the header's billed figure and
-            nowhere else on the desk. */}
-        {(clubChargeLines.length > 0 || otherChargeLines.length > 0) && (
-          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
-            {clubChargeLines.map((l) => (
-              <li key={l.association_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                <span>
-                  <span style={{ color: COLORS.text }}>{l.name || l.code} sanction fee</span>:{' '}
-                  {sanctionArithmetic(l)}
-                </span>
-                <span className="whitespace-nowrap">{formatMoney(l.line_total_cents)}</span>
-              </li>
-            ))}
-            {otherChargeLines.map((l) => (
-              <li key={l.show_fee_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                <span>
-                  <span style={{ color: COLORS.text }}>{l.label}</span>: {chargeArithmetic(l)}
-                </span>
-                <span className="whitespace-nowrap">{formatMoney(l.line_total_cents)}</span>
-              </li>
-            ))}
-          </ul>
         )}
 
         {/* Each enrollment's arithmetic, as the bill charges it. Listed even

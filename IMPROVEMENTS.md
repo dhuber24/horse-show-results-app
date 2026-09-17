@@ -22,11 +22,17 @@ in `charge_lines`, which nothing on the desk rendered at all.
   those charges, with the split in its tooltip ("$0.00 class fee + $12.00 APHA
   Fee"); the section heading adds it to class fees and names the rest as other
   charges.
-- **Charges that belong to no class are listed under the table** — per-horse
-  and per-exhibitor fees, and a club's per-horse sanction fee — with the same
-  arithmetic the exhibitor's bill prints (`chargeArithmetic` /
-  `sanctionArithmetic`, moved into `lib/my-shows.ts` and shared with
-  `ShowBillBreakdown`, whose class sub-lines now also say "+ $12.00 APHA Fee").
+- **The exhibitor's bill says it too.** `ShowBillBreakdown`'s class sub-lines
+  add "+ $12.00 APHA Fee", and its charge and sanction arithmetic moved into
+  `lib/my-shows.ts` (`chargeArithmetic` / `sanctionArithmetic`).
+- **Charges that belong to no class stay out of the Classes section.** They were
+  listed under the table for one release — per-horse and per-exhibitor fees and
+  a club's per-horse sanction fee, with their arithmetic — and taken out again:
+  the section is the classes, and the header's billed figure carries the rest.
+
+The report that started this turned out to be a show with no judges yet: its
+$5 fee was "per judge, per class", which is $5 × 0 judges on every class until
+the panel is assigned. Correct, and moot once a judge is entered.
 
 While tracing it, a second trap in the same box: a "per class" or "per class,
 per horse" fee offers a class list to tick and **charges nobody** — it is
