@@ -938,6 +938,65 @@ def test_per_judge_per_entry_and_per_judge_per_horse_diverge_on_the_same_bill():
     assert _charged(per_horse, entries, judges=2)["charge_total_cents"] == 600
 
 
+def test_a_per_class_charge_is_put_against_the_class_lines_it_counted():
+    """Reported from the desk: a $5 per-judge, per-class assessment billed $5, and
+    the Classes section read $0 beside a $0 class, because a class line carried
+    only the class's own entry fee. The money is attributed on the line now,
+    without changing what the bill totals."""
+    free = make_class(class_number=7, class_name="Walk Trot", entry_fee_cents=0)
+    priced = make_class(class_number=8, class_name="Showmanship", entry_fee_cents=1000)
+    entries = [make_entry(cls=free), make_entry(cls=priced)]
+    fee = make_fee(code="assessment", label="APHA Fee", unit="per_judge_per_entry", amount_cents=500)
+
+    bill = _charged(fee, entries, judges=1)
+
+    by_class = {line["class_number"]: line for line in bill["class_lines"]}
+    assert by_class[7]["charge_cents"] == 500
+    assert by_class[8]["charge_cents"] == 500
+    assert by_class[7]["charges"] == [{"show_fee_id": fee.id, "label": "APHA Fee", "cents": 500}]
+    assert bill["class_charge_total_cents"] == bill["charge_total_cents"] == 1000
+    assert bill["total_cents"] == 1000 + 1000, "attributed, not charged a second time"
+    assert bill["charge_lines"][0]["per_class"] is True
+    assert "entry_ids" not in bill["charge_lines"][0], "working data, not part of the bill"
+
+
+def test_a_per_class_charge_lands_only_where_it_was_counted():
+    """Same scoping as the charge itself: a class the fee does not name, and a
+    class a club sanctions outright, carry none of it."""
+    wsca = make_sanctioning("WSCA", fee_amount_cents=0)
+    youth = make_class(class_number=1, class_name="Youth Showmanship")
+    amateur = make_class(class_number=2, class_name="Amateur Showmanship")
+    all_breed = make_class(class_number=3, class_name="All Breed Showmanship",
+                           sanctioning=[make_class_sanction(wsca)])
+    entries = [make_entry(cls=youth), make_entry(cls=amateur), make_entry(cls=all_breed)]
+    fee = make_fee(
+        code="youth", label="Youth assessment", unit="per_judge_per_entry", amount_cents=300,
+        scoped_classes=make_fee_scope([youth.id, all_breed.id]),
+    )
+
+    bill = billing.build_bill(make_show(fees=[fee], judges=make_judges(2)), entries, [])
+
+    charged = {line["class_number"]: line["charge_cents"] for line in bill["class_lines"]}
+    assert charged == {1: 600, 2: 0, 3: 0}
+    assert bill["class_charge_total_cents"] == bill["charge_total_cents"] == 600
+
+
+def test_a_charge_about_the_horse_is_not_put_against_a_class():
+    """A per-horse fee belongs to no class in particular; splitting it across
+    whichever classes the horse happened to enter would be arithmetic the show
+    never set."""
+    horse = uuid4()
+    entries = [make_entry(horse_id=horse), make_entry(horse_id=horse)]
+    fee = make_fee(code="drug", label="Drug fee", unit="per_horse", amount_cents=800)
+
+    bill = _charged(fee, entries)
+
+    assert [line["charge_cents"] for line in bill["class_lines"]] == [0, 0]
+    assert bill["class_charge_total_cents"] == 0
+    assert bill["charge_total_cents"] == 800
+    assert bill["charge_lines"][0]["per_class"] is False
+
+
 def test_a_per_judge_per_entry_charge_is_nothing_without_a_panel():
     """Same rule as the other per-judge units: no judges assigned is zero, not
     one. Guessing at a panel would bill a number the show never agreed to."""

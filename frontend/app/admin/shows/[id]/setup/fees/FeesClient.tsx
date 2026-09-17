@@ -105,6 +105,9 @@ export default function FeesClient({
         initialCharges={initialCharges}
         judgeCount={judgeCount}
         judgesHref={`/admin/shows/${showId}/setup/judges`}
+        // A per-class fee here charges nobody; the row says so and links to
+        // where a class's own price is set.
+        classPricesHref={`/admin/shows/${showId}/fees/entry`}
         classes={classes}
       />
 

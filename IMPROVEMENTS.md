@@ -2,6 +2,42 @@
 
 ## September 2026
 
+### The Desk Shows Every Class Fee The Bill Charges
+
+Reported from production: a show set a $5 "per judge, per class" fee in the
+Step 7 Class Fees box, an exhibitor was entered in a class, and the desk's
+Classes section read $0 — on the row and in the section total — while the
+header said $5.00 billed. The bill was right. The Classes section quoted only
+each class line's `fee_cents + sanction_cents`, and the show's own charges were
+in `charge_lines`, which nothing on the desk rendered at all.
+
+- **A per-class charge is put against its classes, by the backend.**
+  `build_bill` attributes each `per_judge_per_entry` line
+  (`PER_ENTRY_CHARGE_UNITS`) to the class entries it counted, as `charges` /
+  `charge_cents` on the class line and `class_charge_total_cents` on the bill,
+  so the club-sanctioned exclusion and `show_fee_classes` scoping that decided
+  the charge are not re-derived in the browser. The total is unchanged; the line
+  is marked `per_class` so a screen does not list it twice.
+- **The desk row shows it.** Fee reads the class fee plus club sanction plus
+  those charges, with the split in its tooltip ("$0.00 class fee + $12.00 APHA
+  Fee"); the section heading adds it to class fees and names the rest as other
+  charges.
+- **Charges that belong to no class are listed under the table** — per-horse
+  and per-exhibitor fees, and a club's per-horse sanction fee — with the same
+  arithmetic the exhibitor's bill prints (`chargeArithmetic` /
+  `sanctionArithmetic`, moved into `lib/my-shows.ts` and shared with
+  `ShowBillBreakdown`, whose class sub-lines now also say "+ $12.00 APHA Fee").
+
+While tracing it, a second trap in the same box: a "per class" or "per class,
+per horse" fee offers a class list to tick and **charges nobody** — it is
+price-list text, and what an entry costs is its class's `entry_fee_cents`. That
+was said only in the unit picker's tooltip. Every such row now carries a
+warning-coloured *Show bill only — this doesn't charge anyone* line
+(`chargesNobody` in `lib/fee-units.ts`), linking to Entry Fees. Billing those
+rows was considered and turned down: the MNSPHC catalogue restates its class
+prices there ($36 / $28 / $10 per class), so every entry would be charged
+twice.
+
 ### APHA Rules Brought Up To The 2025 And 2026 Rule Changes
 
 Checked against the rule change proposals passed at the 2024 APHA Leadership

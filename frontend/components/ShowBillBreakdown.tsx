@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import {
+  chargeArithmetic,
   formatMoney,
+  sanctionArithmetic,
   type Bill,
   type BillChargeLine,
   type BillClassLine,
@@ -162,6 +164,19 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
             + {formatMoney(line.sanction_cents)} club sanction
           </span>
         )}
+        {/* A per-class assessment counted on this entry. Same treatment as the
+            club money above: said against the class it is levied on, totalled
+            in its own line below. */}
+        {(line.charges ?? []).map((charge) => (
+          <span
+            key={charge.show_fee_id}
+            className="block"
+            style={{ color: 'var(--muted)' }}
+            title={`Charged on each class entered. Totalled in ${charge.label} below, not in the amount beside this line.`}
+          >
+            + {formatMoney(charge.cents)} {charge.label}
+          </span>
+        ))}
       </dt>
       <dd className="text-right text-xs self-start" style={{ color: 'var(--muted)' }}>
         {formatMoney(line.fee_cents)}
@@ -179,28 +194,13 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
  * cannot check. The counts are of that club's own classes only, which is what
  * makes them differ from the show's own charges above.
  */
-/** "× 2 WSCA judges" when the count is one association's carded judges, "× 4
- *  judges" when it is the whole panel — so a dual-sanctioned bill says whose
- *  judges a fee was multiplied by. */
-function judgesText(count: number, code: string | null | undefined): string {
-  return `× ${count} ${code ? `${code} ` : ''}judge${count === 1 ? '' : 's'}`;
-}
-
 function SanctionLine({ line }: { line: BillSanctionLine }) {
-  const parts = [formatMoney(line.amount_cents)];
-  if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
-    parts.push(judgesText(line.judge_count, line.judge_association_code));
-  }
-  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
-    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
-  }
   return (
     <>
       <dt>
         {line.name || line.code} sanction fee
         <span className="text-xs" style={{ color: 'var(--muted)' }}>
-          {' '}({parts.join(' ')}, in its {line.entry_count}{' '}
-          {line.entry_count === 1 ? 'class' : 'classes'})
+          {' '}({sanctionArithmetic(line)})
         </span>
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
@@ -216,23 +216,6 @@ function SanctionLine({ line }: { line: BillSanctionLine }) {
  * horses" answers the question that a bare $30.00 raises.
  */
 function ChargeLine({ line }: { line: BillChargeLine }) {
-  const parts = [formatMoney(line.amount_cents)];
-  if (
-    line.unit === 'per_judge_per_horse' ||
-    line.unit === 'per_judge_per_exhibitor' ||
-    line.unit === 'per_judge_per_entry'
-  ) {
-    parts.push(judgesText(line.judge_count, line.judge_association_code));
-  }
-  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
-    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
-  }
-  if (line.unit === 'per_judge_per_entry') {
-    // Only the breed association's own class entries — a class a club like
-    // WSCA or MNSPHC sanctions outright is not counted, so this can read
-    // lower than the exhibitor's total entry count on the same bill.
-    parts.push(`× ${line.entry_count} ${line.entry_count === 1 ? 'entry' : 'entries'}`);
-  }
   return (
     <>
       <dt
@@ -242,7 +225,7 @@ function ChargeLine({ line }: { line: BillChargeLine }) {
       >
         {line.label}
         <span className="text-xs" style={{ color: 'var(--muted)' }}>
-          {' '}({parts.join(' ')})
+          {' '}({chargeArithmetic(line)})
         </span>
       </dt>
       <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>

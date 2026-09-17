@@ -3448,6 +3448,14 @@ class ShowPaymentOut(BaseModel):
         from_attributes = True
 
 
+class BillClassChargeOut(BaseModel):
+    """One per-class charge, as it lands on one class entry."""
+
+    show_fee_id: UUID
+    label: str
+    cents: int
+
+
 class BillClassLineOut(BaseModel):
     entry_id: UUID
     class_id: UUID
@@ -3457,6 +3465,12 @@ class BillClassLineOut(BaseModel):
     horse_name: Optional[str] = None
     fee_cents: int
     sanction_cents: int
+    #: The show's own per-class-entry charges counted on this entry (the breed
+    #: body's per-judge assessment), itemised. Part of `charge_total_cents`, put
+    #: against the class so a screen quoting a class's fee does not read $0 over
+    #: a class that costs $5. See `billing.build_bill`.
+    charge_cents: int = 0
+    charges: list[BillClassChargeOut] = Field(default_factory=list)
 
 
 class BillReservationLineOut(BaseModel):
@@ -3495,6 +3509,10 @@ class BillChargeLineOut(BaseModel):
     # The breed body whose carded judges `judge_count` counts, or None when it
     # is the whole panel. See `billing.carded_judge_count`.
     judge_association_code: Optional[str] = None
+    #: True when the charge is levied per class entry and its money is also on
+    #: the class lines (`BillClassLineOut.charges`), so a screen listing class
+    #: fees knows not to list this line a second time.
+    per_class: bool = False
     quantity: int
     line_total_cents: int
 
@@ -3569,6 +3587,8 @@ class BillOut(BaseModel):
     sanction_total_cents: int
     reservation_total_cents: int
     charge_total_cents: int = 0
+    #: The part of `charge_total_cents` carried on the class lines.
+    class_charge_total_cents: int = 0
     futurity_total_cents: int = 0
     total_cents: int
 

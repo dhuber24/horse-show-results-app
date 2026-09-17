@@ -19,6 +19,7 @@ import {
 } from './types';
 import type { Desk, DeskExhibitor } from './types';
 import { formatMoney } from '@/lib/financials';
+import { chargeArithmetic, sanctionArithmetic, type BillClassLine } from '@/lib/my-shows';
 
 /** The subject of a paperwork sign-off, as the backend wants it posted. */
 type Subject = {
@@ -57,6 +58,16 @@ function backendMessage(detail: unknown, fallback: string): string {
     return d.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' ');
   }
   return d?.message ?? fallback;
+}
+
+/** What makes up a class row's fee, for its tooltip — "$0.00 class fee + $5.00
+ *  APHA Fee". Undefined when the class's own fee is the whole of it, so a plain
+ *  row carries no tooltip restating the number beside it. */
+function classFeeBreakdown(line: BillClassLine): string | undefined {
+  const parts = [`${formatMoney(line.fee_cents)} class fee`];
+  if (line.sanction_cents > 0) parts.push(`${formatMoney(line.sanction_cents)} club sanction`);
+  for (const charge of line.charges ?? []) parts.push(`${formatMoney(charge.cents)} ${charge.label}`);
+  return parts.length > 1 ? parts.join(' + ') : undefined;
 }
 
 /** Which panel sections staff have folded away. Remembered in this browser
@@ -413,8 +424,19 @@ export default function ExhibitorPanel({
   // Money quoted off the bill, never re-added here. A futurity class carries no
   // fee of its own, so summing `entry_fee_cents` read $0 for it.
   const bill = exhibitor.bill;
+  // A per-class charge (the breed body's per-judge assessment) is on the class
+  // lines too, so it counts as class money here and shows on each row. Without
+  // it a $0 class carrying a $5 assessment read $0 while the header billed $5.
+  const classChargeCents = bill?.class_charge_total_cents ?? 0;
   const classFeesCents = bill
-    ? bill.class_fee_total_cents + bill.class_sanction_total_cents
+    ? bill.class_fee_total_cents + bill.class_sanction_total_cents + classChargeCents
+    : 0;
+  // Everything else the show and its clubs charge belongs to no class — per
+  // horse, per exhibitor — and is listed under the table with its arithmetic.
+  const otherChargeLines = (bill?.charge_lines ?? []).filter((l) => !l.per_class);
+  const clubChargeLines = bill?.sanction_lines ?? [];
+  const otherChargesCents = bill
+    ? bill.charge_total_cents - classChargeCents + bill.sanction_total_cents - bill.class_sanction_total_cents
     : 0;
   const futurityCents = bill?.futurity_total_cents ?? 0;
   const futurityLines = bill?.futurity_lines ?? [];
@@ -596,9 +618,10 @@ export default function ExhibitorPanel({
           <span
             className="text-xs text-right"
             style={{ color: COLORS.muted }}
-            title="Class fees include any club sanction fee charged per class. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
+            title="Class fees include any club sanction fee and show assessment charged per class. Other charges are the show's and clubs' per-horse and per-exhibitor fees, listed under the classes. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
           >
             {formatMoney(classFeesCents)} in class fees
+            {otherChargesCents > 0 && ` · ${formatMoney(otherChargesCents)} other charges`}
             {(futurityCents > 0 || futurityLines.length > 0) && ` · ${formatMoney(futurityCents)} futurity`}
           </span>
         }
@@ -653,6 +676,13 @@ export default function ExhibitorPanel({
                             <span title={`${futurity.name} — ${enrollment.fee_tier_name ?? 'enrolled'}`}>
                               {formatMoney(enrollment.tier_amount_cents)}
                               <span className="block text-xs">futurity</span>
+                              {/* A futurity class is still the breed body's own
+                                  class, so its per-class assessment lands here. */}
+                              {(line?.charges ?? []).map((charge) => (
+                                <span key={charge.show_fee_id} className="block text-xs">
+                                  + {formatMoney(charge.cents)} {charge.label}
+                                </span>
+                              ))}
                             </span>
                           ) : (
                             <span
@@ -663,14 +693,8 @@ export default function ExhibitorPanel({
                             </span>
                           )
                         ) : line ? (
-                          <span
-                            title={
-                              line.sanction_cents > 0
-                                ? `${formatMoney(line.fee_cents)} class fee + ${formatMoney(line.sanction_cents)} club sanction`
-                                : undefined
-                            }
-                          >
-                            {formatMoney(line.fee_cents + line.sanction_cents)}
+                          <span title={classFeeBreakdown(line)}>
+                            {formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}
                           </span>
                         ) : cls ? (
                           formatMoney(cls.entry_fee_cents)
@@ -694,6 +718,32 @@ export default function ExhibitorPanel({
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* The charges that belong to no class — a per-horse drug fee, a club's
+            per-horse sanction fee — with the arithmetic the exhibitor's own bill
+            prints. Before this they were inside the header's billed figure and
+            nowhere else on the desk. */}
+        {(clubChargeLines.length > 0 || otherChargeLines.length > 0) && (
+          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
+            {clubChargeLines.map((l) => (
+              <li key={l.association_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span>
+                  <span style={{ color: COLORS.text }}>{l.name || l.code} sanction fee</span>:{' '}
+                  {sanctionArithmetic(l)}
+                </span>
+                <span className="whitespace-nowrap">{formatMoney(l.line_total_cents)}</span>
+              </li>
+            ))}
+            {otherChargeLines.map((l) => (
+              <li key={l.show_fee_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span>
+                  <span style={{ color: COLORS.text }}>{l.label}</span>: {chargeArithmetic(l)}
+                </span>
+                <span className="whitespace-nowrap">{formatMoney(l.line_total_cents)}</span>
+              </li>
+            ))}
+          </ul>
         )}
 
         {/* Each enrollment's arithmetic, as the bill charges it. Listed even

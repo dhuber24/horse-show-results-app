@@ -125,6 +125,20 @@ export function isClassFeeEditorUnit(unit: string): boolean {
 }
 
 /**
+ * Whether a fee with this unit charges nobody — neither booked at sign-up nor
+ * applied automatically, so it is price-list text on the show bill and nothing
+ * more. Mirrors the third family in `build_bill` (backend/billing.py).
+ *
+ * The Class Fees box has to say so on the row. Its per-class units offer a list
+ * of classes to tick, which reads exactly like assigning a price to them, and a
+ * manager who did that and then entered somebody saw $0 at the desk: what an
+ * entry is charged is its class's own `entry_fee_cents`.
+ */
+export function chargesNobody(unit: string): boolean {
+  return !isReservableUnit(unit) && !isAutomaticUnit(unit);
+}
+
+/**
  * The units a fee is quoted "per class" in, and so the ones the Class Fees box
  * offers a class list on. Mirrors `PER_CLASS_FEE_UNITS` in backend/billing.py.
  *

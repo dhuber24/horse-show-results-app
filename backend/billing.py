@@ -92,6 +92,12 @@ PER_CLASS_FEE_UNITS = (
     "per_class_per_horse",
 )
 
+# The automatic units charged once for each class entry, and so the only ones
+# whose money can be put against a class line on the bill -- a per-horse or
+# per-exhibitor charge belongs to no class in particular. Each counted entry
+# owes `amount_cents x judge_count` of it; see `build_bill`.
+PER_ENTRY_CHARGE_UNITS = ("per_judge_per_entry",)
+
 
 def has_early_rate(fee) -> bool:
     """Whether this fee actually offers an early rate.
@@ -569,6 +575,12 @@ def charge_lines(
                 # than leaving somebody to wonder why the counts differ from
                 # the line above.
                 "is_scoped": scoped is not None,
+                # Charged once per class entry, so `build_bill` puts it against
+                # the class lines it was counted on (`PER_ENTRY_CHARGE_UNITS`).
+                "per_class": fee.unit in PER_ENTRY_CHARGE_UNITS,
+                # Which entries this line counted. Read by `build_bill` to do
+                # that, and removed there -- it is not part of the bill.
+                "entry_ids": [e.id for e in fee_entries],
                 "quantity": quantity,
                 "line_total_cents": line_total,
             }
@@ -795,6 +807,31 @@ def build_bill(
     sanction_line_list, sanction_charge_total = sanction_charge_lines(show, entry_list)
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
 
+    # A charge levied per class entry -- the breed body's per-judge assessment --
+    # is also money against each class it counted, and the desk prints a class's
+    # fee off its line. Before this the line carried only the class's own entry
+    # fee, so an entry at a $0 class with a $5 per-judge, per-class assessment
+    # read $0 while the same bill billed $5. Attributed here rather than in the
+    # browser, so a screen quotes the split instead of re-deriving the scoping
+    # (club-sanctioned exclusion, `show_fee_classes`) that decided it. Nothing is
+    # added to the total: this is where `charge_total` already went.
+    charges_by_entry: dict = {}
+    for line in charge_line_list:
+        entry_ids = line.pop("entry_ids", [])
+        if not line["per_class"]:
+            continue
+        per_entry_cents = line["amount_cents"] * line["judge_count"]
+        for entry_id in entry_ids:
+            charges_by_entry.setdefault(entry_id, []).append(
+                {"show_fee_id": line["show_fee_id"], "label": line["label"], "cents": per_entry_cents}
+            )
+    class_charge_total = 0
+    for class_line in class_lines:
+        charges = charges_by_entry.get(class_line["entry_id"], [])
+        class_line["charges"] = charges
+        class_line["charge_cents"] = sum(c["cents"] for c in charges)
+        class_charge_total += class_line["charge_cents"]
+
     return {
         "class_lines": class_lines,
         "reservation_lines": reservation_lines,
@@ -806,6 +843,10 @@ def build_bill(
         "sanction_total_cents": class_sanction_total + sanction_charge_total,
         "reservation_total_cents": reservation_total,
         "charge_total_cents": charge_total,
+        # The part of `charge_total_cents` put against class lines above, so a
+        # screen can print class money and the remaining charges side by side
+        # and still foot without summing lines itself.
+        "class_charge_total_cents": class_charge_total,
         "futurity_total_cents": futurity_total,
         "total_cents": (
             class_fee_total

@@ -2,9 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
+import {
+  AutosaveNavLink,
+  useRegisterStepAutosave,
+} from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
 import {
   CLASS_FEE_EDITOR_UNITS,
+  chargesNobody,
   offersClassList,
   unitLabel,
   usesJudgeCount,
@@ -236,12 +240,45 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
         ? `${rate} × ${judges} × classes entered${scopeNote}.`
         : `${rate} per judge, per class entered${scopeNote}.`;
     case 'per_entry':
-      return `${rate} per class, published on the show bill only — not billed automatically here.`;
+      return `${rate} per class, printed on the show bill only — it charges nobody.`;
     case 'per_class_per_horse':
-      return `${rate} per class, per horse, published on the show bill only — not billed automatically here.`;
+      return `${rate} per class, per horse, printed on the show bill only — it charges nobody.`;
     default:
       return '';
   }
+}
+
+/**
+ * Said on the row, in words, for a fee that charges nobody.
+ *
+ * It used to be only the unit picker's tooltip. A per-class fee offers a list
+ * of classes to tick, which reads exactly like pricing those classes — and a
+ * manager who did that, entered somebody in one and looked at the desk saw $0,
+ * because what an entry is charged is its class's own entry fee. The note is
+ * warning-coloured rather than grey because it contradicts what the controls
+ * beside it suggest, and it links to where a class's price is actually set.
+ */
+function ChargesNobodyNote({ classPricesHref }: { classPricesHref?: string }) {
+  return (
+    <p className="text-xs" style={{ color: 'var(--warning)' }}>
+      Show bill only — this doesn’t charge anyone. An entry is charged its class’s own entry
+      fee
+      {classPricesHref ? (
+        <>
+          .{' '}
+          <AutosaveNavLink
+            href={classPricesHref}
+            className="underline font-medium"
+            style={{ color: 'var(--warning)' }}
+          >
+            Set class prices →
+          </AutosaveNavLink>
+        </>
+      ) : (
+        ', set in the class list below.'
+      )}
+    </p>
+  );
 }
 
 function BasisSelect({
@@ -402,6 +439,7 @@ export default function ShowChargesEditor({
   initialCharges,
   judgeCount,
   judgesHref,
+  classPricesHref,
   classes = [],
   boxed = true,
 }: {
@@ -419,6 +457,10 @@ export default function ShowChargesEditor({
   judgeCount: number;
   /** Where to go and fix an empty panel. */
   judgesHref?: string;
+  /** Where a class's own price is set, linked from the note on a fee that
+   *  charges nobody. Omitted where that table is on the same screen (Entry
+   *  Fees), and the note points down the page instead. */
+  classPricesHref?: string;
   /** False when a parent already renders the outer "Class Fees" box (Entry
    *  Fees, which also holds the per-class pricing table below this) — skips
    *  this component's own border and top-level heading so there is exactly
@@ -664,10 +706,15 @@ export default function ShowChargesEditor({
             </button>
           </div>
           {/* Kept as visible text here, where the unit is being chosen — see
-              `chargeExplanation`. On a saved row it is the select's tooltip. */}
-          <p className="text-xs" style={{ color: COLORS.muted }}>
-            {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
-          </p>
+              `chargeExplanation`. On a saved row it is the select's tooltip,
+              except for a fee that charges nobody, which says so on the row. */}
+          {chargesNobody(newRow.unit) ? (
+            <ChargesNobodyNote classPricesHref={classPricesHref} />
+          ) : (
+            <p className="text-xs" style={{ color: COLORS.muted }}>
+              {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
+            </p>
+          )}
           {scopeOffered(newRow.unit) && (
             <ClassScopePicker
               classes={classes}
@@ -777,6 +824,9 @@ export default function ShowChargesEditor({
                   <p className="text-xs text-red-600">
                     Enter an amount like 8 or 8.50.
                   </p>
+                )}
+                {chargesNobody(draft.unit) && (
+                  <ChargesNobodyNote classPricesHref={classPricesHref} />
                 )}
                 {offered && (
                   <ClassScopePicker

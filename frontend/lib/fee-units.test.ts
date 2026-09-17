@@ -15,11 +15,15 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  AUTOMATIC_FEE_UNITS,
+  CLASS_FEE_EDITOR_UNITS,
   CLUB_SANCTION_UNITS,
   FEE_GROUPS,
+  RESERVABLE_FEE_UNITS,
   UNIT_LABEL,
   canHaveEarlyRate,
   canHaveMinimumQuantity,
+  chargesNobody,
   groupFees,
   isClubSanctionUnit,
   offersClassList,
@@ -172,5 +176,27 @@ describe('offersClassList', () => {
     for (const unit of ['per_horse', 'per_exhibitor', 'per_judge_per_horse', 'per_judge_per_exhibitor']) {
       expect(offersClassList(unit)).toBe(false);
     }
+  });
+});
+
+describe('chargesNobody', () => {
+  it('is true of the per-class units that only print on the show bill', () => {
+    // Both offer a class list, which reads like pricing those classes — the
+    // Class Fees box has to say on the row that nothing is charged.
+    expect(chargesNobody('per_entry')).toBe(true);
+    expect(chargesNobody('per_class_per_horse')).toBe(true);
+    expect(chargesNobody('flat')).toBe(true);
+    expect(chargesNobody('percent_of_entry')).toBe(true);
+  });
+
+  it('is false of everything that bills', () => {
+    for (const unit of [...AUTOMATIC_FEE_UNITS, ...RESERVABLE_FEE_UNITS]) {
+      expect(chargesNobody(unit)).toBe(false);
+    }
+  });
+
+  it('splits the Class Fees box into charges and show-bill text, with nothing in between', () => {
+    const shown = CLASS_FEE_EDITOR_UNITS.filter(chargesNobody).sort();
+    expect(shown).toEqual(['per_class_per_horse', 'per_entry']);
   });
 });

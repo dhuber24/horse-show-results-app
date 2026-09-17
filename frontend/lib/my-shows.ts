@@ -51,6 +51,20 @@ export type BillClassLine = {
   horse_name: string | null;
   fee_cents: number;
   sanction_cents: number;
+  /** The show's own per-class-entry charges counted on this entry — the breed
+   *  body's per-judge assessment — itemised. Already inside
+   *  `charge_total_cents`; put on the class so a screen quoting a class's fee
+   *  does not read $0 over a class that costs $5. Optional for a payload built
+   *  before the field existed. */
+  charge_cents?: number;
+  charges?: BillClassCharge[];
+};
+
+/** One per-class charge, as it lands on one class entry. */
+export type BillClassCharge = {
+  show_fee_id: string;
+  label: string;
+  cents: number;
 };
 
 export type BillReservationLine = {
@@ -93,9 +107,59 @@ export type BillChargeLine = {
    *  separate price and are not reported to (or paid for by) the breed
    *  association at all. */
   entry_count: number;
+  /** Levied per class entry, so its money is also on the class lines
+   *  (`BillClassLine.charges`) — a screen listing class fees must not list
+   *  this line a second time. */
+  per_class?: boolean;
   quantity: number;
   line_total_cents: number;
 };
+
+/** "× 2 WSCA judges" when the count is one association's carded judges, "× 4
+ *  judges" when it is the whole panel — so a dual-sanctioned bill says whose
+ *  judges a fee was multiplied by. */
+function judgesText(count: number, code: string | null | undefined): string {
+  return `× ${count} ${code ? `${code} ` : ''}judge${count === 1 ? '' : 's'}`;
+}
+
+/**
+ * The arithmetic behind one of the show's own charges — "$5.00 × 3 judges × 2
+ * horses". Shared by the exhibitor's bill and the registration desk, so the
+ * person at the counter reads the same sentence the exhibitor is holding.
+ */
+export function chargeArithmetic(line: BillChargeLine): string {
+  const parts = [formatMoney(line.amount_cents)];
+  if (
+    line.unit === 'per_judge_per_horse' ||
+    line.unit === 'per_judge_per_exhibitor' ||
+    line.unit === 'per_judge_per_entry'
+  ) {
+    parts.push(judgesText(line.judge_count, line.judge_association_code));
+  }
+  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
+    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
+  }
+  if (line.unit === 'per_judge_per_entry') {
+    // Only the breed association's own class entries — a class a club like
+    // WSCA or MNSPHC sanctions outright is not counted, so this can read
+    // lower than the exhibitor's total entry count on the same bill.
+    parts.push(`× ${line.entry_count} ${line.entry_count === 1 ? 'entry' : 'entries'}`);
+  }
+  return parts.join(' ');
+}
+
+/** The same for a club charging per horse or per exhibitor, counted over that
+ *  club's own classes — "$45.00 × 2 WSCA judges × 1 horse, in its 3 classes". */
+export function sanctionArithmetic(line: BillSanctionLine): string {
+  const parts = [formatMoney(line.amount_cents)];
+  if (line.unit === 'per_judge_per_horse' || line.unit === 'per_judge_per_exhibitor') {
+    parts.push(judgesText(line.judge_count, line.judge_association_code));
+  }
+  if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
+    parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
+  }
+  return `${parts.join(' ')}, in its ${line.entry_count} ${line.entry_count === 1 ? 'class' : 'classes'}`;
+}
 
 /**
  * One club's sanction fee, where the club charges per horse or per exhibitor
@@ -163,6 +227,8 @@ export type Bill = {
   sanction_total_cents: number;
   reservation_total_cents: number;
   charge_total_cents: number;
+  /** The part of `charge_total_cents` carried on the class lines. */
+  class_charge_total_cents?: number;
   futurity_total_cents: number;
   total_cents: number;
 };
