@@ -58,16 +58,17 @@ describe('groupFees', () => {
       'per_judge_per_horse',
       'per_judge_per_exhibitor',
       'per_judge_per_entry',
+      'per_entry',
     ]) {
       expect(headingOf(unit)).toBe('Added to every entry');
     }
   });
 
   it('files the units that bill nobody as published prices', () => {
-    // `flat`, `per_entry`, `per_class_per_horse` and `percent_of_entry` are in
-    // no billing family — see the `build_bill` Sharp Edge. Printing them beside
-    // the automatic charges would read as a bill.
-    for (const unit of ['flat', 'per_entry', 'per_class_per_horse', 'percent_of_entry']) {
+    // `flat`, `per_class_per_horse` and `percent_of_entry` are in no billing
+    // family — see the `build_bill` Sharp Edge. Printing them beside the
+    // automatic charges would read as a bill.
+    for (const unit of ['flat', 'per_class_per_horse', 'percent_of_entry']) {
       expect(headingOf(unit)).toBe('Other charges');
     }
   });
@@ -180,16 +181,16 @@ describe('offersClassList', () => {
 });
 
 describe('chargesNobody', () => {
-  it('is true of the per-class units that only print on the show bill', () => {
-    // Both offer a class list, which reads like pricing those classes — the
-    // Class Fees box has to say on the row that nothing is charged.
-    expect(chargesNobody('per_entry')).toBe(true);
+  it('is true of the units that only print on the show bill', () => {
+    // The withdrawn per-class-per-horse unit offers a class list, which reads
+    // like pricing those classes — the row has to say nothing is charged.
     expect(chargesNobody('per_class_per_horse')).toBe(true);
     expect(chargesNobody('flat')).toBe(true);
     expect(chargesNobody('percent_of_entry')).toBe(true);
   });
 
-  it('is false of everything that bills', () => {
+  it('is false of everything that bills, a per-class fee included', () => {
+    expect(chargesNobody('per_entry')).toBe(false);
     for (const unit of [...AUTOMATIC_FEE_UNITS, ...RESERVABLE_FEE_UNITS]) {
       expect(chargesNobody(unit)).toBe(false);
     }
@@ -197,6 +198,6 @@ describe('chargesNobody', () => {
 
   it('splits the Class Fees box into charges and show-bill text, with nothing in between', () => {
     const shown = CLASS_FEE_EDITOR_UNITS.filter(chargesNobody).sort();
-    expect(shown).toEqual(['per_class_per_horse', 'per_entry']);
+    expect(shown).toEqual(['per_class_per_horse']);
   });
 });

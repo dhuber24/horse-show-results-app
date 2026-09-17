@@ -47,9 +47,9 @@ export default async function SetupFeesPage({
   ]);
   // The show's own class fees, picked out by unit rather than by a list of
   // codes: the whole point is that a manager names their own, so there is no
-  // code here to match on. `per_entry` rides along too — a jackpot/sidepot
-  // fee is published text rather than an automatic charge, but it is still a
-  // class fee and belongs in the same box. See CLASS_FEE_EDITOR_UNITS.
+  // code here to match on. A row still carrying the withdrawn
+  // `per_class_per_horse` rides along too, so it can be switched. See
+  // CLASS_FEE_EDITOR_UNITS.
   const charges = allFees.filter((f) => isClassFeeEditorUnit(f.unit)) as ShowCharge[];
   const legacyFuturityFee =
     allFees.find((f) => f.code === LEGACY_FUTURITY_CODE) ?? null;
@@ -60,13 +60,13 @@ export default async function SetupFeesPage({
       showName={show.name}
       current="fees"
       title="Step 7: Show Fees"
-      subtitle="Every class fee this show adds on top of the clubs' and the futurity's — an office fee, an assessment, an all-day pass, a jackpot line — priced per exhibitor, horse or judge."
+      subtitle="The show's own fees, on top of the clubs' and the futurity's — a price per class, an office fee, an assessment — charged per class, exhibitor, horse or judge."
       stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
       skip={
         charges.length === 0
           ? {
-              label: 'Skip — no charges on top of the class fee',
-              note: 'What each class costs is set on the class itself. This step is only for what a show adds on top of that — an office fee, an association assessment, an all-day pass.',
+              label: 'Skip — no show fees',
+              note: 'This step is for the show’s own fees — a price per class entered, an office fee, an association assessment. A show that charges none of those can skip it.',
             }
           : undefined
       }

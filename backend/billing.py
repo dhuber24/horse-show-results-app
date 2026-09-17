@@ -59,10 +59,16 @@ EARLY_RATE_FEE_UNITS = tuple(u for u in RESERVABLE_FEE_UNITS if u != "per_bag")
 # to whoever left a mess, which no query answers. `per_exhibitor` is derived
 # from having entries, which is the test the office charge always made.
 #
-# `per_entry`, `per_class_per_horse` and `percent_of_entry` are not here either,
-# and must not be added: they are the class-fee vocabulary, and
-# `classes.entry_fee_cents` is what charges per entry. Billing a `per_entry`
-# class fee on top of it would double every class on every bill.
+# `per_class_per_horse` and `percent_of_entry` are not here, and bill nobody.
+# `per_entry` was kept out too, for years, on the grounds that
+# `classes.entry_fee_cents` is what charges per entry and a `per_entry` class fee
+# on top of it would double every class. That held while nobody priced a class
+# from the fees step. A show manager setting a show up does exactly that -- "$5
+# per class", ticked against the classes it applies to -- and a unit that offered
+# a class list and then billed nobody put $0 on the desk. So `per_entry` bills:
+# once per class entered, in its ticked classes, *on top of* whatever the class
+# row itself carries. A catalogue that restates its class prices as `per_entry`
+# rows now charges them twice and has to drop the rows.
 AUTOMATIC_FEE_UNITS = (
     "per_exhibitor",
     "per_horse",
@@ -71,21 +77,19 @@ AUTOMATIC_FEE_UNITS = (
     # APHA SC-125.B, and every breed body's version of it: a fee "per entry per
     # show (Judge)" that show management collects and forwards. Neither of the
     # units above bills it -- an exhibitor with one horse in six classes owes six
-    # of these, and `per_judge_per_horse` charges them one. This does not
-    # contradict the paragraph above: `per_entry` is the class-fee vocabulary and
-    # stays out, while this is a levy on top of the class fee (migration 125).
+    # of these, and `per_judge_per_horse` charges them one (migration 125).
     "per_judge_per_entry",
+    # The show's own fee per class entered. Two horses in one class are two
+    # entries and two of these, which is why there is no separate "per class,
+    # per horse" charge.
+    "per_entry",
 )
 
 # The units a fee is quoted "per class" in, and so the ones that may name which
-# classes -- every class unless somebody narrows it. One of them bills
-# (`per_judge_per_entry`, through the scope in `scoped_class_ids`); the other
-# two are price-list text that bills nobody, and their list is read by the show
-# bill alone: "$28 per class" over a 170-class schedule has to be able to say
-# which classes cost $28.
-#
-# Not the same list as `AUTOMATIC_FEE_UNITS` and must not be merged into it --
-# adding `per_entry` there would bill every class twice, for the reason above.
+# classes -- every class unless somebody narrows it. `per_entry` and
+# `per_judge_per_entry` bill, and their list narrows the charge;
+# `per_class_per_horse` is no longer offered and stays only so rows priced with
+# it still read, as price-list text that bills nobody.
 PER_CLASS_FEE_UNITS = (
     "per_entry",
     "per_judge_per_entry",
@@ -94,9 +98,18 @@ PER_CLASS_FEE_UNITS = (
 
 # The automatic units charged once for each class entry, and so the only ones
 # whose money can be put against a class line on the bill -- a per-horse or
-# per-exhibitor charge belongs to no class in particular. Each counted entry
-# owes `amount_cents x judge_count` of it; see `build_bill`.
-PER_ENTRY_CHARGE_UNITS = ("per_judge_per_entry",)
+# per-exhibitor charge belongs to no class in particular. See
+# `charge_cents_per_entry` and `build_bill`.
+PER_ENTRY_CHARGE_UNITS = ("per_entry", "per_judge_per_entry")
+
+
+def charge_cents_per_entry(unit: str, amount_cents: int, judge_count: int) -> int:
+    """What one counted class entry owes of a per-entry charge."""
+    if unit == "per_judge_per_entry":
+        return amount_cents * judge_count
+    if unit == "per_entry":
+        return amount_cents
+    return 0
 
 
 def has_early_rate(fee) -> bool:
@@ -380,6 +393,16 @@ def is_club_sanctioned_class(cls) -> bool:
     return bool(getattr(cls, "sanctioning", None))
 
 
+def is_futurity_class(cls) -> bool:
+    """Whether this class belongs to a futurity programme.
+
+    A futurity prices its own classes by category, so the show's per-class fees
+    leave them out -- the same classes the fees step leaves off the list a fee
+    is ticked against. `Class.is_futurity_class` is loaded with the class.
+    """
+    return bool(getattr(cls, "is_futurity_class", False))
+
+
 def breed_association_entry_count(entries: Iterable) -> int:
     """How many of these entries are in the breed association's own classes.
 
@@ -539,15 +562,27 @@ def charge_lines(
             fee_entries = breed_entries
         else:
             fee_entries = [e for e in breed_entries if e.class_.id in scoped]
+        # A per-class fee never reaches a futurity class: the futurity prices
+        # it, and the fees step does not offer one to tick. So "every class"
+        # means every class that list could show.
+        if fee.unit in PER_ENTRY_CHARGE_UNITS:
+            fee_entries = [e for e in fee_entries if not is_futurity_class(e.class_)]
         fee_horses = len({e.horse_id for e in fee_entries if e.horse_id})
         fee_count = len(fee_entries)
-        quantity = charge_multiplier(
-            fee.unit,
-            fee_horses,
-            judge_count,
-            fee_count,
-            has_relevant_entries=fee_count > 0,
-        )
+        if fee.unit == "per_entry":
+            # Counted here rather than in `charge_multiplier`, which returns 0
+            # for `per_entry` on purpose: a club's per-class sanction fee bills
+            # through `sanction_rates`, and that zero is what stops
+            # `sanction_charge_lines` billing it a second time.
+            quantity = fee_count
+        else:
+            quantity = charge_multiplier(
+                fee.unit,
+                fee_horses,
+                judge_count,
+                fee_count,
+                has_relevant_entries=fee_count > 0,
+            )
         if quantity <= 0:
             continue
         line_total = fee.amount_cents * quantity
@@ -820,7 +855,9 @@ def build_bill(
         entry_ids = line.pop("entry_ids", [])
         if not line["per_class"]:
             continue
-        per_entry_cents = line["amount_cents"] * line["judge_count"]
+        per_entry_cents = charge_cents_per_entry(
+            line["unit"], line["amount_cents"], line["judge_count"]
+        )
         for entry_id in entry_ids:
             charges_by_entry.setdefault(entry_id, []).append(
                 {"show_fee_id": line["show_fee_id"], "label": line["label"], "cents": per_entry_cents}

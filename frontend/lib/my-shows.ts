@@ -139,10 +139,10 @@ export function chargeArithmetic(line: BillChargeLine): string {
   if (line.unit === 'per_horse' || line.unit === 'per_judge_per_horse') {
     parts.push(`× ${line.horse_count} horse${line.horse_count === 1 ? '' : 's'}`);
   }
-  if (line.unit === 'per_judge_per_entry') {
-    // Only the breed association's own class entries — a class a club like
-    // WSCA or MNSPHC sanctions outright is not counted, so this can read
-    // lower than the exhibitor's total entry count on the same bill.
+  if (line.unit === 'per_judge_per_entry' || line.unit === 'per_entry') {
+    // Only the classes the fee counts — never one a club like WSCA or MNSPHC
+    // sanctions outright, nor a futurity's — so this can read lower than the
+    // exhibitor's total entry count on the same bill.
     parts.push(`× ${line.entry_count} ${line.entry_count === 1 ? 'entry' : 'entries'}`);
   }
   return parts.join(' ');

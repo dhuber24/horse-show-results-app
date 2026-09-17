@@ -28,9 +28,8 @@ export default async function EntryFeesPage({ params }: { params: Promise<{ id: 
   ]);
 
   // Picked out by unit, not by a list of codes: the whole point of these rows is
-  // that the show manager names their own. `per_entry` rides along too — a
-  // jackpot/sidepot fee is published text rather than an automatic charge, but
-  // it is still a class fee and belongs in the same box, not a second one.
+  // that the show manager names their own. A row still carrying the withdrawn
+  // `per_class_per_horse` rides along too, so it can be switched.
   const charges: ShowCharge[] = fees.filter((f: { unit: string }) => isClassFeeEditorUnit(f.unit));
 
   return (

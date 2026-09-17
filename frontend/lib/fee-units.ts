@@ -66,9 +66,12 @@ export const AUTOMATIC_FEE_UNITS = [
   'per_judge_per_horse',
   'per_judge_per_exhibitor',
   // APHA SC-125.B's assessment, and every breed body's version of it: a fee per
-  // class entry per judge that show management collects and forwards. Not the
-  // same as `per_entry`, which is class-fee vocabulary and bills nobody.
+  // class entry per judge that show management collects and forwards.
   'per_judge_per_entry',
+  // The show's own fee per class entered, in its ticked classes. Two horses in
+  // one class are two entries and two of these. It billed nobody until a show
+  // priced its classes this way and the desk read $0 — see billing.py.
+  'per_entry',
 ] as const satisfies readonly FeeUnit[];
 
 /**
@@ -109,14 +112,16 @@ export function isAutomaticUnit(unit: string): boolean {
   return (AUTOMATIC_FEE_UNITS as readonly string[]).includes(unit);
 }
 
-/** Units offered in the Class Fees box, beyond the automatic family: `per_entry`
- *  is published-price-list text that bills nobody (a jackpot/sidepot buy-in is
- *  set on the pot itself, not billed here) — but it is still a *class* fee, so
- *  the box that holds All Day fees and the APHA assessment is also where a
- *  manager types one in. */
+/** The units the Class Fees box offers for a fee: every automatic unit, and
+ *  nothing that bills nobody. `per_class_per_horse` was withdrawn — "per class"
+ *  already charges two horses in one class twice, because they are two entries. */
+export const CLASS_FEE_UNIT_OPTIONS = AUTOMATIC_FEE_UNITS;
+
+/** The rows the Class Fees box lists: what it offers, plus a row still carrying
+ *  the withdrawn `per_class_per_horse`, so it can be seen and switched rather
+ *  than turning up on the Boarding Fees screen. */
 export const CLASS_FEE_EDITOR_UNITS = [
-  ...AUTOMATIC_FEE_UNITS,
-  'per_entry',
+  ...CLASS_FEE_UNIT_OPTIONS,
   'per_class_per_horse',
 ] as const satisfies readonly FeeUnit[];
 
@@ -129,10 +134,9 @@ export function isClassFeeEditorUnit(unit: string): boolean {
  * applied automatically, so it is price-list text on the show bill and nothing
  * more. Mirrors the third family in `build_bill` (backend/billing.py).
  *
- * The Class Fees box has to say so on the row. Its per-class units offer a list
- * of classes to tick, which reads exactly like assigning a price to them, and a
- * manager who did that and then entered somebody saw $0 at the desk: what an
- * entry is charged is its class's own `entry_fee_cents`.
+ * In the Class Fees box that is now only a row still carrying the withdrawn
+ * `per_class_per_horse`, and the row says so rather than leaving it to a
+ * tooltip: a class list to tick reads exactly like pricing those classes.
  */
 export function chargesNobody(unit: string): boolean {
   return !isReservableUnit(unit) && !isAutomaticUnit(unit);
@@ -143,10 +147,10 @@ export function chargesNobody(unit: string): boolean {
  * offers a class list on. Mirrors `PER_CLASS_FEE_UNITS` in backend/billing.py.
  *
  * Every unit whose label says "per class", and only those. Every class is
- * ticked by default and the manager unticks to narrow. `per_judge_per_entry`
- * bills, and its list narrows the charge; `per_entry` and `per_class_per_horse`
- * bill nobody, and a narrowed list is what the show bill prints beside the
- * price. A per-horse or per-exhibitor charge is about the horse or the person,
+ * ticked by default and the manager unticks to narrow. `per_entry` and
+ * `per_judge_per_entry` bill, and the list narrows the charge; the withdrawn
+ * `per_class_per_horse` bills nobody and keeps its list for the show bill.
+ * Club-sanctioned and futurity classes are never offered to tick. A per-horse or per-exhibitor charge is about the horse or the person,
  * and gets no list at all.
  */
 export const PER_CLASS_FEE_UNITS = [
@@ -314,6 +318,7 @@ export const FEE_GROUPS: {
       'per_judge_per_horse',
       'per_judge_per_exhibitor',
       'per_judge_per_entry',
+      'per_entry',
     ],
   },
   {
@@ -324,7 +329,7 @@ export const FEE_GROUPS: {
     key: 'other',
     heading: 'Other charges',
     note: 'Published prices. The show office applies these case by case.',
-    units: ['flat', 'per_entry', 'per_class_per_horse', 'percent_of_entry'],
+    units: ['flat', 'per_class_per_horse', 'percent_of_entry'],
   },
 ];
 

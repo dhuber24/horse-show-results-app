@@ -2,12 +2,9 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useRegisterStepAutosave } from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
 import {
-  AutosaveNavLink,
-  useRegisterStepAutosave,
-} from '@/app/admin/shows/[id]/setup/_lib/StepAutosave';
-import {
-  CLASS_FEE_EDITOR_UNITS,
+  CLASS_FEE_UNIT_OPTIONS,
   chargesNobody,
   offersClassList,
   unitLabel,
@@ -17,11 +14,11 @@ import {
 
 /**
  * Class Fees — the show's own charges, on top of what each class costs to
- * enter: an office/drug fee, an association assessment, an all-day pass, a
- * jackpot/sidepot fee published on the bill. Every exhibitor who entered a
- * class owes the automatic ones whether they asked for them or not; a
- * `per_entry` row like a jackpot is published text only and bills nobody
- * here — the pot's own buy-in is what actually charges anyone.
+ * enter: an office/drug fee, an association assessment, a fee per class entered.
+ * Every exhibitor who entered a class owes them whether they asked or not — a
+ * `per_entry` ("per class") row included, once per class entered in its ticked
+ * classes. A side pot's buy-in is set on the pot, not here: a per-class row
+ * named for a jackpot charges every entry.
  *
  * One editor, used by setup Step 7 (Fees) and the Entry Fees screen, because both
  * were writing the same `show_fees` rows with different vocabulary. There is
@@ -67,8 +64,27 @@ export type ShowCharge = {
   class_ids?: string[];
 };
 
-/** The minimum of a class the scope picker needs. */
-export type ScopeClass = { id: string; class_number: string; class_name: string };
+/** The minimum of a class the scope picker needs. The two flags ride along on
+ *  `GET /shows/{id}/classes/` and decide whether a class is offered at all. */
+export type ScopeClass = {
+  id: string;
+  class_number: string;
+  class_name: string;
+  sanctioning_codes?: string[];
+  is_futurity_class?: boolean;
+};
+
+/**
+ * Whether a class may be ticked against one of the show's own fees.
+ *
+ * A club-sanctioned class is priced by that club (Step 5) and a futurity class
+ * by its futurity's categories (Step 6), so neither is the show's to charge
+ * per class — and billing leaves both out of every per-class fee, so "Select
+ * all" means what the list shows.
+ */
+function offeredForScope(cls: ScopeClass): boolean {
+  return !cls.is_futurity_class && (cls.sanctioning_codes ?? []).length === 0;
+}
 
 /**
  * Which classes a fee uses. `'all'` is every class — what an empty `class_ids`
@@ -240,9 +256,10 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
         ? `${rate} × ${judges} × classes entered${scopeNote}.`
         : `${rate} per judge, per class entered${scopeNote}.`;
     case 'per_entry':
-      return `${rate} per class, printed on the show bill only — it charges nobody.`;
+      // No `scopeNote`: the classes it could skip are not offered to tick.
+      return `${rate} for each class entered, in the classes ticked below — two horses in one class are two entries.`;
     case 'per_class_per_horse':
-      return `${rate} per class, per horse, printed on the show bill only — it charges nobody.`;
+      return `${rate} per class, per horse — no longer offered, and printed on the show bill only. Switch it to per class to charge it.`;
     default:
       return '';
   }
@@ -251,32 +268,17 @@ function chargeExplanation(unit: string, cents: number, judgeCount: number): str
 /**
  * Said on the row, in words, for a fee that charges nobody.
  *
- * It used to be only the unit picker's tooltip. A per-class fee offers a list
- * of classes to tick, which reads exactly like pricing those classes — and a
- * manager who did that, entered somebody in one and looked at the desk saw $0,
- * because what an entry is charged is its class's own entry fee. The note is
- * warning-coloured rather than grey because it contradicts what the controls
- * beside it suggest, and it links to where a class's price is actually set.
+ * Only a row still carrying the withdrawn `per_class_per_horse` can reach it
+ * now — the picker offers nothing else that bills nobody — and such a row shows
+ * a class list to tick, which reads exactly like pricing those classes. So it is
+ * said on the row rather than in a tooltip, warning-coloured because it
+ * contradicts the controls beside it, with the one thing to do about it.
  */
-function ChargesNobodyNote({ classPricesHref }: { classPricesHref?: string }) {
+function ChargesNobodyNote() {
   return (
     <p className="text-xs" style={{ color: 'var(--warning)' }}>
-      Show bill only — this doesn’t charge anyone. An entry is charged its class’s own entry
-      fee
-      {classPricesHref ? (
-        <>
-          .{' '}
-          <AutosaveNavLink
-            href={classPricesHref}
-            className="underline font-medium"
-            style={{ color: 'var(--warning)' }}
-          >
-            Set class prices →
-          </AutosaveNavLink>
-        </>
-      ) : (
-        ', set in the class list below.'
-      )}
+      Show bill only — “per class, per horse” no longer charges anyone. Switch it to per class
+      to charge each class entered.
     </p>
   );
 }
@@ -300,11 +302,16 @@ function BasisSelect({
       className="border rounded px-2 py-1 text-sm"
       style={{ borderColor: COLORS.border, color: COLORS.text }}
     >
-      {CLASS_FEE_EDITOR_UNITS.map((unit) => (
+      {CLASS_FEE_UNIT_OPTIONS.map((unit) => (
         <option key={unit} value={unit}>
           {unitLabel(unit)}
         </option>
       ))}
+      {/* A row saved with a withdrawn unit keeps it on screen until changed,
+          rather than the select silently showing some other unit. */}
+      {!(CLASS_FEE_UNIT_OPTIONS as readonly string[]).includes(value) && (
+        <option value={value}>{unitLabel(value)}</option>
+      )}
     </select>
   );
 }
@@ -329,12 +336,16 @@ function BasisSelect({
  */
 function ClassScopePicker({
   classes,
+  leftOut = 0,
   scope,
   onChange,
   defaultOpen = false,
   disabled,
 }: {
+  /** Only the classes that may be ticked — see `offeredForScope`. */
   classes: ScopeClass[];
+  /** How many classes were not offered, so the list can say why it is short. */
+  leftOut?: number;
   scope: ClassScope;
   onChange: (scope: ClassScope) => void;
   defaultOpen?: boolean;
@@ -387,9 +398,15 @@ function ClassScopePicker({
           className="mt-1 rounded border p-2 space-y-1 max-h-56 overflow-y-auto"
           style={{ borderColor: COLORS.border, backgroundColor: 'var(--background)' }}
         >
+          {leftOut > 0 && (
+            <p style={{ color: COLORS.muted }}>
+              {leftOut} club-sanctioned or futurity class{leftOut === 1 ? ' is' : 'es are'} not
+              listed — the club or the futurity prices {leftOut === 1 ? 'it' : 'them'}.
+            </p>
+          )}
           {classes.length === 0 ? (
             <p style={{ color: COLORS.muted }}>
-              No classes on the schedule yet — this fee will use every class you add.
+              No classes to tick yet — this fee will use every class you add.
             </p>
           ) : (
             <>
@@ -439,7 +456,6 @@ export default function ShowChargesEditor({
   initialCharges,
   judgeCount,
   judgesHref,
-  classPricesHref,
   classes = [],
   boxed = true,
 }: {
@@ -457,10 +473,6 @@ export default function ShowChargesEditor({
   judgeCount: number;
   /** Where to go and fix an empty panel. */
   judgesHref?: string;
-  /** Where a class's own price is set, linked from the note on a fee that
-   *  charges nobody. Omitted where that table is on the same screen (Entry
-   *  Fees), and the note points down the page instead. */
-  classPricesHref?: string;
   /** False when a parent already renders the outer "Class Fees" box (Entry
    *  Fees, which also holds the per-class pricing table below this) — skips
    *  this component's own border and top-level heading so there is exactly
@@ -480,6 +492,9 @@ export default function ShowChargesEditor({
   const [adding, setAdding] = useState(false);
   const [newRow, setNewRow] = useState<Draft>(EMPTY_DRAFT);
   const [error, setError] = useState<string | null>(null);
+
+  // The classes a fee may be ticked against: not a club's, not a futurity's.
+  const scopeClasses = classes.filter(offeredForScope);
 
   const draftFor = (charge: ShowCharge): Draft => drafts[charge.id] ?? draftFromCharge(charge);
 
@@ -709,7 +724,7 @@ export default function ShowChargesEditor({
               `chargeExplanation`. On a saved row it is the select's tooltip,
               except for a fee that charges nobody, which says so on the row. */}
           {chargesNobody(newRow.unit) ? (
-            <ChargesNobodyNote classPricesHref={classPricesHref} />
+            <ChargesNobodyNote />
           ) : (
             <p className="text-xs" style={{ color: COLORS.muted }}>
               {chargeExplanation(newRow.unit, centsFromDollars(newRow.amount) ?? 0, judgeCount)}
@@ -717,7 +732,8 @@ export default function ShowChargesEditor({
           )}
           {scopeOffered(newRow.unit) && (
             <ClassScopePicker
-              classes={classes}
+              classes={scopeClasses}
+              leftOut={classes.length - scopeClasses.length}
               scope={newRow.scope}
               onChange={(scope) => setNewRow((p) => ({ ...p, scope }))}
               defaultOpen
@@ -826,14 +842,15 @@ export default function ShowChargesEditor({
                   </p>
                 )}
                 {chargesNobody(draft.unit) && (
-                  <ChargesNobodyNote classPricesHref={classPricesHref} />
+                  <ChargesNobodyNote />
                 )}
                 {offered && (
                   <ClassScopePicker
                     // Keyed on the unit so switching to another per-class unit
                     // re-opens the list too, not only switching onto one.
                     key={draft.unit}
-                    classes={classes}
+                    classes={scopeClasses}
+                    leftOut={classes.length - scopeClasses.length}
                     scope={draft.scope}
                     onChange={(scope) => patchDraft(charge, { scope })}
                     defaultOpen={draft.unit !== charge.unit}

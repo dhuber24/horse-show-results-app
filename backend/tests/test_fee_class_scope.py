@@ -66,7 +66,8 @@ def test_a_class_from_another_show_is_refused():
     assert exc.value.status_code == 422
 
 
-def test_the_assessment_is_both_per_class_and_automatic():
-    # The one per-class unit that bills. Its list narrows the charge; the other
-    # two per-class units carry a list for the show bill alone.
-    assert set(PER_CLASS_FEE_UNITS) & set(AUTOMATIC_FEE_UNITS) == {"per_judge_per_entry"}
+def test_the_per_class_units_that_bill():
+    # `per_entry` and the assessment bill, and their list narrows the charge.
+    # `per_class_per_horse` is withdrawn: a row still carrying it keeps its list
+    # for the show bill alone.
+    assert set(PER_CLASS_FEE_UNITS) & set(AUTOMATIC_FEE_UNITS) == {"per_judge_per_entry", "per_entry"}

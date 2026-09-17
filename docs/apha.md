@@ -1009,8 +1009,8 @@ and one horse in six classes is one horse and six entries. Migration 125 adds
 
 Named generically rather than as an APHA column because every breed body levies a
 version of it, and a `show_fees` row the show prices is how this app already
-handles that. `per_entry` stays where it is — that unit is class-fee vocabulary
-and bills nobody, and `classes.entry_fee_cents` is what charges per entry.
+handles that. It is distinct from `per_entry`, the show's own plain "per class"
+fee, which bills once per class entered and is not multiplied by the judges.
 
 ### Retention, corrected (SC-125.D)
 

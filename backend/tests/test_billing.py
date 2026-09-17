@@ -789,11 +789,11 @@ def test_a_per_judge_charge_is_nothing_without_a_panel():
     assert _charged(fee, [make_entry()], judges=0)["charge_lines"] == []
 
 
-@pytest.mark.parametrize("unit", ["flat", "per_entry", "per_class_per_horse", "percent_of_entry"])
+@pytest.mark.parametrize("unit", ["flat", "per_class_per_horse", "percent_of_entry"])
 def test_price_list_units_bill_nobody(unit):
-    """`flat` because the app cannot derive who left the stall dirty; the rest
-    because `classes.entry_fee_cents` already charges per entry and billing a
-    `per_entry` class fee on top of it would double every class."""
+    """`flat` because the app cannot derive who left the stall dirty;
+    `percent_of_entry` because nothing prices it; `per_class_per_horse` because
+    it is no longer offered and a row still carrying it is price-list text."""
     fee = make_fee(code="x", unit=unit, amount_cents=2500)
     assert _charged(fee, [make_entry()])["charge_total_cents"] == 0
 
@@ -997,6 +997,70 @@ def test_a_charge_about_the_horse_is_not_put_against_a_class():
     assert bill["charge_lines"][0]["per_class"] is False
 
 
+def test_a_per_class_fee_charges_once_per_class_entered():
+    """Reported from setup: "$5 per class", ticked against the class, and the
+    desk read $0 — `per_entry` billed nobody. It bills now, with no judges
+    needed, and two horses in one class are two entries and two charges; that
+    is why "per class, per horse" was withdrawn."""
+    showmanship = make_class(class_number=1, class_name="19 & Over Showmanship", entry_fee_cents=0)
+    entries = [make_entry(cls=showmanship), make_entry(cls=showmanship)]
+    fee = make_fee(code="class_fee", label="Class fee", unit="per_entry", amount_cents=500)
+
+    bill = _charged(fee, entries, judges=0)
+
+    assert bill["charge_total_cents"] == 1000
+    assert bill["charge_lines"][0]["quantity"] == 2
+    assert [line["charge_cents"] for line in bill["class_lines"]] == [500, 500]
+    assert bill["total_cents"] == 1000
+
+
+def test_a_per_class_fee_charges_only_its_ticked_classes():
+    youth, _, entries = _youth_and_open()
+    fee = make_fee(
+        code="youth_rate", label="Youth class", unit="per_entry", amount_cents=2800,
+        scoped_classes=make_fee_scope([youth.id]),
+    )
+    bill = billing.build_bill(make_show(fees=[fee]), entries, [])
+    charged = {line["class_number"]: line["charge_cents"] for line in bill["class_lines"]}
+    assert charged == {56: 2800, 1: 0}
+
+
+@pytest.mark.parametrize("unit", ["per_entry", "per_judge_per_entry"])
+def test_a_per_class_fee_never_reaches_a_futurity_class(unit):
+    """The futurity prices its own classes by category, and the fees step does
+    not offer a futurity class to tick — so "every class" leaves it out too."""
+    futurity = make_class(class_number=26, class_name="Yearling Halter (Futurity Class)",
+                          is_futurity_class=True)
+    open_class = make_class(class_number=27, class_name="Open Halter")
+    entries = [make_entry(cls=futurity), make_entry(cls=open_class)]
+    fee = make_fee(code="c", label="Class fee", unit=unit, amount_cents=500)
+
+    bill = billing.build_bill(make_show(fees=[fee], judges=make_judges(1)), entries, [])
+
+    charged = {line["class_number"]: line["charge_cents"] for line in bill["class_lines"]}
+    assert charged == {26: 0, 27: 500}
+    assert bill["charge_total_cents"] == 500
+
+
+def test_a_per_horse_fee_still_counts_a_futurity_horse():
+    """The futurity exclusion is about pricing a class. An office fee per horse
+    is about the horse, and a horse shown only in futurity classes still owes it."""
+    futurity = make_class(class_number=26, is_futurity_class=True)
+    fee = make_fee(code="office", unit="per_horse", amount_cents=500)
+    assert _charged(fee, [make_entry(cls=futurity)])["charge_total_cents"] == 500
+
+
+def test_a_club_per_class_sanction_fee_is_still_billed_once():
+    """`per_entry` billing for a show fee must not reopen the club double-charge:
+    a club's per-class rate rides on the class line and nowhere else."""
+    nsba = make_sanctioning("NSBA", fee_amount_cents=300)
+    cls = make_class(sanctioning=[make_class_sanction(nsba)], entry_fee_cents=0)
+    bill = billing.build_bill(make_show(sanctioning=[nsba]), [make_entry(cls=cls)], [])
+    assert bill["sanction_total_cents"] == 300
+    assert bill["sanction_lines"] == []
+    assert bill["total_cents"] == 300
+
+
 def test_a_per_judge_per_entry_charge_is_nothing_without_a_panel():
     """Same rule as the other per-judge units: no judges assigned is zero, not
     one. Guessing at a panel would bill a number the show never agreed to."""
@@ -1006,10 +1070,8 @@ def test_a_per_judge_per_entry_charge_is_nothing_without_a_panel():
 
 def test_per_judge_per_entry_is_in_the_automatic_family():
     """Nobody books it and there is nothing to tick, so it bills off the
-    exhibitor's entries — as against `per_entry`, which is class-fee vocabulary
-    and must stay in the family that bills nobody."""
+    exhibitor's entries."""
     assert "per_judge_per_entry" in billing.AUTOMATIC_FEE_UNITS
-    assert "per_entry" not in billing.AUTOMATIC_FEE_UNITS
 
 
 def test_charge_multiplier_defaults_the_entry_count_to_nothing():
@@ -1312,15 +1374,15 @@ def test_a_scope_on_a_non_automatic_unit_is_ignored_on_read():
     """Defence in depth, the same as `has_early_rate` re-checking the unit.
 
     A per-class price-list row may carry a class list now, for the show bill to
-    print — so this is not a stray row, it is any narrowed `per_entry` fee.
-    `per_entry` bills nobody either way, and the assertion is that the unit
+    print — so this is not a stray row, it is a narrowed `per_class_per_horse`
+    fee left from before that unit was withdrawn. It bills nobody either way, and the assertion is that the unit
     check happens before the scope is consulted at all: a list stored to be
     published must never become a list that is billed.
     """
     youth, amateur, entries = _youth_and_open()
     fee = make_fee(
         code="price_list",
-        unit="per_entry",
+        unit="per_class_per_horse",
         amount_cents=3600,
         scoped_classes=make_fee_scope([youth.id]),
     )

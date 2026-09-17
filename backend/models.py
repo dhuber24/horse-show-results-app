@@ -3,10 +3,10 @@ from datetime import date, datetime
 from sqlalchemy import (
     Column, Text, Date, Time, Boolean, Integer, LargeBinary, ForeignKey,
     ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
-    Index, Numeric, func, event, text
+    Index, Numeric, func, event, text, exists
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import column_property, relationship
 from database import Base
 
 
@@ -2414,6 +2414,18 @@ class FuturityClass(Base):
 
     futurity = relationship("Futurity", back_populates="futurity_classes")
     class_ = relationship("Class", back_populates="futurity_classes")
+
+
+# Whether a class belongs to a futurity programme, loaded inline with the class
+# itself. A futurity supplies its classes' price, so the show's own per-class
+# fees leave them out (`billing.charge_lines`) -- and billing reads classes off
+# `Entry.class_` in async requests, where the `futurity_classes` relationship
+# above would be lazy IO. An EXISTS in the class's own SELECT costs no extra
+# round trip and gives every caller the answer without an eager load to
+# remember. Assigned here because it needs both mappers defined.
+Class.is_futurity_class = column_property(
+    exists().where(FuturityClass.class_id == Class.id)
+)
 
 
 class FuturityDivision(Base):

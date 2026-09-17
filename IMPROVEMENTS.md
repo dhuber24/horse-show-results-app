@@ -2,6 +2,39 @@
 
 ## September 2026
 
+### A "Per Class" Fee Charges
+
+Reported from production, twice over: a show priced a class in Step 7 — first
+"$5 per judge, per class" on a show with no judges yet, then "$5 per class" —
+and the desk read $0 both times. The second was by design: `per_entry` was
+price-list text that billed nobody, on the old reasoning that a class's price
+is `classes.entry_fee_cents` and a per-class fee on top would double it. A unit
+that offers a list of classes to tick and then charges nothing is a trap, and a
+show manager setting a show up prices classes exactly this way.
+
+- **`per_entry` is an automatic unit.** It bills once per class entered in its
+  ticked classes, on top of anything on the class row, with no judge panel
+  needed; `build_bill` puts it on each class line, so the desk row reads $5.00.
+  It is counted in `charge_lines`, not `charge_multiplier`, which keeps
+  returning 0 so a club's `per_entry` sanction fee is still billed only once.
+- **"Per class, per horse" is withdrawn.** Two horses in one class are two
+  entries, so *per class* already charges both. A row still carrying the unit
+  shows in the box with a *switch it to per class* line and bills nothing.
+- **Club-sanctioned and futurity classes are not offered to tick**, and billing
+  leaves them out of both per-class charges, so *Select all* charges what the
+  list shows. A futurity class is known through `Class.is_futurity_class`, an
+  EXISTS loaded with the class so billing needs no eager load.
+- **Seed templates:** the late and cross-entry fees are `flat` now — they apply
+  to some entries, which nothing stored says.
+
+The cost: a catalogue that restates its class prices as per-class rows charges
+them twice, so the MNSPHC test show's class-rate rows ($36 / $28 / $10) have to
+go. Its "Division Side Pot buy-in" row goes too, for a different reason: that
+pot is optional and runs on the WSCA classes, and a per-class fee charges every
+entry in its classes while never reaching a club-sanctioned one. A side pot is
+set up on the Side Pots screen, with its own classes and a buy-in charged only
+to those who join.
+
 ### The Desk Shows Every Class Fee The Bill Charges
 
 Reported from production: a show set a $5 "per judge, per class" fee in the

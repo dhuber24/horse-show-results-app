@@ -35,9 +35,12 @@ DEFAULT_FEE_TEMPLATES = [
     {"code": "bedding",          "label": "Shavings",               "unit": "per_bag"},
     {"code": "campsite_electric","label": "RV / electric hookup",   "unit": "per_night"},
     {"code": "campsite_dry",     "label": "Dry camping",            "unit": "per_night"},
-    {"code": "late_entry",       "label": "Late entry fee",         "unit": "per_entry"},
+    # `flat`, not `per_entry`: a late or cross-entry fee applies to *some*
+    # entries, which nothing stored says, and `per_entry` bills every class
+    # entered now that a per-class fee charges.
+    {"code": "late_entry",       "label": "Late entry fee",         "unit": "flat"},
     {"code": "post_entry",       "label": "Post-entry fee",         "unit": "per_horse"},
-    {"code": "cross_entry",      "label": "Cross-entry fee",        "unit": "per_entry"},
+    {"code": "cross_entry",      "label": "Cross-entry fee",        "unit": "flat"},
     {"code": "stall_cleanout",   "label": "Stall cleanout penalty", "unit": "flat"},
     {"code": "drug_test",        "label": "Drug test fee",          "unit": "per_horse"},
     # The levy a breed body requires show management to collect per entry per
