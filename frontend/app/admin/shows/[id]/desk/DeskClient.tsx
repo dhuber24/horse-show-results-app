@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AddExhibitorForm from './AddExhibitorForm';
 import ByClassView from './ByClassView';
 import CogginsOverridePanel from './CogginsOverridePanel';
@@ -109,11 +109,18 @@ export default function DeskClient({
   associations,
   breeds,
   colors,
+  patterns,
+  initialExhibitorId = null,
 }: {
   showId: string;
   associations: AssociationOption[];
   breeds: LookupOption[];
   colors: LookupOption[];
+  patterns: LookupOption[];
+  /** From `?exhibitor=` — whose panel to open on arrival. Financials links back
+   *  here with it so the office can toggle between somebody's registration and
+   *  their account without finding them in the roster twice. */
+  initialExhibitorId?: string | null;
 }) {
   const [desk, setDesk] = useState<Desk | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,7 +128,7 @@ export default function DeskClient({
   const [view, setView] = useState<View>('exhibitors');
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialExhibitorId);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -169,6 +176,21 @@ export default function DeskClient({
     () => new Set((desk?.exhibitors ?? []).map((e) => e.exhibitor_id)),
     [desk],
   );
+
+  // Arrived from Financials with somebody's id: their panel is already open on
+  // the right, so this only has to put it on screen — on a phone or a laptop
+  // the two columns stack and the panel is below the roster. Once only: every
+  // save reloads the desk, and re-scrolling on each one would yank the page out
+  // from under whoever is typing.
+  const scrolledToArrival = useRef(false);
+  useEffect(() => {
+    if (scrolledToArrival.current || !initialExhibitorId || !desk) return;
+    if (!desk.exhibitors.some((e) => e.exhibitor_id === initialExhibitorId)) return;
+    scrolledToArrival.current = true;
+    document
+      .getElementById('desk-exhibitor-panel')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [desk, initialExhibitorId]);
 
   if (loading) return <p style={{ color: COLORS.muted }}>Loading the desk…</p>;
   if (loadError) return <p className="text-sm text-red-600">{loadError}</p>;
@@ -355,7 +377,7 @@ export default function DeskClient({
             )}
           </div>
 
-          <div>
+          <div id="desk-exhibitor-panel">
             {selectedGroup ? (
               <div className="space-y-6">
                 {selectedGroup.members.length > 1 && (
@@ -392,6 +414,7 @@ export default function DeskClient({
                       associations={associations}
                       breeds={breeds}
                       colors={colors}
+                      patterns={patterns}
                       onChanged={load}
                       onRemoved={() => {
                         // Keep the person open on whichever record is left.

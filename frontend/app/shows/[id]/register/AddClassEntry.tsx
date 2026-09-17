@@ -11,6 +11,7 @@ import {
 import {
   formatMoney,
   healthWarnings,
+  unmetSidePots,
   type ExistingEntry,
   type PreviewClass,
   type PreviewHorse,
@@ -108,6 +109,9 @@ export default function AddClassEntry({
   const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The side pot buy-in that comes with the picked class, when the show has
+  // bundled it into one. Cleared with the class, below.
+  const [potIds, setPotIds] = useState<string[]>([]);
 
   const isApha = showTypeCode === 'APHA';
 
@@ -187,6 +191,16 @@ export default function AddClassEntry({
   const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
   const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
 
+  // The side pots this class is in, and the buy-in it obliges. A pot already
+  // bought into is listed and ticked but costs nothing more — one buy-in covers
+  // every class the pot names.
+  const coveringPots = activeClass?.side_pots ?? [];
+  const unmetPots = unmetSidePots(activeClass);
+  const missingPotChoice = unmetPots.length > 0 && !unmetPots.some((p) => potIds.includes(p.id));
+  const potTotalCents = coveringPots
+    .filter((pot) => !pot.joined && potIds.includes(pot.id))
+    .reduce((sum, pot) => sum + pot.entry_fee_cents, 0);
+
   const submit = async () => {
     if (!classId || !horseId) {
       setError('Pick a class and a horse.');
@@ -200,6 +214,10 @@ export default function AddClassEntry({
     // `relationship_to_owner` is deliberately not sent. The backend reads it
     // off `exhibitor_horses`, which is where the horses step wrote it.
     if (needsNoviceDeclaration && noviceDeclared) entry.attestations = ['novice_eligibility'];
+    // Sent with the entry so the buy-in and the class it belongs to commit
+    // together, rather than leaving somebody in a pot for a class that was
+    // then refused.
+    if (potIds.length > 0) entry.side_pot_ids = potIds;
 
     try {
       const res = await fetch(`/api/shows/${showId}/register`, {
@@ -216,6 +234,9 @@ export default function AddClassEntry({
       // The horse carries over — somebody entering six classes is usually
       // entering them on the same horse — so only the class is cleared.
       setClassId('');
+      // The reload brings the buy-in back as a pot already joined, so the next
+      // class in it asks for nothing.
+      setPotIds([]);
       onAdded();
     } catch {
       setSaving(false);
@@ -250,6 +271,10 @@ export default function AddClassEntry({
           onChange={(e) => {
             setClassId(e.target.value);
             setError(null);
+            // One covering pot is not a choice, so it is ticked; several is,
+            // and picking for somebody would be picking which buy-in they pay.
+            const pots = unmetSidePots(classes.find((c) => c.id === e.target.value));
+            setPotIds(pots.length === 1 ? [pots[0].id] : []);
           }}
           disabled={nothingLeft}
           aria-label="Class"
@@ -359,6 +384,59 @@ export default function AddClassEntry({
         </p>
       )}
 
+      {/* The buy-in that comes with this class. Shown with its price before
+          the press: this is money, and finding out from a refusal is the worst
+          way to be told. A pot already bought into is listed too — it is the
+          answer to why this class is not asking for another $50. */}
+      {coveringPots.length > 0 && (
+        <div
+          className="rounded border p-2 space-y-1.5"
+          style={
+            unmetPots.length > 0
+              ? { borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }
+              : { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }
+          }
+        >
+          <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
+            {unmetPots.length === 0
+              ? 'This class is in a side pot you have already bought into'
+              : coveringPots.length === 1
+                ? 'This class is part of a side pot — the buy-in comes with it'
+                : 'This class is in more than one side pot — pick the one you want'}
+          </p>
+          {coveringPots.map((pot) => (
+            <label
+              key={pot.id}
+              className="flex items-start gap-2 text-xs"
+              style={{ color: 'var(--text-deep)' }}
+            >
+              <input
+                type="checkbox"
+                checked={pot.joined || potIds.includes(pot.id)}
+                disabled={pot.joined}
+                onChange={(e) =>
+                  setPotIds((prev) =>
+                    e.target.checked ? [...prev, pot.id] : prev.filter((id) => id !== pot.id),
+                  )
+                }
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span>
+                <strong>{pot.name}</strong> — {formatMoney(pot.entry_fee_cents)} buy-in
+                {pot.joined ? (
+                  <span style={{ color: 'var(--muted)' }}> · you&rsquo;re in, nothing more to pay</span>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>
+                    {' '}
+                    · one buy-in covers every class in the pot, and settles with your show bill
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+
       {needsNoviceDeclaration && (
         <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
           <input
@@ -377,26 +455,34 @@ export default function AddClassEntry({
         <button
           type="button"
           onClick={submit}
-          disabled={!classId || !horseId || missingNoviceDeclaration || saving}
+          disabled={
+            !classId || !horseId || missingNoviceDeclaration || missingPotChoice || saving
+          }
           title={
             !classId || !horseId
               ? 'Pick a class and a horse first'
               : missingNoviceDeclaration
                 ? 'Tick the eligibility declaration to enter a Novice class'
-                : undefined
+                : missingPotChoice
+                  ? 'This class comes with a side pot — tick the pot you are buying into'
+                  : undefined
           }
           className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
           style={{ backgroundColor: 'var(--accent)' }}
         >
-          {saving ? 'Entering…' : 'Enter class'}
+          {saving ? 'Entering…' : potTotalCents > 0 ? 'Enter class & buy in' : 'Enter class'}
         </button>
         {activeClass && horseId && (
           <span className="text-xs" style={{ color: 'var(--muted)' }}>
+            {/* The pot buy-in is named apart from the class fee rather than
+                folded into one number: it is a different thing being bought,
+                it covers more than this class, and it settles separately. */}
             {activeClass.entry_fee_cents > 0
               ? `${formatMoney(
                   activeClass.entry_fee_cents + activeClass.sanction_cents,
                 )} added to your bill`
               : 'No entry fee'}
+            {potTotalCents > 0 ? ` · ${formatMoney(potTotalCents)} side pot buy-in` : ''}
           </span>
         )}
       </div>

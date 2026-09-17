@@ -37,6 +37,7 @@ export default function StaffAddHorseForm({
   associations,
   breeds,
   colors,
+  patterns,
   onCreated,
   onCancel,
 }: {
@@ -46,6 +47,7 @@ export default function StaffAddHorseForm({
   associations: AssociationOption[];
   breeds: LookupOption[];
   colors: LookupOption[];
+  patterns: LookupOption[];
   onCreated: () => void;
   onCancel: () => void;
 }) {
@@ -56,6 +58,7 @@ export default function StaffAddHorseForm({
     sex: '',
     breed_id: '',
     color_id: '',
+    pattern_id: '',
     sire_name: '',
     dam_name: '',
   });
@@ -101,6 +104,7 @@ export default function StaffAddHorseForm({
     if (form.sex) body.sex = form.sex;
     if (form.breed_id) body.breed_id = form.breed_id;
     if (form.color_id) body.color_id = form.color_id;
+    if (form.pattern_id) body.pattern_id = form.pattern_id;
     if (form.sire_name.trim()) body.sire_name = form.sire_name.trim();
     if (form.dam_name.trim()) body.dam_name = form.dam_name.trim();
 
@@ -187,6 +191,22 @@ export default function StaffAddHorseForm({
           >
             <option value="">— Not specified —</option>
             {colors.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        {/* The coat's second axis, independent of the colour (migration 116).
+            A Paint is "Bay Tobiano" and an Appaloosa "Bay Blanket": offering
+            only the colour made staff choose which half to keep, and the half
+            they dropped is the one that identifies the horse at a distance —
+            and the one the association wants reported. */}
+        <label className="text-xs" style={{ color: 'var(--muted)' }}>
+          Coat pattern
+          <select
+            name="pattern_id" value={form.pattern_id} onChange={handleChange}
+            title="Tobiano, Overo, Tovero, Sabino and the Appaloosa patterns. Separate from the colour — a horse has both."
+            className="w-full border rounded px-2 py-1.5 text-sm mt-0.5" style={inputStyle}
+          >
+            <option value="">— None / not specified —</option>
+            {patterns.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </label>
         <label className="text-xs" style={{ color: 'var(--muted)' }}>

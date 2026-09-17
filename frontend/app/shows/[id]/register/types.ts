@@ -32,7 +32,34 @@ export type PreviewClass = {
   apha_divisions: string[] | null;
   sanctioning_codes: string[];
   sanction_cents: number;
+  /** The open side pots this class is bundled into. Entering the class means
+   *  buying into one of them — `POST /shows/{id}/register` refuses it
+   *  otherwise — so the form shows the buy-in and its price before the press.
+   *  `joined` is true for a pot this exhibitor is already in, where the entry
+   *  costs nothing extra. Optional for a frontend deployed ahead of the
+   *  backend that sends it. */
+  side_pots?: PreviewSidePot[];
 };
+
+export type PreviewSidePot = {
+  id: string;
+  name: string;
+  entry_fee_cents: number;
+  joined: boolean;
+};
+
+/** The pots this exhibitor must buy into before entering this class — empty
+ *  when none covers it, or when they are already in one that does.
+ *
+ *  One of them, not all: a class two pots have bundled is a choice the show
+ *  meant somebody to make, and requiring both would charge two buy-ins for one
+ *  entry. Mirrors `unmet_pots` in `backend/side_pot_membership.py`, which is
+ *  the enforcement — this is the affordance. */
+export function unmetSidePots(cls: PreviewClass | undefined): PreviewSidePot[] {
+  const pots = cls?.side_pots ?? [];
+  if (pots.length === 0) return [];
+  return pots.some((pot) => pot.joined) ? [] : pots;
+}
 
 /** Something the show's association would ask about this horse's papers that
  *  is not on file. A warning with a destination, never a gate — refusing the

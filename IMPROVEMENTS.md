@@ -2,6 +2,53 @@
 
 ## September 2026
 
+### Five Things Reported From The Registration Desk
+
+All five came off one pass over the desk by somebody working it, and four of
+them are the same failure in different places: the screen knew something and
+did not act on it.
+
+- **A side pot's classes now come with the buy-in.** Entering a class an open
+  pot bundles requires being in that pot — `backend/side_pot_membership.py`,
+  enforced at both entry doors, satisfied by `side_pot_ids` on the entry
+  request so the buy-in and the class land in one transaction. Bundling a class
+  is the show saying the jackpot is part of it; before this, membership was
+  elective, the desk ticked people in afterwards, and an exhibitor could not
+  join a pot at all. **At least one covering pot, never all** — a class two pots
+  bundle is a choice, and requiring both charges two buy-ins for one entry;
+  a `settled` or `closed` pot never obliges, since nobody can be added to one
+  and the class would be unenterable by any route. Both entry forms list each
+  covering pot with its price, tick the only one when there is only one, and
+  refuse to submit until one is picked when there are several.
+- **The desk's paperwork warnings are jump links.** *3 paperwork checks
+  outstanding* opens the Paperwork section and scrolls to the first check still
+  owed; each health line goes to that horse's own row, because "no Coggins on
+  file" across three horses is three separate jobs. The target is ringed for two
+  seconds — unfolding a long section is not the same as showing somebody the
+  row — and anchors come from the check's subject, not its position, since the
+  desk reloads after every save.
+- **Record a payment goes to the exhibitor, and comes back.**
+  `/financials/exhibitors?exhibitor=<id>` opens that one account, switches off
+  the *Owing* filter so a settled account still shows, and scrolls to it; the
+  row carries a link back to `/desk?exhibitor=<id>`. Taking money and fixing
+  what it is for are one conversation at the counter, and each hop used to mean
+  finding the same person in a second roster.
+- **The health inspection form asks for the date it needs.** Recording an
+  inspection with the expiry off the paper has always cleared the flag for that
+  show, with nothing uploaded — but the form opened a blank date box over a
+  button reading *Record without a date*, so the quickest way through left the
+  horse flagged and the row afterwards showed "Inspected" beside a red warning
+  with no explanation. Skipping the date is now a deliberate tick, a date that
+  stops before the show does is called out before saving, and a signed-off row
+  that is still flagged says which of the two happened. `paperwork_deadline`
+  rides on the desk payload for that, quoted from the checklist that judged the
+  rows so the screen and the flag cannot measure the same paper against two
+  different days.
+- **The desk's add-a-horse form asks for the coat pattern.** It offered Colour
+  alone, so a Paint created at the counter was filed as "Bay" — the exact record
+  migration 116 split `horse_patterns` out of `horse_colors` to prevent, written
+  by the one person actually holding the papers.
+
 ### A "Per Class" Fee Charges
 
 Reported from production, twice over: a show priced a class in Step 7 — first

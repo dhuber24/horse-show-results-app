@@ -8,7 +8,13 @@ import {
   enrollHorse,
   type EnrollmentChoice,
 } from './FuturityEnrollment';
-import { COLORS, futurityEnrollment, futurityForClass } from './types';
+import {
+  COLORS,
+  futurityEnrollment,
+  futurityForClass,
+  potsForClass,
+  unmetPotsForClass,
+} from './types';
 import type { Desk, DeskClass, DeskExhibitor, ProfileHorse } from './types';
 import { formatMoney } from '@/lib/financials';
 import {
@@ -42,6 +48,13 @@ import {
  * class carries no fee of its own — the enrollment's category is its price — so
  * entering the class without enrolling the horse billed nothing and left the
  * desk's total short with nothing on screen to say why.
+ *
+ * **A class in a side pot asks for the buy-in the same way, and this one is
+ * required.** The pot bundles the class, so entering it is buying in — the
+ * endpoint refuses the entry otherwise (`SIDE_POT_REQUIRED`) and sends the
+ * buy-in in the same request so the two land together. One covering pot is
+ * ticked for you, since there is nothing to decide; several are a choice, and
+ * the exhibitor picks which they are in.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -78,6 +91,10 @@ export default function AddEntryForm({
   const [error, setError] = useState<string | null>(null);
   const [enroll, setEnroll] = useState(true);
   const [enrollment, setEnrollment] = useState<EnrollmentChoice>(EMPTY_CHOICE);
+  // Which of the class's side pots this entry is buying into. Only ever the
+  // pots that cover the class being entered — the desk panel's own Side pots
+  // section is where somebody joins a pot for its own sake.
+  const [potIds, setPotIds] = useState<string[]>([]);
 
   const isApha = desk.show_type_code === 'APHA';
   const exhibitorId = exhibitor?.exhibitor_id ?? pickedExhibitorId;
@@ -91,6 +108,23 @@ export default function AddEntryForm({
   const offerEnrollment = Boolean(futurity && horseId && !existingEnrollment);
   const enrolling = offerEnrollment && enroll;
   const enrollmentIncomplete = enrolling && futurity !== undefined && !choiceIsComplete(futurity, enrollment);
+
+  // The side pots this class is bundled into, and the ones this exhibitor has
+  // to be in before the entry will be taken. `covering` is what the form lists
+  // (including a pot they are already in, so the row explains why nothing is
+  // being asked for); `unmetPots` is what makes the buy-in required.
+  const coveringPots = classId ? potsForClass(desk, classId) : [];
+  const unmetPots = classId ? unmetPotsForClass(desk, person, classId) : [];
+  const potRequired = unmetPots.length > 0;
+  const missingPotChoice = potRequired && !unmetPots.some((pot) => potIds.includes(pot.id));
+
+  // One pot to choose from is not a choice — tick it. Several is, and picking
+  // for somebody would be picking which buy-in they pay. Re-runs when the class
+  // changes, which is what clears a pot chosen for the previous one.
+  useEffect(() => {
+    setPotIds(unmetPots.length === 1 ? [unmetPots[0].id] : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classId, unmetPots.length, unmetPots[0]?.id]);
 
   // Who and what is already in the class being filled — a horse can only be in
   // a class once (`entries_class_horse_uniq`), and only pattern classes let one
@@ -195,6 +229,10 @@ export default function AddEntryForm({
     // Neither the division nor the relationship to the owner is sent: the
     // endpoint fills both from the class and the horse link.
     if (needsNoviceDeclaration && noviceDeclared) body.attestations = ['novice_eligibility'];
+    // The buy-in rides on the entry so the two commit together: a pot joined by
+    // a separate call before a rejected entry would be money owed for a class
+    // nobody is in.
+    if (potIds.length > 0) body.side_pot_ids = potIds;
 
     const res = await fetch('/api/entries', {
       method: 'POST',
@@ -233,6 +271,9 @@ export default function AddEntryForm({
     }
     setEnrollment(EMPTY_CHOICE);
     setEnroll(true);
+    // The reload brings the buy-in back as a pot they are in, so the next class
+    // in the same pot asks for nothing.
+    setPotIds([]);
     if (enrollmentProblem) {
       setError(`Entered in the class, but the futurity enrollment did not save: ${enrollmentProblem}`);
     }
@@ -353,6 +394,64 @@ export default function AddEntryForm({
         </label>
       )}
 
+      {/* The buy-in that comes with this class. Listed whether or not anything
+          is being asked for: a pot they are already in is the answer to "why
+          is this class not asking me for $50", and a pot that is settled is
+          not offered at all because nobody can be added to it. */}
+      {coveringPots.length > 0 && (
+        <div
+          className="rounded border p-2 space-y-1.5"
+          style={
+            potRequired
+              ? { borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }
+              : { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }
+          }
+        >
+          <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
+            {potRequired
+              ? coveringPots.length === 1
+                ? 'This class is in a side pot — the buy-in comes with it'
+                : 'This class is in side pots — pick the one they are buying into'
+              : 'This class is in a side pot'}
+          </p>
+          {coveringPots.map((pot) => {
+            const alreadyIn = (person?.side_pot_ids ?? []).includes(pot.id);
+            return (
+              <label
+                key={pot.id}
+                className="flex items-start gap-2 text-xs"
+                style={{ color: 'var(--text-deep)' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={alreadyIn || potIds.includes(pot.id)}
+                  disabled={alreadyIn}
+                  onChange={(e) =>
+                    setPotIds((prev) =>
+                      e.target.checked
+                        ? [...prev, pot.id]
+                        : prev.filter((id) => id !== pot.id),
+                    )
+                  }
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                />
+                <span>
+                  <strong>{pot.name}</strong> — {formatMoney(pot.entry_fee_cents)} buy-in
+                  {alreadyIn ? (
+                    <span style={{ color: COLORS.muted }}> · already in, nothing more to pay</span>
+                  ) : (
+                    <span style={{ color: COLORS.muted }}>
+                      {' '}
+                      · one buy-in covers every class in the pot
+                    </span>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+
       {futurity && horseId && existingEnrollment && (
         <p className="text-xs" style={{ color: COLORS.muted }}>
           Priced by {futurity.name}:{' '}
@@ -402,6 +501,7 @@ export default function AddEntryForm({
           !exhibitorId ||
           !horseId ||
           missingNoviceDeclaration ||
+          missingPotChoice ||
           enrollmentIncomplete ||
           saving
         }
@@ -410,14 +510,22 @@ export default function AddEntryForm({
             ? 'Pick an exhibitor and a horse first'
             : missingNoviceDeclaration
               ? 'Novice entries need the eligibility declaration ticked'
-              : enrollmentIncomplete
-                ? 'Pick the futurity category, or untick the enrollment'
-                : undefined
+              : missingPotChoice
+                ? 'This class is in a side pot — tick the pot they are buying into'
+                : enrollmentIncomplete
+                  ? 'Pick the futurity category, or untick the enrollment'
+                  : undefined
         }
         className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
         style={{ backgroundColor: COLORS.dark, color: COLORS.onDark }}
       >
-        {saving ? 'Adding…' : enrolling ? 'Enter class & enroll' : 'Enter class'}
+        {saving
+          ? 'Adding…'
+          : enrolling
+            ? 'Enter class & enroll'
+            : potIds.length > 0
+              ? 'Enter class & buy in'
+              : 'Enter class'}
       </button>
     </div>
   );

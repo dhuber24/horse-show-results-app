@@ -16,10 +16,17 @@ import AccountsPanel from './AccountsPanel';
  */
 export default async function FinancialExhibitorsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /** `?exhibitor=<id>` — the desk's "Record a payment" link. Opens that one
+   *  account rather than landing the office in a list they have to search
+   *  again, and every row here carries a link back to that person's
+   *  registration so the two screens can be worked together. */
+  searchParams: Promise<{ exhibitor?: string }>;
 }) {
   const { id } = await params;
+  const { exhibitor } = await searchParams;
   const [show, financials] = await Promise.all([fetchShow(id), loadFinancials(id)]);
 
   const crumbs = (
@@ -111,7 +118,11 @@ export default async function FinancialExhibitorsPage({
         transfers your office collected.
       </div>
 
-      <AccountsPanel showId={id} accounts={financials.accounts} />
+      <AccountsPanel
+        showId={id}
+        accounts={financials.accounts}
+        focusExhibitorId={exhibitor ?? null}
+      />
     </main>
   );
 }

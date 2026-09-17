@@ -111,6 +111,15 @@ from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
 from backnumbers import assign_back_number_if_missing
+from side_pot_membership import (
+    assert_pots_joinable,
+    join_pots,
+    joined_pot_ids as side_pot_joined_ids,
+    load_show_pots,
+    pots_covering_class,
+    requirement_detail,
+    unmet_pots,
+)
 from schemas import EntryOut
 import standard_classes
 
@@ -127,6 +136,12 @@ class ShowRegistrationItem(BaseModel):
     # Which declarations the exhibitor is making. Names only — the wording lives
     # in `rules/apha.py` and is copied in server-side.
     attestations: list[str] = Field(default_factory=list)
+    # The side pots to buy into with this class. A class an open pot covers may
+    # only be entered by somebody in that pot, so the choice rides on the entry
+    # and commits with it. Per item rather than per request because the picker
+    # offers it against the class that obliges it — one buy-in still covers
+    # every class that pot names, and repeats are ignored.
+    side_pot_ids: list[UUID] = Field(default_factory=list)
 
 
 class ShowRegistrationCreate(BaseModel):
@@ -1116,6 +1131,15 @@ async def preview_registration(
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
 
+    # The show's side pots, for the class payload below. A class an open pot
+    # bundles cannot be entered without buying into it, so the picker needs the
+    # pot's name and price up front — and whether this exhibitor has already
+    # bought in, since a second class in the same pot asks for nothing more.
+    preview_pots = await load_show_pots(show_id, db)
+    joined_pot_ids_for_exhibitor = side_pot_joined_ids(
+        preview_pots, show_entry.id if show_entry else None
+    )
+
     return {
         # Null until show sign-up is done. The screen reads this to send the
         # exhibitor to sign-up first rather than letting them fill in a class
@@ -1186,6 +1210,20 @@ async def preview_registration(
                     if row.association is not None
                 ],
                 "sanction_cents": _class_sanction_cents(show, c),
+                # The open side pots this class is bundled into, and what each
+                # costs. Entering the class means buying into one of them, so
+                # the picker has to show the choice and its price before the
+                # press rather than surface it as a refusal afterwards. Empty
+                # for the great majority of classes, which no pot names.
+                "side_pots": [
+                    {
+                        "id": str(pot.id),
+                        "name": pot.name,
+                        "entry_fee_cents": pot.entry_fee_cents,
+                        "joined": pot.id in joined_pot_ids_for_exhibitor,
+                    }
+                    for pot in pots_covering_class(preview_pots, c.id)
+                ],
             }
             for c in classes
         ],
@@ -1426,6 +1464,22 @@ async def register_for_show(
     }
     batch_non_pattern_classes: set[UUID] = set()
 
+    # Side pot buy-ins for this batch. Validated up front and joined once, ahead
+    # of the entry loop, so the pot requirement each class is checked against
+    # already counts everything this request is buying into — six classes in one
+    # jackpot is one buy-in, and the order the items arrive in must not decide
+    # whether they are accepted.
+    pots = await load_show_pots(show_id, db)
+    chosen_pot_ids = {
+        pot_id for item in body.entries for pot_id in item.side_pot_ids
+    }
+    if chosen_pot_ids:
+        try:
+            joining = assert_pots_joinable(pots, chosen_pot_ids, requested_class_ids)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        join_pots(show_entry.id, joining, db)
+
     created: list[Entry] = []
     fee_breakdown: list[FeeBreakdownItem] = []
     subtotal = 0
@@ -1445,6 +1499,15 @@ async def register_for_show(
                     f"({cls.class_name}) once.",
                 )
             batch_non_pattern_classes.add(cls.id)
+
+        # A class the show has bundled into an open side pot comes with the
+        # buy-in. `join_pots` above has already put this batch's choices on the
+        # loaded pots, so this reads the state after them — and refuses a class
+        # whose pot was not among them, naming the pot and its price rather than
+        # leaving somebody to work out what is wanted.
+        unmet = unmet_pots(pots, cls.id, show_entry.id)
+        if unmet:
+            raise HTTPException(409, requirement_detail(cls, unmet))
 
         entry = Entry(
             class_id=item.class_id,

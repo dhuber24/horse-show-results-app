@@ -79,6 +79,15 @@ APHA papers say **"Bay Tobiano"**, and the half that got dropped could not be
 reported back. `coatDescription()` in `frontend/lib/horse-coat.ts` is the one
 place the two are joined for display.
 
+**Every form that asks for the colour has to ask for the pattern beside it**, or
+the split is undone at the point of entry. The desk's own add-a-horse form
+(`StaffAddHorseForm`, reached from the Paperwork section when somebody turns up
+with a horse that is not on their profile) offered Colour alone until now, so a
+Paint created at the counter was filed as "Bay" — exactly the record migration
+116 exists to prevent, written by the one person holding the papers. The picker
+is offered on every horse, not only at an APHA show: `horse_patterns` carries
+the ApHC patterns too, and `horses.pattern_id` is independent of the breed.
+
 ### Novice eligibility is declared, not checked
 
 `entry_attestations` (migration 118) records what the entrant declared about an

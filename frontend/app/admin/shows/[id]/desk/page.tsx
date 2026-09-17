@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import { fetchShow, fetchAssociations, fetchBreeds, fetchHorseColors } from '@/lib/api';
+import {
+  fetchShow,
+  fetchAssociations,
+  fetchBreeds,
+  fetchHorseColors,
+  fetchHorsePatterns,
+} from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import DeskClient from './DeskClient';
@@ -19,15 +25,31 @@ import DeskClient from './DeskClient';
  * change once a year; they fail open to empty lists because a missing colour
  * list must not take the desk down at eight in the morning.
  */
-export default async function ShowDeskPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ShowDeskPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** `?exhibitor=<id>` opens that person's panel on arrival. This is the return
+   *  half of the link Financials carries back here, so staff can go between an
+   *  exhibitor's registration and their account without searching the roster
+   *  again at each hop. Read on the server and passed down rather than through
+   *  `useSearchParams`, which would need a Suspense boundary for no gain. */
+  searchParams: Promise<{ exhibitor?: string }>;
+}) {
   const { id } = await params;
+  const { exhibitor } = await searchParams;
   const headers = await getAuthHeaders();
 
-  const [show, associations, breeds, colors] = await Promise.all([
+  const [show, associations, breeds, colors, patterns] = await Promise.all([
     fetchShow(id),
     fetchAssociations(headers || undefined).catch(() => []),
     fetchBreeds().catch(() => []),
     fetchHorseColors().catch(() => []),
+    // The coat's second axis (migration 116). A Paint is "Bay Tobiano", and a
+    // form offering only the colour makes staff drop the half that identifies
+    // the horse across a warm-up pen.
+    fetchHorsePatterns().catch(() => []),
   ]);
 
   return (
@@ -64,7 +86,14 @@ export default async function ShowDeskPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
-      <DeskClient showId={id} associations={associations} breeds={breeds} colors={colors} />
+      <DeskClient
+        showId={id}
+        associations={associations}
+        breeds={breeds}
+        colors={colors}
+        patterns={patterns}
+        initialExhibitorId={exhibitor ?? null}
+      />
     </main>
   );
 }

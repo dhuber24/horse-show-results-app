@@ -1856,6 +1856,14 @@ class EntryCreate(BaseModel):
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
     attestations: list[AttestationKind] = Field(default_factory=list)
     is_disqualified: bool = False
+    # The side pots to buy into as part of this entry. A class a pot covers may
+    # only be entered by somebody in that pot, so the opt-in travels with the
+    # entry and lands in the same transaction — refusing an entry and making the
+    # caller come back with a second request would leave a buy-in written
+    # against a class that was never entered. Not part of the entry row: pot
+    # membership hangs off `show_entries`, one buy-in however many of the pot's
+    # classes are entered.
+    side_pot_ids: list[UUID] = Field(default_factory=list)
 
 class EntryUpdate(BaseModel):
     back_number: Optional[int] = None
@@ -2141,6 +2149,10 @@ class VerificationChecklistOut(BaseModel):
     # counted as outstanding, so the desk says so rather than leaving staff to
     # wonder why a row it is showing them is not in the tally.
     requires_physical_document_check: bool = True
+    # The day these checks were judged against — the show's last day. An
+    # attested expiry earlier than this does not clear the horse, so the form
+    # taking that date can say so as it is typed.
+    paperwork_deadline: Optional[date] = None
 
 
 # ── Health flags ───────────────────────────────────────────────────────────────
@@ -3800,6 +3812,11 @@ class ShowDeskSidePotOut(BaseModel):
     entry_fee_cents: int = 0
     status: str
     entry_count: int = 0
+    # Which classes this pot bundles. Entering one of them means buying in, so
+    # the desk's entry form has to know which classes oblige which pot before
+    # the press — the same shape and the same reason as a futurity's
+    # `class_ids` beside it.
+    class_ids: list[UUID] = Field(default_factory=list)
 
 
 class ShowDeskEntryOut(BaseModel):
@@ -3923,6 +3940,13 @@ class ShowDeskOut(BaseModel):
     # (migration 138). The health rows are listed either way; when false the
     # inspection sign-off is optional and is not in `paperwork_outstanding`.
     requires_physical_document_check: bool = True
+    # The day health paperwork has to still be good for — the show's last day,
+    # since the horse is on the grounds all week. Sent so the inspection form
+    # can say "that date does not cover this show" *before* saving a date the
+    # backend will decline to clear the flag on. Derived by the backend
+    # (`paperwork_deadline`), never recomputed in the browser: the desk and the
+    # flag must not judge the same paper against two different deadlines.
+    paperwork_deadline: Optional[date] = None
     classes: list[ShowDeskClassOut] = Field(default_factory=list)
     side_pots: list[ShowDeskSidePotOut] = Field(default_factory=list)
     futurities: list[ShowDeskFuturityOut] = Field(default_factory=list)

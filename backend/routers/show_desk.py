@@ -271,6 +271,10 @@ async def get_desk(
         # Quoted from the checklist rather than read off the show again, so the
         # desk cannot disagree with the tally it is drawing (migration 138).
         "requires_physical_document_check": checklist["requires_physical_document_check"],
+        # Quoted from the checklist for the same reason — the day it judged
+        # every health row against. The inspection form needs it to tell staff
+        # that the date they are typing stops before the show does.
+        "paperwork_deadline": checklist["paperwork_deadline"],
         "classes": [
             {
                 "id": cls.id,
@@ -304,6 +308,10 @@ async def get_desk(
                 "entry_fee_cents": pot.entry_fee_cents,
                 "status": pot.status,
                 "entry_count": len(pot.pot_entries),
+                # The classes this pot bundles, so the entry form can ask for
+                # the buy-in on the classes that oblige it rather than leaving
+                # `POST .../entries` to refuse them.
+                "class_ids": [pc.class_id for pc in pot.pot_classes],
             }
             for pot in pots
         ],

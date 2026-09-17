@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   formatMoney,
@@ -25,14 +26,35 @@ type Filter = 'owing' | 'settled' | 'all';
 export default function AccountsPanel({
   showId,
   accounts,
+  focusExhibitorId = null,
 }: {
   showId: string;
   accounts: FinancialAccount[];
+  /** From `?exhibitor=` — the desk sent the office here to take money from one
+   *  named person. Their row opens on arrival. */
+  focusExhibitorId?: string | null;
 }) {
   const router = useRouter();
-  const [filter, setFilter] = useState<Filter>('owing');
-  const [openId, setOpenId] = useState<string | null>(null);
+  // "Owing" is the right default for somebody who came here to chase money.
+  // Arriving with one exhibitor named is the other errand entirely — and a
+  // settled account is not in the owing list, so defaulting there would land
+  // them on an empty screen for a person who is standing in front of them.
+  const [filter, setFilter] = useState<Filter>(focusExhibitorId ? 'all' : 'owing');
+  const [openId, setOpenId] = useState<string | null>(focusExhibitorId);
   const [search, setSearch] = useState('');
+
+  // Put the named row on screen. Once, and only if it is really in this show's
+  // accounts — a stale link should leave the list alone rather than scroll to
+  // nothing.
+  const scrolledToFocus = useRef(false);
+  useEffect(() => {
+    if (scrolledToFocus.current || !focusExhibitorId) return;
+    if (!accounts.some((a) => a.exhibitor_id === focusExhibitorId)) return;
+    scrolledToFocus.current = true;
+    document
+      .getElementById(`account-${focusExhibitorId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [accounts, focusExhibitorId]);
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -150,6 +172,7 @@ function AccountRow({
 
   return (
     <li
+      id={`account-${account.exhibitor_id}`}
       className="rounded-lg border"
       style={{
         borderColor: owes ? 'var(--error-border)' : 'var(--border-subtle)',
@@ -224,6 +247,19 @@ function AccountRow({
 
       {isOpen && (
         <div className="px-4 pb-4 space-y-4 border-t pt-3" style={{ borderColor: 'var(--bg-subtle)' }}>
+          {/* The other half of the desk's "Record a payment" link. Taking money
+              and fixing what it is for are one conversation at the counter — a
+              class to add, a stall booked, a pot to join — and without this the
+              way back is the breadcrumbs plus finding them in the roster
+              again. */}
+          <Link
+            href={`/admin/shows/${showId}/desk?exhibitor=${account.exhibitor_id}`}
+            className="text-sm hover:underline inline-block"
+            style={{ color: 'var(--accent)' }}
+            title={`Open ${account.exhibitor_name} at the registration desk — classes, back number, side pots and paperwork`}
+          >
+            ← {account.exhibitor_name}&rsquo;s registration
+          </Link>
           <BillBreakdown account={account} />
           <PaymentHistory showId={showId} account={account} onChanged={onChanged} />
           <RecordPaymentForm

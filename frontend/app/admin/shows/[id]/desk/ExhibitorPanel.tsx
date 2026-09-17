@@ -44,6 +44,78 @@ function subjectKey(s: Subject): string {
   ].join('|');
 }
 
+/** The DOM id of one check's row, so a warning at the top of the panel can
+ *  scroll to the thing it is warning about. Derived from the subject rather
+ *  than an index: the roster reloads after every save and a positional id
+ *  would point at a different row afterwards. */
+function anchorFor(s: Subject): string {
+  return `desk-check-${subjectKey(s)}`;
+}
+
+/** The id of the Paperwork section, for a jump with no single row to land on. */
+const PAPERWORK_SECTION_ID = 'desk-section-paperwork';
+
+/**
+ * The first sign-off the desk still owes, in the order the panel renders them.
+ *
+ * This is the same set `paperwork_outstanding` counts — memberships, foaling
+ * dates, registration papers, and (where the show asks for the originals) the
+ * health inspections. The health *status* is deliberately not in it: a lapsed
+ * Coggins is the exhibitor's to fix and has its own warning, which jumps to its
+ * own row.
+ */
+function firstOutstandingPaperwork(
+  exhibitor: DeskExhibitor,
+  physicalCheck: boolean,
+): { anchor: string; label: string } | null {
+  for (const check of exhibitor.memberships) {
+    if (check.status !== 'verified') {
+      return {
+        anchor: anchorFor({
+          kind: 'exhibitor_membership',
+          exhibitor_id: exhibitor.exhibitor_id,
+          association_id: check.association_id,
+        }),
+        label: `${check.association_code ?? 'Membership'} membership`,
+      };
+    }
+  }
+  for (const horse of exhibitor.horses) {
+    if (horse.age_check.status !== 'verified') {
+      return {
+        anchor: anchorFor({ kind: 'horse_age', horse_id: horse.horse_id }),
+        label: `${horse.horse_name} — foaling date`,
+      };
+    }
+    for (const check of horse.registrations) {
+      if (check.status !== 'verified') {
+        return {
+          anchor: anchorFor({
+            kind: 'horse_registration',
+            horse_id: horse.horse_id,
+            association_id: check.association_id,
+          }),
+          label: `${horse.horse_name} — ${check.association_code ?? 'registration'} papers`,
+        };
+      }
+    }
+    if (!physicalCheck) continue;
+    for (const check of horse.health ?? []) {
+      if ((check.inspection?.status ?? 'unverified') !== 'verified') {
+        return {
+          anchor: anchorFor({
+            kind: 'horse_health_document',
+            horse_id: horse.horse_id,
+            document_type: check.code,
+          }),
+          label: `${horse.horse_name} — ${check.label}`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 /** Which uploaded document backs each kind of check, so "View" on a row opens
  *  the right paper. Age and registration both come off the same one. */
 const REGISTRATION_PAPERS = 'REGISTRATION';
@@ -88,24 +160,72 @@ function useCollapsedSections() {
     }
   }, []);
 
+  const write = (next: Set<string>) => {
+    try {
+      window.localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify(Array.from(next)));
+    } catch {
+      // Not remembered, but still folded for this visit.
+    }
+    return next;
+  };
+
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      try {
-        window.localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify(Array.from(next)));
-      } catch {
-        // Not remembered, but still folded for this visit.
-      }
-      return next;
+      return write(next);
     });
   }, []);
 
-  return { collapsed, toggle };
+  // Open a section without knowing whether it was folded. Used by the jump
+  // links at the top of the panel: sending somebody to a check inside a section
+  // they folded away last Tuesday would scroll to nothing.
+  const expand = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return write(next);
+    });
+  }, []);
+
+  return { collapsed, toggle, expand };
+}
+
+/**
+ * Scroll one row into view and ring it briefly.
+ *
+ * The desk panel is long enough that opening the Paperwork section is not the
+ * same as showing somebody the check they clicked for — on a laptop at the
+ * counter the row they want is often still below the fold. The ring is what
+ * says "this one", since a scroll on its own leaves the eye hunting.
+ *
+ * Keyed on an object rather than the id so clicking the same warning twice
+ * fires again; with a bare string the second press is a no-op dependency.
+ */
+function useRevealRow(target: { id: string; nonce: number } | null) {
+  useEffect(() => {
+    if (!target) return;
+    const el = document.getElementById(target.id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Inline rather than a class: the colour is a token either way, and this
+    // is a transient state no stylesheet needs to know about.
+    el.style.outline = '2px solid var(--accent)';
+    el.style.outlineOffset = '3px';
+    el.style.borderRadius = '4px';
+    const timer = setTimeout(() => {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+      el.style.borderRadius = '';
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [target]);
 }
 
 function Section({
+  id,
   title,
   hint,
   badge,
@@ -113,6 +233,9 @@ function Section({
   onToggle,
   children,
 }: {
+  /** Scroll target for the jump links, when the section itself is the answer
+   *  and no single row inside it is. */
+  id?: string;
   title: string;
   hint?: string;
   badge?: React.ReactNode;
@@ -122,7 +245,7 @@ function Section({
 }) {
   const bodyId = useId();
   return (
-    <section className="rounded-lg border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+    <section id={id} className="rounded-lg border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
       <div className={`flex items-baseline justify-between gap-3 ${collapsed ? '' : 'mb-2'}`}>
         <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: COLORS.accent }}>
           <button
@@ -163,6 +286,7 @@ export default function ExhibitorPanel({
   associations,
   breeds,
   colors,
+  patterns,
   onChanged,
   onRemoved,
 }: {
@@ -172,6 +296,7 @@ export default function ExhibitorPanel({
   associations: AssociationOption[];
   breeds: LookupOption[];
   colors: LookupOption[];
+  patterns: LookupOption[];
   /** Re-reads the whole desk. Every mutation goes through the endpoint that
    *  already owned that job, so the authoritative state is always the reload. */
   onChanged: () => Promise<void>;
@@ -198,7 +323,22 @@ export default function ExhibitorPanel({
   const [editingContact, setEditingContact] = useState(false);
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
-  const { collapsed, toggle } = useCollapsedSections();
+  const { collapsed, toggle, expand } = useCollapsedSections();
+  // Where a jump link is sending the eye. Set by the warnings at the top of the
+  // panel; cleared by nothing, because the ring times itself out.
+  const [revealing, setRevealing] = useState<{ id: string; nonce: number } | null>(null);
+  useRevealRow(revealing);
+
+  /** Open the section a check lives in, then scroll to the check itself.
+   *  Both in one press: a warning that only unfolded the section would leave
+   *  staff scanning a long panel for the row it was talking about. */
+  const jumpTo = useCallback(
+    (sectionKey: string, anchorId: string) => {
+      expand(sectionKey);
+      setRevealing({ id: anchorId, nonce: Date.now() });
+    },
+    [expand],
+  );
 
   useEffect(() => {
     setBackNumber(exhibitor.back_number?.toString() ?? '');
@@ -409,6 +549,13 @@ export default function ExhibitorPanel({
   };
 
   const alerts = healthAlerts(exhibitor);
+  // Where the outstanding-paperwork warning sends staff. Computed here so the
+  // tooltip can name it, and recomputed on every reload — the answer moves as
+  // checks are signed off.
+  const nextPaperwork = firstOutstandingPaperwork(
+    exhibitor,
+    desk.requires_physical_document_check,
+  );
   const potCount = exhibitor.side_pot_ids.length;
   const backNumberDirty = (exhibitor.back_number?.toString() ?? '') !== backNumber.trim();
   // Somebody else already wears the number being typed. Said before Save rather
@@ -536,11 +683,30 @@ export default function ExhibitorPanel({
               {potCount} side pot{potCount === 1 ? '' : 's'}
             </span>
           )}
-          <span style={{ color: exhibitor.paperwork_outstanding > 0 ? 'var(--warning)' : 'var(--success)' }}>
-            {exhibitor.paperwork_outstanding > 0
-              ? `${exhibitor.paperwork_outstanding} paperwork check${exhibitor.paperwork_outstanding === 1 ? '' : 's'} outstanding`
-              : 'Paperwork all checked'}
-          </span>
+          {/* A count is a fact; the desk needs the next thing to do. Pressing
+              this opens the Paperwork section and scrolls to the first check
+              still owed, naming it in the tooltip so staff know where they are
+              being sent before they press. */}
+          {exhibitor.paperwork_outstanding > 0 ? (
+            <button
+              type="button"
+              onClick={() =>
+                jumpTo('paperwork', nextPaperwork?.anchor ?? PAPERWORK_SECTION_ID)
+              }
+              className="underline decoration-dotted hover:decoration-solid text-left"
+              style={{ color: 'var(--warning)' }}
+              title={
+                nextPaperwork
+                  ? `Go to the first one still to check: ${nextPaperwork.label}`
+                  : 'Go to the paperwork section'
+              }
+            >
+              {exhibitor.paperwork_outstanding} paperwork check
+              {exhibitor.paperwork_outstanding === 1 ? '' : 's'} outstanding →
+            </button>
+          ) : (
+            <span style={{ color: 'var(--success)' }}>Paperwork all checked</span>
+          )}
           {/* The panel's only money figures. Paid is here because billed and
               owing alone cannot answer "how much have they already given us?",
               which is the question being asked when somebody is standing at
@@ -550,11 +716,15 @@ export default function ExhibitorPanel({
             {' · '}
             {formatMoney(exhibitor.balance_cents)} owing
           </span>
+          {/* Straight to this exhibitor's own account, opened, rather than to a
+              list of everyone's — somebody is standing at the counter with a
+              chequebook and the office should not have to find them twice. The
+              screen there links back here with the same id. */}
           <Link
-            href={`/admin/shows/${showId}/financials/exhibitors`}
+            href={`/admin/shows/${showId}/financials/exhibitors?exhibitor=${exhibitor.exhibitor_id}`}
             className="hover:underline"
             style={{ color: COLORS.accent }}
-            title="Take money against this show's exhibitor accounts"
+            title={`Open ${exhibitor.exhibitor_name}’s account on Financials and record what they have paid`}
           >
             Record a payment →
           </Link>
@@ -588,10 +758,34 @@ export default function ExhibitorPanel({
           </div>
         )}
 
+        {/* Each line is its own jump link, to that horse's row rather than to
+            the section: "No Coggins on file" over three horses is three
+            different pieces of work, and the horse is named here because the
+            row it lands on is the only place staff can act. */}
         {alerts.length > 0 && (
           <div className="mt-3 rounded px-3 py-2 text-sm" style={{ backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}>
-            {alerts.map((c, i) => (
-              <p key={`${c.code}-${i}`}>⚠ {c.message}</p>
+            {alerts.map((alert, i) => (
+              <p key={`${alert.horse_id}-${alert.check.code}-${i}`}>
+                ⚠{' '}
+                <button
+                  type="button"
+                  onClick={() =>
+                    jumpTo(
+                      'paperwork',
+                      anchorFor({
+                        kind: 'horse_health_document',
+                        horse_id: alert.horse_id,
+                        document_type: alert.check.code,
+                      }),
+                    )
+                  }
+                  className="underline decoration-dotted hover:decoration-solid text-left"
+                  style={{ color: 'var(--error-strong)' }}
+                  title={`Go to ${alert.horse_name}’s ${alert.check.label} — sign off there if you have the paper in hand`}
+                >
+                  {alert.horse_name}: {alert.check.message} →
+                </button>
+              </p>
             ))}
           </div>
         )}
@@ -844,6 +1038,7 @@ export default function ExhibitorPanel({
       )}
 
       <Section
+        id={PAPERWORK_SECTION_ID}
         title="Paperwork"
         collapsed={collapsed.has('paperwork')}
         onToggle={() => toggle('paperwork')}
@@ -883,14 +1078,15 @@ export default function ExhibitorPanel({
               association_id: check.association_id,
             };
             return (
-              <CheckRow
-                key={check.association_id ?? 'none'}
-                label={check.association_code ?? 'Membership'}
-                check={check}
-                busy={busy.has(subjectKey(subject))}
-                onVerify={() => verify(subject)}
-                onUndo={() => check.verification_id && undoVerify(subject, check.verification_id)}
-              />
+              <div key={check.association_id ?? 'none'} id={anchorFor(subject)}>
+                <CheckRow
+                  label={check.association_code ?? 'Membership'}
+                  check={check}
+                  busy={busy.has(subjectKey(subject))}
+                  onVerify={() => verify(subject)}
+                  onUndo={() => check.verification_id && undoVerify(subject, check.verification_id)}
+                />
+              </div>
             );
           })
         )}
@@ -922,6 +1118,7 @@ export default function ExhibitorPanel({
               associations={associations}
               breeds={breeds}
               colors={colors}
+              patterns={patterns}
               onCreated={async () => {
                 setAddingHorse(false);
                 // Straight into the class picker above: the reason someone adds
@@ -976,13 +1173,14 @@ export default function ExhibitorPanel({
                           document_type: check.code,
                         };
                         return (
+                          <div key={check.code} id={anchorFor(subject)}>
                           <HealthCheckRow
-                            key={check.code}
                             check={check}
                             busy={busy.has(subjectKey(subject))}
                             viewing={
                               showingHere && openDocument?.documentType === check.code
                             }
+                            paperworkDeadline={desk.paperwork_deadline}
                             onView={() =>
                               toggleDocument({
                                 horseId: horse.horse_id,
@@ -998,6 +1196,7 @@ export default function ExhibitorPanel({
                               undoVerify(subject, check.inspection.verification_id)
                             }
                           />
+                          </div>
                         );
                       })}
 
@@ -1041,16 +1240,18 @@ export default function ExhibitorPanel({
                       {(() => {
                         const subject: Subject = { kind: 'horse_age', horse_id: horse.horse_id };
                         return (
-                          <CheckRow
-                            label="Age (foaling date)"
-                            check={horse.age_check}
-                            busy={busy.has(subjectKey(subject))}
-                            onVerify={() => verify(subject)}
-                            onUndo={() =>
-                              horse.age_check.verification_id &&
-                              undoVerify(subject, horse.age_check.verification_id)
-                            }
-                          />
+                          <div id={anchorFor(subject)}>
+                            <CheckRow
+                              label="Age (foaling date)"
+                              check={horse.age_check}
+                              busy={busy.has(subjectKey(subject))}
+                              onVerify={() => verify(subject)}
+                              onUndo={() =>
+                                horse.age_check.verification_id &&
+                                undoVerify(subject, horse.age_check.verification_id)
+                              }
+                            />
+                          </div>
                         );
                       })()}
 
@@ -1069,14 +1270,15 @@ export default function ExhibitorPanel({
                             association_id: check.association_id,
                           };
                           return (
-                            <CheckRow
-                              key={check.association_id ?? 'none'}
-                              label={`${check.association_code ?? 'Registration'} registration`}
-                              check={check}
-                              busy={busy.has(subjectKey(subject))}
-                              onVerify={() => verify(subject)}
-                              onUndo={() => check.verification_id && undoVerify(subject, check.verification_id)}
-                            />
+                            <div key={check.association_id ?? 'none'} id={anchorFor(subject)}>
+                              <CheckRow
+                                label={`${check.association_code ?? 'Registration'} registration`}
+                                check={check}
+                                busy={busy.has(subjectKey(subject))}
+                                onVerify={() => verify(subject)}
+                                onUndo={() => check.verification_id && undoVerify(subject, check.verification_id)}
+                              />
+                            </div>
                           );
                         })
                       )}

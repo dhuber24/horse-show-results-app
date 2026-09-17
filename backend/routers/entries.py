@@ -17,8 +17,16 @@ from models import (
     ExhibitorHorse,
     Horse,
     Show,
+    ShowEntry,
 )
 from horse_eligibility import effective_relationship
+from side_pot_membership import (
+    assert_pots_joinable,
+    join_pots,
+    load_show_pots,
+    requirement_detail,
+    unmet_pots,
+)
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
 from rules import get_rules
@@ -166,6 +174,13 @@ async def create_entry(
     health flags (`GET /shows/{show_id}/health-flags`) for the office to chase
     before the show. Refusing the entry never made the horse compliant; it only
     meant the office found out at the desk instead of in advance.
+
+    A class an open side pot covers **is** checked: the buy-in is part of
+    entering it, so `side_pot_ids` on the request buys in alongside the entry
+    and a class whose pot nobody has joined is refused with `SIDE_POT_REQUIRED`
+    naming the pot and its price. Unlike the health flags this is a condition
+    the person at the counter can meet on the spot, which is the line between
+    the two.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
@@ -193,7 +208,43 @@ async def create_entry(
         if existing_exhibitor_entry.scalar_one_or_none():
             raise HTTPException(409, "This exhibitor is already entered in this class.")
 
+    # The pot buy-in that goes with this class, if the show has bundled it into
+    # one. Written in the same transaction as the entry below: a buy-in
+    # committed against an entry that then failed validation would be money owed
+    # for a class nobody is in.
+    pots = await load_show_pots(show_id, db)
+    show_entry_result = await db.execute(
+        select(ShowEntry).where(
+            ShowEntry.show_id == show_id,
+            ShowEntry.exhibitor_id == body.exhibitor_id,
+        )
+    )
+    show_entry = show_entry_result.scalar_one_or_none()
+    joining: list = []
+    if body.side_pot_ids:
+        if show_entry is None:
+            raise HTTPException(
+                409,
+                {
+                    "code": "SHOW_ENTRY_REQUIRED",
+                    "message": (
+                        "Add this exhibitor to the show roster before buying them "
+                        "into a side pot — the buy-in hangs off their roster row."
+                    ),
+                },
+            )
+        try:
+            joining = assert_pots_joinable(pots, set(body.side_pot_ids), {class_id})
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+    unmet = unmet_pots(
+        pots, class_id, show_entry.id if show_entry else None, set(body.side_pot_ids)
+    )
+    if unmet:
+        raise HTTPException(409, requirement_detail(class_, unmet))
+
     payload = body.model_dump()
+    payload.pop("side_pot_ids", None)
     attestation_kinds = payload.pop("attestations", [])
     # Which APHA division this class is run for, filled in when the caller did
     # not say. Neither entry form asks any more -- the class answers it, since
@@ -243,6 +294,10 @@ async def create_entry(
     _raise_for_validation_errors(issues)
 
     db.add(entry)
+    # After validation, so a refused entry never leaves a buy-in behind, and in
+    # the same commit, so the pair cannot half-land.
+    if joining and show_entry is not None:
+        join_pots(show_entry.id, joining, db)
     try:
         await db.commit()
     except IntegrityError as exc:

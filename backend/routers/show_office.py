@@ -547,6 +547,12 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         # Reported so the desk can say why a health row it is still showing is
         # not being counted, rather than leaving staff to wonder.
         "requires_physical_document_check": physical_check,
+        # The day every health check above was judged against. Reported for the
+        # same reason: a sign-off whose attested date stops before this one does
+        # not clear the flag, and the form asking for that date should be able
+        # to say so while it is being typed rather than leave staff to work it
+        # out from a row that did not change.
+        "paperwork_deadline": paperwork_deadline(show),
     }
 
 

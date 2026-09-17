@@ -105,6 +105,11 @@ export interface DeskSidePot {
   entry_fee_cents: number;
   status: string;
   entry_count: number;
+  /** The classes this pot bundles. Entering one of them means buying in, so
+   *  the entry form reads this to ask for the buy-in on the classes that
+   *  oblige it. `?? []` at every use: a frontend deployed ahead of the backend
+   *  that adds the field should ask for nothing rather than break the desk. */
+  class_ids?: string[];
 }
 
 export interface DeskEntry {
@@ -190,6 +195,11 @@ export interface Desk {
    *  still record a paper it was handed — but when false the sign-off is
    *  optional and is not in `paperwork_outstanding`. */
   requires_physical_document_check: boolean;
+  /** The day health paperwork has to still be good for — the show's last day.
+   *  An inspection whose attested expiry stops before this does not clear the
+   *  horse, so the form says so while the date is being typed. Nullable for a
+   *  frontend deployed ahead of the backend that adds it. */
+  paperwork_deadline?: string | null;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
   futurities: DeskFuturity[];
@@ -303,11 +313,58 @@ export const COLORS = {
   onDark: 'var(--bg-subtle)',
 } as const;
 
+/**
+ * The open side pots that bundle this class.
+ *
+ * A pot is only a condition of entering while it is open: a settled pot has its
+ * payouts written and refuses new entries, so requiring it would make the class
+ * unenterable by anybody — see `backend/side_pot_membership.py`, which is where
+ * the rule actually lives. This is the affordance.
+ */
+export function potsForClass(desk: Desk, classId: string): DeskSidePot[] {
+  return desk.side_pots.filter(
+    (pot) => pot.status === 'open' && (pot.class_ids ?? []).includes(classId),
+  );
+}
+
+/**
+ * The pots this exhibitor must buy into before entering this class — empty when
+ * no pot covers it, or when they are already in one that does.
+ *
+ * "One that does", not all of them: a class two pots have bundled is a choice
+ * the show meant somebody to make, and charging both buy-ins for one entry
+ * would be charging twice for it.
+ */
+export function unmetPotsForClass(
+  desk: Desk,
+  exhibitor: DeskExhibitor | undefined,
+  classId: string,
+): DeskSidePot[] {
+  const covering = potsForClass(desk, classId);
+  if (covering.length === 0) return [];
+  const joined = new Set(exhibitor?.side_pot_ids ?? []);
+  return covering.some((pot) => joined.has(pot.id)) ? [] : covering;
+}
+
+/** One health problem, and which horse has it. The horse comes along because
+ *  the panel's warning at the top is a jump link: "no Coggins on file" is not
+ *  actionable until you know whose, and the row to scroll to is keyed on the
+ *  horse. */
+export interface HealthAlert {
+  horse_id: string;
+  horse_name: string;
+  check: HorseHealthCheck;
+}
+
 /** The paperwork problems, not the unfinished sign-offs. A lapsed Coggins is
  *  something to chase the exhibitor about; an uninspected one is something the
  *  desk still has to do, and that is already in `paperwork_outstanding`. */
-export function healthAlerts(exhibitor: DeskExhibitor): HorseHealthCheck[] {
-  return exhibitor.horses.flatMap((h) => (h.health ?? []).filter((c) => c.status !== 'valid'));
+export function healthAlerts(exhibitor: DeskExhibitor): HealthAlert[] {
+  return exhibitor.horses.flatMap((h) =>
+    (h.health ?? [])
+      .filter((c) => c.status !== 'valid')
+      .map((check) => ({ horse_id: h.horse_id, horse_name: h.horse_name, check })),
+  );
 }
 
 /** Required waivers this exhibitor has not signed by either route. */
