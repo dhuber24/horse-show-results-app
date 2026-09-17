@@ -102,6 +102,21 @@ Use a Neon branch per environment:
    environments the hash guard was introduced to protect. It also lacked
    `ON_ERROR_STOP`, so a migration whose statements failed still got an
    `_migrations` row claiming it had been applied.
+4. To pull a show created on production down to dev, run
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/copy-prod-to-dev.ps1
+   ```
+
+   which runs [`scripts/copy_prod_to_dev.sql`](../scripts/copy_prod_to_dev.sql)
+   **against dev**, asking for the production connection string without
+   echoing it. That file's header has the psql command for any other shell, and
+   says how to read the report. It reads production through a
+   `postgres_fdw` link that lives only inside its own transaction, and inserts
+   every row dev lacks by primary key — additive, so dev's test data and edits
+   survive. It refuses to run on the production endpoint, matched by the SHA-256
+   of `neon.endpoint_id`. To make dev an exact copy instead, use **Reset from
+   parent** on the dev branch, then re-run `migrate.ps1` and the MNSPHC seed.
 
 Migrating production then becomes a deliberate release step, and **the order is
 decided by the migration, not by preference.**
