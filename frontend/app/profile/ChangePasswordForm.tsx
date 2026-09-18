@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+import { errorMessage } from '@/lib/api-error';
+
 export default function ChangePasswordForm() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ current_password: '', new_password: '', confirm_password: '' });
@@ -39,7 +41,7 @@ export default function ChangePasswordForm() {
     setLoading(false);
     if (!res.ok) {
       const data = await res.json();
-      setError(data.detail || 'Failed to change password.');
+      setError(errorMessage(data, 'Failed to change password.'));
       return;
     }
     setSuccess(true);

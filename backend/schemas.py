@@ -119,7 +119,7 @@ class ShowCreate(BaseModel):
     @model_validator(mode="after")
     def validate_date_range(self):
         if self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date")
+            raise ValueError("The end date must be on or after the start date.")
         return self
 
 class ShowUpdate(BaseModel):
@@ -156,7 +156,7 @@ class ShowUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_date_range(self):
         if self.start_date and self.end_date and self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date")
+            raise ValueError("The end date must be on or after the start date.")
         return self
 
 class ShowAffiliationOut(BaseModel):

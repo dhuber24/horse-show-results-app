@@ -40,6 +40,19 @@ exceptions are allowlisted in `.github/workflows/ci.yml`: they stream a non-JSON
 a document download, a headshot) and so cannot use a JSON helper, and each guards its own error path.
 If you are adding a handler that returns JSON, there is no reason to reach for `fetch()`.
 
+**And never put `detail` straight into a form's error state.** The guard above stops a 500 throwing a
+parse error; this is the other half. The backend answers with `detail` in **two shapes** — a string
+from an `HTTPException`, and a **list of objects** from a Pydantic validation failure, each carrying
+the submitted body — and every form here was written for the first. Setting the second one into state
+crashed the screen: `{error}` in JSX throws "Objects are not valid as a React child" during render,
+so the page died on the error boundary rather than printing what was wrong. Read it through
+`errorMessage(body, fallback)` in `frontend/lib/api-error.ts`, which always returns a string.
+
+That was not theoretical. Step 1's only reachable 422 is the show's own date range, and a manager
+provokes it by *moving a show* — the new start date is typed before the new end date, so saving in
+between reversed the range and took the step down instead of saying so. A validation message is the
+one response whose entire job is to be read; it must never be able to break the page it is read on.
+
 Public spectator screens skip route handlers entirely: they are server components that call the unauthenticated helpers in `frontend/lib/api.ts` directly, so signed-out visitors are never a special case. Where such a page needs client-side interactivity over a lot of rows — searching, filtering, starring — fetch the whole set once on the server with an index endpoint (`fetchResultsIndex`, `fetchProgramIndex`) and hand it to a client component, rather than making the browser fetch per row.
 
 ## UI Patterns

@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { errorMessage } from '@/lib/api-error';
+
 interface Status {
   question: string | null;
   set_at: string | null;
@@ -57,7 +59,7 @@ export default function SecurityQuestionForm() {
     setLoading(false);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.detail || data.error || 'Failed to save security question.');
+      setError(errorMessage(data, 'Failed to save security question.'));
       return;
     }
     reset();
@@ -74,7 +76,7 @@ export default function SecurityQuestionForm() {
     setConfirmingRemove(false);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data.detail || data.error || 'Failed to remove security question.');
+      setError(errorMessage(data, 'Failed to remove security question.'));
       return;
     }
     setSuccess('Security question removed.');

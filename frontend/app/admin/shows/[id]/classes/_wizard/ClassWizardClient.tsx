@@ -9,6 +9,7 @@ import {
   type DropResult,
 } from '@hello-pangea/dnd';
 import { useRegisterStepAutosave } from '../../setup/_lib/StepAutosave';
+import { errorMessage } from '@/lib/api-error';
 
 export type StandardItem = {
   id: string;
@@ -389,6 +390,9 @@ function ClassBuilder({
   // `classes` yet — drives the in-flight "…" marker on the grid.
   const [queuedKeys, setQueuedKeys] = useState<Set<string>>(new Set());
   const [savingOrder, setSavingOrder] = useState(false);
+  // The stranded class whose move is in flight, if any. Per row like the
+  // Must-qualify saves below, so moving one of six does not freeze the rest.
+  const [movingClassId, setMovingClassId] = useState<string | null>(null);
   // Classes whose "Must qualify" box is mid-save. Per row rather than the
   // step-wide `busy`, so ticking one box does not freeze every other control.
   const [pendingQualify, setPendingQualify] = useState<Set<string>>(new Set());
@@ -422,6 +426,80 @@ function ClassBuilder({
   });
 
   const dates = useMemo(() => enumerateDates(showStartDate, showEndDate), [showStartDate, showEndDate]);
+
+  /**
+   * Classes left on a day the show no longer runs.
+   *
+   * Moving a show's dates is an ordinary thing to do mid-setup and it does not
+   * move the schedule with it: a class keeps the date it was built on. Nothing
+   * refuses the date change — see the Sharp Edge in `docs/show-workflow.md` for
+   * why it is saved rather than blocked — so the classes are simply left
+   * behind, and two things then hide them. The grid draws a column per *current*
+   * show day, so a stranded class marks no cell; and `PATCH /classes/{id}`
+   * checks `class_date` against the show, so **every** edit to one is refused
+   * with "Class date must be between …", including edits that are not about the
+   * date at all.
+   *
+   * Listing them is what makes the state visible, and the Move control is the
+   * only thing that clears it. They stay on the schedule and keep their class
+   * numbers meanwhile: a number is published identity, and a class nobody has
+   * re-dated yet is not a class the show has dropped.
+   */
+  const showDays = useMemo(() => new Set(dates), [dates]);
+  const strandedClasses = useMemo(
+    () => scheduleOrder(classes.filter((c) => !showDays.has(c.class_date))),
+    [classes, showDays],
+  );
+
+  /**
+   * Which class names already run on each show day.
+   *
+   * One class of a name per day is the backend's rule, enforced on create — and
+   * `update_class` does not re-check it, so moving a class onto a day that
+   * already runs one of that name would slip a duplicate past the rule from the
+   * side. The day is offered disabled instead, saying which.
+   */
+  const namesByDay = useMemo(() => {
+    const byDay = new Map<string, Set<string>>();
+    for (const c of classes) {
+      const key = normalizeName(c.class_name);
+      const names = byDay.get(c.class_date);
+      if (names) names.add(key);
+      else byDay.set(c.class_date, new Set([key]));
+    }
+    return byDay;
+  }, [classes]);
+
+  /**
+   * Put a stranded class back on a show day.
+   *
+   * Sends only `class_date`: the class is correct in every other respect, and
+   * the endpoint's `exclude_unset` means an untouched field is never written.
+   * Deliberately *not* optimistic — unlike the Must-qualify tick, this is the
+   * one control that clears a warning, and a row that disappears before the
+   * save lands would say the problem is fixed when it may not be.
+   */
+  async function moveClassToDay(cls: ClassItem, classDate: string) {
+    setError(null);
+    setMovingClassId(cls.id);
+    try {
+      const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ class_date: classDate }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        setError(errorMessage(j, `Could not move “${cls.class_name}” to ${classDate}.`));
+        return;
+      }
+      await refreshClasses();
+    } catch {
+      setError(`Could not move “${cls.class_name}” to ${classDate}.`);
+    } finally {
+      setMovingClassId(null);
+    }
+  }
 
   // Every column and every row the picker offers: what this show already uses,
   // plus its show type's standard library, alphabetically. A name the show has
@@ -594,7 +672,7 @@ function ClassBuilder({
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(json?.detail || `Failed to add “${name}”.`);
+        setError(errorMessage(json, `Failed to add “${name}”.`));
         return null;
       }
       const made = (json as { id: string; name: string }[] | null)?.find(
@@ -660,7 +738,7 @@ function ClassBuilder({
       const res = await fetch(`/api/shows/${showId}/${path}/${id}`, { method: 'DELETE' });
       if (!res.ok && res.status !== 204) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || `Failed to remove the ${AXIS_COPY[axis].noun}.`);
+        setError(errorMessage(j, `Failed to remove the ${AXIS_COPY[axis].noun}.`));
       }
     } catch {
       setError(`Failed to remove the ${AXIS_COPY[axis].noun}.`);
@@ -738,7 +816,7 @@ function ClassBuilder({
       });
       if (!res.ok && res.status !== 204) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Failed to save the new order.');
+        setError(errorMessage(j, 'Failed to save the new order.'));
         await refreshClasses();
       }
     } finally {
@@ -843,7 +921,7 @@ function ClassBuilder({
           });
           if (!res.ok) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to create "${className}".`);
+            setError(errorMessage(j, `Failed to create "${className}".`));
           }
         } catch {
           setError(`Failed to create "${className}".`);
@@ -900,7 +978,7 @@ function ClassBuilder({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || `Could not update "${cls.class_name}".`);
+        setError(errorMessage(j, `Could not update "${cls.class_name}".`));
         await refreshClasses();
       }
     } catch {
@@ -925,7 +1003,7 @@ function ClassBuilder({
       });
       if (!res.ok && res.status !== 204) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Failed to delete class.');
+        setError(errorMessage(j, 'Failed to delete class.'));
         return;
       }
       await refreshClasses();
@@ -957,7 +1035,7 @@ function ClassBuilder({
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(json?.detail || 'Failed to delete the selected classes.');
+        setError(errorMessage(json, 'Failed to delete the selected classes.'));
         return;
       }
       setSelected(new Set());
@@ -989,6 +1067,82 @@ function ClassBuilder({
       className="p-4 rounded-lg border space-y-4"
       style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
     >
+      {/* ── Classes left off the calendar ──────────────────────────────────
+          At the very top of the step, above the tools: these classes are
+          invisible everywhere else on the screen — no grid column draws them
+          and the folded list below is where somebody looks last — and until
+          each is moved, every edit to it is refused. Anyone who has just
+          changed the show's dates needs to see this before they carry on
+          building. */}
+      {strandedClasses.length > 0 && (
+        <div
+          className="rounded border px-3 py-3 space-y-2"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.warnSoft }}
+          role="alert"
+        >
+          <p className="text-sm font-semibold" style={{ color: COLORS.warn }}>
+            {strandedClasses.length} class{strandedClasses.length === 1 ? '' : 'es'}{' '}
+            {strandedClasses.length === 1 ? 'is' : 'are'} not on a show day
+          </p>
+          <p className="text-xs" style={{ color: COLORS.warn }}>
+            The show now runs {showStartDate} to {showEndDate}. These kept the day they
+            were built on, so they are not in the picker below and cannot be edited
+            until they are moved.
+          </p>
+          <ul className="space-y-1">
+            {strandedClasses.map((c) => {
+              const nameKey = normalizeName(c.class_name);
+              const moving = movingClassId === c.id;
+              return (
+                <li key={c.id} className="flex items-center gap-2 flex-wrap text-sm">
+                  <span style={{ color: COLORS.text }}>
+                    <span style={{ fontWeight: 600 }}>{c.class_number}</span> {c.class_name}
+                  </span>
+                  <span className="text-xs" style={{ color: COLORS.muted }}>
+                    {c.class_date}
+                  </span>
+                  <label className="flex items-center gap-1 text-xs" style={{ color: COLORS.muted }}>
+                    <span className="sr-only">Move {c.class_name} to</span>
+                    <select
+                      value=""
+                      disabled={moving || busy}
+                      onChange={(e) => {
+                        if (e.target.value) void moveClassToDay(c, e.target.value);
+                      }}
+                      className="border rounded px-2 py-1 text-xs"
+                      // Fixed width so a row whose days carry the "already
+                      // runs" note does not sit wider than the rest of the
+                      // list. The dropdown still shows each option in full.
+                      style={{
+                        borderColor: COLORS.border,
+                        backgroundColor: 'var(--surface)',
+                        color: COLORS.text,
+                        width: '8.5rem',
+                      }}
+                    >
+                      <option value="">{moving ? 'Moving…' : 'Move to…'}</option>
+                      {dates.map((d) => {
+                        const taken = namesByDay.get(d)?.has(nameKey) ?? false;
+                        return (
+                          <option key={d} value={d} disabled={taken}>
+                            {d}
+                            {taken ? ' — already runs that day' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-xs" style={{ color: COLORS.muted }}>
+            A class that no longer belongs on the schedule is deleted from the class
+            list below instead.
+          </p>
+        </div>
+      )}
+
       <ul className="text-xs list-disc pl-4 space-y-1" style={{ color: COLORS.muted }}>
         <li>
           Create classes using the Class Picker to quickly add pre-built
@@ -1870,7 +2024,7 @@ function AddNamedClass({
       });
       const created = await res.json().catch(() => null);
       if (!res.ok || !created?.id) {
-        setError(created?.detail || `Failed to create "${className}".`);
+        setError(errorMessage(created, `Failed to create "${className}".`));
         return;
       }
 

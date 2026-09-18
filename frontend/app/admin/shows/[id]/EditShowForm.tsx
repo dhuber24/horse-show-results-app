@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { errorMessage } from '@/lib/api-error';
+
 interface Venue {
   id: string;
   name: string;
@@ -146,7 +148,10 @@ export default function EditShowForm({
       router.refresh();
     } else {
       const data = await res.json().catch(() => null);
-      setError(data?.detail || 'Failed to update show.');
+      // Read through `errorMessage` rather than off `detail`: a reversed date
+      // range is a Pydantic 422, whose `detail` is a list of objects, and
+      // setting that here threw during render instead of printing the reason.
+      setError(errorMessage(data, 'Failed to update show.'));
     }
   };
 

@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { errorMessage } from '@/lib/api-error';
+
 interface Props {
   user: { full_name: string; email: string; role: string; created_at: string };
 }
@@ -46,7 +48,7 @@ export default function EditProfileForm({ user }: Props) {
     setLoading(false);
     if (!res.ok) {
       const data = await res.json();
-      setError(data.detail || 'Failed to save changes.');
+      setError(errorMessage(data, 'Failed to save changes.'));
       return;
     }
     setSuccess(true);
