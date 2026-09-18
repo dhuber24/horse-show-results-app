@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
 import CheckRow, { type VerificationKind } from './CheckRow';
 import DocumentViewer from './DocumentViewer';
-import { UnenrolledFuturityRow } from './FuturityEnrollment';
+import { UnenrolledFuturityRow, WithdrawFuturityButton } from './FuturityEnrollment';
 import HealthCheckRow from './HealthCheckRow';
 import StaffAddHorseForm, { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
 import WaiverRow from './WaiverRow';
@@ -544,6 +544,33 @@ export default function ExhibitorPanel({
       .map((pot) => `${pot.name} (${formatMoney(pot.entry_fee_cents)} buy-in back)`)
       .join(' and ')} — it was their last class in it.`;
   };
+
+  /** The same warning for a futurity nomination, which a scratch releases the
+   *  same way. Mirrors `enrollments_to_release`, and note the difference from
+   *  the pots above: this is keyed on the **horse**, because two horses of one
+   *  exhibitor in the same futurity are two nominations. */
+  const releasedFuturitiesIfRemoved = (entry: DeskExhibitor['entries'][number]): string => {
+    if (!entry.horse_id) return '';
+    const remaining = exhibitor.entries.filter(
+      (e) => e.entry_id !== entry.entry_id && e.horse_id === entry.horse_id,
+    );
+    const released = (desk.futurities ?? []).filter(
+      (f) =>
+        f.class_ids.includes(entry.class_id) &&
+        futurityEnrollment(exhibitor, f.id, entry.horse_id) !== undefined &&
+        !remaining.some((e) => f.class_ids.includes(e.class_id)),
+    );
+    if (released.length === 0) return '';
+    return `Also withdraws ${entry.horse_name ?? 'this horse'} from ${released
+      .map((f) => f.name)
+      .join(' and ')} — it was their last class in it.`;
+  };
+
+  /** Both releases as one tooltip, so a scratch never changes money silently. */
+  const alsoReleasedIfRemoved = (entry: DeskExhibitor['entries'][number]): string =>
+    [releasedPotsIfRemoved(entry), releasedFuturitiesIfRemoved(entry)]
+      .filter(Boolean)
+      .join(' ');
   const backNumberDirty = (exhibitor.back_number?.toString() ?? '') !== backNumber.trim();
   // Somebody else already wears the number being typed. Said before Save rather
   // than after a 409, and named, because "who has 42?" is the next question.
@@ -570,6 +597,12 @@ export default function ExhibitorPanel({
     : 0;
   const futurityCents = bill?.futurity_total_cents ?? 0;
   const futurityLines = bill?.futurity_lines ?? [];
+  // Side pot buy-ins, which the bill charges now that entering a bundled class
+  // is what buys somebody in. Read off the bill like everything else here — the
+  // pot's `entry_fee_cents` is on the desk payload and summing it in the
+  // browser is exactly the disagreement billing.py exists to prevent.
+  const sidePotCents = bill?.side_pot_total_cents ?? 0;
+  const sidePotLines = bill?.side_pot_lines ?? [];
   const unenrolled = unenrolledFuturityHorses(desk, exhibitor);
 
   return (
@@ -813,10 +846,11 @@ export default function ExhibitorPanel({
           <span
             className="text-xs text-right"
             style={{ color: COLORS.muted }}
-            title="Class fees include any club sanction fee and show assessment charged per class. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership."
+            title="Class fees include any club sanction fee and show assessment charged per class. Futurity money is the category rate for each futurity class, plus the office fee and any late fee or membership. A side pot buy-in is charged once per pot, however many of its classes they entered."
           >
             {formatMoney(classFeesCents)} in class fees
             {(futurityCents > 0 || futurityLines.length > 0) && ` · ${formatMoney(futurityCents)} futurity`}
+            {sidePotLines.length > 0 && ` · ${formatMoney(sidePotCents)} side pot`}
           </span>
         }
       >
@@ -906,7 +940,7 @@ export default function ExhibitorPanel({
                              press labelled "Remove" — so the press says so
                              first. Worked out the same way the backend does,
                              over this exhibitor's other entries. */
-                          title={releasedPotsIfRemoved(entry) || undefined}
+                          title={alsoReleasedIfRemoved(entry) || undefined}
                           className="text-xs hover:underline text-red-600 disabled:opacity-50"
                         >
                           {busy.has(`entry-${entry.entry_id}`) ? 'Removing…' : 'Remove'}
@@ -947,13 +981,21 @@ export default function ExhibitorPanel({
                       <span style={{ color: 'var(--warning)' }}> · not entered in any of its classes yet</span>
                     )}
                   </span>
-                  <span className="whitespace-nowrap">
-                    {formatMoney(l.line_total_cents)}{' '}
+                  <span className="flex flex-wrap items-baseline gap-2">
+                    <span className="whitespace-nowrap">{formatMoney(l.line_total_cents)}</span>
+                    <WithdrawFuturityButton
+                      showId={showId}
+                      futurityId={l.futurity_id}
+                      futurityName={l.futurity_name}
+                      entryId={l.futurity_entry_id}
+                      horseName={l.horse_name}
+                      onWithdrawn={onChanged}
+                    />
                     <Link
                       href={`/admin/shows/${showId}/futurities/${l.futurity_id}/entries`}
-                      className="hover:underline"
+                      className="hover:underline whitespace-nowrap"
                       style={{ color: COLORS.accent }}
-                      title="Change the category, membership or withdraw the enrollment"
+                      title="Change the category or the membership on this nomination"
                     >
                       Edit →
                     </Link>
@@ -961,6 +1003,38 @@ export default function ExhibitorPanel({
                 </li>
               );
             })}
+          </ul>
+        )}
+
+        {/* The buy-ins, which used to be shown by the panel's own Side Pots
+            section. That section went when entering a bundled class became the
+            buy-in, and this is where the money moved: onto the bill, next to the
+            classes that caused it. Nothing to press — the way out is to scratch
+            the classes, which releases it. */}
+        {sidePotLines.length > 0 && (
+          <ul className="space-y-1 mb-3 text-xs" style={{ color: COLORS.muted }}>
+            {sidePotLines.map((l) => (
+              <li key={l.side_pot_id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span>
+                  <span style={{ color: COLORS.text }}>{l.name}</span>
+                  {' '}buy-in · covers {l.class_count} class{l.class_count === 1 ? '' : 'es'}
+                  {l.status !== 'open' && (
+                    <span style={{ color: 'var(--warning)' }}> · {l.status}</span>
+                  )}
+                </span>
+                <span className="whitespace-nowrap">
+                  {formatMoney(l.line_total_cents)}{' '}
+                  <Link
+                    href={`/admin/shows/${showId}/side-pots/${l.side_pot_id}`}
+                    className="hover:underline"
+                    style={{ color: COLORS.accent }}
+                    title="The pot's own screen — its roster, standings and payouts"
+                  >
+                    Pot →
+                  </Link>
+                </span>
+              </li>
+            ))}
           </ul>
         )}
 

@@ -256,3 +256,96 @@ export function UnenrolledFuturityRow({
     </div>
   );
 }
+
+/**
+ * Withdrawing a nomination, from the desk.
+ *
+ * It used to be an `Edit →` link out to the futurity's own Entries screen, and
+ * that was the whole complaint: the desk is where an exhibitor's money is
+ * worked, so the one charge it could not take off was the one it linked away
+ * for. The enrollment is also what makes a futurity class cost anything, which
+ * is why the confirmation says the classes stay — withdrawing the nomination
+ * does not scratch them, it leaves them entered and unpriced, and the panel
+ * flags that immediately underneath as an unenrolled horse.
+ *
+ * Inline confirmation rather than a dialog, like every other destructive
+ * control here.
+ */
+export function WithdrawFuturityButton({
+  showId,
+  futurityId,
+  futurityName,
+  entryId,
+  horseName,
+  onWithdrawn,
+}: {
+  showId: string;
+  futurityId: string;
+  futurityName: string;
+  entryId: string;
+  horseName: string | null;
+  onWithdrawn: () => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(
+      `/api/shows/${showId}/futurities/${futurityId}/entries/${entryId}`,
+      { method: 'DELETE' },
+    );
+    if (!res.ok && res.status !== 204) {
+      setBusy(false);
+      setError(detailMessage(await res.json().catch(() => null), 'Could not withdraw.'));
+      return;
+    }
+    setBusy(false);
+    setConfirming(false);
+    await onWithdrawn();
+  };
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="hover:underline"
+        style={{ color: COLORS.accent }}
+        title={`Take ${horseName ?? 'this horse'} out of ${futurityName}. Its class entries stay.`}
+      >
+        Withdraw
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span style={{ color: COLORS.muted }}>Out of {futurityName}?</span>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={busy}
+        className="font-medium hover:underline disabled:opacity-50"
+        style={{ color: 'var(--error-strong)' }}
+        title="The futurity classes stay entered — they will price at nothing until the horse is enrolled again."
+      >
+        {busy ? 'Withdrawing…' : 'Yes, withdraw'}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setConfirming(false);
+          setError(null);
+        }}
+        className="hover:underline"
+        style={{ color: COLORS.muted }}
+      >
+        Cancel
+      </button>
+      {error && <span style={{ color: 'var(--error-strong)' }}>{error}</span>}
+    </span>
+  );
+}

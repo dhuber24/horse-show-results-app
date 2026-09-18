@@ -212,12 +212,27 @@ export type BillFuturityLine = {
   line_total_cents: number;
 };
 
+/** One side pot's buy-in. On the bill because entering a class an open pot
+ *  bundles is what buys somebody in — so this is money owed without having been
+ *  separately chosen, and the bill is the only place that says so. One line per
+ *  pot however many of its classes were entered: membership is per roster row,
+ *  not per class entry. */
+export type BillSidePotLine = {
+  side_pot_id: string;
+  name: string;
+  status: string;
+  /** How many classes the pot bundles, so the line can say what it covers. */
+  class_count: number;
+  line_total_cents: number;
+};
+
 export type Bill = {
   class_lines: BillClassLine[];
   reservation_lines: BillReservationLine[];
   charge_lines: BillChargeLine[];
   sanction_lines: BillSanctionLine[];
   futurity_lines: BillFuturityLine[];
+  side_pot_lines: BillSidePotLine[];
   class_fee_total_cents: number;
   /** The per-class portion of the sanction money — what the class lines above
    *  already carry. `sanction_total_cents` is that plus `sanction_lines`, so a
@@ -230,6 +245,7 @@ export type Bill = {
   /** The part of `charge_total_cents` carried on the class lines. */
   class_charge_total_cents?: number;
   futurity_total_cents: number;
+  side_pot_total_cents: number;
   total_cents: number;
 };
 

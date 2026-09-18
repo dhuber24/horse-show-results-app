@@ -18,6 +18,9 @@ interface RosterHorse {
 
 interface RosterRow {
   show_entry_id: string;
+  /** The class-entry endpoint is keyed on the exhibitor rather than on their
+   *  roster row, and the enroll form books the futurity's classes itself. */
+  exhibitor_id: string;
   back_number: number | null;
   exhibitor_name: string | null;
   horses: RosterHorse[];
@@ -303,6 +306,19 @@ function EntryRow({
  * Enroll one horse. The exhibitor picker drives the horse picker, so the only
  * horses on offer are that exhibitor's — and one already enrolled is dropped,
  * since the backend enforces one enrollment per horse anyway.
+ *
+ * **The classes are part of enrolling.** A nomination is what prices a futurity
+ * class — the class row carries no fee of its own — so one with no class behind
+ * it charges the office fee for a programme the horse is judged in nothing of,
+ * and the backend refuses it (`FUTURITY_CLASS_REQUIRED`). The form books the
+ * ticked classes first, through the ordinary class-entry endpoint so they get
+ * the same association and side pot validation as any other entry, and
+ * nominates once they are in.
+ *
+ * **Classes first, nomination second, and the order is deliberate.** If the
+ * nomination fails the horse is left entered and unenrolled, which every desk
+ * screen already flags in as many words and the office can finish in a press.
+ * The reverse leaves a bare nomination — the exact thing this change removes.
  */
 function AddEntryForm({
   showId,
@@ -322,11 +338,18 @@ function AddEntryForm({
   const [isMember, setIsMember] = useState(false);
   const [membershipId, setMembershipId] = useState('');
   const [exhibitorName, setExhibitorName] = useState('');
+  const [classIds, setClassIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const person = roster.find((r) => r.show_entry_id === showEntryId);
   const horses = (person?.horses ?? []).filter((h) => !h.already_entered);
+
+  function toggleClass(classId: string) {
+    setClassIds((prev) =>
+      prev.includes(classId) ? prev.filter((c) => c !== classId) : [...prev, classId],
+    );
+  }
 
   async function submit() {
     setError(null);
@@ -334,8 +357,38 @@ function AddEntryForm({
       setError('Pick an exhibitor and a horse.');
       return;
     }
+    if (futurity.classes.length > 0 && classIds.length === 0) {
+      setError(
+        'Tick at least one futurity class. A nomination is what prices those ' +
+          'classes, so one with none entered owes the office fee and is judged in nothing.',
+      );
+      return;
+    }
     setBusy(true);
     try {
+      // The classes go in through the ordinary entry endpoint, which is the one
+      // place that validates an entry — association rules, closed classes, and
+      // the side pot buy-in a class may oblige. A 409 on any of them stops here
+      // rather than nominating a horse into classes it is not in.
+      const exhibitorId = person?.exhibitor_id;
+      for (const classId of classIds) {
+        const entryRes = await fetch(`/api/shows/${showId}/classes/${classId}/entries`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exhibitor_id: exhibitorId, horse_id: horseId }),
+        });
+        if (entryRes.ok) continue;
+        const j = await entryRes.json().catch(() => null);
+        const detail = typeof j?.detail === 'string' ? j.detail : j?.detail?.message;
+        // Already in the class is exactly what we wanted — a horse half-entered
+        // before somebody came to nominate it is the ordinary case at a counter.
+        if (entryRes.status === 409 && /already/i.test(detail ?? '')) continue;
+        const number =
+          futurity.classes.find((c) => c.class_id === classId)?.class_number ?? '';
+        setError(`Class ${number}: ${detail ?? 'could not enter.'}`);
+        return;
+      }
+
       const res = await fetch(`/api/shows/${showId}/futurities/${futurity.id}/entries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -350,7 +403,8 @@ function AddEntryForm({
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Failed to enter.');
+        const detail = typeof j?.detail === 'string' ? j.detail : j?.detail?.message;
+        setError(detail || 'Failed to enter.');
         return;
       }
       // Kept open so a queue of entries goes in one after another, like the
@@ -358,6 +412,7 @@ function AddEntryForm({
       // they are: a queue at the counter is usually the same answers twice.
       setHorseId('');
       setExhibitorName('');
+      setClassIds([]);
       router.refresh();
     } finally {
       setBusy(false);
@@ -392,6 +447,7 @@ function AddEntryForm({
             onChange={(e) => {
               setShowEntryId(e.target.value);
               setHorseId('');
+              setClassIds([]);
             }}
             className="w-full border rounded px-3 py-2 text-sm"
             style={{ borderColor: COLORS.border }}
@@ -412,7 +468,10 @@ function AddEntryForm({
           </span>
           <select
             value={horseId}
-            onChange={(e) => setHorseId(e.target.value)}
+            onChange={(e) => {
+              setHorseId(e.target.value);
+              setClassIds([]);
+            }}
             disabled={!showEntryId}
             className="w-full border rounded px-3 py-2 text-sm disabled:opacity-50"
             style={{ borderColor: COLORS.border }}
@@ -499,6 +558,42 @@ function AddEntryForm({
         </label>
       </div>
 
+      {/* The classes, ticked here rather than entered on a separate screen. A
+          nomination is what prices them, so one with none entered charges the
+          office fee for a programme the horse is judged in nothing of — the
+          backend refuses that, and this is where it is satisfied. */}
+      {futurity.classes.length > 0 && (
+        <fieldset>
+          <legend className="text-xs mb-1" style={{ color: COLORS.muted }}>
+            Futurity classes — at least one
+          </legend>
+          <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1">
+            {futurity.classes.map((c) => (
+              <label
+                key={c.class_id}
+                className="flex items-baseline gap-2 text-sm"
+                style={{ color: COLORS.text }}
+              >
+                <input
+                  type="checkbox"
+                  checked={classIds.includes(c.class_id)}
+                  disabled={!horseId}
+                  onChange={() => toggleClass(c.class_id)}
+                />
+                <span>
+                  <span className="tabular-nums">{c.class_number}</span> {c.class_name}
+                </span>
+              </label>
+            ))}
+          </div>
+          <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
+            {horseId
+              ? 'Ticked classes are entered for this horse, then the nomination is filed. A class it is already in is left alone.'
+              : 'Pick a horse first.'}
+          </span>
+        </fieldset>
+      )}
+
       <div className="flex gap-2">
         <button
           onClick={submit}
@@ -506,7 +601,11 @@ function AddEntryForm({
           className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
           style={{ backgroundColor: COLORS.text, color: 'var(--bg-subtle)' }}
         >
-          {busy ? 'Entering…' : 'Enter'}
+          {busy
+            ? 'Entering…'
+            : classIds.length > 0
+              ? `Enter ${classIds.length} class${classIds.length === 1 ? '' : 'es'} & nominate`
+              : 'Enter'}
         </button>
         <button
           onClick={onDone}

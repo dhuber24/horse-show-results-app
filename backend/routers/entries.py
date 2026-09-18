@@ -20,6 +20,7 @@ from models import (
     ShowEntry,
 )
 from horse_eligibility import effective_relationship
+from futurity_enrollment import release_scratched_enrollments
 from side_pot_membership import (
     assert_pots_joinable,
     join_pots,
@@ -363,6 +364,7 @@ async def delete_entry(
     if not entry or entry.class_id != class_id:
         raise HTTPException(404, "Entry not found")
     exhibitor_id = entry.exhibitor_id
+    horse_id = entry.horse_id
     await db.delete(entry)
     # Flushed before the pots are read: the release decides on what entries are
     # left, and an unflushed delete still counts the scratched class as one.
@@ -372,6 +374,12 @@ async def delete_entry(
     # no collected money to strand -- and leaving the row would bill a jackpot
     # to somebody no longer in it.
     await release_scratched_pots(show_id, exhibitor_id, class_id, db)
+    # The same rule for a futurity nomination, which is the other thing a class
+    # entry now carries with it. Per horse rather than per exhibitor -- two
+    # horses in one futurity are two nominations.
+    await release_scratched_enrollments(
+        show_id, exhibitor_id, horse_id, class_id, db
+    )
     await db.commit()
 
 

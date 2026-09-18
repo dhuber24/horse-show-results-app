@@ -92,6 +92,32 @@ def joined_pot_ids(pots: list[SidePot], show_entry_id: UUID | None) -> set[UUID]
     }
 
 
+def billed_pots(pots: list[SidePot], show_entry_id: UUID | None) -> list[SidePot]:
+    """The pots to charge this show entry a buy-in for, for `billing.build_bill`.
+
+    Every pot they are in, **not** only the open ones. `OPEN_POT_STATUSES`
+    answers whether a pot can oblige somebody to buy in; it says nothing about
+    whether a buy-in already taken is owed. A pot settled on the Saturday still
+    charges the people who were in it — its payouts were funded by exactly that
+    money.
+    """
+    joined = joined_pot_ids(pots, show_entry_id)
+    return [pot for pot in pots if pot.id in joined]
+
+
+def pot_bill_index(pots: list[SidePot]) -> dict[UUID, list[SidePot]]:
+    """Every show entry's billed pots, keyed by show entry.
+
+    For the Financials rollup, which builds an account per exhibitor and would
+    otherwise call `billed_pots` once each over the same list.
+    """
+    index: dict[UUID, list[SidePot]] = {}
+    for pot in pots:
+        for entry in pot.pot_entries:
+            index.setdefault(entry.show_entry_id, []).append(pot)
+    return index
+
+
 def unmet_pots(
     pots: list[SidePot],
     class_id: UUID,

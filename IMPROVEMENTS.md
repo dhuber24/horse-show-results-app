@@ -2,6 +2,60 @@
 
 ## September 2026
 
+### The Buy-In Reaches The Bill, And A Futurity Nomination Comes With Its Classes
+
+Two reports from the same weekend, both of them a charge and the thing that
+caused it having drifted apart.
+
+**A side pot buy-in was on no bill anywhere.** Reported as a regression after
+the release below, and the gap is older than that: `build_bill` never had a
+side pot concept at all. What the removed Side Pots section had been doing was
+*showing* the money — `$10.00 buy-in` per pot — so taking it away left an
+exhibitor committed to a charge no screen displayed.
+
+- **`billing.side_pot_lines` puts it on the bill**, read by the desk, My Shows,
+  the registration preview and Financials, so every screen quotes one figure.
+  This reverses the older rule that kept pot money out of `build_bill`; that
+  rule's reason was that folding it in would make Financials disagree with My
+  Shows, which only held while the two read different things. Both read
+  `build_bill`. What changed underneath it is that entering a bundled class is
+  now the buy-in, so the charge is a consequence of an entry rather than a
+  decision made on the pot's screen — and a charge nobody chose has to appear
+  on the bill they are handed.
+- **One buy-in per pot**, however many of its classes were entered: membership
+  hangs off the `show_entries` row.
+- **Every pot they are in charges**, whatever its status and whatever `paid`
+  says. Status decides whether a pot may *oblige* an entry, not whether a
+  membership already taken is owed; `paid` is about the pool, and is a flag the
+  UI never sets.
+- **`side_pot_money()` is now the pool, not a second copy of the charge.** Each
+  pot's `buy_ins_cents` and the pot money inside `billed_cents` are the same
+  money answering two questions — what the pot pays out, and what the exhibitor
+  owes. Both docstrings say so; they are not to be added together.
+
+**A futurity nomination and its classes were entirely independent**, and it had
+gone wrong in both directions. A nomination with no futurity class still owed
+the office fee for a programme the horse was judged in nothing of, and the desk
+could only link out to the futurity screen to clear it. Scratching the last
+futurity class left the nomination behind, still charging.
+
+- **`backend/futurity_enrollment.py`**, deliberately the same shape as
+  `side_pot_membership`. Enrolling refuses with `409 FUTURITY_CLASS_REQUIRED`
+  at both doors; `release_scratched_enrollments` runs beside
+  `release_scratched_pots` at both deletion doors.
+- **The enroll form books the classes in the same press** — posting each ticked
+  class to the ordinary class-entry endpoint, the one place an entry is
+  validated, and nominating once they are in. Classes first is deliberate: the
+  failure it leaves is a horse entered and unenrolled, which the desk already
+  flags, where the reverse leaves the bare nomination this removes.
+- **The desk grew a Withdraw** on each futurity line. The class entries stay.
+- **Keyed on the horse, not the roster row** — the one departure from a side
+  pot. Two horses of one exhibitor are two nominations.
+- **A latent 500 fixed next door.** `_hydrate_entries` sorted on `back_number`
+  without the `or 0` guard the roster sort has, so two enrollments without back
+  numbers compared `None < None` — a TypeError, and therefore no entries list
+  and no Remove button on the rows the office was trying to clear.
+
 ### The Desk Loses Its Side Pots Section
 
 Follows directly from the release below. Once a class an open side pot bundles

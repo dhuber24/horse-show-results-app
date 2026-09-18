@@ -3328,12 +3328,14 @@ class FuturityRosterEntry(BaseModel):
 
     Carries the horses that exhibitor has entered anywhere at this show, which
     is the practical list at the desk — a futurity horse is a horse that is
-    showing. Enrolling one that has no class entries yet is legal (the office
-    fee is owed either way), it just cannot be picked from here until the
-    entries are in.
+    showing. Enrolling one is no longer legal until it is in one of the
+    futurity's own classes, and the enroll form books those in the same press,
+    so `exhibitor_id` rides along here: the class-entry endpoint is keyed on the
+    exhibitor, not on their roster row.
     """
 
     show_entry_id: UUID
+    exhibitor_id: UUID
     back_number: Optional[int] = None
     exhibitor_name: Optional[str] = None
     horses: list[FuturityRosterHorse] = []
@@ -3582,6 +3584,24 @@ class BillFuturityLineOut(BaseModel):
     line_total_cents: int
 
 
+class BillSidePotLineOut(BaseModel):
+    """One side pot's buy-in on the exhibitor's bill.
+
+    One line per pot however many of its classes they entered — membership is
+    per `show_entries` row. On the bill at all because entering a class an open
+    pot bundles is what buys somebody in, so this is money they owe without
+    having chosen it separately.
+    """
+
+    side_pot_id: UUID
+    name: str
+    status: str
+    #: How many of the show's classes this pot bundles, so the line can say what
+    #: the buy-in covers rather than quoting a bare amount.
+    class_count: int = 0
+    line_total_cents: int
+
+
 class BillOut(BaseModel):
     """One exhibitor's charges, straight from `billing.build_bill`."""
 
@@ -3590,6 +3610,7 @@ class BillOut(BaseModel):
     charge_lines: list[BillChargeLineOut] = Field(default_factory=list)
     sanction_lines: list[BillSanctionLineOut] = Field(default_factory=list)
     futurity_lines: list[BillFuturityLineOut] = Field(default_factory=list)
+    side_pot_lines: list[BillSidePotLineOut] = Field(default_factory=list)
     class_fee_total_cents: int
     #: The per-class portion of the sanction money — what the class lines above
     #: already carry. `sanction_total_cents` is that plus `sanction_lines`, so a
@@ -3602,6 +3623,7 @@ class BillOut(BaseModel):
     #: The part of `charge_total_cents` carried on the class lines.
     class_charge_total_cents: int = 0
     futurity_total_cents: int = 0
+    side_pot_total_cents: int = 0
     total_cents: int
 
 
@@ -3673,6 +3695,9 @@ class FinancialTotalsOut(BaseModel):
     reservation_total_cents: int = 0
     charge_total_cents: int = 0
     futurity_total_cents: int = 0
+    #: Buy-ins billed to exhibitors. The same money the `side_pots` pools were
+    #: funded by, counted here as what the show is owed for them.
+    side_pot_total_cents: int = 0
     billed_cents: int = 0
     collected_cents: int = 0
     refunded_cents: int = 0
@@ -3721,10 +3746,12 @@ class FinancialSidePotOut(BaseModel):
 class ShowFinancialsOut(BaseModel):
     """The Financials overview for one show.
 
-    Side pot money is reported separately and is deliberately not folded into
-    any account balance — pot buy-ins are not part of `build_bill`, and adding
-    them here would make this screen disagree with the bill the exhibitor sees
-    on My Shows.
+    The per-pot figures under `side_pots` are the *pools* — what each pot took,
+    pays back and retains. The buy-ins behind them are also on the exhibitors'
+    bills (`BillSidePotLineOut`), because entering a class an open pot bundles
+    is what buys somebody in. So `side_pots[].buy_ins_cents` and the pot money
+    inside `totals.billed_cents` are the same money answering two questions:
+    what the pot will pay out, and what the exhibitor owes. Do not add them.
     """
 
     show_id: UUID

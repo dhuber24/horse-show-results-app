@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from billing import build_bill
+from side_pot_membership import billed_pots, load_show_pots
 from cancellations import cancellation_window, is_on_roster
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
@@ -273,7 +274,14 @@ async def list_my_shows(
         futurities = await load_billable_futurities(
             show_id, [signup.id] if signup else [], db
         )
-        bill = build_bill(show, show_entries, reservations, futurities)
+        # Side pot buy-ins. The exhibitor did not press a button to owe these —
+        # entering a class an open pot bundles is what buys them in — so this is
+        # the one screen where the charge has to be spelled out to the person
+        # paying it.
+        pots = billed_pots(
+            await load_show_pots(show_id, db), signup.id if signup else None
+        )
+        bill = build_bill(show, show_entries, reservations, futurities, pots)
 
         placed = [
             results_by_entry[e.id]

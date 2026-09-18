@@ -745,11 +745,42 @@ def futurity_lines(futurities: Iterable, entries: Iterable) -> tuple[list[dict],
     return lines, total
 
 
+def side_pot_lines(side_pots: Iterable) -> tuple[list[dict], int]:
+    """Itemize the buy-ins for the pots this exhibitor is in.
+
+    `side_pots` are SidePot rows the exhibitor has a `side_pot_entries` row in —
+    the caller filters them, the way it filters `futurities`.
+
+    One buy-in per pot, however many of the pot's classes they entered, because
+    membership hangs off `show_entries` rather than off a class entry. **Every
+    pot they are in is charged, whatever its status and whatever `paid` says.**
+    Status decides whether a pot can *oblige* an entry, not whether an existing
+    membership is owed; and `paid` is a flag the UI never sets (it defaults
+    true), so billing only the unpaid rows would make the bill jump by a figure
+    nothing on any screen explains.
+    """
+    lines: list[dict] = []
+    total = 0
+    for pot in sorted(side_pots, key=lambda p: (p.name or "").lower()):
+        lines.append(
+            {
+                "side_pot_id": pot.id,
+                "name": pot.name,
+                "status": pot.status,
+                "class_count": len(pot.pot_classes),
+                "line_total_cents": pot.entry_fee_cents,
+            }
+        )
+        total += pot.entry_fee_cents
+    return lines, total
+
+
 def build_bill(
     show,
     entries: Iterable,
     reservations: Iterable,
     futurities: Iterable = (),
+    side_pots: Iterable = (),
 ) -> dict:
     """Itemize one exhibitor's charges at one show.
 
@@ -760,6 +791,15 @@ def build_bill(
 
     `futurities` defaults to empty so every existing caller keeps working and a
     show with no futurity is unchanged down to the key set.
+
+    `side_pots` are the pots this exhibitor has bought into. They are on the
+    bill because entering a class an open pot bundles *is* the buy-in
+    (`side_pot_membership`): the money is no longer a decision somebody makes at
+    the pot's own screen, it is a consequence of an entry, and a charge nobody
+    chose has to appear on the bill they are handed. This reverses the older
+    rule that kept pot money out of `build_bill` — that rule's reason was that
+    folding buy-ins into a balance would make Financials disagree with My Shows,
+    which is only true while the two read different things. Both read this.
     """
     rates = sanction_rates(show)
 
@@ -841,6 +881,7 @@ def build_bill(
     # can print the per-class portion without summing these in the browser.
     sanction_line_list, sanction_charge_total = sanction_charge_lines(show, entry_list)
     futurity_line_list, futurity_total = futurity_lines(futurities, entry_list)
+    side_pot_line_list, side_pot_total = side_pot_lines(side_pots)
 
     # A charge levied per class entry -- the breed body's per-judge assessment --
     # is also money against each class it counted, and the desk prints a class's
@@ -875,6 +916,7 @@ def build_bill(
         "charge_lines": charge_line_list,
         "sanction_lines": sanction_line_list,
         "futurity_lines": futurity_line_list,
+        "side_pot_lines": side_pot_line_list,
         "class_fee_total_cents": class_fee_total,
         "class_sanction_total_cents": class_sanction_total,
         "sanction_total_cents": class_sanction_total + sanction_charge_total,
@@ -885,6 +927,7 @@ def build_bill(
         # and still foot without summing lines itself.
         "class_charge_total_cents": class_charge_total,
         "futurity_total_cents": futurity_total,
+        "side_pot_total_cents": side_pot_total,
         "total_cents": (
             class_fee_total
             + class_sanction_total
@@ -892,6 +935,7 @@ def build_bill(
             + reservation_total
             + charge_total
             + futurity_total
+            + side_pot_total
         ),
     }
 
@@ -929,13 +973,14 @@ def build_account(
     reservations: Iterable,
     payments: Iterable,
     futurities: Iterable = (),
+    side_pots: Iterable = (),
 ) -> dict:
     """One exhibitor's standing at one show: billed, paid, and the difference.
 
     The bill comes from `build_bill` untouched, so what Financials shows an
     exhibitor owes is character-for-character what My Shows shows them.
     """
-    bill = build_bill(show, entries, reservations, futurities)
+    bill = build_bill(show, entries, reservations, futurities, side_pots)
     totals = payment_totals_cents(payments)
     return {
         "bill": bill,
@@ -961,6 +1006,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
         "reservation_total_cents": 0,
         "charge_total_cents": 0,
         "futurity_total_cents": 0,
+        "side_pot_total_cents": 0,
         "billed_cents": 0,
         "collected_cents": 0,
         "refunded_cents": 0,
@@ -990,6 +1036,7 @@ def summarize_accounts(accounts: Iterable) -> dict:
             "reservation_total_cents",
             "charge_total_cents",
             "futurity_total_cents",
+            "side_pot_total_cents",
         ):
             # .get, because an account built before futurities existed — or by
             # a caller that passes no futurities — has no such key, and a show
@@ -1057,12 +1104,19 @@ def summarize_accounts(accounts: Iterable) -> dict:
 
 
 def side_pot_money(pot, paid_entry_count: int, payouts: Iterable) -> dict:
-    """A pot's money, kept apart from the exhibitor's bill on purpose.
+    """A pot's own money: what it took, what it pays back, and the show's cut.
 
-    Pot buy-ins are not in `build_bill` and are not added to an account balance
-    here: doing so would make Financials disagree with the bill the exhibitor
-    sees on My Shows. The show's cut is whatever `payback_percent` does not pay
-    back out.
+    This is the *pool*, not a charge. The buy-ins are on each exhibitor's bill
+    now that entering a bundled class is what buys them in (`side_pot_lines`),
+    so `buy_ins_cents` here and the pot money inside `billed_cents` are the same
+    money counted for two different purposes — do not add them together. What
+    this function answers is what the pot pays out, which no bill can say: the
+    pool is whatever `payback_percent` does not keep.
+
+    It counts `paid_entry_count` where the bill charges every member, and the
+    two are meant to differ. A pot row marked unpaid is money the office is
+    still chasing, which the bill must go on asking for and the pool must not
+    pay out.
     """
     taken = pot.entry_fee_cents * paid_entry_count
     pool = (taken * pot.payback_percent) // 100

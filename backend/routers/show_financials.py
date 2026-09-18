@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import side_pot_membership
 from billing import build_account, side_pot_money, summarize_accounts
 from cancellations import is_on_roster
 from database import get_db
@@ -171,6 +172,14 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
     # show rather than one per exhibitor, same as everything else here.
     futurity_index = await load_futurity_bill_index(show_id, db)
 
+    # 4. Side pot buy-ins, keyed the same way. Entering a class an open pot
+    # bundles is what buys somebody in, so the buy-in is a charge they never
+    # separately chose and it belongs on the bill beside the class that caused
+    # it. One query: `pot_classes` and `pot_entries` ride along eagerly.
+    pot_index = side_pot_membership.pot_bill_index(
+        await side_pot_membership.load_show_pots(show_id, db)
+    )
+
     accounts: list[dict] = []
     for exhibitor_id, exhibitor in exhibitors.items():
         show_entry = show_entry_by_exhibitor.get(exhibitor_id)
@@ -190,6 +199,7 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             reservations,
             payments,
             futurity_index.get(show_entry.id, []) if show_entry else [],
+            pot_index.get(show_entry.id, []) if show_entry else [],
         )
         accounts.append({
             "exhibitor_id": exhibitor_id,

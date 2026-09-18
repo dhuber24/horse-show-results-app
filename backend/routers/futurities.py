@@ -41,6 +41,7 @@ from sqlalchemy.orm import selectinload
 import billing
 from database import get_db
 from dependencies import require_admin_or_show_admin
+from futurity_enrollment import class_ids_of, entered_class_ids
 from models import (
     Class,
     Entry,
@@ -855,7 +856,18 @@ async def _hydrate_entries(
                 "created_at": enrollment.created_at,
             }
         )
-    out.sort(key=lambda r: (r["back_number"] is None, r["back_number"], r["horse_name"] or ""))
+    # `or 0` is load-bearing, the way it already is in the roster sort below.
+    # Two enrollments without a back number compare `None < None` on the second
+    # element of the tuple, which is a TypeError -- a 500 on the entries list,
+    # and so no Remove button on rows the office is trying to clear. A walk-up
+    # enrolled before their number was issued is exactly that case.
+    out.sort(
+        key=lambda r: (
+            r["back_number"] is None,
+            r["back_number"] or 0,
+            r["horse_name"] or "",
+        )
+    )
     return out
 
 
@@ -893,6 +905,7 @@ async def list_roster(show_id: UUID, futurity_id: UUID, db: AsyncSession = Depen
     roster = [
         {
             "show_entry_id": se.id,
+            "exhibitor_id": se.exhibitor_id,
             "back_number": se.back_number,
             "exhibitor_name": se.exhibitor.full_name if se.exhibitor else None,
             "horses": [
@@ -960,6 +973,35 @@ async def add_entry(
     already = next((e for e in futurity.entries if e.horse_id == body.horse_id), None)
     if already:
         raise HTTPException(409, "That horse is already entered in this futurity.")
+
+    # A nomination with no futurity class behind it is billable and judged in
+    # nothing: `futurity_lines` charges the office fee per enrollment, so the
+    # club takes money for a programme the horse is not in, and the only screen
+    # that could take it back off was this one. Refused here rather than merely
+    # flagged, which is the same call the side pot rule made -- and satisfiable
+    # on the spot, because the enroll form books the classes through the entries
+    # endpoint in the same press before it gets here.
+    futurity_class_ids = class_ids_of(futurity)
+    if futurity_class_ids:
+        entered = await entered_class_ids(
+            show_entry, body.horse_id, futurity_class_ids, db
+        )
+        if not entered:
+            # The classes are not named here: a futurity runs ten of them at
+            # this show, the caller already has the list on the futurity's own
+            # payload, and the enroll form's picker is what answers this.
+            raise HTTPException(
+                409,
+                {
+                    "code": "FUTURITY_CLASS_REQUIRED",
+                    "message": (
+                        f"{horse.name} is not entered in any {futurity.name} "
+                        "class. A nomination is what prices those classes, so "
+                        "enter at least one and nominate in the same press."
+                    ),
+                    "futurity_id": str(futurity.id),
+                },
+            )
 
     enrollment = FuturityEntry(
         futurity_id=futurity.id,

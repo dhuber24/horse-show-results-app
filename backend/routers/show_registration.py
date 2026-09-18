@@ -111,8 +111,14 @@ from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
 from backnumbers import assign_back_number_if_missing
+from futurity_enrollment import (
+    class_ids_of,
+    entered_class_ids as futurity_entered_class_ids,
+    release_scratched_enrollments,
+)
 from side_pot_membership import (
     assert_pots_joinable,
+    billed_pots,
     join_pots,
     joined_pot_ids as side_pot_joined_ids,
     load_show_pots,
@@ -1323,6 +1329,10 @@ async def preview_registration(
             await load_billable_futurities(
                 show_id, [show_entry.id] if show_entry else [], db
             ),
+            # The pots they are in. Entering a bundled class is what buys them
+            # in, so the buy-in has to be quoted on the screen that takes the
+            # entry rather than discovered on the bill afterwards.
+            billed_pots(preview_pots, show_entry.id if show_entry else None),
         ),
     }
 
@@ -1669,12 +1679,16 @@ async def withdraw_entry(
         )
 
     scratched_class_id = entry.class_id
+    scratched_horse_id = entry.horse_id
     await db.delete(entry)
     # Flushed first so the release reads the entries that are actually left.
     await db.flush()
     # The same release the desk's door does. A rule only one door honoured would
     # mean a buy-in that survives or not depending on who pressed the button.
     await release_scratched_pots(show_id, exhibitor.id, scratched_class_id, db)
+    await release_scratched_enrollments(
+        show_id, exhibitor.id, scratched_horse_id, scratched_class_id, db
+    )
     await db.commit()
 
 
@@ -1910,6 +1924,29 @@ async def enroll_in_futurity(
     ).scalars().first()
     if clash:
         raise HTTPException(409, "That horse is already entered in this futurity.")
+
+    # The same rule the office's door enforces: a nomination with no futurity
+    # class behind it owes the office fee and is judged in nothing. The
+    # exhibitor's screen enters the classes before it nominates, so this is the
+    # enforcement rather than the first the caller hears of it.
+    futurity_class_ids = class_ids_of(futurity)
+    if futurity_class_ids:
+        entered = await futurity_entered_class_ids(
+            show_entry, body.horse_id, futurity_class_ids, db
+        )
+        if not entered:
+            raise HTTPException(
+                409,
+                {
+                    "code": "FUTURITY_CLASS_REQUIRED",
+                    "message": (
+                        f"Enter {horse.name if horse else 'this horse'} in at "
+                        f"least one {futurity.name} class before nominating — "
+                        "the nomination is what the class is judged under."
+                    ),
+                    "futurity_id": str(futurity.id),
+                },
+            )
 
     enrollment = FuturityEntry(
         futurity_id=futurity.id,
