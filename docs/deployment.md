@@ -110,7 +110,13 @@ Use a Neon branch per environment:
 
    which runs [`scripts/copy_prod_to_dev.sql`](../scripts/copy_prod_to_dev.sql)
    **against dev**, asking for the production connection string without
-   echoing it. That file's header has the psql command for any other shell, and
+   echoing it. To stop being asked, set `PROD_DATABASE_URL_OP_REF` in `.env` to
+   a 1Password secret reference (`op://Vault/Item/field`) and the wrapper
+   resolves it with the 1Password CLI at run time — a reference is not a
+   secret, so nothing sensitive lands on disk. `PROD_DATABASE_URL` holding the
+   string itself also works. Whichever is used, it is **never** `DATABASE_URL`:
+   that is the dev branch, and pointing it at production is the migration-133
+   outage. That file's header has the psql command for any other shell, and
    says how to read the report. It reads production through a
    `postgres_fdw` link that lives only inside its own transaction, and inserts
    every row dev lacks by primary key — additive, so dev's test data and edits

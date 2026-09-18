@@ -9,9 +9,11 @@
 #   2. $env:DATABASE_URL
 #   3. DATABASE_URL in .env
 #
-# The source is -SourceUrl, else $env:PROD_DATABASE_URL, else a prompt. The
-# prompt is masked, so the production password stays out of the terminal
-# scrollback and out of PSReadLine's history file.
+# The source is -SourceUrl, else -OpRef (a 1Password secret reference, or
+# $env:PROD_DATABASE_URL_OP_REF), else $env:PROD_DATABASE_URL, else a masked
+# prompt. The prompt keeps the production password out of the terminal
+# scrollback and out of PSReadLine's history file; the 1Password path keeps it
+# off disk entirely, which the .env path does not.
 #
 # Both ends are guarded. This script refuses a production *target* using the
 # same SHA-256 host list as migrate.ps1, before the source password is handed
@@ -22,9 +24,15 @@
 param(
     # The database to copy INTO. Without this, $env:DATABASE_URL, then .env.
     [string]$DatabaseUrl,
-    # The database to copy FROM. Without this, $env:PROD_DATABASE_URL, then a
-    # masked prompt.
-    [string]$SourceUrl
+    # The database to copy FROM. Without this, -OpRef, then
+    # $env:PROD_DATABASE_URL, then a masked prompt.
+    [string]$SourceUrl,
+    # A 1Password secret reference holding that connection string, e.g.
+    # "op://Private/GaitDesk production/connection string". Resolved with the
+    # 1Password CLI at run time, so the secret is never written to disk.
+    # Defaults to $env:PROD_DATABASE_URL_OP_REF (which may live in .env: a
+    # reference is not a secret).
+    [string]$OpRef
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,6 +122,27 @@ if (Test-IsProduction $targetHost) {
     exit 1
 }
 
+if (-not $OpRef) { $OpRef = $env:PROD_DATABASE_URL_OP_REF }
+# .env is read here as NAME=value with no unquoting, unlike docker-compose,
+# so a reference someone wrapped in quotes would be passed to op with them.
+if ($OpRef) { $OpRef = $OpRef.Trim().Trim('"').Trim("'") }
+if (-not $SourceUrl -and $OpRef) {
+    if (-not (Get-Command op -ErrorAction SilentlyContinue)) {
+        Write-Host "A 1Password reference was given but the 1Password CLI is not on PATH." -ForegroundColor Yellow
+        Write-Host "  winget install AgileBits.1Password.CLI"
+        Write-Host "  then turn on Settings > Developer > Integrate with 1Password CLI in the desktop app."
+        exit 1
+    }
+    Write-Host "Reading the source from 1Password ($OpRef)."
+    Write-Host "  (the first read of a session may ask you to unlock)"
+    # No 2>&1 here: in PowerShell 5.1 redirecting a native command's stderr
+    # wraps each line in an ErrorRecord and trips $ErrorActionPreference.
+    $SourceUrl = (& op read $OpRef | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $SourceUrl) {
+        Write-Host "1Password did not return a value for $OpRef." -ForegroundColor Yellow
+        exit 1
+    }
+}
 if (-not $SourceUrl) { $SourceUrl = $env:PROD_DATABASE_URL }
 if (-not $SourceUrl) {
     Write-Host ""
