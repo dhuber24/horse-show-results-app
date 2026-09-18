@@ -113,3 +113,16 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), sans-serif;
 }
+
+/* Results board ticker (frontend/app/shows/[id]/board). The strip is
+   rendered twice back to back and this slides it exactly one copy's width,
+   so the loop point is invisible instead of snapping back to the start. */
+@keyframes board-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes board-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

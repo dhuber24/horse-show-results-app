@@ -22,6 +22,12 @@ const TILES = [
     description: 'High-point standings across the show.',
   },
   {
+    slug: 'board',
+    icon: '📺',
+    title: 'Live Results Board',
+    description: 'Full-screen display for a lobby or ring-side TV.',
+  },
+  {
     slug: 'showbill',
     icon: '📄',
     title: 'Show Bill',
