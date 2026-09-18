@@ -3,10 +3,17 @@
 Entries, back numbers, and paperwork check-in used to be three screens, and the
 work they describe is one conversation. Someone walks up to the desk; the
 secretary finds them, gives them a number, writes down the classes they are
-riding and on what, adds them to the jackpot if they want in, and looks at their
-papers. Splitting that across three pages meant navigating away and searching
-for the same person again at each step, and nothing on any one page could tell
-you what was still missing from the other two.
+riding and on what, and looks at their papers. Splitting that across three pages
+meant navigating away and searching for the same person again at each step, and
+nothing on any one page could tell you what was still missing from the other
+two.
+
+The jackpot used to be part of that conversation and is not any more: entering a
+class an open side pot bundles is what buys somebody in (`side_pot_membership`),
+so the panel's per-pot toggle has gone. The payload still carries `side_pots`
+and each exhibitor's `side_pot_ids` — the entry form reads both to know which
+classes oblige a buy-in and which pots they are already in — and the panel still
+states the count. Buying in or out on its own is the pot's own Entries screen.
 
 This module assembles the whole desk in one read. It is deliberately thin on
 logic of its own: everything here is already computed somewhere, and the point
@@ -25,10 +32,10 @@ is that the desk quotes those answers rather than growing a second opinion.
 
   * **Nothing here mutates.** Every button on the desk screen posts to the
     endpoint that already owned that job — `POST .../classes/{id}/entries`,
-    `PATCH .../back-numbers`, `POST .../side-pots/{id}/entries`,
-    `POST .../verifications` — so association validation, back number
-    uniqueness, and the settled-pot lock all still apply. The one exception is
-    below, and it only creates the roster row those endpoints assume.
+    `PATCH .../back-numbers`, `POST .../verifications` — so association
+    validation, back number uniqueness, the side pot requirement and the
+    settled-pot lock all still apply. The one exception is below, and it only
+    creates the roster row those endpoints assume.
 
 Access is the show-office tier — ADMIN, or the SHOW_SECRETARY / SHOW_MANAGER
 assigned to *this* show. `SCRIBE` and `GATE_STEWARD` are show staff too and are
@@ -372,10 +379,10 @@ async def add_exhibitor_to_roster(
     """Put an exhibitor on this show's roster before they have entered anything.
 
     A `show_entries` row is what a back number lives on and what a side pot
-    entry points at, and until now the only things that created one were the
+    buy-in points at, and until now the only things that created one were the
     exhibitor signing up themselves and the bulk back-number save. So the desk
-    could not give a walk-up a number, or put them in the jackpot, until it had
-    first invented a class entry for them.
+    could not give a walk-up a number until it had first invented a class entry
+    for them — nor, back when the panel had a pot toggle, put them in one.
 
     `registered_at` stays NULL: this is the shell row the schema already
     describes as "a secretary added them by hand", not a sign-up. The exhibitor

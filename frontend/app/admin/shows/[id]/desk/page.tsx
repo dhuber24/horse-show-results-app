@@ -11,8 +11,16 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 import DeskClient from './DeskClient';
 
 /**
- * The registration desk — entries, back numbers, side pots, and paperwork in
- * one screen, worked one exhibitor at a time.
+ * The registration desk — entries, back numbers, and paperwork in one screen,
+ * worked one exhibitor at a time.
+ *
+ * Side pots were a section here and are not any more. Entering a class an open
+ * pot bundles is what buys somebody in (`backend/side_pot_membership.py`), so
+ * the panel's per-pot toggle was a second way to do a thing the entry form
+ * already does as part of the entry — and the more misleading of the two, since
+ * it could put somebody in a pot whose classes they had not entered. What is
+ * left is the count on the summary row. Adding or removing a buy-in outright
+ * lives on the pot's own Entries screen, where the pot is the subject.
  *
  * These were three separate pages (`/entries`, `/back-numbers`, `/check-in`),
  * which meant finding the same person three times to do one person's worth of
@@ -69,7 +77,7 @@ export default async function ShowDeskPage({
               Registration Desk
             </h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-              {show.name} — back numbers, class entries, side pots, and paperwork check-in.
+              {show.name} — back numbers, class entries, and paperwork check-in.
             </p>
           </div>
           {/* What the desk checks against. Kept off the working screen itself —

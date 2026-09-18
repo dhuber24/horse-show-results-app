@@ -431,8 +431,8 @@ export default function DeskClient({
                 style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}
               >
                 <p className="text-sm" style={{ color: COLORS.muted }}>
-                  Pick someone from the list to give them a back number, enter their classes, put
-                  them in a side pot, and check their paperwork — all from here.
+                  Pick someone from the list to give them a back number, enter their classes, and
+                  check their paperwork — all from here.
                 </p>
               </div>
             )}

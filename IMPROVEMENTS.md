@@ -2,6 +2,37 @@
 
 ## September 2026
 
+### The Desk Loses Its Side Pots Section
+
+Follows directly from the release below. Once a class an open side pot bundles
+could only be entered by somebody in that pot, the panel's per-pot
+*Add to pot* / *In the pot* toggle was a second route to what the entry form
+now does as part of the entry — and the more misleading of the two, since it
+could put somebody in a pot whose classes they had never entered.
+
+- **The section is gone**, along with `togglePot`. The count stays on the
+  summary row, and its `title` names the pots and carries the one sentence the
+  section was load-bearing for: pot money settles with the show bill and is not
+  in the billed figure beside it.
+- **The payload is unchanged.** `side_pots` (with `class_ids`) and each
+  exhibitor's `side_pot_ids` are what the entry form reads to know which
+  classes oblige a buy-in and which pots somebody is already in — stripping
+  either would break the rule this change is a consequence of.
+- **Buying in or out on its own** is the pot's own Entries screen, which has
+  always had both and is where the pot is the subject.
+- **Scratching gives the buy-in back.** The gap the removal would otherwise
+  have left is closed rather than documented: `release_scratched_pots`, called
+  by both deletion doors, takes an exhibitor out of a pot when the class they
+  are scratching was the last one they held in it. Safe to do silently because
+  nothing at a show is paid until it settles — pot money rides on the show
+  bill, so there is no collected payment to strand, and leaving the row would
+  bill a jackpot to somebody no longer in one. Narrowed three ways: only pots
+  that bundled the scratched class (a legacy buy-in elsewhere is not this
+  deletion's business), only where no entry of that pot's classes is left (read
+  off the whole remaining entry list, so a second horse in a pattern class
+  counts), and only an `open` pot — settled money has paid out and a closed pot
+  was frozen on purpose.
+
 ### Five Things Reported From The Registration Desk
 
 All five came off one pass over the desk by somebody working it, and four of

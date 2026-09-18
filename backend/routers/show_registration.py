@@ -117,6 +117,7 @@ from side_pot_membership import (
     joined_pot_ids as side_pot_joined_ids,
     load_show_pots,
     pots_covering_class,
+    release_scratched_pots,
     requirement_detail,
     unmet_pots,
 )
@@ -1667,7 +1668,13 @@ async def withdraw_entry(
             "Contact the show secretary.",
         )
 
+    scratched_class_id = entry.class_id
     await db.delete(entry)
+    # Flushed first so the release reads the entries that are actually left.
+    await db.flush()
+    # The same release the desk's door does. A rule only one door honoured would
+    # mean a buy-in that survives or not depending on who pressed the button.
+    await release_scratched_pots(show_id, exhibitor.id, scratched_class_id, db)
     await db.commit()
 
 

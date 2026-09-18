@@ -24,6 +24,7 @@ from side_pot_membership import (
     assert_pots_joinable,
     join_pots,
     load_show_pots,
+    release_scratched_pots,
     requirement_detail,
     unmet_pots,
 )
@@ -361,7 +362,16 @@ async def delete_entry(
     entry = await db.get(Entry, entry_id)
     if not entry or entry.class_id != class_id:
         raise HTTPException(404, "Entry not found")
+    exhibitor_id = entry.exhibitor_id
     await db.delete(entry)
+    # Flushed before the pots are read: the release decides on what entries are
+    # left, and an unflushed delete still counts the scratched class as one.
+    await db.flush()
+    # Entering a pot's class is what bought them in, so scratching the last one
+    # takes them back out. Nothing is paid until the show settles, so there is
+    # no collected money to strand -- and leaving the row would bill a jackpot
+    # to somebody no longer in it.
+    await release_scratched_pots(show_id, exhibitor_id, class_id, db)
     await db.commit()
 
 

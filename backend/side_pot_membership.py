@@ -28,6 +28,13 @@ already paid out are exactly the case, and they go in without it.
 **Membership is per show entry, not per class entry.** `side_pot_entries` hangs
 off `show_entries`, so joining is one buy-in however many of the pot's classes
 somebody enters, and a second entry in another of its classes asks for nothing.
+
+**And it is given up the same way it is taken.** Scratching the last class an
+exhibitor holds in a pot releases the buy-in (`release_scratched_pots`), because
+buying in is now a consequence of entering rather than a decision of its own —
+and nothing is paid until the show settles, so there is no collected money to
+strand. Without it the desk would bill a jackpot to somebody who is not in one,
+and the only way back would be the pot's own screen.
 """
 from __future__ import annotations
 
@@ -36,7 +43,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import SidePot, SidePotEntry
+from models import Class, Entry, ShowEntry, SidePot, SidePotEntry
 
 # A pot that is no longer taking buy-ins cannot be a condition of entering.
 # Only `open` obliges: `settled` has its payouts written and the pot's own
@@ -167,6 +174,107 @@ def assert_pots_joinable(
             )
         chosen.append(pot)
     return chosen
+
+
+def pots_to_release(
+    pots: list[SidePot],
+    show_entry_id: UUID,
+    scratched_class_id: UUID,
+    remaining_class_ids: set[UUID],
+) -> list[SidePot]:
+    """The buy-ins left with nothing behind them after a class is scratched.
+
+    Entering a pot's class is what buys somebody in, so scratching their last
+    class in that pot takes them back out again. Nothing at a horse show is paid
+    until the end — pot money settles with the show bill — so there is no
+    collected payment to strand, and leaving the row would bill somebody a
+    buy-in for a jackpot they are no longer in.
+
+    Three things narrow it, and each is a way to avoid clearing a row somebody
+    meant to keep:
+
+    * **Only pots that bundled the scratched class.** A buy-in in some other pot
+      is not this deletion's business — including a legacy one with no entries
+      behind it, which predates the rule and is the office's to judge.
+    * **Only where nothing of that pot is left.** One buy-in covers every class
+      the pot names, so scratching one of six leaves the other five backing it.
+      The remaining classes are the exhibitor's *whole* entry list at this show,
+      which is what makes a second horse in a pattern class count.
+    * **Only an `open` pot.** A settled pot's buy-in funds a pool whose payouts
+      are already written, and a closed one has been frozen deliberately;
+      clearing either would change money that has been settled or stopped.
+    """
+    return [
+        pot
+        for pot in pots_covering_class(pots, scratched_class_id)
+        if any(entry.show_entry_id == show_entry_id for entry in pot.pot_entries)
+        and not any(pc.class_id in remaining_class_ids for pc in pot.pot_classes)
+    ]
+
+
+async def release_pots(
+    show_entry_id: UUID, pots: list[SidePot], db: AsyncSession
+) -> list[SidePotEntry]:
+    """Take this show entry back out of each pot. The mirror of `join_pots`.
+
+    Async where `join_pots` is not, because `AsyncSession.delete` is a
+    coroutine. Left in the caller's transaction for the same reason the join is:
+    the scratch and the buy-in it releases land together or not at all.
+    """
+    removed: list[SidePotEntry] = []
+    for pot in pots:
+        for row in [e for e in pot.pot_entries if e.show_entry_id == show_entry_id]:
+            await db.delete(row)
+            # Kept off the loaded pot too, so anything reading these afterwards
+            # in the same request sees what the commit is about to make true.
+            pot.pot_entries.remove(row)
+            removed.append(row)
+    return removed
+
+
+async def release_scratched_pots(
+    show_id: UUID, exhibitor_id: UUID, scratched_class_id: UUID, db: AsyncSession
+) -> list[SidePot]:
+    """Clear the buy-ins a just-deleted entry was the last thing backing.
+
+    **Call this after the entry is deleted and flushed**, never before: it reads
+    the exhibitor's remaining entries to decide, and an unflushed delete would
+    leave the scratched class still counting as one of them — so nothing would
+    ever be released.
+
+    Both deletion doors call it, the same way both entry doors buy in. A rule
+    only one door honours would mean a buy-in that survives or not depending on
+    whether the exhibitor or the office pressed the button.
+    """
+    pots = await load_show_pots(show_id, db)
+    if not pots:
+        return []
+
+    show_entry = (
+        await db.execute(
+            select(ShowEntry).where(
+                ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor_id
+            )
+        )
+    ).scalar_one_or_none()
+    if show_entry is None:
+        return []
+
+    remaining = set(
+        (
+            await db.execute(
+                select(Entry.class_id)
+                .join(Class, Class.id == Entry.class_id)
+                .where(Class.show_id == show_id, Entry.exhibitor_id == exhibitor_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    releasing = pots_to_release(pots, show_entry.id, scratched_class_id, remaining)
+    await release_pots(show_entry.id, releasing, db)
+    return releasing
 
 
 def join_pots(show_entry_id: UUID, pots: list[SidePot], db: AsyncSession) -> list[SidePotEntry]:

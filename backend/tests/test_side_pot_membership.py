@@ -18,11 +18,15 @@ take an entry:
 from types import SimpleNamespace
 from uuid import uuid4
 
+import asyncio
+
 from side_pot_membership import (
     assert_pots_joinable,
     join_pots,
     joined_pot_ids,
     pots_covering_class,
+    pots_to_release,
+    release_pots,
     requirement_detail,
     unmet_pots,
 )
@@ -163,13 +167,21 @@ def test_the_refusal_offers_the_choice_when_two_pots_cover_the_class():
 # ── Checking an opt-in that arrived on the request ───────────────────────────
 
 class FakeSession:
-    """Just enough of AsyncSession for `join_pots`, which only ever adds."""
+    """Just enough of AsyncSession for `join_pots` and `release_pots`.
+
+    `delete` is a coroutine because the real one is -- which is why
+    `release_pots` is async where `join_pots` is not.
+    """
 
     def __init__(self):
         self.added = []
+        self.deleted = []
 
     def add(self, obj):
         self.added.append(obj)
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
 
 
 def test_a_pot_from_another_show_is_refused_rather_than_ignored():
@@ -241,3 +253,81 @@ def test_joining_leaves_the_loaded_pot_able_to_answer_the_next_class():
     db = FakeSession()
     join_pots(SHOW_ENTRY, [pot], db)
     assert unmet_pots([pot], RANCH_TRAIL, SHOW_ENTRY) == []
+
+
+# ── Scratching the class that bought the pot ─────────────────────────────────
+#
+# Entering a pot's class is what buys somebody in, so scratching their last
+# class in it takes them back out. Nothing at a horse show is paid until the end
+# -- pot money settles with the show bill -- so there is no collected payment to
+# strand, and leaving the row would bill a jackpot to somebody not in one.
+
+def test_scratching_the_only_class_in_the_pot_releases_the_buy_in():
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY])
+    released = pots_to_release([pot], SHOW_ENTRY, RANCH_RIDING, remaining_class_ids=set())
+    assert released == [pot]
+
+
+def test_another_class_in_the_same_pot_keeps_the_buy_in():
+    # One buy-in covers every class the pot names, so five of six left still
+    # back it.
+    pot = make_pot(classes=[RANCH_RIDING, RANCH_TRAIL], entries=[SHOW_ENTRY])
+    released = pots_to_release(
+        [pot], SHOW_ENTRY, RANCH_RIDING, remaining_class_ids={RANCH_TRAIL}
+    )
+    assert released == []
+
+
+def test_a_second_horse_left_in_the_scratched_class_keeps_the_buy_in():
+    # A pattern class takes two horses on one exhibitor, so deleting one entry
+    # can leave the same class still entered. The remaining list is entries,
+    # not classes-minus-this-one, which is what makes that work.
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY])
+    released = pots_to_release(
+        [pot], SHOW_ENTRY, RANCH_RIDING, remaining_class_ids={RANCH_RIDING}
+    )
+    assert released == []
+
+
+def test_a_settled_pot_is_never_released():
+    # Its payouts are written; clearing a buy-in would change a pool that has
+    # already paid out.
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY], status="settled")
+    assert pots_to_release([pot], SHOW_ENTRY, RANCH_RIDING, set()) == []
+
+
+def test_a_closed_pot_is_never_released():
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY], status="closed")
+    assert pots_to_release([pot], SHOW_ENTRY, RANCH_RIDING, set()) == []
+
+
+def test_a_pot_the_exhibitor_never_bought_into_releases_nothing():
+    pot = make_pot(classes=[RANCH_RIDING], entries=[OTHER_ENTRY])
+    assert pots_to_release([pot], SHOW_ENTRY, RANCH_RIDING, set()) == []
+
+
+def test_somebody_elses_buy_in_survives_this_scratch():
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY, OTHER_ENTRY])
+    db = FakeSession()
+    asyncio.run(release_pots(SHOW_ENTRY, [pot], db))
+    assert len(db.deleted) == 1
+    assert [e.show_entry_id for e in pot.pot_entries] == [OTHER_ENTRY]
+
+
+def test_a_buy_in_in_a_pot_that_did_not_bundle_the_class_is_left_alone():
+    # Scoped to the pots the scratched class belongs to. A legacy buy-in in some
+    # other pot predates this rule and is the office's to judge -- clearing it
+    # as a side effect of an unrelated scratch would be a surprise.
+    elsewhere = make_pot(name="Halter Jackpot", classes=[HALTER], entries=[SHOW_ENTRY])
+    released = pots_to_release([elsewhere], SHOW_ENTRY, RANCH_RIDING, set())
+    assert released == []
+
+
+def test_releasing_takes_the_row_off_the_loaded_pot():
+    pot = make_pot(classes=[RANCH_RIDING], entries=[SHOW_ENTRY])
+    db = FakeSession()
+    removed = asyncio.run(release_pots(SHOW_ENTRY, [pot], db))
+    assert len(removed) == 1
+    assert pot.pot_entries == []
+    # And the class is enterable again, asking for the buy-in afresh.
+    assert len(unmet_pots([pot], RANCH_RIDING, SHOW_ENTRY)) == 1

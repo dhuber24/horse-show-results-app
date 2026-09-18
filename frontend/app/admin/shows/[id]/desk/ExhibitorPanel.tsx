@@ -412,39 +412,6 @@ export default function ExhibitorPanel({
       'Could not remove that entry.',
     );
 
-  const togglePot = (potId: string, isIn: boolean) => {
-    if (!exhibitor.show_entry_id) return;
-    if (isIn) {
-      return run(
-        `pot-${potId}`,
-        async () => {
-          // The pot's own entry id is not in the desk payload — it is only ever
-          // needed at the moment someone is taken back out, so it is fetched
-          // then rather than carried for every exhibitor on the roster.
-          const listed = await fetch(`/api/shows/${showId}/side-pots/${potId}/entries`);
-          if (!listed.ok) return listed;
-          const rows: { id: string; show_entry_id: string }[] = await listed.json();
-          const row = rows.find((r) => r.show_entry_id === exhibitor.show_entry_id);
-          if (!row) return new Response(null, { status: 204 });
-          return fetch(`/api/shows/${showId}/side-pots/${potId}/entries/${row.id}`, {
-            method: 'DELETE',
-          });
-        },
-        'Could not take them out of that pot.',
-      );
-    }
-    return run(
-      `pot-${potId}`,
-      () =>
-        fetch(`/api/shows/${showId}/side-pots/${potId}/entries`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ show_entry_id: exhibitor.show_entry_id }),
-        }),
-      'Could not add them to that pot.',
-    );
-  };
-
   const verify = (subject: Subject) =>
     run(
       subjectKey(subject),
@@ -557,6 +524,26 @@ export default function ExhibitorPanel({
     desk.requires_physical_document_check,
   );
   const potCount = exhibitor.side_pot_ids.length;
+
+  /** What scratching this entry would also give back, as a sentence — empty
+   *  when nothing is released. Mirrors `pots_to_release`: only pots that bundle
+   *  this class, only where the exhibitor keeps no other entry in that pot's
+   *  classes, and only pots still open. The backend is the authority; this is
+   *  so a money change does not arrive unannounced under a "Remove" link. */
+  const releasedPotsIfRemoved = (entry: DeskExhibitor['entries'][number]): string => {
+    const remaining = exhibitor.entries.filter((e) => e.entry_id !== entry.entry_id);
+    const released = desk.side_pots.filter(
+      (pot) =>
+        pot.status === 'open' &&
+        exhibitor.side_pot_ids.includes(pot.id) &&
+        (pot.class_ids ?? []).includes(entry.class_id) &&
+        !remaining.some((e) => (pot.class_ids ?? []).includes(e.class_id)),
+    );
+    if (released.length === 0) return '';
+    return `Also takes them out of ${released
+      .map((pot) => `${pot.name} (${formatMoney(pot.entry_fee_cents)} buy-in back)`)
+      .join(' and ')} — it was their last class in it.`;
+  };
   const backNumberDirty = (exhibitor.back_number?.toString() ?? '') !== backNumber.trim();
   // Somebody else already wears the number being typed. Said before Save rather
   // than after a 409, and named, because "who has 42?" is the next question.
@@ -678,8 +665,26 @@ export default function ExhibitorPanel({
           <span style={{ color: COLORS.muted }}>
             {exhibitor.entries.length} class{exhibitor.entries.length === 1 ? '' : 'es'}
           </span>
+          {/* The last trace of the pots on this panel, and it is a statement
+              rather than a control: buying in is what entering one of a pot's
+              classes now does, so there is nothing here to decide. The two
+              facts staff still need are which pots they are in and that the
+              money is not in the billed figure beside it — the second one has
+              nowhere else to live now the section is gone, so it rides on the
+              title where it costs no screen. Adding or removing a buy-in is
+              the pot's own Entries screen. */}
           {desk.side_pots.length > 0 && (
-            <span style={{ color: COLORS.muted }}>
+            <span
+              style={{ color: COLORS.muted }}
+              title={
+                potCount === 0
+                  ? 'Entering a class a side pot covers buys them in — nothing to do here'
+                  : `In: ${desk.side_pots
+                      .filter((pot) => exhibitor.side_pot_ids.includes(pot.id))
+                      .map((pot) => `${pot.name} (${formatMoney(pot.entry_fee_cents)})`)
+                      .join(', ')}. Buy-ins settle with the show bill and are not in the billed figure beside this — pot money is reported on Financials.`
+              }
+            >
               {potCount} side pot{potCount === 1 ? '' : 's'}
             </span>
           )}
@@ -896,6 +901,12 @@ export default function ExhibitorPanel({
                           type="button"
                           onClick={() => removeEntry(entry.entry_id, entry.class_id)}
                           disabled={busy.has(`entry-${entry.entry_id}`)}
+                          /* Scratching the last class somebody holds in a pot
+                             gives the buy-in back, which is money changing on a
+                             press labelled "Remove" — so the press says so
+                             first. Worked out the same way the backend does,
+                             over this exhibitor's other entries. */
+                          title={releasedPotsIfRemoved(entry) || undefined}
                           className="text-xs hover:underline text-red-600 disabled:opacity-50"
                         >
                           {busy.has(`entry-${entry.entry_id}`) ? 'Removing…' : 'Remove'}
@@ -978,64 +989,6 @@ export default function ExhibitorPanel({
           key={`${exhibitor.exhibitor_id}-${horseListVersion}`}
         />
       </Section>
-
-      {desk.side_pots.length > 0 && (
-        <Section
-          title="Side pots"
-          collapsed={collapsed.has('side_pots')}
-          onToggle={() => toggle('side_pots')}
-          hint={
-            exhibitor.show_entry_id
-              ? 'Buy-ins settle with this exhibitor’s show bill at the end of the show, so being in a pot is what owing the buy-in means. They are not part of the billed and owing figures above — pot money is reported separately on Financials.'
-              : undefined
-          }
-        >
-          {!exhibitor.show_entry_id ? (
-            <p className="text-sm" style={{ color: COLORS.muted }}>
-              Give this exhibitor a back number first — a side pot entry hangs off their show
-              roster row.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {desk.side_pots.map((pot) => {
-                const isIn = exhibitor.side_pot_ids.includes(pot.id);
-                const settled = pot.status === 'settled';
-                return (
-                  <li key={pot.id} className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium" style={{ color: COLORS.text }}>
-                        {pot.name}
-                        {settled && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--border-subtle)', color: 'var(--text-deep)' }}>
-                            settled
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs" style={{ color: COLORS.muted }}>
-                        {formatMoney(pot.entry_fee_cents)} buy-in · {pot.entry_count} in
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => togglePot(pot.id, isIn)}
-                      disabled={settled || busy.has(`pot-${pot.id}`)}
-                      title={settled ? 'This pot is settled and cannot be changed' : undefined}
-                      className="text-xs font-medium px-3 py-1.5 rounded border shrink-0 disabled:opacity-50"
-                      style={
-                        isIn
-                          ? { backgroundColor: COLORS.accent, borderColor: COLORS.accent, color: 'var(--surface)' }
-                          : { backgroundColor: COLORS.surface, borderColor: COLORS.border, color: COLORS.accent }
-                      }
-                    >
-                      {busy.has(`pot-${pot.id}`) ? '…' : isIn ? '✓ In the pot' : 'Add to pot'}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Section>
-      )}
 
       <Section
         id={PAPERWORK_SECTION_ID}
