@@ -2,6 +2,42 @@
 
 ## September 2026
 
+### The Results Go Up On A Wall
+
+Results had one shape — a page you search, on a phone you are holding. That is
+the right shape for an exhibitor looking for their own back number, and the
+wrong one for the screen in the lobby that a hundred people read at once
+without touching anything.
+
+`/shows/[id]/board` is the same data with the opposite controls: full screen,
+dark, no chrome, nothing to tap. The main stage carries one class at a time,
+newest-posted first, ten seconds each, and a marquee along the bottom crawls
+the top placings of every class posted that day. A panel-judged class splits
+into a column per judge rather than collapsing the cards — the same refusal to
+pick a winner between judges that `results-index` already makes by returning a
+row per judge.
+
+- **Its day is the latest `class_date` among posted classes, not the viewer's
+  clock.** A board left running overnight, or a browser whose timezone is not
+  the venue's, must not get a vote in what "today" means at the show.
+- **No new backend.** It reads the public `results-index` and `classes`
+  payloads the Results page already reads, and stays current through the same
+  `AutoRefresh` / `router.refresh()` poll every other live screen uses. There
+  is no push channel in this app; adding websockets for a screen that can be
+  twelve seconds stale would have been new infrastructure, not an extension of
+  anything.
+- **It covers the chrome rather than escaping it.** A `fixed inset-0 z-50`
+  panel over the root layout's `<Navbar>`. Multiple root layouts would mean
+  moving every existing route into a group, which one page does not justify.
+- **Public, like `/live`, `/schedule` and `/results`.** It is a screen bolted to
+  a wall; a login prompt on it is a fault, not a safeguard.
+- **Reached from the office too.** A **Live Screens** tile on the admin console
+  opens the show's live hub, because staff were otherwise leaving the admin area
+  to find the show's own page. Not status-gated — what the rail sees is worth
+  checking before the gates open. The board tile opens in its own tab: it gets
+  dragged onto the TV and left there, and whoever opened it still needs the
+  screen they came from.
+
 ### The Buy-In Reaches The Bill, And A Futurity Nomination Comes With Its Classes
 
 Two reports from the same weekend, both of them a charge and the thing that
