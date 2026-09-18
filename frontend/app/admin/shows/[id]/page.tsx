@@ -240,26 +240,56 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             </div>
           </Link>
         ))}
-        {show.status === 'ACTIVE' && (() => {
+        {(() => {
           const tile = scoringTile(id);
+          if (show.status === 'ACTIVE') {
+            return (
+              <Link
+                href={tile.href}
+                className="block p-6 rounded-lg border transition-colors hover:opacity-90"
+                style={{ borderColor: 'var(--foreground)', backgroundColor: 'var(--foreground)' }}
+              >
+                <div className="flex items-start gap-4">
+                  <div className="text-3xl" aria-hidden>{tile.icon}</div>
+                  <div>
+                    <h2 className="text-lg font-semibold" style={{ color: 'var(--bg-subtle)' }}>
+                      {tile.title}
+                    </h2>
+                    <p className="text-sm mt-1" style={{ color: 'var(--border)' }}>
+                      {tile.description}
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            );
+          }
+
+          // Not active: shown disabled rather than omitted, so the tile is
+          // never simply missing — the explanation is the reason to reach for
+          // the status control above instead of a dead end.
+          const reason =
+            show.status === 'COMPLETED'
+              ? 'Scoring is closed — this show is marked Completed.'
+              : 'Set the show to "In Progress" above to enable scoring.';
           return (
-            <Link
-              href={tile.href}
-              className="block p-6 rounded-lg border transition-colors hover:opacity-90"
-              style={{ borderColor: 'var(--foreground)', backgroundColor: 'var(--foreground)' }}
+            <div
+              className="block p-6 rounded-lg border cursor-not-allowed"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}
+              aria-disabled="true"
+              title={reason}
             >
               <div className="flex items-start gap-4">
-                <div className="text-3xl" aria-hidden>{tile.icon}</div>
+                <div className="text-3xl opacity-40" aria-hidden>{tile.icon}</div>
                 <div>
-                  <h2 className="text-lg font-semibold" style={{ color: 'var(--bg-subtle)' }}>
+                  <h2 className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>
                     {tile.title}
                   </h2>
-                  <p className="text-sm mt-1" style={{ color: 'var(--border)' }}>
-                    {tile.description}
+                  <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+                    {reason}
                   </p>
                 </div>
               </div>
-            </Link>
+            </div>
           );
         })()}
       </div>
