@@ -70,6 +70,16 @@ const tiles = (showId: string) => [
     description: 'Questions sent from the show page, including from people without an account.',
     icon: '✉️',
   },
+  // The public screens, reached from the office rather than by finding the
+  // show's own page. Not status-gated: what the rail sees is worth checking
+  // before the gates open, not only once results are going up.
+  {
+    href: `/shows/${showId}/live`,
+    title: 'Live Screens',
+    description:
+      'Schedule, results, leaderboard, and the full-screen results board — what exhibitors and spectators see.',
+    icon: '📺',
+  },
 ];
 
 const scoringTile = (showId: string) => ({
