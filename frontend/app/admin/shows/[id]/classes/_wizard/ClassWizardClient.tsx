@@ -1201,6 +1201,79 @@ function ClassBuilder({
             </button>
           )}
 
+          {/* ── Move the ticked ones together ───────────────────────────────
+              Above the list rather than under it, next to the Tick all that
+              fills it: the sweep is what somebody does *to* the rows below, so
+              it belongs with the control that selects them and where the eye
+              already is. Under a list of forty strays it was off the bottom of
+              the warning, which is the half of the screen nobody reads.
+              Appears only once something is ticked, the way the class list's
+              own Delete selected does. The day picker is the action: picking a
+              day is the whole decision, so there is no second Move button to
+              press after it. */}
+          {selectedStranded.length > 0 && (
+            <div
+              className="rounded border px-3 py-2 flex items-center gap-3 flex-wrap text-sm"
+              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.text }}
+            >
+              <span>
+                <strong>{selectedStranded.length}</strong> selected
+              </span>
+              {duplicateSelectedNames.length > 0 ? (
+                // No day can take both, so the picker is withheld rather than
+                // shown with every option dead.
+                <span className="text-xs" style={{ color: COLORS.warn }}>
+                  Two ticked classes are both named “{duplicateSelectedNames[0]}” — one class of a
+                  name per day, so move them separately.
+                </span>
+              ) : (
+                <label className="flex items-center gap-2 text-xs" style={{ color: COLORS.muted }}>
+                  <span>Move all {selectedStranded.length} to</span>
+                  <select
+                    value=""
+                    disabled={bulkMoveProgress !== null || busy}
+                    onChange={(e) => {
+                      if (e.target.value) void moveSelectedToDay(e.target.value);
+                    }}
+                    className="border rounded px-2 py-1 text-xs"
+                    style={{
+                      borderColor: COLORS.border,
+                      backgroundColor: 'var(--surface)',
+                      color: COLORS.text,
+                      width: '8.5rem',
+                    }}
+                  >
+                    <option value="">
+                      {bulkMoveProgress
+                        ? `Moving ${bulkMoveProgress.done + 1} of ${bulkMoveProgress.total}…`
+                        : 'Pick a day…'}
+                    </option>
+                    {dates.map((d) => {
+                      const clashes = bulkConflictsFor(d);
+                      return (
+                        <option key={d} value={d} disabled={clashes.length > 0}>
+                          {d}
+                          {clashes.length > 0
+                            ? ` — ${clashes.length} already run${clashes.length === 1 ? 's' : ''} that day`
+                            : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => setStrandedSelected(new Set())}
+                disabled={bulkMoveProgress !== null}
+                className="text-xs hover:underline disabled:opacity-50"
+                style={{ color: COLORS.muted }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           <ul className="space-y-1">
             {strandedClasses.map((c) => {
               const nameKey = normalizeName(c.class_name);
@@ -1273,74 +1346,6 @@ function ClassBuilder({
               );
             })}
           </ul>
-          {/* ── Move the ticked ones together ───────────────────────────────
-              Appears only once something is ticked, the way the class list's
-              own Delete selected does. The day picker is the action: picking a
-              day is the whole decision, so there is no second Move button to
-              press after it. */}
-          {selectedStranded.length > 0 && (
-            <div
-              className="rounded border px-3 py-2 flex items-center gap-3 flex-wrap text-sm"
-              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.text }}
-            >
-              <span>
-                <strong>{selectedStranded.length}</strong> selected
-              </span>
-              {duplicateSelectedNames.length > 0 ? (
-                // No day can take both, so the picker is withheld rather than
-                // shown with every option dead.
-                <span className="text-xs" style={{ color: COLORS.warn }}>
-                  Two ticked classes are both named “{duplicateSelectedNames[0]}” — one class of a
-                  name per day, so move them separately.
-                </span>
-              ) : (
-                <label className="flex items-center gap-2 text-xs" style={{ color: COLORS.muted }}>
-                  <span>Move all {selectedStranded.length} to</span>
-                  <select
-                    value=""
-                    disabled={bulkMoveProgress !== null || busy}
-                    onChange={(e) => {
-                      if (e.target.value) void moveSelectedToDay(e.target.value);
-                    }}
-                    className="border rounded px-2 py-1 text-xs"
-                    style={{
-                      borderColor: COLORS.border,
-                      backgroundColor: 'var(--surface)',
-                      color: COLORS.text,
-                      width: '8.5rem',
-                    }}
-                  >
-                    <option value="">
-                      {bulkMoveProgress
-                        ? `Moving ${bulkMoveProgress.done + 1} of ${bulkMoveProgress.total}…`
-                        : 'Pick a day…'}
-                    </option>
-                    {dates.map((d) => {
-                      const clashes = bulkConflictsFor(d);
-                      return (
-                        <option key={d} value={d} disabled={clashes.length > 0}>
-                          {d}
-                          {clashes.length > 0
-                            ? ` — ${clashes.length} already run${clashes.length === 1 ? 's' : ''} that day`
-                            : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-              )}
-              <button
-                type="button"
-                onClick={() => setStrandedSelected(new Set())}
-                disabled={bulkMoveProgress !== null}
-                className="text-xs hover:underline disabled:opacity-50"
-                style={{ color: COLORS.muted }}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
           <p className="text-xs" style={{ color: COLORS.muted }}>
             A class that no longer belongs on the schedule is deleted from the class
             list below instead.
