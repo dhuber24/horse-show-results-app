@@ -233,8 +233,11 @@ export default function LiveBoard({
       style={{ backgroundColor: 'var(--slate)' }}
     >
       <header className="flex items-center justify-between px-10 pt-6 pb-4 flex-none">
+        {/* The way back out of a full-screen board with no chrome. It goes to
+            the show's admin console rather than the public hub, because the
+            only person who can be looking at this is the one who put it up. */}
         <Link
-          href={`/shows/${showId}/live`}
+          href={`/admin/shows/${showId}`}
           className="text-sm opacity-30 hover:opacity-80 transition"
           style={{ color: 'var(--on-slate)' }}
         >

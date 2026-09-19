@@ -15,7 +15,9 @@ import {
   AphaShowMinimums,
 } from '@/lib/apha';
 
-const tiles = (showId: string) => [
+const tiles = (
+  showId: string,
+): { href: string; title: string; description: string; icon: string; newTab?: boolean }[] => [
   // Staff and the class schedule were tiles of their own. Both are things you
   // set up once, before the show runs, so both are steps of the setup wizard —
   // staff in Step 1 next to the dates, classes in Step 4.
@@ -77,8 +79,21 @@ const tiles = (showId: string) => [
     href: `/shows/${showId}/live`,
     title: 'Live Screens',
     description:
-      'Schedule, results, leaderboard, and the full-screen results board — what exhibitors and spectators see.',
+      'Schedule, results, leaderboard, and the show bill — what exhibitors and spectators see on their own phones.',
+    icon: '📱',
+  },
+  // The wall display. Staff-only, and reached only from here — it is not a
+  // tile on the public hub, because deciding to put a show up on a screen in
+  // the lobby is the office's call rather than a spectator's.
+  {
+    href: `/admin/shows/${showId}/board`,
+    title: 'Results Board',
+    description:
+      'Full-screen rotating display for a lobby or ring-side TV. Shows posted results only.',
     icon: '📺',
+    // Opens in its own tab: this one gets dragged onto the TV and left there,
+    // and whoever opened it still needs the console they came from.
+    newTab: true,
   },
 ];
 
@@ -226,6 +241,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           <Link
             key={tile.href}
             href={tile.href}
+            {...(tile.newTab ? { target: '_blank', rel: 'noopener' } : {})}
             className="block p-6 rounded-lg border transition-colors hover:bg-amber-50"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >

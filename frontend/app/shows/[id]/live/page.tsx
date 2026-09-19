@@ -2,13 +2,11 @@ import Link from 'next/link';
 import { fetchShow } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 
-const TILES: {
-  slug: string;
-  icon: string;
-  title: string;
-  description: string;
-  newTab?: boolean;
-}[] = [
+// The full-screen results board is deliberately not here. It lives at
+// /admin/shows/[id]/board, behind the office's sign-in: standing a show up on
+// a wall is staff's call, not something a spectator opens from the hub. The
+// placings it shows are public either way — /results below is the same data.
+const TILES = [
   {
     slug: 'schedule',
     icon: '📋',
@@ -26,15 +24,6 @@ const TILES: {
     icon: '⭐',
     title: 'Leaderboard',
     description: 'High-point standings across the show.',
-  },
-  {
-    slug: 'board',
-    icon: '📺',
-    title: 'Live Results Board',
-    description: 'Full-screen display for a lobby or ring-side TV.',
-    // Opens in its own tab: this one gets dragged onto the TV and left there,
-    // and the person opening it still needs the screen they came from.
-    newTab: true,
   },
   {
     slug: 'showbill',
@@ -63,7 +52,6 @@ export default async function ShowLiveHubPage({ params }: { params: Promise<{ id
           <Link
             key={tile.slug}
             href={`/shows/${id}/${tile.slug}`}
-            {...(tile.newTab ? { target: '_blank', rel: 'noopener' } : {})}
             className="block p-5 rounded-lg border transition hover:shadow-md hover:bg-amber-50"
             style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
           >

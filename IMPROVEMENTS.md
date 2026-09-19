@@ -9,7 +9,7 @@ the right shape for an exhibitor looking for their own back number, and the
 wrong one for the screen in the lobby that a hundred people read at once
 without touching anything.
 
-`/shows/[id]/board` is the same data with the opposite controls: full screen,
+`/admin/shows/[id]/board` is the same data with the opposite controls: full screen,
 dark, no chrome, nothing to tap. The main stage carries one class at a time,
 newest-posted first, ten seconds each, and a marquee along the bottom crawls
 the top placings of every class posted that day. A panel-judged class splits
@@ -29,14 +29,23 @@ row per judge.
 - **It covers the chrome rather than escaping it.** A `fixed inset-0 z-50`
   panel over the root layout's `<Navbar>`. Multiple root layouts would mean
   moving every existing route into a group, which one page does not justify.
-- **Public, like `/live`, `/schedule` and `/results`.** It is a screen bolted to
-  a wall; a login prompt on it is a fault, not a safeguard.
-- **Reached from the office too.** A **Live Screens** tile on the admin console
-  opens the show's live hub, because staff were otherwise leaving the admin area
-  to find the show's own page. Not status-gated — what the rail sees is worth
-  checking before the gates open. The board tile opens in its own tab: it gets
-  dragged onto the TV and left there, and whoever opened it still needs the
-  screen they came from.
+- **Staff-only, which it was not at first.** It shipped public at
+  `/shows/[id]/board`, next to `/live`, `/schedule` and `/results`, on the
+  reasoning that a screen bolted to a wall should not ask a lobby for a
+  password. That confused two different questions. Reading placings is public
+  and stays public. *Standing a show up on a wall* is an act of the show
+  office, and a spectator tapping a hub tile is not the office. So the board
+  moved under `/admin/shows/[id]/board`, behind the admin layout's existing
+  role gate, and the tile came off the public hub. Nothing about what the board
+  displays changed — posted results only, the same `results-index` payload
+  `/results` serves to anyone. The wall itself needs no login: somebody from
+  the office signs in once on the TV's browser and leaves the tab running.
+- **Reached from the office.** Two tiles on the admin console rather than one.
+  **Live Screens** opens the show's public hub, because staff were otherwise
+  leaving the admin area to find the show's own page. **Results Board** opens
+  the board in its own tab — it gets dragged onto the TV and left there, and
+  whoever opened it still needs the console they came from. Neither is
+  status-gated: what the rail sees is worth checking before the gates open.
 
 ### The Buy-In Reaches The Bill, And A Futurity Nomination Comes With Its Classes
 
