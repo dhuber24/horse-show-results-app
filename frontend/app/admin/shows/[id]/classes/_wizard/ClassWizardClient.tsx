@@ -393,6 +393,13 @@ function ClassBuilder({
   // The stranded class whose move is in flight, if any. Per row like the
   // Must-qualify saves below, so moving one of six does not freeze the rest.
   const [movingClassId, setMovingClassId] = useState<string | null>(null);
+  // Stranded classes ticked for a move, and how far a running sweep has got.
+  // Held by id like the class list's own selection, so it survives the refresh
+  // each move ends with.
+  const [strandedSelected, setStrandedSelected] = useState<Set<string>>(new Set());
+  const [bulkMoveProgress, setBulkMoveProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   // Classes whose "Must qualify" box is mid-save. Per row rather than the
   // step-wide `busy`, so ticking one box does not freeze every other control.
   const [pendingQualify, setPendingQualify] = useState<Set<string>>(new Set());
@@ -469,6 +476,92 @@ function ClassBuilder({
     }
     return byDay;
   }, [classes]);
+
+  /**
+   * The ticked strays, read back off the stranded list rather than out of the
+   * set. A move ends in a refresh, so ids in the set go stale the moment their
+   * class lands on a show day; deriving the list means a stale id is ignored
+   * rather than counted, and the tick-all state can never claim more than the
+   * warning is showing.
+   */
+  const selectedStranded = useMemo(
+    () => strandedClasses.filter((c) => strandedSelected.has(c.id)),
+    [strandedClasses, strandedSelected],
+  );
+  const allStrandedSelected =
+    strandedClasses.length > 0 && selectedStranded.length === strandedClasses.length;
+
+  /**
+   * Names ticked more than once.
+   *
+   * Two classes of one name cannot share a day whatever day is picked — the
+   * second would be the duplicate the one-name-per-day rule exists to stop —
+   * so this disables the sweep outright rather than disabling every option in
+   * its day picker, which would say "no day works" without saying why.
+   */
+  const duplicateSelectedNames = useMemo(() => {
+    const seen = new Map<string, string>();
+    const dupes = new Set<string>();
+    for (const c of selectedStranded) {
+      const key = normalizeName(c.class_name);
+      if (seen.has(key)) dupes.add(seen.get(key) as string);
+      else seen.set(key, c.class_name);
+    }
+    return Array.from(dupes);
+  }, [selectedStranded]);
+
+  /** Ticked classes whose name already runs on `day`. */
+  function bulkConflictsFor(day: string): ClassItem[] {
+    const names = namesByDay.get(day);
+    if (!names) return [];
+    return selectedStranded.filter((c) => names.has(normalizeName(c.class_name)));
+  }
+
+  /**
+   * Move every ticked class onto one show day, one request at a time.
+   *
+   * Sequential rather than parallel, the same shape as the cell-create drain:
+   * these are independent PATCHes, but firing twenty at once at a dev-tier
+   * database to save a few seconds is not a trade this screen needs to make.
+   *
+   * **Stops at the first refusal and un-ticks only what landed**, so the ticks
+   * left behind are exactly the classes still to move and pressing Move again
+   * is the retry. There is no bulk endpoint and so no transaction: a sweep that
+   * gave up silently would leave a half-moved schedule with nothing saying
+   * where it stopped.
+   */
+  async function moveSelectedToDay(classDate: string) {
+    const targets = selectedStranded;
+    if (targets.length === 0 || !classDate) return;
+    setError(null);
+    setBulkMoveProgress({ done: 0, total: targets.length });
+    try {
+      for (const cls of targets) {
+        const res = await fetch(`/api/shows/${showId}/classes/${cls.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ class_date: classDate }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          setError(errorMessage(j, `Could not move “${cls.class_name}” to ${classDate}.`));
+          break;
+        }
+        setStrandedSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(cls.id);
+          return next;
+        });
+        setBulkMoveProgress((prev) => (prev ? { ...prev, done: prev.done + 1 } : prev));
+      }
+      await refreshClasses();
+    } catch {
+      setError('Failed to move the selected classes.');
+      await refreshClasses();
+    } finally {
+      setBulkMoveProgress(null);
+    }
+  }
 
   /**
    * Put a stranded class back on a show day.
@@ -1089,12 +1182,56 @@ function ClassBuilder({
             were built on, so they are not in the picker below and cannot be edited
             until they are moved.
           </p>
+          {/* Tick all, when there is more than one to tick. A show moved a week
+              strands its whole schedule, and moving forty classes a row at a
+              time is the job nobody finishes. */}
+          {strandedClasses.length > 1 && (
+            <button
+              type="button"
+              onClick={() =>
+                setStrandedSelected(
+                  allStrandedSelected ? new Set() : new Set(strandedClasses.map((c) => c.id)),
+                )
+              }
+              disabled={bulkMoveProgress !== null}
+              className="text-xs rounded px-2 py-1.5 border disabled:opacity-50"
+              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
+            >
+              {allStrandedSelected ? `Untick ${strandedClasses.length}` : `Tick all ${strandedClasses.length}`}
+            </button>
+          )}
+
           <ul className="space-y-1">
             {strandedClasses.map((c) => {
               const nameKey = normalizeName(c.class_name);
               const moving = movingClassId === c.id;
+              const ticked = strandedSelected.has(c.id);
               return (
-                <li key={c.id} className="flex items-center gap-2 flex-wrap text-sm">
+                <li
+                  key={c.id}
+                  className="items-center gap-2 text-sm"
+                  // A grid rather than a flex row so the day and the picker line
+                  // up down the list: class names differ in length, and four
+                  // rows of ragged controls read as four unrelated things.
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'auto minmax(0, 1fr) auto auto',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={ticked}
+                    disabled={bulkMoveProgress !== null || moving}
+                    onChange={() =>
+                      setStrandedSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
+                    aria-label={`Select ${c.class_name} to move`}
+                  />
                   <span style={{ color: COLORS.text }}>
                     <span style={{ fontWeight: 600 }}>{c.class_number}</span> {c.class_name}
                   </span>
@@ -1105,7 +1242,7 @@ function ClassBuilder({
                     <span className="sr-only">Move {c.class_name} to</span>
                     <select
                       value=""
-                      disabled={moving || busy}
+                      disabled={moving || busy || bulkMoveProgress !== null}
                       onChange={(e) => {
                         if (e.target.value) void moveClassToDay(c, e.target.value);
                       }}
@@ -1136,6 +1273,74 @@ function ClassBuilder({
               );
             })}
           </ul>
+          {/* ── Move the ticked ones together ───────────────────────────────
+              Appears only once something is ticked, the way the class list's
+              own Delete selected does. The day picker is the action: picking a
+              day is the whole decision, so there is no second Move button to
+              press after it. */}
+          {selectedStranded.length > 0 && (
+            <div
+              className="rounded border px-3 py-2 flex items-center gap-3 flex-wrap text-sm"
+              style={{ borderColor: 'var(--warning-border)', backgroundColor: COLORS.highlight, color: COLORS.text }}
+            >
+              <span>
+                <strong>{selectedStranded.length}</strong> selected
+              </span>
+              {duplicateSelectedNames.length > 0 ? (
+                // No day can take both, so the picker is withheld rather than
+                // shown with every option dead.
+                <span className="text-xs" style={{ color: COLORS.warn }}>
+                  Two ticked classes are both named “{duplicateSelectedNames[0]}” — one class of a
+                  name per day, so move them separately.
+                </span>
+              ) : (
+                <label className="flex items-center gap-2 text-xs" style={{ color: COLORS.muted }}>
+                  <span>Move all {selectedStranded.length} to</span>
+                  <select
+                    value=""
+                    disabled={bulkMoveProgress !== null || busy}
+                    onChange={(e) => {
+                      if (e.target.value) void moveSelectedToDay(e.target.value);
+                    }}
+                    className="border rounded px-2 py-1 text-xs"
+                    style={{
+                      borderColor: COLORS.border,
+                      backgroundColor: 'var(--surface)',
+                      color: COLORS.text,
+                      width: '8.5rem',
+                    }}
+                  >
+                    <option value="">
+                      {bulkMoveProgress
+                        ? `Moving ${bulkMoveProgress.done + 1} of ${bulkMoveProgress.total}…`
+                        : 'Pick a day…'}
+                    </option>
+                    {dates.map((d) => {
+                      const clashes = bulkConflictsFor(d);
+                      return (
+                        <option key={d} value={d} disabled={clashes.length > 0}>
+                          {d}
+                          {clashes.length > 0
+                            ? ` — ${clashes.length} already run${clashes.length === 1 ? 's' : ''} that day`
+                            : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => setStrandedSelected(new Set())}
+                disabled={bulkMoveProgress !== null}
+                className="text-xs hover:underline disabled:opacity-50"
+                style={{ color: COLORS.muted }}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           <p className="text-xs" style={{ color: COLORS.muted }}>
             A class that no longer belongs on the schedule is deleted from the class
             list below instead.
