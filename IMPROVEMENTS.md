@@ -2,6 +2,54 @@
 
 ## September 2026
 
+### One Board, Twenty-Four Inches To Seventy-Five
+
+The board was built once, at one size, and looked right on the screen it was
+built against. Put it on a 75" panel across a lobby and horse names truncated
+to "Certainly Good Lo…" while a third of the screen stayed dark; put it on the
+24" monitor beside the desk and it wasted most of what that screen could hold.
+
+The reason is that nothing in a browser distinguishes those two. Both report
+1920x1080, and a 4K TV usually reports 1920 CSS pixels as well. What separates
+them is how far away the reader is standing — four feet against thirty — and
+the sign-maker's rule is roughly an inch of letter height per ten feet of it.
+The same pixel grid needs letters four or five times taller in the hall, and
+therefore four or five times fewer of them.
+
+So the board asks, once, on the device that will display it: desk, room, or
+lobby, worded as where the screen is rather than as a diagonal, because nobody
+setting up a TV knows whether it is 58" or 65". The answer goes in
+`localStorage`, and `?size=hall` overrides it so the office can bookmark one
+link per screen.
+
+- **Two units, and everything is a multiple of one of them.** `--u` sizes the
+  results, `--uc` the chrome, both in `vh` so a 1080p and a 4K panel of the same
+  size lay out identically. `--uc` is deliberately the smaller: the show name
+  and the clock are context a room learns once, the placings are what it is
+  reading from thirty feet, and scaling them together let the furniture eat two
+  thirds of a lobby screen. Type, badges, gutters and even the ticker's crawl
+  speed come off those two numbers, so one answer re-proportions the whole board
+  instead of a dozen font sizes drifting apart.
+- **What fits is measured, not guessed.** A `ResizeObserver` on the list area
+  and pinned row heights give an exact count. Judge columns (three, two or one)
+  and the newspaper-style flow for a deep single-judge card fall out of the same
+  arithmetic. There are no breakpoints in this file; the 21:9 and the 4K panel
+  are handled by the same division as everything else.
+- **Nothing is truncated to make the layout work.** A card deeper than the
+  screen is paged. Rows are two lines — exhibitor over horse — because the
+  single line had to clip, and the first thing it clipped was always the horse,
+  which is half of who won.
+- **But no class owns the rotation.** The screens available in about two minutes
+  are divided among the classes posted that day, so a morning with three classes
+  pages all the way down each one and an evening with thirty does not make
+  somebody wait a quarter of an hour for theirs. When a card cannot have every
+  page it wants, the screen says "top 4 of 12" rather than trailing off and
+  leaving the room to wonder whether that was the whole card.
+- **Things a screen left running for ten hours needs.** An overscan-safe inset,
+  a slow drift against burn-in, a cursor that hides itself, a dwell bar so the
+  room can see a change coming, and setup controls that fade in on mouse
+  movement and are otherwise not there.
+
 ### The Results Go Up On A Wall
 
 Results had one shape — a page you search, on a phone you are holding. That is

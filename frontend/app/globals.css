@@ -126,3 +126,23 @@ body {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* The dwell indicator on a board screen: a hairline that fills as the screen's
+   time runs out, so a room reading placings knows a change is coming instead
+   of looking up to find it already happened. */
+@keyframes board-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Burn-in mitigation. A results board runs all day on a panel that may well be
+   OLED, and its furniture -- the show name, the ticker rule -- never moves. A
+   wander of a few pixels over twenty minutes is invisible to a reader and
+   enough to keep those pixels from being the same ones all weekend. */
+@keyframes board-drift {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(0.35%, 0.5%); }
+  50% { transform: translate(-0.3%, 0.25%); }
+  75% { transform: translate(0.2%, -0.45%); }
+  100% { transform: translate(0, 0); }
+}
