@@ -24,6 +24,9 @@ Additive and re-runnable: it deletes only the show it creates (by name) and
 rebuilds it, so it can be run alongside seed_test_shows.py / seed_demo_shows.py
 without touching their fixtures. Venue and judges are created once and reused.
 
+`build_show()` is the reusable half: `seed_mnsphc_live_show.py` calls it under
+a different name, dated today and ACTIVE, and then fills it with exhibitors.
+
 Run against the configured DATABASE_URL using the backend image:
 
     docker run --rm \
@@ -34,7 +37,7 @@ Run against the configured DATABASE_URL using the backend image:
 
 import asyncio
 import sys
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import bcrypt
 from sqlalchemy import delete, insert, select
@@ -45,6 +48,7 @@ from models import (
     Association,
     Class,
     ClassAssociation,
+    ClassSanctioning,
     Discipline,
     Division,
     Futurity,
@@ -84,18 +88,22 @@ SHOW_NAME = "MNSPHC Splash of Color & Futurity — Paint-O-Rama & All Breed Show
 SATURDAY = date(2027, 8, 21)
 SUNDAY = date(2027, 8, 22)
 
+# The rest of the bill's week, counted from the first show day rather than
+# written as dates, so a build dated elsewhere (the live fixture runs today)
+# keeps the same shape:
+#
 # Futurity entries close 7:00 PM central on the Wednesday before the show; the
 # printed form says Wednesday August 19 2026. After it, a $150-per-class late
 # fee applies. Both go on the `futurities` row.
-FUTURITY_DEADLINE = date(2027, 8, 18)
+FUTURITY_DEADLINE_DAYS_BEFORE = 3
 # The hour and the zone label the form prints. Display only — what an enrollment
 # is charged is decided by `entered_at` against the deadline *date*, so this
 # never reaches the biller (migration 109).
 FUTURITY_DEADLINE_TIME = time(19, 0)
 FUTURITY_DEADLINE_TZ = "central time"
-EARLY_ARRIVAL = date(2027, 8, 19)   # Thursday, after 6pm
-STALLS_OPEN = date(2027, 8, 20)     # Friday, 9am
-LATE_DEPARTURE = date(2027, 8, 23)  # Monday morning
+EARLY_ARRIVAL_DAYS_BEFORE = 2    # Thursday, after 6pm
+STALLS_OPEN_DAYS_BEFORE = 1      # Friday, 9am
+LATE_DEPARTURE_DAYS_AFTER = 2    # Monday morning
 
 VENUE = {
     "name": "Double F Arena",
@@ -218,66 +226,36 @@ BRACKETS = [
 ]
 
 # The show's non-class fee catalog, straight off the bill's "Single Class
-# Fees" / "Other" panels. Every per-judge rate is multiplied out by the panel
-# it applies to, since an exhibitor pays the product and not the rate.
+# Fees" / "Other" panels.
 #
 # The office fee is one of these rows since migration 132 made it an ordinary
-# `per_horse` fee rather than a column on the show. It is first in the list for
-# the same reason the migration gives its converted rows sort_order -1: that is
-# where the office charge has always rendered.
-SHOW_FEES = [
+# fee rather than a column on the show. It is first in the list for the same
+# reason the migration gives its converted rows sort_order -1: that is where the
+# office charge has always rendered.
+#
+# **The class rates are not here, and must not come back.** The bill's five
+# per-judge class rates ($9 / $7 / $8 / $5 / $10 a class) used to be rows of
+# their own, `per_entry`, which was harmless while `per_entry` was price-list
+# text that billed nobody. It bills now (a "per class" fee charges every entry
+# in its classes, and with no class list that is every class), so each of those
+# rows charged every entry on top of `classes.entry_fee_cents` -- a single $36
+# amateur class came to well over $100. The rate lives on the class, set from
+# FEE_CENTS above, and the show bill prints it there. The side pot buy-in row
+# went for the same reason: `side_pots.entry_fee_cents` is the buy-in.
+def show_fees(saturday: date) -> list[dict]:
+    stalls_open = saturday - timedelta(days=STALLS_OPEN_DAYS_BEFORE)
+    early_arrival = saturday - timedelta(days=EARLY_ARRIVAL_DAYS_BEFORE)
+    late_departure = saturday + timedelta(days=LATE_DEPARTURE_DAYS_AFTER)
+    return [
     {
+        # Per judge rather than a hand-multiplied $16 per horse: the bill says
+        # "$4 per horse, per judge", and `per_judge_per_horse` counts the
+        # APHA-carded panel itself (four here), so the figure follows the panel.
         "code": "office_charge",
         "label": "Office charge",
-        "amount_cents": 1600,
-        "unit": "per_horse",
-        "notes": "$4 per horse, per judge, all horses -- four judges.",
-    },
-    {
-        "code": "standard_class",
-        "label": "APHA class — Open, Amateur & Novice Amateur",
-        "amount_cents": 3600,
-        "unit": "per_entry",
-        "notes": "$9 per judge x 4 APHA judges.",
-    },
-    {
-        "code": "apha_youth_class",
-        "label": "APHA Youth class",
-        "amount_cents": 2800,
-        "unit": "per_entry",
-        "notes": "$7 per judge x 4 APHA judges.",
-    },
-    {
-        "code": "mnsphc_all_breed_class",
-        "label": "MNSPHC All Breed class",
-        "amount_cents": 3200,
-        "unit": "per_entry",
-        "notes": "$8 per judge x 4 judges. 50/50 payback at the June show.",
-    },
-    {
-        "code": "wsca_all_breed_class",
-        "label": "All Breed WSCA class",
-        "amount_cents": 1000,
-        "unit": "per_entry",
-        "notes": "$5 per judge x 2 WSCA judges. Classes tagged WSCA* are non-qualifying.",
-    },
-    {
-        "code": "lead_line",
-        "label": "Youth Lead Line class",
-        "amount_cents": 1000,
-        "unit": "per_entry",
-        "notes": "$10 per class, APHA and All Breed alike.",
-    },
-    {
-        "code": "jackpot",
-        "label": "Division Side Pot buy-in",
-        "amount_cents": 1000,
-        "unit": "per_entry",
-        "notes": (
-            "Optional, per division, on top of the regular class entry fee. "
-            "Run concurrently with the classes in the division. 100% payback; "
-            "over-all placing from the combined judges' score sheets."
-        ),
+        "amount_cents": 400,
+        "unit": "per_judge_per_horse",
+        "notes": "$4 per horse, per judge, all horses.",
     },
     {
         "code": "buckle_challenge",
@@ -287,11 +265,15 @@ SHOW_FEES = [
         "notes": "Optional $20 entry.",
     },
     {
+        # SC-125.B's assessment: per entry, per judge, APHA classes only -- which
+        # is what `per_judge_per_entry` bills, scoped to the breed body's own
+        # classes by the club designations below. It was `per_class_per_horse`,
+        # a unit withdrawn from the picker that bills nobody.
         "code": "apha_fee",
         "label": "APHA fee",
-        "amount_cents": 1200,
-        "unit": "per_class_per_horse",
-        "notes": "$3 per judge x 4 APHA judges. APHA classes only.",
+        "amount_cents": 300,
+        "unit": "per_judge_per_entry",
+        "notes": "$3 per judge, per class. APHA classes only.",
     },
     {
         "code": "number_fee",
@@ -346,7 +328,7 @@ SHOW_FEES = [
         "unit": "per_stall",
         "notes": (
             f"ALL HORSES MUST HAVE A STALL. Stalls open 9:00 AM on "
-            f"{STALLS_OPEN:%A %B %-d}. Reservations are made on the club's stall "
+            f"{stalls_open:%A %B %-d}. Reservations are made on the club's stall "
             "form and are not guaranteed; changes go to Amanda Briggs, "
             "507-261-2981 (text or leave a message)."
         ),
@@ -394,8 +376,8 @@ SHOW_FEES = [
         "amount_cents": 3500,
         "unit": "per_stall",
         "notes": (
-            f"Per horse. Thursday {EARLY_ARRIVAL:%B %-d} after 6:00 PM, instead "
-            f"of 9:00 AM {STALLS_OPEN:%A}."
+            f"Per horse. {early_arrival:%A %B %-d} after 6:00 PM, instead "
+            f"of 9:00 AM {stalls_open:%A}."
         ),
     },
     {
@@ -404,7 +386,7 @@ SHOW_FEES = [
         "amount_cents": 3000,
         "unit": "per_show",
         "notes": (
-            f"Per spot. Thursday {EARLY_ARRIVAL:%B %-d} after 6:00 PM."
+            f"Per spot. {early_arrival:%A %B %-d} after 6:00 PM."
         ),
     },
     {
@@ -413,7 +395,7 @@ SHOW_FEES = [
         "amount_cents": 3500,
         "unit": "per_stall",
         "notes": (
-            f"Per stall. Monday {LATE_DEPARTURE:%B %-d} morning departure. "
+            f"Per stall. {late_departure:%A %B %-d} morning departure. "
             "Prior notification is required."
         ),
     },
@@ -423,11 +405,11 @@ SHOW_FEES = [
         "amount_cents": 3000,
         "unit": "per_show",
         "notes": (
-            f"Per spot. Monday {LATE_DEPARTURE:%B %-d} morning departure. "
+            f"Per spot. {late_departure:%A %B %-d} morning departure. "
             "Prior notification is required."
         ),
     },
-]
+    ]
 
 # (name, description, [class numbers]). The bill runs three Division Side
 # Pots, and `sum_scores` is the right scoring method for all three: it settles
@@ -682,292 +664,345 @@ def _check_transcription(rows: list[tuple]) -> None:
             sys.exit(f"Class {number}: empty name")
 
 
-async def main() -> None:
-    rows = [(SATURDAY, r) for r in SATURDAY_CLASSES] + [
-        (SUNDAY, r) for r in SUNDAY_CLASSES
+async def build_show(
+    db: AsyncSession,
+    *,
+    show_name: str = SHOW_NAME,
+    first_day: date = SATURDAY,
+    status: str = "DRAFT",
+) -> dict:
+    """Delete any show called `show_name` and build the bill's show under it.
+
+    Flushes but does not commit, so a caller that goes on to fill the show
+    commits the whole thing or none of it. Returns the pieces a caller needs
+    to keep building: the show, its classes by number, judges, clubs, staff.
+    """
+    second_day = first_day + timedelta(days=1)
+    fees = show_fees(first_day)
+    rows = [(first_day, r) for r in SATURDAY_CLASSES] + [
+        (second_day, r) for r in SUNDAY_CLASSES
     ]
     _check_transcription([r for _day, r in rows])
 
-    async with AsyncSessionLocal() as db:
-        show_type = await _one(db, select(ShowType).where(ShowType.code == "APHA"))
-        if show_type is None:
-            sys.exit("No APHA show type in show_types.")
-        clubs = {}
-        for code in ("WSCA", "MNSPHC"):
-            row = await _one(db, select(Association).where(Association.code == code))
-            if row is None:
-                sys.exit(
-                    f"No {code} row in associations. Run "
-                    f"database/migrate.ps1 — MNSPHC arrives in migration 105."
-                )
-            clubs[code] = row
-
-        admin = await _require_user(db, ADMIN_EMAIL)
-        staff = await _get_or_create_staff(db)
-
-        venue = await _get_or_create_venue(db)
-        judges = await _get_or_create_judges(db)
-
-        # Converge rather than accumulate. Classes go first: shows cascade to
-        # both classes and divisions, and classes.division_id is ON DELETE
-        # RESTRICT, so clearing the children by hand keeps the order honest.
-        previous = (
-            await db.execute(select(Show.id).where(Show.name == SHOW_NAME))
-        ).scalars().all()
-        for show_id in previous:
-            await db.execute(delete(Class).where(Class.show_id == show_id))
-        if previous:
-            await db.execute(delete(Show).where(Show.id.in_(previous)))
-            await db.flush()
-
-        show = Show(
-            name=SHOW_NAME,
-            venue_id=venue.id,
-            show_type_id=show_type.id,
-            start_date=SATURDAY,
-            end_date=SUNDAY,
-            status="DRAFT",
-            # The stall form is unambiguous: NO OUTSIDE SHAVINGS ALLOWED.
-            shavings_ban_outside=True,
-            created_by_user_id=admin.id,
-        )
-        db.add(show)
-        await db.flush()
-
-        for first, last, role, email in STAFF:
-            user = staff[email]
-            if role == "SHOW_MANAGER":
-                db.add(ShowManager(show_id=show.id, user_id=user.id))
-            else:
-                db.add(ShowSecretary(show_id=show.id, user_id=user.id))
-
-        # Both clubs are overlays on an APHA show, not second show types.
-        # Neither prints a separate sanction fee — the club classes carry their
-        # own per-judge entry fee instead ($8 MNSPHC, $5 WSCA), so per_class_fee
-        # is zero and the money is on the classes.
-        for code in ("MNSPHC", "WSCA"):
-            db.add(
-                ShowSanctioning(
-                    show_id=show.id,
-                    association_id=clubs[code].id,
-                    fee_amount_cents=0,
-                )
-            )
-        for order, judge in enumerate(judges, start=1):
-            db.add(ShowJudge(show_id=show.id, judge_id=judge.id, sort_order=order))
-
-        ring = Ring(show_id=show.id, name="Main Arena", sort_order=1)
-        db.add(ring)
-
-        for order, fee in enumerate(SHOW_FEES, start=1):
-            db.add(ShowFee(show_id=show.id, sort_order=order, **fee))
-
-        disciplines: dict[str, Discipline] = {}
-        for order, (name, score_type) in enumerate(DISCIPLINES, start=1):
-            row = Discipline(
-                show_id=show.id,
-                name=name,
-                sort_order=order,
-                default_score_type=score_type,
-            )
-            db.add(row)
-            disciplines[name] = row
-
-        divisions: dict[str, Division] = {}
-        for order, name in enumerate(BRACKETS, start=1):
-            row = Division(show_id=show.id, name=name, sort_order=order)
-            db.add(row)
-            divisions[name] = row
-        await db.flush()
-
-        # Every (discipline, bracket) pair a class uses has to exist in
-        # discipline_divisions first -- classes carries a composite FK onto it.
-        pairs = {(r[3], r[4]) for _day, r in rows}
-        for discipline_name, bracket_name in sorted(pairs):
-            await db.execute(
-                insert(discipline_divisions).values(
-                    discipline_id=disciplines[discipline_name].id,
-                    division_id=divisions[bracket_name].id,
-                )
-            )
-
-        score_types = dict(DISCIPLINES)
-        by_number: dict[str, Class] = {}
-        for order, (day, (number, code, name, discipline, bracket, fee_key)) in enumerate(
-            rows, start=1
-        ):
-            row = Class(
-                show_id=show.id,
-                ring_id=ring.id,
-                discipline_id=disciplines[discipline].id,
-                division_id=divisions[bracket].id,
-                class_number=number,
-                class_name=name,
-                class_date=day,
-                score_type=score_types[discipline],
-                entry_fee_cents=FEE_CENTS[fee_key],
-                sort_order=order,
-            )
-            db.add(row)
-            by_number[number] = row
-            if code:
-                row.associations.append(
-                    ClassAssociation(
-                        show_type_id=show_type.id, association_class_code=code
-                    )
-                )
-        await db.flush()
-
-        for name, description, class_numbers in SIDE_POTS:
-            pot = SidePot(
-                show_id=show.id,
-                name=name,
-                description=description,
-                entry_fee_cents=1000,
-                payback_percent=100,
-                scoring_method="sum_scores",
-                eligibility_rule="any_class",
-                payout_schedule=dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE),
-            )
-            db.add(pot)
-            await db.flush()
-            for class_number in class_numbers:
-                db.add(
-                    SidePotClass(
-                        side_pot_id=pot.id, class_id=by_number[class_number].id
-                    )
-                )
-
-        futurity = Futurity(
-            show_id=show.id,
-            name=FUTURITY_NAME,
-            description=FUTURITY_DESCRIPTION,
-            entry_deadline=FUTURITY_DEADLINE,
-            entry_deadline_time=FUTURITY_DEADLINE_TIME,
-            entry_deadline_timezone=FUTURITY_DEADLINE_TZ,
-            late_fee_cents=15000,
-            office_fee_member_cents=1000,
-            office_fee_nonmember_cents=2000,
-            entry_instructions=FUTURITY_ENTRY_INSTRUCTIONS,
-            award_notice=FUTURITY_AWARD_NOTICE,
-            rules_notice=FUTURITY_RULES_NOTICE,
-            refund_policy=FUTURITY_REFUND_POLICY,
-            requires_horse_pedigree=True,
-        )
-        db.add(futurity)
-        await db.flush()
-
-        for order, (tier_name, tier_description, amount) in enumerate(FUTURITY_TIERS):
-            db.add(
-                FuturityFeeTier(
-                    futurity_id=futurity.id,
-                    name=tier_name,
-                    description=tier_description,
-                    amount_cents=amount,
-                    sort_order=order,
-                )
-            )
-
-        for order, (option_name, option_description, amount) in enumerate(
-            FUTURITY_MEMBERSHIPS
-        ):
-            db.add(
-                FuturityMembershipOption(
-                    futurity_id=futurity.id,
-                    name=option_name,
-                    description=option_description,
-                    amount_cents=amount,
-                    sort_order=order,
-                )
-            )
-
-        # Scoped to the futurity, so only its entrants are asked for it — the
-        # rest of the show never sees an unsigned futurity release sitting on
-        # their paperwork.
-        db.add(
-            ShowWaiver(
-                show_id=show.id,
-                title=FUTURITY_WAIVER_TITLE,
-                body=FUTURITY_WAIVER_BODY,
-                is_required=True,
-                futurity_id=futurity.id,
-                sort_order=0,
-            )
-        )
-
-        # The lettered classes A-J are the futurity. Matched on "a single
-        # letter", not on "not a digit" — the Grand & Reserve pairs are numbered
-        # "2-3", "9-10" and so on, which is also not a digit, and folding those
-        # into the futurity would charge eight championship roll-ups at $150 a
-        # class.
-        futurity_class_numbers = [
-            number
-            for number, *_ in SATURDAY_CLASSES + SUNDAY_CLASSES
-            if len(number) == 1 and number.isalpha()
-        ]
-        if len(futurity_class_numbers) != 10:
+    show_type = await _one(db, select(ShowType).where(ShowType.code == "APHA"))
+    if show_type is None:
+        sys.exit("No APHA show type in show_types.")
+    clubs = {}
+    for code in ("WSCA", "MNSPHC"):
+        row = await _one(db, select(Association).where(Association.code == code))
+        if row is None:
             sys.exit(
-                f"Expected 10 lettered futurity classes, found "
-                f"{len(futurity_class_numbers)}: {futurity_class_numbers}"
+                f"No {code} row in associations. Run "
+                f"database/migrate.ps1 — MNSPHC arrives in migration 105."
             )
-        for class_number in futurity_class_numbers:
+        clubs[code] = row
+
+    admin = await _require_user(db, ADMIN_EMAIL)
+    staff = await _get_or_create_staff(db)
+
+    venue = await _get_or_create_venue(db)
+    judges = await _get_or_create_judges(db)
+
+    # Converge rather than accumulate. Classes go first: shows cascade to
+    # both classes and divisions, and classes.division_id is ON DELETE
+    # RESTRICT, so clearing the children by hand keeps the order honest.
+    previous = (
+        await db.execute(select(Show.id).where(Show.name == show_name))
+    ).scalars().all()
+    for show_id in previous:
+        await db.execute(delete(Class).where(Class.show_id == show_id))
+    if previous:
+        await db.execute(delete(Show).where(Show.id.in_(previous)))
+        await db.flush()
+
+    show = Show(
+        name=show_name,
+        venue_id=venue.id,
+        show_type_id=show_type.id,
+        start_date=first_day,
+        end_date=second_day,
+        status=status,
+        # The stall form is unambiguous: NO OUTSIDE SHAVINGS ALLOWED.
+        shavings_ban_outside=True,
+        created_by_user_id=admin.id,
+    )
+    db.add(show)
+    await db.flush()
+
+    for first, last, role, email in STAFF:
+        user = staff[email]
+        if role == "SHOW_MANAGER":
+            db.add(ShowManager(show_id=show.id, user_id=user.id))
+        else:
+            db.add(ShowSecretary(show_id=show.id, user_id=user.id))
+
+    # Both clubs are overlays on an APHA show, not second show types.
+    # Neither prints a separate sanction fee — the club classes carry their
+    # own per-judge entry fee instead ($8 MNSPHC, $5 WSCA), so per_class_fee
+    # is zero and the money is on the classes.
+    for code in ("MNSPHC", "WSCA"):
+        db.add(
+            ShowSanctioning(
+                show_id=show.id,
+                association_id=clubs[code].id,
+                fee_amount_cents=0,
+            )
+        )
+    for order, judge in enumerate(judges, start=1):
+        db.add(ShowJudge(show_id=show.id, judge_id=judge.id, sort_order=order))
+
+    ring = Ring(show_id=show.id, name="Main Arena", sort_order=1)
+    db.add(ring)
+
+    for order, fee in enumerate(fees, start=1):
+        db.add(ShowFee(show_id=show.id, sort_order=order, **fee))
+
+    disciplines: dict[str, Discipline] = {}
+    for order, (name, score_type) in enumerate(DISCIPLINES, start=1):
+        row = Discipline(
+            show_id=show.id,
+            name=name,
+            sort_order=order,
+            default_score_type=score_type,
+        )
+        db.add(row)
+        disciplines[name] = row
+
+    divisions: dict[str, Division] = {}
+    for order, name in enumerate(BRACKETS, start=1):
+        row = Division(show_id=show.id, name=name, sort_order=order)
+        db.add(row)
+        divisions[name] = row
+    await db.flush()
+
+    # Every (discipline, bracket) pair a class uses has to exist in
+    # discipline_divisions first -- classes carries a composite FK onto it.
+    pairs = {(r[3], r[4]) for _day, r in rows}
+    for discipline_name, bracket_name in sorted(pairs):
+        await db.execute(
+            insert(discipline_divisions).values(
+                discipline_id=disciplines[discipline_name].id,
+                division_id=divisions[bracket_name].id,
+            )
+        )
+
+    score_types = dict(DISCIPLINES)
+    by_number: dict[str, Class] = {}
+    for order, (day, (number, code, name, discipline, bracket, fee_key)) in enumerate(
+        rows, start=1
+    ):
+        row = Class(
+            show_id=show.id,
+            ring_id=ring.id,
+            discipline_id=disciplines[discipline].id,
+            division_id=divisions[bracket].id,
+            class_number=number,
+            class_name=name,
+            class_date=day,
+            score_type=score_types[discipline],
+            entry_fee_cents=FEE_CENTS[fee_key],
+            # The Grand & Reserve roll-ups are placed into, not entered
+            # (migration 129). The API derives this from the name when a
+            # class is created; an insert straight into the table has to say
+            # it, or every championship lands in the exhibitor's picker.
+            entered_by_qualification=fee_key == "CHAMPIONSHIP",
+            sort_order=order,
+        )
+        db.add(row)
+        by_number[number] = row
+        if code:
+            row.associations.append(
+                ClassAssociation(
+                    show_type_id=show_type.id, association_class_code=code
+                )
+            )
+        # Which club approves the class (migration 113). The fee key is the
+        # bill's own statement of whose class it is. Without these rows the
+        # show's automatic charges -- the office charge, the APHA fee -- read
+        # every All Breed class as an APHA class and bill it.
+        if fee_key in clubs:
+            row.sanctioning.append(
+                ClassSanctioning(association_id=clubs[fee_key].id)
+            )
+    await db.flush()
+
+    for name, description, class_numbers in SIDE_POTS:
+        pot = SidePot(
+            show_id=show.id,
+            name=name,
+            description=description,
+            entry_fee_cents=1000,
+            payback_percent=100,
+            scoring_method="sum_scores",
+            eligibility_rule="any_class",
+            payout_schedule=dict(DEFAULT_SIDE_POT_PAYOUT_SCHEDULE),
+        )
+        db.add(pot)
+        await db.flush()
+        for class_number in class_numbers:
             db.add(
-                FuturityClass(
-                    futurity_id=futurity.id, class_id=by_number[class_number].id
+                SidePotClass(
+                    side_pot_id=pot.id, class_id=by_number[class_number].id
                 )
             )
 
-        for order, (
-            division_name,
-            award_name,
-            reserve_award_name,
-            members,
-        ) in enumerate(FUTURITY_DIVISIONS):
-            division = FuturityDivision(
+    futurity = Futurity(
+        show_id=show.id,
+        name=FUTURITY_NAME,
+        description=FUTURITY_DESCRIPTION,
+        entry_deadline=first_day - timedelta(days=FUTURITY_DEADLINE_DAYS_BEFORE),
+        entry_deadline_time=FUTURITY_DEADLINE_TIME,
+        entry_deadline_timezone=FUTURITY_DEADLINE_TZ,
+        late_fee_cents=15000,
+        office_fee_member_cents=1000,
+        office_fee_nonmember_cents=2000,
+        entry_instructions=FUTURITY_ENTRY_INSTRUCTIONS,
+        award_notice=FUTURITY_AWARD_NOTICE,
+        rules_notice=FUTURITY_RULES_NOTICE,
+        refund_policy=FUTURITY_REFUND_POLICY,
+        requires_horse_pedigree=True,
+    )
+    db.add(futurity)
+    await db.flush()
+
+    for order, (tier_name, tier_description, amount) in enumerate(FUTURITY_TIERS):
+        db.add(
+            FuturityFeeTier(
                 futurity_id=futurity.id,
-                name=division_name,
-                scoring_method="sum_placings",
-                award_name=award_name,
-                reserve_award_name=reserve_award_name,
+                name=tier_name,
+                description=tier_description,
+                amount_cents=amount,
                 sort_order=order,
             )
-            db.add(division)
-            await db.flush()
-            for class_number, scoring, group_name in members:
-                db.add(
-                    FuturityDivisionClass(
-                        futurity_division_id=division.id,
-                        class_id=by_number[class_number].id,
-                        scoring=scoring,
-                        group_name=group_name,
-                    )
-                )
+        )
 
+    for order, (option_name, option_description, amount) in enumerate(
+        FUTURITY_MEMBERSHIPS
+    ):
+        db.add(
+            FuturityMembershipOption(
+                futurity_id=futurity.id,
+                name=option_name,
+                description=option_description,
+                amount_cents=amount,
+                sort_order=order,
+            )
+        )
+
+    # Scoped to the futurity, so only its entrants are asked for it — the
+    # rest of the show never sees an unsigned futurity release sitting on
+    # their paperwork.
+    db.add(
+        ShowWaiver(
+            show_id=show.id,
+            title=FUTURITY_WAIVER_TITLE,
+            body=FUTURITY_WAIVER_BODY,
+            is_required=True,
+            futurity_id=futurity.id,
+            sort_order=0,
+        )
+    )
+
+    # The lettered classes A-J are the futurity. Matched on "a single
+    # letter", not on "not a digit" — the Grand & Reserve pairs are numbered
+    # "2-3", "9-10" and so on, which is also not a digit, and folding those
+    # into the futurity would charge eight championship roll-ups at $150 a
+    # class.
+    futurity_class_numbers = [
+        number
+        for number, *_ in SATURDAY_CLASSES + SUNDAY_CLASSES
+        if len(number) == 1 and number.isalpha()
+    ]
+    if len(futurity_class_numbers) != 10:
+        sys.exit(
+            f"Expected 10 lettered futurity classes, found "
+            f"{len(futurity_class_numbers)}: {futurity_class_numbers}"
+        )
+    for class_number in futurity_class_numbers:
+        db.add(
+            FuturityClass(
+                futurity_id=futurity.id, class_id=by_number[class_number].id
+            )
+        )
+
+    for order, (
+        division_name,
+        award_name,
+        reserve_award_name,
+        members,
+    ) in enumerate(FUTURITY_DIVISIONS):
+        division = FuturityDivision(
+            futurity_id=futurity.id,
+            name=division_name,
+            scoring_method="sum_placings",
+            award_name=award_name,
+            reserve_award_name=reserve_award_name,
+            sort_order=order,
+        )
+        db.add(division)
+        await db.flush()
+        for class_number, scoring, group_name in members:
+            db.add(
+                FuturityDivisionClass(
+                    futurity_division_id=division.id,
+                    class_id=by_number[class_number].id,
+                    scoring=scoring,
+                    group_name=group_name,
+                )
+            )
+
+    await db.flush()
+
+    return {
+        "show": show,
+        "show_type": show_type,
+        "venue": venue,
+        "clubs": clubs,
+        "staff": staff,
+        "judges": judges,
+        "ring": ring,
+        "classes": by_number,
+        "futurity": futurity,
+        "rows": rows,
+        "pairs": pairs,
+        "fees": fees,
+        "futurity_class_numbers": futurity_class_numbers,
+    }
+
+
+async def main() -> None:
+    async with AsyncSessionLocal() as db:
+        built = await build_show(db)
         await db.commit()
 
-        print(f"Show:        {show.name}")
-        print(f"  id         {show.id}")
-        print(f"  status     {show.status}   ({SATURDAY} to {SUNDAY})")
-        print(f"  venue      {venue.name}, {venue.city} {venue.state}")
-        print(f"  show type  {show_type.code} + "
-              + " + ".join(sorted(clubs)) + " sanctioning")
-        print(f"  staff      " + ", ".join(
-            f"{f} {l} ({r.split('_')[-1].lower()})" for f, l, r, _e in STAFF
-        ))
-        print(f"  judges     {len(judges)} " + ", ".join(
-            f"{j.first_name} {j.last_name}" for j in judges
-        ))
-        print(f"  classes    {len(rows)}  "
-              f"({len(SATURDAY_CLASSES)} Sat / {len(SUNDAY_CLASSES)} Sun)")
-        print(f"  disciplines {len(DISCIPLINES)}, brackets {len(BRACKETS)}, "
-              f"pairs {len(pairs)}")
-        print(f"  fees       {len(SHOW_FEES)} rows (office charge among them)")
-        print(f"  side pots  {len(SIDE_POTS)}")
-        print(f"  futurity   {FUTURITY_NAME}: "
-              f"{len(futurity_class_numbers)} classes, {len(FUTURITY_TIERS)} categories, "
-              f"{len(FUTURITY_DIVISIONS)} Hi-Point divisions")
-        codes = sum(1 for _d, r in rows if r[1])
-        print(f"  APHA codes {codes} classes carry an APHA class code")
+    show, venue, judges = built["show"], built["venue"], built["judges"]
+    rows = built["rows"]
+    print(f"Show:        {show.name}")
+    print(f"  id         {show.id}")
+    print(f"  status     {show.status}   ({show.start_date} to {show.end_date})")
+    print(f"  venue      {venue.name}, {venue.city} {venue.state}")
+    print(f"  show type  {built['show_type'].code} + "
+          + " + ".join(sorted(built["clubs"])) + " sanctioning")
+    print(f"  staff      " + ", ".join(
+        f"{f} {l} ({r.split('_')[-1].lower()})" for f, l, r, _e in STAFF
+    ))
+    print(f"  judges     {len(judges)} " + ", ".join(
+        f"{j.first_name} {j.last_name}" for j in judges
+    ))
+    print(f"  classes    {len(rows)}  "
+          f"({len(SATURDAY_CLASSES)} Sat / {len(SUNDAY_CLASSES)} Sun)")
+    print(f"  disciplines {len(DISCIPLINES)}, brackets {len(BRACKETS)}, "
+          f"pairs {len(built['pairs'])}")
+    print(f"  fees       {len(built['fees'])} rows (office charge among them)")
+    print(f"  side pots  {len(SIDE_POTS)}")
+    print(f"  futurity   {FUTURITY_NAME}: "
+          f"{len(built['futurity_class_numbers'])} classes, "
+          f"{len(FUTURITY_TIERS)} categories, "
+          f"{len(FUTURITY_DIVISIONS)} Hi-Point divisions")
+    codes = sum(1 for _d, r in rows if r[1])
+    print(f"  APHA codes {codes} classes carry an APHA class code")
+    sanctioned = sum(1 for _d, r in rows if r[5] in built["clubs"])
+    print(f"  club       {sanctioned} classes designated WSCA or MNSPHC")
 
 
 if __name__ == "__main__":

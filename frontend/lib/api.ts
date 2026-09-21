@@ -113,6 +113,31 @@ export async function fetchResultsIndex(showId: string) {
   return res.json();
 }
 
+export type MarqueeMode = 'results' | 'message' | 'both';
+
+export interface Marquee {
+  mode: MarqueeMode;
+  /** What the board actually runs — `results` whenever a message mode has
+   *  nothing to say, so a board never scrolls a blank band. */
+  effective_mode: MarqueeMode;
+  message: string | null;
+  updated_at: string | null;
+}
+
+/** What the live screens' marquee carries. Falls back to the results on any
+ *  failure, which is exactly what the marquee did before it could carry
+ *  anything else — a board must keep running whether or not this answers. */
+export async function fetchMarquee(showId: string): Promise<Marquee> {
+  const fallback: Marquee = { mode: 'results', effective_mode: 'results', message: null, updated_at: null };
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/marquee`, { cache: 'no-store' });
+    if (!res.ok) return fallback;
+    return ((await res.json()) as Marquee) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function fetchProgramIndex(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}/program-index`);
   if (!res.ok) return {} as Record<string, unknown[]>;

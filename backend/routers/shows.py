@@ -764,7 +764,14 @@ async def apha_validation(
         select(Entry)
         .join(Class, Entry.class_id == Class.id)
         .where(Class.show_id == show_id)
-        .options(selectinload(Entry.class_), selectinload(Entry.horse))
+        # The exhibitor too: YP-075's youth age check reads their date of birth,
+        # and left unloaded that read is lazy IO in an async request -- a 500 on
+        # every APHA show with a single youth-division entry.
+        .options(
+            selectinload(Entry.class_),
+            selectinload(Entry.horse),
+            selectinload(Entry.exhibitor),
+        )
         .order_by(Class.sort_order.nullslast(), Class.class_number)
     )
     for entry in entries_result.scalars().all():

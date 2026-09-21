@@ -91,7 +91,7 @@ const tiles = (
     href: `/admin/shows/${showId}/board`,
     title: 'Live Screens',
     description:
-      'Full-screen rotating display for a lobby or ring-side TV. Shows posted results only.',
+      'Put the results board up on a lobby or ring-side TV, and set the message its marquee scrolls.',
     icon: '📺',
     // Opens in its own tab: this one gets dragged onto the TV and left there,
     // and whoever opened it still needs the console they came from.

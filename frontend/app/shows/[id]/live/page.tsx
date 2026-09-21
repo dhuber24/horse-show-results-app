@@ -3,7 +3,7 @@ import { fetchShow } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 
 // The full-screen results board is deliberately not here. It lives at
-// /admin/shows/[id]/board, behind the office's sign-in: standing a show up on
+// /admin/shows/[id]/board/results, behind the office's sign-in: standing a show up on
 // a wall is staff's call, not something a spectator opens from the hub. The
 // placings it shows are public either way — /results below is the same data.
 const TILES = [

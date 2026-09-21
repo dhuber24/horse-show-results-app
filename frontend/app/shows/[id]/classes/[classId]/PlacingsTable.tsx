@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Ribbon from '@/components/Ribbon';
 import { outcomeLabel, outcomeShort } from '@/lib/result-outcomes';
 
 /**
@@ -11,82 +12,11 @@ import { outcomeLabel, outcomeShort } from '@/lib/result-outcomes';
  * 112", and the default mean-placing order answers neither.
  */
 
-// Standard US horse show placement ribbon colors
-const RIBBON_COLORS: Record<number, { main: string; dark: string; text: string }> = {
-  1: { main: 'var(--accent)', dark: 'var(--accent-active)', text: 'var(--surface)' },
-  2: { main: 'var(--error)', dark: 'var(--error-strong)', text: 'var(--surface)' },
-  3: { main: 'var(--warning)', dark: 'var(--warning)', text: 'var(--foreground)' },
-  4: { main: 'var(--accent-bg)', dark: 'var(--text-dimmed)', text: 'var(--foreground)' },
-  5: { main: 'var(--accent-light)', dark: 'var(--error-strong)', text: 'var(--surface)' },
-  6: { main: 'var(--success)', dark: 'var(--success-strong)', text: 'var(--surface)' },
-  7: { main: 'var(--accent)', dark: 'var(--accent-active)', text: 'var(--surface)' },
-  8: { main: 'var(--warning)', dark: 'var(--warning-strong)', text: 'var(--surface)' },
-};
-
-const DEFAULT_RIBBON = { main: 'var(--muted)', dark: 'var(--foreground)', text: 'var(--surface)' };
-
 function placeOrdinal(n: number) {
   if (n === 1) return '1st';
   if (n === 2) return '2nd';
   if (n === 3) return '3rd';
   return `${n}th`;
-}
-
-const RIBBON_CX = 16;
-const RIBBON_CY = 16;
-
-/**
- * The scalloped petal ring, computed once.
- *
- * Coordinates are **rounded**, and that is load-bearing rather than tidiness:
- * raw `Math.cos`/`Math.sin` output serializes to a different number of
- * significant digits on the server than in the browser
- * (`27.2583302491977` vs `27.258330249197698`), and this table is a client
- * component, so React compares the two and logs a hydration mismatch for every
- * rosette on the page. Three decimals is well past visible at 32px.
- */
-const RIBBON_PETALS = Array.from({ length: 12 }, (_, i) => {
-  const angle = (i / 12) * 2 * Math.PI - Math.PI / 2;
-  return {
-    x: Number((RIBBON_CX + 13 * Math.cos(angle)).toFixed(3)),
-    y: Number((RIBBON_CY + 13 * Math.sin(angle)).toFixed(3)),
-  };
-});
-
-/**
- * A placement rosette.
- *
- * Sized to sit inside a judge column: a class judged by a panel shows one of
- * these per judge per row, so the full-page rosette the single-card layout used
- * would push the far judges off screen.
- */
-function Ribbon({ place }: { place: number }) {
-  const { main, dark, text } = RIBBON_COLORS[place] ?? DEFAULT_RIBBON;
-  const cx = RIBBON_CX, cy = RIBBON_CY;
-  const petals = RIBBON_PETALS;
-
-  return (
-    <svg width="32" height="44" viewBox="0 0 32 44" aria-hidden="true">
-      <polygon points={`10,27 6,44 16,38`} fill={dark} />
-      <polygon points={`22,27 26,44 16,38`} fill={dark} />
-      {petals.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r={4} fill={i % 2 === 0 ? main : dark} />
-      ))}
-      <circle cx={cx} cy={cy} r={10.5} fill={main} />
-      <circle cx={cx} cy={cy} r={7.5} fill={dark} />
-      <circle cx={cx} cy={cy} r={6} fill={main} />
-      <text
-        x={cx} y={cy + 3.5}
-        textAnchor="middle"
-        fill={text}
-        fontSize="9"
-        fontWeight="bold"
-        fontFamily="system-ui, sans-serif"
-      >
-        {place}
-      </text>
-    </svg>
-  );
 }
 
 export interface CardColumn {

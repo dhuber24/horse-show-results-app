@@ -2,6 +2,60 @@
 
 ## September 2026
 
+### Live Screens: A Page Of Its Own, And A Marquee The Office Can Write
+
+Four changes from running the board at a show.
+
+- **The Live Screens button always opens the Live Screens page.** The board
+  remembered its size in `localStorage` and skipped the page on every later
+  visit — and that page is where the marquee is now set and where the gate
+  board will be chosen. The size lives in the URL (`?size=`) and nowhere else:
+  a reload of the TV's browser keeps the board up, a link carrying it can still
+  be bookmarked for one screen, and Back — or **‹ Live Screens** in the board's
+  controls — returns to the page. A **Gate board** card sits there disabled,
+  marked coming soon, so it arrives as one more card rather than a rearrangement.
+- **The top four places, and no further.** Everybody on the grounds has the
+  whole card on their phone, so the wall is not the record. A pane says "top 4
+  of 12" when the card is deeper, counted against the whole card so somebody
+  whose horse placed seventh knows the rest is on their phone. Places, not
+  rows: a tie for fourth shows both horses.
+- **Five more seconds on every screen**, flat and after the clamp, so it is the
+  same at every preset and the longest screens get it too.
+- **The marquee can carry a message** — the results, a message, or both, with
+  the message coming round after every three result lines. Stored on the show
+  (`show_marquees`, migration 139) rather than in the browser, so a message
+  typed on the office laptop reaches the lobby TV on the board's next poll.
+
+Then three more, from looking at it on the wall:
+
+- **One header per class, over the judges.** A panel-judged class printed its
+  ring, division, discipline and name in every judge's box — four copies, when
+  only the judge differed. The unit is now a block: the class header once, and
+  a box per judge holding nothing but the judge's name and the placings. A
+  block takes a quarter, a row or the whole screen by how many judges it has,
+  so single-judge classes still share a screen four at a time. It also fixed
+  the one bug found checking the first round: at the lobby preset a
+  panel-judged box could not fit one placing under its own copy of the header,
+  and the fit's one-row floor clipped it.
+- **Ribbons, not coloured circles.** The rosette from the class results page,
+  moved to `components/Ribbon.tsx` so the board and that page cannot drift
+  into different colours for the same place.
+- **The marquee waits for a message to leave before it comes back.** Every
+  pass ends in a band's width of blank, so the next enters at the right edge
+  only as the last leaves the left. Filling the band with repeats was the first
+  attempt; a line that never stops saying "Lunch until 1:00" is read as nothing.
+
+And two more:
+
+- **Live Screens is a choice between screens.** Two buttons — Results Board and
+  Gate Board (coming soon) — and each screen has its own page behind it. The
+  sizes and the marquee moved to the Results Board page at `/board/results`, so
+  this page never grows a section per board. An old `/board?size=` bookmark is
+  forwarded rather than landing on a page of choices.
+- **Screen time is the office's to set.** A menu in the board's controls: Auto,
+  as before, or 10 to 50 seconds, then 1 to 10 minutes. Kept in the URL
+  (`?every=`) beside the size, for the same reasons the size is.
+
 ### One Board, Twenty-Four Inches To Seventy-Five
 
 The board was built once, at one size, and looked right on the screen it was

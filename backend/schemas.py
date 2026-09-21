@@ -3473,7 +3473,10 @@ class BillClassChargeOut(BaseModel):
 class BillClassLineOut(BaseModel):
     entry_id: UUID
     class_id: UUID
-    class_number: int
+    # Text, like `classes.class_number` and every other schema here: a futurity
+    # class is "A" and a Grand & Reserve pair is "2-3". Typed int, one lettered
+    # entry 500'd the desk, Financials and My Shows for the whole show.
+    class_number: str
     class_name: str
     class_date: Optional[date] = None
     horse_name: Optional[str] = None

@@ -1864,6 +1864,33 @@ class ShowRegistrationDraft(Base):
     exhibitor = relationship("Exhibitor")
 
 
+class ShowMarquee(Base):
+    """What the marquee along the bottom of the show's live screens carries.
+
+    Migration 139. One row per show, written from the Results Board page and read
+    by the board on its ordinary poll; no row means the posted results, which is
+    all the marquee ever carried before. See `routers/show_marquee.py`.
+
+    Not columns on `shows`: it changes through the day and nothing in setup asks
+    about it, and the show payload is built by hand in `routers/shows.py`, so a
+    column there would ride on every show read in the app for one screen.
+    """
+    __tablename__ = "show_marquees"
+
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
+    )
+    # results | message | both. Checked by ck_show_marquees_mode in the migration.
+    mode = Column(Text, nullable=False, server_default="results")
+    # Kept when the mode goes back to 'results', so an announcement can be put
+    # back up without retyping it.
+    message = Column(Text, nullable=True)
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class ShowEntryReservation(Base):
     """How many of a given show fee this exhibitor reserved at sign-up.
 
