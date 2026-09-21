@@ -15,9 +15,20 @@ import {
   AphaShowMinimums,
 } from '@/lib/apha';
 
-const tiles = (
-  showId: string,
-): { href: string; title: string; description: string; icon: string; newTab?: boolean }[] => [
+type Tile = {
+  href: string;
+  title: string;
+  description: string;
+  icon: string;
+  newTab?: boolean;
+  // Score Classes is disabled unless the show is In Progress, so it renders
+  // through ScoringTile rather than as a plain link.
+  scoring?: boolean;
+};
+
+// The grid is two across, so this order is the layout: Score Classes sits
+// directly above Side Pots with Financials beside it.
+const tiles = (showId: string): Tile[] => [
   // Staff and the class schedule were tiles of their own. Both are things you
   // set up once, before the show runs, so both are steps of the setup wizard —
   // staff in Step 1 next to the dates, classes in Step 4.
@@ -38,6 +49,19 @@ const tiles = (
     icon: '🎟️',
   },
   {
+    href: `/shows/${showId}`,
+    title: 'Score Classes',
+    description: 'Enter placings for each class.',
+    icon: '🏆',
+    scoring: true,
+  },
+  {
+    href: `/admin/shows/${showId}/financials`,
+    title: 'Financials',
+    description: 'Registrations, revenue, outstanding balances, and reports.',
+    icon: '💵',
+  },
+  {
     href: `/admin/shows/${showId}/side-pots`,
     title: 'Side Pots',
     description: 'Divisional jackpots spanning several classes — buy-ins, standings, and payouts.',
@@ -49,12 +73,6 @@ const tiles = (
     description:
       'Futurity classes, entry fee categories, entries, and Hi-Point award divisions.',
     icon: '🌟',
-  },
-  {
-    href: `/admin/shows/${showId}/financials`,
-    title: 'Financials',
-    description: 'Registrations, revenue, outstanding balances, and reports.',
-    icon: '💵',
   },
   // What the office sends the association afterwards. Its own tile rather than
   // a link under Financials: these reports are the record of what happened —
@@ -74,12 +92,12 @@ const tiles = (
   },
   // The public screens, reached from the office rather than by finding the
   // show's own page. Not status-gated: what the rail sees is worth checking
-  // before the gates open, not only once results are going up. Named for what
-  // the office is looking for when it presses this — the results — rather than
-  // for the hub it lands on; the screens the show *puts up* are the tile below.
+  // before the gates open, not only once results are going up. Named for both
+  // halves of the hub it lands on, and "Public" so it does not read as the
+  // office's own results work; the screens the show *puts up* are the tile below.
   {
     href: `/shows/${showId}/live`,
-    title: 'Results',
+    title: 'Public Results & Show Details',
     description:
       'Schedule, posted placings, leaderboard, and the show bill — what exhibitors and spectators see on their own phones.',
     icon: '📱',
@@ -99,12 +117,57 @@ const tiles = (
   },
 ];
 
-const scoringTile = (showId: string) => ({
-  href: `/shows/${showId}`,
-  title: 'Score Classes',
-  description: 'Enter placings for each class.',
-  icon: '🏆',
-});
+function ScoringTile({ tile, status }: { tile: Tile; status: string }) {
+  if (status === 'ACTIVE') {
+    return (
+      <Link
+        href={tile.href}
+        className="block p-6 rounded-lg border transition-colors hover:bg-amber-50"
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+      >
+        <div className="flex items-start gap-4">
+          <div className="text-3xl" aria-hidden>{tile.icon}</div>
+          <div>
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
+              {tile.title}
+            </h2>
+            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+              {tile.description}
+            </p>
+          </div>
+        </div>
+      </Link>
+    );
+  }
+
+  // Not active: shown disabled rather than omitted, so the tile is never
+  // simply missing — the explanation is the reason to reach for the status
+  // control above instead of a dead end.
+  const reason =
+    status === 'COMPLETED'
+      ? 'Scoring is closed — this show is marked Completed.'
+      : 'Set the show to "In Progress" above to enable scoring.';
+  return (
+    <div
+      className="block p-6 rounded-lg border cursor-not-allowed"
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}
+      aria-disabled="true"
+      title={reason}
+    >
+      <div className="flex items-start gap-4">
+        <div className="text-3xl opacity-40" aria-hidden>{tile.icon}</div>
+        <div>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>
+            {tile.title}
+          </h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+            {reason}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Both readiness endpoints return the same shape, which is why the issue list
 // is one component. APHA adds the SC-090 application window on top, because a
@@ -239,7 +302,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        {tiles(id).map((tile) => (
+        {tiles(id).map((tile) => tile.scoring ? (
+          <ScoringTile key={tile.href} tile={tile} status={show.status} />
+        ) : (
           <Link
             key={tile.href}
             href={tile.href}
@@ -268,58 +333,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             </div>
           </Link>
         ))}
-        {(() => {
-          const tile = scoringTile(id);
-          if (show.status === 'ACTIVE') {
-            return (
-              <Link
-                href={tile.href}
-                className="block p-6 rounded-lg border transition-colors hover:opacity-90"
-                style={{ borderColor: 'var(--foreground)', backgroundColor: 'var(--foreground)' }}
-              >
-                <div className="flex items-start gap-4">
-                  <div className="text-3xl" aria-hidden>{tile.icon}</div>
-                  <div>
-                    <h2 className="text-lg font-semibold" style={{ color: 'var(--bg-subtle)' }}>
-                      {tile.title}
-                    </h2>
-                    <p className="text-sm mt-1" style={{ color: 'var(--border)' }}>
-                      {tile.description}
-                    </p>
-                  </div>
-                </div>
-              </Link>
-            );
-          }
-
-          // Not active: shown disabled rather than omitted, so the tile is
-          // never simply missing — the explanation is the reason to reach for
-          // the status control above instead of a dead end.
-          const reason =
-            show.status === 'COMPLETED'
-              ? 'Scoring is closed — this show is marked Completed.'
-              : 'Set the show to "In Progress" above to enable scoring.';
-          return (
-            <div
-              className="block p-6 rounded-lg border cursor-not-allowed"
-              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}
-              aria-disabled="true"
-              title={reason}
-            >
-              <div className="flex items-start gap-4">
-                <div className="text-3xl opacity-40" aria-hidden>{tile.icon}</div>
-                <div>
-                  <h2 className="text-lg font-semibold" style={{ color: 'var(--muted)' }}>
-                    {tile.title}
-                  </h2>
-                  <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-                    {reason}
-                  </p>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
       </div>
 
       {show.show_type_code === 'APHA' && (
