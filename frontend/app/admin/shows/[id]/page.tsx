@@ -74,12 +74,14 @@ const tiles = (
   },
   // The public screens, reached from the office rather than by finding the
   // show's own page. Not status-gated: what the rail sees is worth checking
-  // before the gates open, not only once results are going up.
+  // before the gates open, not only once results are going up. Named for what
+  // the office is looking for when it presses this — the results — rather than
+  // for the hub it lands on; the screens the show *puts up* are the tile below.
   {
     href: `/shows/${showId}/live`,
-    title: 'Live Screens',
+    title: 'Results',
     description:
-      'Schedule, results, leaderboard, and the show bill — what exhibitors and spectators see on their own phones.',
+      'Schedule, posted placings, leaderboard, and the show bill — what exhibitors and spectators see on their own phones.',
     icon: '📱',
   },
   // The wall display. Staff-only, and reached only from here — it is not a
@@ -87,7 +89,7 @@ const tiles = (
   // the lobby is the office's call rather than a spectator's.
   {
     href: `/admin/shows/${showId}/board`,
-    title: 'Results Board',
+    title: 'Live Screens',
     description:
       'Full-screen rotating display for a lobby or ring-side TV. Shows posted results only.',
     icon: '📺',

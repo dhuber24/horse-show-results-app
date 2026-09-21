@@ -340,6 +340,12 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,
                 "judge_name": f"{judge_first} {judge_last}" if judge_first else None,
+                # The surname on its own, because the results board's marquee
+                # has one line to name a judge in and "Judge Smith" is how a
+                # show announces one. Splitting the full name in the browser
+                # turns "Mary Jo Van Dyke" into "Dyke"; the column is already
+                # selected here, so send it.
+                "judge_last_name": judge_last or None,
             }
         )
     return by_class

@@ -17,7 +17,7 @@ import LiveBoard from './LiveBoard';
 // about who can put the board up, not about showing the room anything the
 // room could not already look up.
 export const metadata = {
-  title: 'Live Results Board',
+  title: 'Live Screens',
 };
 
 export default async function ShowBoardPage({ params }: { params: Promise<{ id: string }> }) {
