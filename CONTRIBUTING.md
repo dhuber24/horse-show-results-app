@@ -95,10 +95,15 @@ preference; getting it wrong took the site down once.
 # what would this release do? touches nothing
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 
-# then, with -Run, it migrates dev and production, pushes, and watches
-powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run `
-    -DatabaseUrl "<production connection string>" -BackedUp
+# then, with -Run, it migrates dev, backs production up to a Neon branch,
+# migrates production, pushes, and watches
+powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
 ```
+
+A release carrying a migration reads production's URL and a Neon API key from
+1Password, through references in `.env` — see "Releasing" in
+[docs/deployment.md](./docs/deployment.md) for the three lines. Without them,
+pass `-DatabaseUrl` and branch production by hand with `-BackedUp`.
 
 It refuses a backward-incompatible migration rather than sequencing it, because
 no ordering works for those. Read

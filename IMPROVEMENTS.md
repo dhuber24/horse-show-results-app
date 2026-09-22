@@ -2,6 +2,29 @@
 
 ## September 2026
 
+### The Release Script Makes Its Own Backup
+
+A release carrying a migration refused to touch production without `-BackedUp`,
+which meant "I branched production in the Neon console" and was taken entirely
+on trust — the script had no way to check it, and a flag somebody has to
+remember to be honest about is not a backup. `scripts/release.ps1` now makes the
+branch itself through Neon's API, immediately before migrating production:
+named for the release (`pre-139-d994370`), cut from whichever branch owns the
+production endpoint (asked of Neon, so it cannot be the wrong one), with no
+compute, and set to expire after 14 days so old backups stop accumulating. If
+Neon refuses, production is not migrated.
+
+It also reads production's connection string and the Neon API key from 1Password
+through `op://` references in `.env` — `PROD_DATABASE_URL_OP_REF`, already used
+by `copy-prod-to-dev.ps1`, `NEON_API_KEY_OP_REF` and `NEON_PROJECT_ID` — so a
+migration release is `release.ps1 -Run` and one Windows Hello prompt, and no
+connection string is typed anywhere. Both are read at the start, and only for a
+release that carries a migration; a dry run reads nothing. `.env` is still never
+loaded wholesale, so its `DATABASE_URL` (dev) cannot be taken for production.
+`op.exe` is found where winget installs it when it is not on PATH, which it is
+not in an editor that was open before the install. `-BackedUp` stays as the
+fallback for a machine with no key.
+
 ### The Show Bill Comes Off Show Details
 
 Show Details went back to being the facts card — venue, dates, show type,

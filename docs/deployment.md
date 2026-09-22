@@ -136,17 +136,37 @@ what is **committed**, so commit first and let it do the push:
 # what would this release do? touches nothing
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 
-# code-only release
+# any release, once the three settings below are in .env
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
 
-# release carrying a migration
+# release carrying a migration, with nothing configured
 $env:PRODUCTION_DATABASE_URL = "<production connection string>"
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run -BackedUp
 ```
 
-`-DatabaseUrl "<url>"` is accepted too, but the environment variable is
-preferable: a connection string passed as a command-line argument lands in
-PSReadLine's on-disk history in clear text. Neither is read from `.env`.
+A release carrying a migration needs production's URL and a backup, and the
+script can get both itself. Put three lines in `.env` — none of them is a
+secret:
+
+```
+PROD_DATABASE_URL_OP_REF=op://Private/GaitDesk Neon Production/connection string
+NEON_API_KEY_OP_REF=op://Private/<item>/credential
+NEON_PROJECT_ID=<project id, from the Neon project's Settings>
+```
+
+It resolves the two references with the 1Password CLI **only when the release
+carries a migration**, both at the start of the run, so the one Windows Hello
+prompt comes before anything happens rather than halfway through. It finds
+`op.exe` where winget installs it even when the CLI is not on PATH, which it is
+not in an editor that was already open when it was installed. `.env` is never
+loaded wholesale: only those keys are read, so its `DATABASE_URL` (dev) cannot
+be picked up as production, and whatever the reference resolves to still has to
+pass the production host guard.
+
+`$env:PRODUCTION_DATABASE_URL` / `$env:NEON_API_KEY` hold the values directly
+and win over `.env`. `-DatabaseUrl "<url>"` is accepted too, but a connection
+string passed as a command-line argument lands in PSReadLine's on-disk history
+in clear text.
 
 The script **refuses a target that is not a known production host** (SHA-256,
 same list as `migrate.ps1`) — the inverse of that runner's guard. Without it,
@@ -155,8 +175,9 @@ leaving production with code for a schema it never received.
 
 With `-Run` it refuses a dirty tree or a stale `main`, lists the commits and the
 migrations they carry, scans each migration and refuses anything
-backward-incompatible, runs `RUN_TESTS.sh`, migrates dev, migrates production,
-confirms every migration reached production's `_migrations` ledger, **checks
+backward-incompatible, runs `RUN_TESTS.sh`, migrates dev, **branches production
+in Neon as a backup**, migrates production, confirms every migration reached
+production's `_migrations` ledger, **checks
 production is still serving before pushing**, pushes, and samples for five
 minutes.
 
@@ -164,12 +185,10 @@ That pre-push check is the migration-133 detector: production is running the old
 code against the new schema at exactly that moment, which is the state that broke
 the site. On breakage it stops without pushing.
 
-Four things it deliberately does not do. It does not decide whether a migration
+Two things it deliberately does not do. It does not decide whether a migration
 is safe — it scans and refuses on suspicion, which is a guard rather than a
-judgment, so read the SQL. It does not read the production URL from `.env`. It
-cannot make the Neon backup branch, so `-BackedUp` is your word that you did. And
-it cannot tell whether CI passed or whether the new build is live — see "What no
-amount of this tells you" in `.claude/skills/release/SKILL.md`.
+judgment, so read the SQL. And it does not read the production URL from `.env`,
+only a 1Password reference to it.
 
 ### GITHUB_TOKEN
 
@@ -245,17 +264,36 @@ knowingly and at a quiet time, not a routine release.
 
 ## Backing up before a release
 
-A Neon **branch** is the backup, and it is instant and free:
+A Neon **branch** is the backup, and `release.ps1` makes it: through Neon's
+API (`POST /projects/{id}/branches`), immediately before production is migrated,
+named for the release (`pre-139-d994370` — first migration number, then the
+commit) and set to **expire after 14 days** (`-BackupDays`). If it goes wrong,
+the branch still holds the pre-release state and can be inspected or restored
+from.
 
-1. Neon console → **Branches > New branch**, from `production`.
-2. Name it for the release, e.g. `pre-138`.
-3. Release. If it goes wrong, the branch still holds the pre-release state and
-   can be inspected or restored from.
+Some details that are deliberate:
 
-Delete these when a release has settled — they are cheap, not free, and a drawer
-full of them makes the branch list useless. Neon's point-in-time restore covers
-the same ground within the history-retention window; the named branch is
-preferable because it says *why* it exists.
+- **The parent is asked of Neon, not configured.** The script takes the compute
+  endpoint id from the production connection host and asks Neon which branch
+  owns it, so the backup is always cut from the database about to be migrated,
+  and there is no branch id in a config file to go stale.
+- **No compute.** A backup needs none until the day somebody restores from it;
+  one would bill for every idle hour.
+- **A re-run keeps the branch.** The name is the same for every run of one
+  release, and a branch an earlier run left behind was cut before this release
+  migrated anything — the better backup of the two.
+- **The lookup happens before the tests, the branch after them.** A bad key or
+  project id fails in seconds; the branch itself is as close to the pre-release
+  state as it can be. If Neon refuses the branch, production is not migrated.
+- **The expiry replaces deleting them by hand**, which never happened: a drawer
+  full of old backups makes the branch list useless and counts against the plan's
+  branch limit. Neon's point-in-time restore covers the same ground within the
+  history-retention window; the named branch says *why* it exists.
+
+The API key needs to be able to create branches in the GaitDesk project; a key
+scoped to that one project is the narrowest that works, where the plan offers
+one. With no key configured, branch production by hand — **Branches > New
+branch**, from `production` — and pass `-BackedUp`.
 
 Never set auto-delete or branch expiry on the **dev** branch. It is the branch
 every release must migrate first, so one that can vanish makes the procedure fail

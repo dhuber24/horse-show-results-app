@@ -15,19 +15,36 @@
 #     costs an outage. A pass is not a promise -- read the SQL.
 #   * Take the production URL from .env. .env points at dev and must go on
 #     pointing at dev; that split is the whole fix from the 133 postmortem.
-#   * Make the Neon backup branch. That is a console action, and -BackedUp is
-#     you saying you did it.
+#     What it WILL read from .env is a 1Password *reference* to the URL
+#     (PROD_DATABASE_URL_OP_REF) -- a pointer, not a secret, and not a database
+#     anything connects to. .env is never loaded wholesale, so DATABASE_URL
+#     stays out of reach, and whatever the reference resolves to still has to
+#     pass the production host guard.
 #   * Do anything at all without -Run. The default is a plan.
+#
+# The Neon backup branch it DOES make, when a release carries a migration: cut
+# from production just before production is migrated, through Neon's API, named
+# for the release (pre-139-d994370) and set to expire after -BackupDays. That
+# used to be a console action and -BackedUp was your word that you had done it;
+# -BackedUp remains for a machine with no Neon API key.
+#
+# Configuration, all optional, environment first and then .env:
+#
+#   PRODUCTION_DATABASE_URL    the connection string itself (environment only)
+#   PROD_DATABASE_URL_OP_REF   op://... reference to it
+#   NEON_API_KEY               a Neon API key (environment only)
+#   NEON_API_KEY_OP_REF        op://... reference to one
+#   NEON_PROJECT_ID            the Neon project production lives in
 #
 # Usage:
 #
 #   # what would this release do?
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 #
-#   # code-only release
+#   # any release, once the above is configured
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
 #
-#   # release carrying a migration
+#   # release carrying a migration, with nothing configured
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run `
 #       -DatabaseUrl "<production connection string>" -BackedUp
 #
@@ -35,13 +52,19 @@ param(
     # Actually do it. Without this the script reports the plan and exits.
     [switch]$Run,
 
-    # The production database. Required when the release carries a migration,
-    # and deliberately not readable from .env -- see the header.
+    # The production database. Required when the release carries a migration.
+    # Without it: $env:PRODUCTION_DATABASE_URL, then PROD_DATABASE_URL_OP_REF.
     [string]$DatabaseUrl,
 
-    # You have branched production in the Neon console. The script cannot check
-    # this and will not migrate production without it.
+    # You branched production in the Neon console yourself. Only needed where
+    # no Neon API key is configured; with one, the script makes the branch and
+    # this flag skips that step.
     [switch]$BackedUp,
+
+    # How long the backup branch lives before Neon deletes it. Long enough to
+    # notice a bad migration; short enough that backups do not pile up against
+    # the plan's branch limit.
+    [int]$BackupDays = 14,
 
     # Release a migration the scanner called backward-incompatible. This means a
     # deliberate outage window; see Step 2b of the release skill first.
@@ -556,6 +579,180 @@ function Test-IsProductionUrl {
     return [pscustomobject]@{ Host = $targetHost; IsProduction = $isProd }
 }
 
+# ── Settings, 1Password ───────────────────────────────────────────────────────
+
+# One named key out of .env, and nothing else. This script never loads .env the
+# way migrate.ps1 does: DATABASE_URL there is dev, and a release that picked it
+# up as production is the failure Test-IsProductionUrl exists to catch. The keys
+# read through here are references and ids, not credentials.
+function Get-DotEnvValue {
+    param([string]$Name)
+    $file = Join-Path $ScriptDir "../.env"
+    if (-not (Test-Path $file)) { return $null }
+    foreach ($line in Get-Content $file) {
+        if ($line -match "^\s*$([regex]::Escape($Name))\s*=\s*(.*)$") {
+            return $matches[1].Trim().Trim('"').Trim("'")
+        }
+    }
+    return $null
+}
+
+# The environment wins over .env -- the same rule as migrate.ps1.
+function Get-Setting {
+    param([string]$Name)
+    $v = [System.Environment]::GetEnvironmentVariable($Name)
+    if ($v) { return $v.Trim().Trim('"').Trim("'") }
+    return (Get-DotEnvValue $Name)
+}
+
+# winget adds the CLI's folder to PATH for processes started *after* the
+# install, so an editor or terminal already open at the time never sees `op`
+# and every 1Password read fails as "not installed" on a machine that has it.
+function Find-OpCli {
+    $cmd = Get-Command op -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    if (-not $env:LOCALAPPDATA) { return $null }
+    $candidates = @(Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\op.exe")
+    $candidates += @(
+        Get-ChildItem (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages") -Directory `
+                      -Filter "AgileBits.1Password.CLI*" -ErrorAction SilentlyContinue |
+            ForEach-Object { Join-Path $_.FullName "op.exe" }
+    )
+    return ($candidates | Where-Object { Test-Path $_ } | Select-Object -First 1)
+}
+
+function Read-OpSecret {
+    param([string]$Ref, [string]$What)
+    $op = Find-OpCli
+    if (-not $op) {
+        Stop-Release "A 1Password reference is set for $What, but the 1Password CLI is not installed." @(
+            "  winget install AgileBits.1Password.CLI",
+            "then Settings > Developer > Integrate with 1Password CLI in the desktop app."
+        )
+    }
+    Write-Info "reading $What from 1Password ($Ref)"
+    # No 2>&1: in PowerShell 5.1 redirecting a native command's stderr wraps
+    # each line in an ErrorRecord and trips $ErrorActionPreference.
+    $value = (& $op read $Ref | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $value) {
+        Stop-Release "1Password did not return $What for $Ref." @(
+            "Check the reference (op://Vault/Item/field) and that the app is unlocked."
+        )
+    }
+    return $value
+}
+
+# ── Neon backup branch ────────────────────────────────────────────────────────
+#
+# The backup used to be a console action that -BackedUp took on trust, and a
+# flag somebody has to remember to be honest about is not a backup. This makes
+# the branch itself: one API call, cut from whichever branch owns the production
+# endpoint, just before production is migrated.
+
+$NeonApi = "https://console.neon.tech/api/v2"
+
+# A result object rather than a throw, so every caller can print what Neon said
+# through Stop-Release. The key only ever travels in the header.
+function Invoke-Neon {
+    param([string]$Path, [string]$Method = 'GET', $Body = $null)
+    $request = @{
+        Method     = $Method
+        Uri        = "$NeonApi$Path"
+        Headers    = @{ Authorization = "Bearer $script:NeonApiKey"; Accept = 'application/json' }
+        TimeoutSec = 30
+    }
+    if ($null -ne $Body) {
+        $request.Body        = ($Body | ConvertTo-Json -Depth 6)
+        $request.ContentType = 'application/json'
+    }
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            return [pscustomobject]@{ Ok = $true; Status = 200; Data = (Invoke-RestMethod @request); Error = $null }
+        } catch {
+            $status = 0
+            if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+            $detail = $_.ErrorDetails.Message
+            if (-not $detail) { $detail = $_.Exception.Message }
+            try { $m = ($detail | ConvertFrom-Json).message; if ($m) { $detail = $m } } catch { }
+            # 423: another operation is running on the project, which Neon
+            # serialises. Ordinary on a busy project and gone in seconds.
+            if ($status -eq 423 -and $attempt -lt 6) { Start-Sleep -Seconds 5; continue }
+            return [pscustomobject]@{ Ok = $false; Status = $status; Data = $null; Error = $detail }
+        }
+    }
+}
+
+# Which Neon branch production is, asked of Neon rather than configured. The
+# compute endpoint's id is the first label of the connection host
+# (ep-xxx.c-2.us-east-2.aws.neon.tech), and the endpoint knows its branch -- so
+# the backup is cut from the database this release is about to migrate, and
+# there is no branch id sitting in a config file waiting to go stale.
+function Get-NeonBranchForHost {
+    param([string]$DbHost)
+    $endpointId = (($DbHost -split '\.')[0]) -replace '-pooler$', ''
+    $ep = Invoke-Neon -Path "/projects/$script:NeonProjectId/endpoints/$endpointId"
+    if (-not $ep.Ok) {
+        Stop-Release "Neon could not find endpoint $endpointId in project $($script:NeonProjectId) (HTTP $($ep.Status))." @(
+            "Neon said: $($ep.Error)",
+            "",
+            "Check NEON_PROJECT_ID, and that the API key can see that project.",
+            "Nothing has been changed."
+        )
+    }
+    $branchId = $ep.Data.endpoint.branch_id
+    $br = Invoke-Neon -Path "/projects/$script:NeonProjectId/branches/$branchId"
+    if (-not $br.Ok) {
+        Stop-Release "Neon could not read branch $branchId (HTTP $($br.Status))." @("Neon said: $($br.Error)")
+    }
+    return [pscustomobject]@{ Id = $branchId; Name = $br.Data.branch.name }
+}
+
+# No compute is asked for: a backup needs none until the day somebody restores
+# from it, and one would bill for every hour it sat idle. A branch left by an
+# earlier run of this same release is kept rather than duplicated -- it was cut
+# before this release migrated anything, so it is the better backup of the two.
+function New-NeonBackupBranch {
+    param([string]$ParentId, [string]$Name, [int]$Days)
+
+    $found = Invoke-Neon -Path "/projects/$script:NeonProjectId/branches?search=$([uri]::EscapeDataString($Name))"
+    if ($found.Ok) {
+        $existing = @($found.Data.branches) |
+            Where-Object { $_.name -eq $Name -and $_.parent_id -eq $ParentId } |
+            Select-Object -First 1
+        if ($existing) {
+            return [pscustomobject]@{ Id = $existing.id; Name = $existing.name; Expires = $existing.expires_at; Reused = $true }
+        }
+    }
+
+    $expires = (Get-Date).ToUniversalTime().AddDays($Days).ToString("yyyy-MM-ddTHH:mm:ssZ")
+    $made = Invoke-Neon -Method POST -Path "/projects/$script:NeonProjectId/branches" -Body @{
+        branch = @{ parent_id = $ParentId; name = $Name; expires_at = $expires }
+    }
+    if (-not $made.Ok) {
+        Stop-Release "Neon refused the backup branch (HTTP $($made.Status))." @(
+            "Neon said: $($made.Error)",
+            "",
+            "Production has NOT been migrated. Make the branch in the console and",
+            "re-run with -BackedUp, or fix the cause and re-run."
+        )
+    }
+    $id = $made.Data.branch.id
+
+    # The API answers once the branch is recorded; wait until Neon calls it
+    # ready, so "backed up" is something Neon has said rather than assumed.
+    $deadline = (Get-Date).AddMinutes(2)
+    while ((Get-Date) -lt $deadline) {
+        $state = Invoke-Neon -Path "/projects/$script:NeonProjectId/branches/$id"
+        if ($state.Ok -and $state.Data.branch.current_state -eq 'ready') {
+            return [pscustomobject]@{ Id = $id; Name = $Name; Expires = $expires; Reused = $false }
+        }
+        Start-Sleep -Seconds 3
+    }
+    Stop-Release "Backup branch $Name ($id) was created but never reported ready." @(
+        "Production has NOT been migrated. Check the branch in the Neon console."
+    )
+}
+
 # ══ 1. Preflight ══════════════════════════════════════════════════════════════
 
 $repoRoot = (git rev-parse --show-toplevel 2>$null)
@@ -649,10 +846,38 @@ $blocked = @($reports | Where-Object { $_.Blockers.Count -gt 0 })
 
 $carriesSchema = ($reports.Count -gt 0)
 
+# What the release would use, worked out WITHOUT reading a secret: a dry run
+# must not pop a 1Password unlock dialog, and must not need the credentials it
+# is only describing.
+$prodUrlPlan = $null
+if ($DatabaseUrl)                                { $prodUrlPlan = "-DatabaseUrl" }
+elseif ($env:PRODUCTION_DATABASE_URL)            { $prodUrlPlan = "PRODUCTION_DATABASE_URL" }
+elseif (Get-Setting 'PROD_DATABASE_URL_OP_REF')  { $prodUrlPlan = "1Password (PROD_DATABASE_URL_OP_REF)" }
+
+$neonKeyPlan = $null
+if ($env:NEON_API_KEY)                           { $neonKeyPlan = "NEON_API_KEY" }
+elseif (Get-Setting 'NEON_API_KEY_OP_REF')       { $neonKeyPlan = "1Password (NEON_API_KEY_OP_REF)" }
+$neonProjectPlan = Get-Setting 'NEON_PROJECT_ID'
+$autoBackup = (-not $BackedUp) -and $neonKeyPlan -and $neonProjectPlan
+
+# pre-<first migration number>-<commit>: says which release it guards, and is
+# the same on a re-run of that release, which is what lets a re-run keep it.
+$backupName = $null
+if ($carriesSchema) {
+    $firstMigration = ($reports | Sort-Object Name | Select-Object -First 1).Name
+    $backupName = "pre-" + ($firstMigration -replace '^(\d+).*$', '$1') + "-" + (git rev-parse --short HEAD).Trim()
+}
+
 Write-Head "Plan"
 $step = 0
 if ($carriesSchema)  { $step++; Write-Info "$step. migrate DEV      (database/migrate.ps1)" }
 if (-not $SkipTests) { $step++; Write-Info "$step. bash RUN_TESTS.sh" }
+if ($carriesSchema) {
+    $step++
+    if ($BackedUp)       { Write-Info "$step. back up production: you branched it by hand (-BackedUp)" }
+    elseif ($autoBackup) { Write-Info "$step. back up production: Neon branch $backupName, expires in $BackupDays days" }
+    else                 { Write-Info "$step. back up production: NOT CONFIGURED -- see below" }
+}
 if ($carriesSchema)  { $step++; Write-Info "$step. migrate PRODUCTION (-AllowProduction -DatabaseUrl ...)" }
 if ($carriesSchema)  { $step++; Write-Info "$step. confirm the production ledger recorded each migration" }
 if ($carriesSchema)  { $step++; Write-Info "$step. check production is still serving BEFORE pushing" }
@@ -672,8 +897,20 @@ if (-not $Run) {
     Write-Head "Plan only"
     Write-Info "Nothing has been changed. Re-run with -Run to release."
     if ($carriesSchema) {
-        Write-Info "This release carries schema, so it also needs:"
-        Write-Info "  -DatabaseUrl ""<production connection string>""  and  -BackedUp"
+        Write-Info ""
+        Write-Info "This release carries schema, so it needs production's URL and a backup:"
+        if ($prodUrlPlan) { Write-Ok "production URL from $prodUrlPlan" }
+        else {
+            Write-Warn "no production URL: set PROD_DATABASE_URL_OP_REF in .env, or"
+            Write-Info "  `$env:PRODUCTION_DATABASE_URL, or pass -DatabaseUrl"
+        }
+        if ($BackedUp)       { Write-Ok "backup: -BackedUp (branched by hand)" }
+        elseif ($autoBackup) { Write-Ok "backup: made through the Neon API (key from $neonKeyPlan, project $neonProjectPlan)" }
+        else {
+            if (-not $neonKeyPlan)     { Write-Warn "no Neon API key: set NEON_API_KEY_OP_REF in .env, or `$env:NEON_API_KEY" }
+            if (-not $neonProjectPlan) { Write-Warn "no Neon project: set NEON_PROJECT_ID in .env" }
+            Write-Info "  or branch production in the Neon console and pass -BackedUp"
+        }
     }
     Write-Host ""
     exit 0
@@ -698,28 +935,40 @@ if ($blocked.Count -gt 0) {
     Write-Warn "the migration and the deploy. That window is real, and it is now open."
 }
 
-# $env:PRODUCTION_DATABASE_URL is the other way in, and it is the better one:
-# a connection string passed as a command-line argument is written to PSReadLine's
-# on-disk history (ConsoleHost_history.txt) in clear text, password and all.
-# Deliberately NOT read from .env -- .env is dev, and keeping production out of
-# it is the whole point of the branch split.
-if (-not $DatabaseUrl -and $env:PRODUCTION_DATABASE_URL) {
+# $env:PRODUCTION_DATABASE_URL and 1Password are the better ways in: a
+# connection string passed as a command-line argument is written to
+# PSReadLine's on-disk history (ConsoleHost_history.txt) in clear text,
+# password and all. The URL itself is deliberately NOT read from .env -- .env is
+# dev, and keeping production out of it is the whole point of the branch split.
+# A 1Password reference there is fine: it is not a credential, and what it
+# resolves to still has to pass Test-IsProductionUrl below.
+#
+# Only read when the release carries a migration, so a code-only release never
+# asks anybody to unlock anything.
+if ($DatabaseUrl) {
+    $urlSource = "-DatabaseUrl"
+} elseif ($env:PRODUCTION_DATABASE_URL) {
     $DatabaseUrl = $env:PRODUCTION_DATABASE_URL
     $urlSource = "PRODUCTION_DATABASE_URL"
-} elseif ($DatabaseUrl) {
-    $urlSource = "-DatabaseUrl"
+} elseif ($carriesSchema -and (Get-Setting 'PROD_DATABASE_URL_OP_REF')) {
+    Write-Head "Credentials"
+    Write-Info "The first 1Password read of a session asks to unlock -- approve it at"
+    Write-Info "the machine, or this waits. Both reads happen now, before anything runs."
+    $DatabaseUrl = Read-OpSecret -Ref (Get-Setting 'PROD_DATABASE_URL_OP_REF') -What "the production URL"
+    $urlSource = "1Password (PROD_DATABASE_URL_OP_REF)"
 }
 
 if ($carriesSchema -and -not $DatabaseUrl) {
     Stop-Release "This release carries a migration but no production URL." @(
         "Production is a different Neon branch; pushing without migrating it",
-        "ships code against a schema that has not moved. Either:",
+        "ships code against a schema that has not moved. One of:",
         "",
-        "  -DatabaseUrl ""<production connection string>""",
+        "  PROD_DATABASE_URL_OP_REF=op://Vault/Item/field    in .env",
         "  `$env:PRODUCTION_DATABASE_URL = ""<production connection string>""",
+        "  -DatabaseUrl ""<production connection string>""",
         "",
-        "The environment variable keeps the password out of PowerShell's",
-        "on-disk command history. Do not repoint .env at production instead --",
+        "The first two keep the password out of PowerShell's on-disk command",
+        "history. Do not repoint .env's DATABASE_URL at production instead --",
         "that is the configuration the branch split exists to prevent."
     )
 }
@@ -748,14 +997,34 @@ if ($carriesSchema) {
     Write-Ok "target is a known production host"
 }
 
-if ($carriesSchema -and -not $BackedUp) {
-    Stop-Release "Production has not been branched." @(
-        "Neon console -> Branches > New branch, from production, named for this",
-        "release (e.g. pre-138). It is instant and free, and it is the only",
-        "backup step there is.",
-        "",
-        "Then re-run with -BackedUp."
-    )
+# The backup. Worked out here, before dev or the tests are touched, so a bad key
+# or a wrong project id fails in seconds rather than after RUN_TESTS.sh. Only
+# the lookup happens now; the branch itself is cut immediately before production
+# is migrated, so it is as close to the pre-release state as it can be.
+$prodBranch = $null
+if ($carriesSchema -and $BackedUp) {
+    Write-Head "Backup"
+    Write-Warn "-BackedUp given: taking your word that production was branched by hand."
+} elseif ($carriesSchema) {
+    $script:NeonProjectId = Get-Setting 'NEON_PROJECT_ID'
+    $script:NeonApiKey = $env:NEON_API_KEY
+    if (-not $script:NeonApiKey -and (Get-Setting 'NEON_API_KEY_OP_REF')) {
+        $script:NeonApiKey = Read-OpSecret -Ref (Get-Setting 'NEON_API_KEY_OP_REF') -What "the Neon API key"
+    }
+    if (-not $script:NeonApiKey -or -not $script:NeonProjectId) {
+        Stop-Release "Production has not been backed up, and this script cannot do it yet." @(
+            "To let it cut the backup branch itself (once, then every release):",
+            "  NEON_API_KEY_OP_REF=op://Vault/Item/field    in .env (or `$env:NEON_API_KEY)",
+            "  NEON_PROJECT_ID=<project id>                 in .env",
+            "",
+            "Or branch production by hand -- Neon console -> Branches > New branch,",
+            "from production -- and re-run with -BackedUp."
+        )
+    }
+    Write-Head "Backup"
+    $prodBranch = Get-NeonBranchForHost $target.Host
+    Write-Ok "production is Neon branch '$($prodBranch.Name)' ($($prodBranch.Id))"
+    Write-Info "$backupName will be cut from it just before production is migrated."
 }
 
 # ══ 6. Dev, then the tests ════════════════════════════════════════════════════
@@ -827,6 +1096,18 @@ if ($carriesSchema) {
         )
     }
     Write-Ok "production healthy"
+
+    if ($prodBranch) {
+        Write-Head "Backing up production"
+        $backup = New-NeonBackupBranch -ParentId $prodBranch.Id -Name $backupName -Days $BackupDays
+        if ($backup.Reused) {
+            Write-Ok "kept $($backup.Name) ($($backup.Id)) from an earlier run of this release"
+        } else {
+            Write-Ok "branched $($backup.Name) ($($backup.Id)) from '$($prodBranch.Name)'"
+        }
+        Write-Info "expires $($backup.Expires). If this migration has to be undone, restore"
+        Write-Info "'$($prodBranch.Name)' from $($backup.Name) in the Neon console."
+    }
 
     Write-Head "Migrating PRODUCTION"
     Write-Warn "This is the irreversible step."

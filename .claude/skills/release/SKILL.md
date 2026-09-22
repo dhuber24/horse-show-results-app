@@ -34,18 +34,32 @@ step zero. The script does the push itself.
 # 1. What would this release do? Touches nothing.
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 
-# 2a. Code-only release
+# 2. Any release -- code-only, or carrying a migration once .env is set up
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
-
-# 2b. Release carrying a migration
-$env:PRODUCTION_DATABASE_URL = "<production connection string>"
-powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run -BackedUp
 ```
 
-`-DatabaseUrl "<url>"` works too, but prefer the environment variable: a
-connection string typed as a command-line argument is written to PSReadLine's
-on-disk history in clear text, password and all. Neither is read from `.env`,
-which points at dev and stays that way.
+**A release carrying a migration gets its credentials from 1Password and makes
+its own backup.** Three lines in `.env`, none of them a secret:
+`PROD_DATABASE_URL_OP_REF` and `NEON_API_KEY_OP_REF` (`op://` references) and
+`NEON_PROJECT_ID`. The script reads both references at the start of the run, so
+**warn the user before starting `-Run`**: the first `op read` of a session pops a
+Windows Hello dialog that nothing here can dismiss, and the run waits at it. A
+code-only release reads neither and asks for nothing. The dry run reports which
+of the three are configured without reading any secret.
+
+With them in place it cuts a Neon backup branch (`pre-<migration>-<commit>`,
+expiring after `-BackupDays`, default 14) from whichever branch owns the
+production endpoint, just before migrating production, and stops without
+migrating if Neon refuses. **Do not pass `-BackedUp` when a key is configured** —
+it skips the branch, and it is only the fallback for a machine without a key,
+where it means the user branched production by hand. Never pass it on the user's
+behalf without asking whether they did.
+
+Without the `.env` lines: `$env:PRODUCTION_DATABASE_URL` / `$env:NEON_API_KEY`,
+or `-DatabaseUrl "<url>" -BackedUp`. Prefer the environment variable over
+`-DatabaseUrl`: a connection string typed as a command-line argument is written
+to PSReadLine's on-disk history in clear text, password and all. The URL itself
+is never read from `.env`, which points at dev and stays that way.
 
 **The script refuses a target that is not a known production host**, matched by
 SHA-256 against `database/production-hosts.sha256` — the inverse of
@@ -58,7 +72,8 @@ for a schema it never received.
 In order, with `-Run` it: refuses a dirty tree or a stale `main`, lists the
 commits and the migrations they carry, scans each migration and **refuses
 anything backward-incompatible**, runs `RUN_TESTS.sh`, migrates dev, checks
-production is healthy *before* touching it, migrates production, confirms every
+production is healthy *before* touching it, backs production up to a Neon
+branch, migrates production, confirms every
 migration reached production's `_migrations` ledger, **checks production is
 still serving before pushing**, pushes, and then samples for five minutes.
 
@@ -129,10 +144,10 @@ This is what `-Run` does. By hand, it is:
 powershell -ExecutionPolicy Bypass -File database/migrate.ps1
 ```
 
-Run the tests (`bash RUN_TESTS.sh`). Then branch production in the Neon console
-(**Branches > New branch**, named for the release) — it is instant, costs
-nothing, and is the only backup step there is. The script cannot do this and
-takes `-BackedUp` as your word that you did. Then:
+Run the tests (`bash RUN_TESTS.sh`). Then branch production — the script does
+this through Neon's API; by hand it is the Neon console's **Branches > New
+branch**, named for the release. It is instant, costs little, and is the only
+backup step there is. Then:
 
 ```powershell
 # 2. production schema, ahead of the code that needs it
