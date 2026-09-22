@@ -1,28 +1,16 @@
 import Link from 'next/link';
-import {
-  fetchShow,
-  fetchClasses,
-  fetchShowJudgesPublic,
-  fetchShowFeesPublic,
-  fetchShowFuturitiesPublic,
-  fetchShowbill,
-} from '@/lib/api';
+import { fetchShow } from '@/lib/api';
 import { unitLabel } from '@/lib/fee-units';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
-import ShowbillDocument, {
-  type ShowbillClassRow,
-  type ShowbillFuturity,
-} from '../_components/ShowbillDocument';
-import UploadedShowbill from '../_components/UploadedShowbill';
 
 /**
  * The show, described.
  *
  * One page, one audience, nothing personal on it. A spectator arriving from the
  * at-the-rail hub and an exhibitor arriving from their show menu are asking the
- * same question here — what is this show, who is judging it, what runs when,
- * what does it cost to enter — and none of that depends on who is reading.
+ * same question here — what is this show, where and when is it, who sanctions
+ * it — and none of that depends on who is reading.
  *
  * It briefly carried the reader's own balance and a button to their entries.
  * Both belong with the reader, not with the show: *What I Owe* is a tile on the
@@ -30,11 +18,11 @@ import UploadedShowbill from '../_components/UploadedShowbill';
  * which is now one screen rather than two.
  *
  * The **show bill** — judges, the class schedule, the fee schedule and the
- * rules — renders below the facts. It had its own tile on the show menu and a
- * page that opened by restating these same facts, which made "what is this
- * show" and "what is in it" two errands instead of one. `/shows/[id]/showbill`
- * survives as the printable copy, reached from the link at the foot of this
- * page and from the at-the-rail hub; it draws the same `ShowbillDocument`.
+ * rules — is not on this page. It was, embedded below the facts, and at a show
+ * that uploaded its own bill that meant a PDF viewer followed by the whole
+ * generated bill again under a second heading: the facts card this page exists
+ * for became the first screen of three. The bill is `/shows/[id]/showbill`, a
+ * tile of its own on the show menu and a link at the foot of this page.
  */
 
 function formatDate(dateStr: string): string {
@@ -60,21 +48,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  // Futurities belong here rather than on the registration screen. The
-  // programme — the awards, the rules its classes run under, how the categories
-  // work, the refund policy — is what somebody reads to decide whether to
-  // enter, and it was being reprinted in full above the four controls they came
-  // to the registration screen to use. `/shows/[id]/showbill` has drawn this
-  // section all along; the omission was that this page never passed it through.
-  const [show, back, allClasses, judges, fees, showbill, futurities] = await Promise.all([
-    fetchShow(id),
-    showHubBack(id),
-    fetchClasses(id),
-    fetchShowJudgesPublic(id),
-    fetchShowFeesPublic(id),
-    fetchShowbill(id),
-    fetchShowFuturitiesPublic(id),
-  ]);
+  const [show, back] = await Promise.all([fetchShow(id), showHubBack(id)]);
 
   const clubs: {
     association_id: string;
@@ -83,12 +57,6 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
     fee_amount_cents: number;
     fee_unit: string;
   }[] = show.sanctioning ?? [];
-
-  // DRAFT classes are the secretary's working copy — not on offer yet, and
-  // publishing one here would advertise a class that may never run.
-  const classes: ShowbillClassRow[] = (allClasses as ShowbillClassRow[]).filter(
-    (c) => (c as unknown as { status: string }).status !== 'DRAFT',
-  );
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -157,45 +125,9 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>
 
-      <h2 className="text-lg font-semibold mt-6 mb-3" style={{ color: 'var(--foreground)' }}>Show Bill</h2>
-      {showbill.effective_source === 'uploaded' && showbill.document && (
-        <div className="mb-6">
-          <UploadedShowbill
-            showId={id}
-            showName={show.name}
-            document={showbill.document}
-            embedded
-          />
-        </div>
-      )}
-
-      {/* The generated document stays on this page whichever bill the show
-          chose. It is drawn from the classes, judges and fees actually on file
-          — the same fee list `GET /shows/{id}/fees/public` charges from — so
-          hiding it behind an uploaded PDF would leave an exhibitor no way to
-          check what they will really be billed. A second heading rather than a
-          silent replacement: the two can disagree, and the reader has to be
-          able to see which is which. */}
-      {showbill.effective_source === 'uploaded' && showbill.document && (
-        <h3 className="text-base font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
-          Classes, judges and fees as entered in this app
-        </h3>
-      )}
-      <ShowbillDocument
-        show={show}
-        classes={classes}
-        judges={judges}
-        fees={fees}
-        futurities={futurities as ShowbillFuturity[]}
-        embedded
-      />
-
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
-        {/* The show's chosen bill with a masthead and a print stylesheet on it.
-            Worth its own route even though the content is above: a program
-            people carry round the grounds on paper is the point of it. */}
         <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: 'var(--accent)' }}>
-          Print or save the show bill →
+          Show bill — judges, classes and fees →
         </Link>
         <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: 'var(--accent)' }}>
           Message the show office →

@@ -8,20 +8,15 @@
  * PDF, because people trust the one they printed.
  *
  * A show may nonetheless supply its own bill (Setup step 9, migration 127), and
- * `UploadedShowbill` renders that. The two do not merge: Show Details prints
- * this one under its own heading whichever the show chose, because it is drawn
- * from the fee list the app actually charges from and an uploaded PDF must not
- * be able to hide it.
+ * `UploadedShowbill` renders that. The two do not merge: `/shows/[id]/showbill`
+ * prints this one beneath the upload, under its own heading, because it is
+ * drawn from the fee list the app actually charges from and an uploaded PDF
+ * must not be able to hide it.
  *
- * Two callers, one document. `/shows/[id]/showbill` renders it whole, with the
- * masthead and the print stylesheet, because that route exists to be printed.
- * Show Details renders it `embedded`, below the facts card — the bill stopped
- * being a tile on the show menu, since "judges, classes, fees and rules" is
- * what somebody opening Show Details is already asking for, and a second click
- * to a near-identical page was the app making them ask twice.
- *
- * `embedded` drops the masthead and **The show** section: they restate the card
- * directly above them. Everything below that is what the bill adds.
+ * Always drawn whole — masthead, **The show** and all. It used to have an
+ * `embedded` mode for Show Details, which printed it below its own facts card;
+ * the bill came off that page, and under an uploaded bill **The show** is the
+ * section carrying the club sanction rates, which are money the app charges.
  */
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
@@ -278,7 +273,6 @@ export default function ShowbillDocument({
   judges,
   fees,
   futurities = [],
-  embedded = false,
 }: {
   // Straight off `fetchShow`, which is untyped — the same shape every other
   // show screen reads it as.
@@ -286,10 +280,8 @@ export default function ShowbillDocument({
   classes: ShowbillClassRow[];
   judges: Judge[];
   fees: Fee[];
-  /** Defaults to empty so the details page, which does not load them, is
-   *  unchanged — and a show with no futurity prints no futurity section. */
+  /** A show with no futurity prints no futurity section. */
   futurities?: ShowbillFuturity[];
-  embedded?: boolean;
 }) {
   const byDay = new Map<string, ShowbillClassRow[]>();
   for (const cls of classes) {
@@ -324,69 +316,64 @@ export default function ShowbillDocument({
     >
       {/* Masthead. Repeated from the page header above because the header is
           screen chrome and does not print — the printed sheet has to say which
-          show it is on its own. Embedded it would be the third time the show
-          name appears in a screenful, so it goes. */}
-      {!embedded && (
-        <header className="text-center pb-4 mb-2 border-b-2" style={{ borderColor: 'var(--accent)' }}>
-          <h1 className="text-3xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
-          <p className="text-sm mt-2" style={{ color: 'var(--text-deep)' }}>
-            {formatShortDate(show.start_date)}
-            {show.end_date !== show.start_date && <> – {formatShortDate(show.end_date)}</>}
+          show it is on its own. */}
+      <header className="text-center pb-4 mb-2 border-b-2" style={{ borderColor: 'var(--accent)' }}>
+        <h1 className="text-3xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-deep)' }}>
+          {formatShortDate(show.start_date)}
+          {show.end_date !== show.start_date && <> – {formatShortDate(show.end_date)}</>}
+        </p>
+        {show.venue && (
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-deep)' }}>{show.venue}</p>
+        )}
+        {(show.show_type_code || clubs.length > 0) && (
+          <p className="text-xs mt-2 font-mono font-semibold" style={{ color: 'var(--accent)' }}>
+            {[show.show_type_code, ...clubs.map((c) => c.code)].filter(Boolean).join(' · ')}
           </p>
-          {show.venue && (
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-deep)' }}>{show.venue}</p>
-          )}
-          {(show.show_type_code || clubs.length > 0) && (
-            <p className="text-xs mt-2 font-mono font-semibold" style={{ color: 'var(--accent)' }}>
-              {[show.show_type_code, ...clubs.map((c) => c.code)].filter(Boolean).join(' · ')}
-            </p>
-          )}
-        </header>
-      )}
+        )}
+      </header>
 
-      {!embedded && (
-        <Section title="The show">
-          <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
-            <Fact label="Dates">
-              {formatDate(show.start_date)}
-              {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
+      <Section title="The show">
+        <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
+          <Fact label="Dates">
+            {formatDate(show.start_date)}
+            {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
+          </Fact>
+          {show.venue && <Fact label="Location">{show.venue}</Fact>}
+          <Fact label="Show type">
+            {show.show_type_name
+              ? `${show.show_type_name}${show.show_type_code ? ` (${show.show_type_code})` : ''}`
+              : (show.show_type_code ?? 'Open')}
+          </Fact>
+          {show.affiliations?.length > 0 && (
+            <Fact label="Approved by">
+              {show.affiliations.map((a: { show_type_code: string; show_type_name?: string }) =>
+                a.show_type_name ? `${a.show_type_name} (${a.show_type_code})` : a.show_type_code,
+              ).join(', ')}
             </Fact>
-            {show.venue && <Fact label="Location">{show.venue}</Fact>}
-            <Fact label="Show type">
-              {show.show_type_name
-                ? `${show.show_type_name}${show.show_type_code ? ` (${show.show_type_code})` : ''}`
-                : (show.show_type_code ?? 'Open')}
+          )}
+          {clubs.length > 0 && (
+            <Fact label="Sanctioned by">
+              <ul className="space-y-0.5">
+                {clubs.map((club) => (
+                  <li key={club.association_id}>
+                    {club.name} ({club.code})
+                    {club.fee_amount_cents > 0 && (
+                      <span style={{ color: 'var(--muted)' }}>
+                        {' '}— {formatMoney(club.fee_amount_cents)}{' '}
+                        {unitLabel(club.fee_unit)}, on the classes marked{' '}
+                        {club.code} below
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </Fact>
-            {show.affiliations?.length > 0 && (
-              <Fact label="Approved by">
-                {show.affiliations.map((a: { show_type_code: string; show_type_name?: string }) =>
-                  a.show_type_name ? `${a.show_type_name} (${a.show_type_code})` : a.show_type_code,
-                ).join(', ')}
-              </Fact>
-            )}
-            {clubs.length > 0 && (
-              <Fact label="Sanctioned by">
-                <ul className="space-y-0.5">
-                  {clubs.map((club) => (
-                    <li key={club.association_id}>
-                      {club.name} ({club.code})
-                      {club.fee_amount_cents > 0 && (
-                        <span style={{ color: 'var(--muted)' }}>
-                          {' '}— {formatMoney(club.fee_amount_cents)}{' '}
-                          {unitLabel(club.fee_unit)}, on the classes marked{' '}
-                          {club.code} below
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </Fact>
-            )}
-            {show.apha_show_number && <Fact label="APHA show #">{show.apha_show_number}</Fact>}
-            {show.aqha_show_number && <Fact label="AQHA show #">{show.aqha_show_number}</Fact>}
-          </div>
-        </Section>
-      )}
+          )}
+          {show.apha_show_number && <Fact label="APHA show #">{show.apha_show_number}</Fact>}
+          {show.aqha_show_number && <Fact label="AQHA show #">{show.aqha_show_number}</Fact>}
+        </div>
+      </Section>
 
       {judges.length > 0 && (
         <Section title={judges.length === 1 ? 'Judge' : 'Judges'}>

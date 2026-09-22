@@ -2,6 +2,30 @@
 
 ## September 2026
 
+### The Show Bill Comes Off Show Details
+
+Show Details went back to being the facts card — venue, dates, show type,
+sanctioning clubs, shavings — with links to the show bill and the show office.
+The bill had been folded into it, which made the facts the first screen of a
+long page, and at a show that uploaded its own bill the first of three: the
+facts, a PDF viewer, then the whole generated bill again under a second heading.
+
+- **The bill is `/shows/[id]/showbill`, and nowhere else.** It is a tile on the
+  exhibitor hub again (between Class Schedule and Show Details), and the
+  signed-out show page's one link now goes to it rather than to Details — the
+  facts Details has left are the Event Details card that page already prints.
+  The registration screen's link goes there too.
+- **An uploaded bill still hides nothing.** Show Details was what carried that
+  rule, by printing the generated bill whichever the show chose. It moved with
+  the bill: the show bill page now prints the generated document beneath an
+  uploaded one, under *Classes, judges and fees as entered in this app*, where
+  it used to show the upload alone and link out to Details for the fee list.
+  One side effect is that the futurity card's *Full futurity programme* link
+  (`#futurities`) resolves at every show, uploaded bill or not.
+- `ShowbillDocument` and `UploadedShowbill` lost their `embedded` modes, which
+  only Show Details used. The generated bill is always drawn whole, because
+  under an upload *The show* is the section carrying the club sanction rates.
+
 ### Live Screens: A Page Of Its Own, And A Marquee The Office Can Write
 
 Four changes from running the board at a show.

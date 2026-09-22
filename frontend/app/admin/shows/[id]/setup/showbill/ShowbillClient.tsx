@@ -355,9 +355,10 @@ export default function ShowbillClient({
           className="rounded border px-3 py-2 text-xs"
           style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft, color: COLORS.warn }}
         >
-          Whichever you choose, the class schedule and the fee list stay on Show Details —
-          they are what this app charges from, and an uploaded show bill does not change
-          what an exhibitor is billed.
+          Whichever you choose, the show bill page still prints the class schedule and the
+          fee list as entered here — beneath your file, if you upload one — because they are
+          what this app charges from, and an uploaded show bill does not change what an
+          exhibitor is billed.
         </div>
       </section>
     </div>

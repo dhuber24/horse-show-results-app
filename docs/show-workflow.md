@@ -92,8 +92,7 @@ That fee is charged **only on the classes the club actually approves** (`class_s
 ### The Show Bill: Generated Or Uploaded
 
 The app has always drawn the show bill from the show's own records —
-`/shows/[id]/showbill`, and the same document embedded on Show Details — and
-that remains the default and the recommendation. A generated bill cannot fall
+`/shows/[id]/showbill` — and that remains the default and the recommendation. A generated bill cannot fall
 out of date with the schedule it describes: a secretary who adds a class or
 moves a fee has already updated it.
 
@@ -114,8 +113,10 @@ Three rules keep the hazard visible rather than dismissing it:
   sequence to hand somebody mid-setup. Readers still resolve rather than trust:
   `GET` returns `effective_source` beside `source` and every renderer uses the
   former, because the one thing a show bill must never be is blank.
-- **An uploaded bill hides nothing.** Show Details prints the generated document
-  under its own heading whichever bill the show chose. That document is drawn
+- **An uploaded bill hides nothing.** The show bill page prints the generated
+  document beneath the upload, under its own heading. (Show Details did this
+  while it carried the bill inline; the bill came off Details and the rule came
+  with it.) That document is drawn
   from the fee list `GET /shows/{id}/fees/public` charges from, so hiding it
   behind an uploaded PDF would leave an exhibitor with no way to check what they
   will actually be billed. A show chooses what the *button* shows; it does not

@@ -765,11 +765,11 @@ export default function RegisterShowForm({
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t text-sm font-medium"
           style={{ borderColor: 'var(--border-subtle)' }}>
           <Link
-            href={`/shows/${showId}/details`}
+            href={`/shows/${showId}/showbill`}
             className="hover:underline"
             style={{ color: 'var(--accent)' }}
           >
-            Show details &amp; show bill →
+            Show bill &amp; fee schedule →
           </Link>
           <Link
             href={`/shows/${showId}/schedule`}

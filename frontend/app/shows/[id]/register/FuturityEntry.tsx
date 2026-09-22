@@ -485,7 +485,7 @@ function FuturityCard({
           use. */}
       <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
         <Link
-          href={`/shows/${showId}/details#futurities`}
+          href={`/shows/${showId}/showbill#futurities`}
           className="font-medium hover:underline"
           style={{ color: 'var(--accent)' }}
         >

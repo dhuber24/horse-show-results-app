@@ -18,10 +18,11 @@ Two rules keep the hazard where it can be seen:
     CHECK cannot see another table. Deleting the document resets the column in
     the same transaction, and `GET` reports `effective_source` beside `source`
     so no reader can be handed an empty frame.
-  * **An uploaded bill never hides the app's own data.** Show Details goes on
-    rendering the generated document below the show's facts, because that is the
-    price list `GET /shows/{id}/fees/public` charges from, and the class schedule
-    stays one link away. The show decides what the *button* shows.
+  * **An uploaded bill never hides the app's own data.** The show bill page
+    renders the generated document beneath the upload, under its own heading,
+    because that is the price list `GET /shows/{id}/fees/public` charges from.
+    The show decides what the *button* shows first, not what it is allowed to
+    leave out.
 """
 
 from uuid import UUID

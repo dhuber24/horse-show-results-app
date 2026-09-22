@@ -17,16 +17,24 @@ import ShowbillActions from './ShowbillActions';
 /**
  * The show bill as a document you can take away.
  *
- * Two shapes, one destination. Most shows use the bill the app generates: the
- * sheet is `ShowbillDocument`, shared with Show Details, and what this route
- * adds is the part Details cannot do — a masthead, a print stylesheet, and the
- * buttons that turn the page into a PDF or a spreadsheet. See `ShowbillActions`
- * for why print-to-PDF rather than a server-side renderer.
+ * Two shapes, one destination. Most shows use the bill the app generates:
+ * `ShowbillDocument`, with a print stylesheet and the buttons that turn the page
+ * into a PDF or a spreadsheet. See `ShowbillActions` for why print-to-PDF rather
+ * than a server-side renderer.
  *
  * A show that uploaded its own bill (Setup step 9, migration 127) gets that
- * instead, through `UploadedShowbill`. The branch is on `effective_source`, not
- * on the show's stored choice: a show pointed at a file that is not on record
- * falls back to the generated bill rather than rendering an empty frame.
+ * first, through `UploadedShowbill` — **and the generated bill beneath it**,
+ * under a heading of its own. The generated one is drawn from the classes,
+ * judges and fees actually on file, the same fee list the app charges from, so
+ * letting an upload replace it would leave an exhibitor no way to check what
+ * they will really be billed. A second heading rather than a silent swap: the
+ * two can disagree, and the reader has to see which is which. Show Details used
+ * to carry this guarantee by printing the generated bill itself; this is the
+ * only page the bill is on now, so the guarantee lives here.
+ *
+ * The branch is on `effective_source`, not on the show's stored choice: a show
+ * pointed at a file that is not on record falls back to the generated bill
+ * rather than rendering an empty frame.
  */
 
 /** Print rules. Kept on the page rather than in globals.css because they only
@@ -72,39 +80,42 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
       </div>
 
       {uploaded && showbill.document ? (
-        <UploadedShowbill
-          showId={id}
-          showName={show.name}
-          document={showbill.document}
-          // The class list is about the schedule in this app, not about which
-          // bill the show publishes — it stays on offer either way.
-          actions={<ClassListCsvButton showName={show.name} classes={classes} />}
-        />
-      ) : (
         <>
-          <ShowbillActions showName={show.name} classes={classes} />
-
-          <ShowbillDocument
-            show={show}
-            classes={classes}
-            judges={judges}
-            fees={fees}
-            futurities={futurities}
+          <UploadedShowbill
+            showId={id}
+            showName={show.name}
+            document={showbill.document}
+            // The class list is about the schedule in this app, not about which
+            // bill the show publishes — it stays on offer either way.
+            actions={<ClassListCsvButton showName={show.name} classes={classes} />}
           />
-
-          <div className="no-print mt-5 flex flex-wrap gap-3 text-sm font-medium">
-            <Link href={`/shows/${id}/details`} className="hover:underline" style={{ color: 'var(--accent)' }}>
-              Show details →
-            </Link>
-            <Link href={`/shows/${id}/schedule`} className="hover:underline" style={{ color: 'var(--accent)' }}>
-              Class schedule →
-            </Link>
-            <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: 'var(--accent)' }}>
-              Message the show office →
-            </Link>
-          </div>
+          <h2 className="text-base font-semibold mt-6 mb-2" style={{ color: 'var(--foreground)' }}>
+            Classes, judges and fees as entered in this app
+          </h2>
         </>
+      ) : (
+        <ShowbillActions showName={show.name} classes={classes} />
       )}
+
+      <ShowbillDocument
+        show={show}
+        classes={classes}
+        judges={judges}
+        fees={fees}
+        futurities={futurities}
+      />
+
+      <div className="no-print mt-5 flex flex-wrap gap-3 text-sm font-medium">
+        <Link href={`/shows/${id}/details`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+          Show details →
+        </Link>
+        <Link href={`/shows/${id}/schedule`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+          Class schedule →
+        </Link>
+        <Link href={`/shows/${id}/contact`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+          Message the show office →
+        </Link>
+      </div>
     </main>
   );
 }

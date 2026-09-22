@@ -112,20 +112,27 @@ export default function ExhibitorShowHub({
         : 'Classes by day and ring, once they are posted.',
   });
 
-  // Show Bill was a tile of its own, next to this one, opening on a page whose
-  // first section restated the dates, venue, show type and clubs that Show
-  // Details already carries. Two tiles, two clicks, one answer. The bill now
-  // renders below the facts on Show Details, and the printable copy is a link
-  // at the foot of it — print is a real errand, but it is not a menu item.
-  // Always offered, registered or not. What a show is, who is judging it, what
-  // runs when and what it costs are the questions somebody asks *before*
-  // deciding to enter, so gating them behind a registration would hide the
-  // page at exactly the moment it is useful.
+  // Both always offered, registered or not. What a show is, who is judging it,
+  // what runs when and what it costs are the questions somebody asks *before*
+  // deciding to enter, so gating them behind a registration would hide them at
+  // exactly the moment they are useful.
+  //
+  // The bill was folded into Show Details for a while, which made the facts
+  // card the first screen of a very long page — three, at a show that uploaded
+  // its own bill. It is its own tile again; the bill's opening section restates
+  // the facts, which is what a printed programme has to do anyway.
+  tiles.push({
+    href: `/shows/${showId}/showbill`,
+    icon: '📜',
+    title: 'Show Bill',
+    description: 'Judges, the class schedule, the fee schedule and the rules.',
+  });
+
   tiles.push({
     href: `/shows/${showId}/details`,
     icon: 'ℹ️',
     title: 'Show Details',
-    description: 'Dates, location, clubs, judges, the class schedule and the fee schedule.',
+    description: 'Dates, location, show type and sanctioning clubs.',
   });
 
   if (resultsWorthShowing) {

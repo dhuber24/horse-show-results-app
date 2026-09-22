@@ -10,12 +10,13 @@ import Link from 'next/link';
  * you're packing the trailer, so it lives on the sign-up screen where the bags
  * are ordered.
  *
- * **Show Details is offered to everyone, account or not.** What a show is, who
- * is judging it, what runs when and what it costs are the questions somebody
- * asks *before* deciding to enter, so putting the answer behind a registration
- * hides it at exactly the moment it is useful. `/shows/[id]/details` was
- * already public — every fetcher behind it is anonymous — but nothing on this
- * page linked to it, which came to the same thing.
+ * **The show bill is offered to everyone, account or not.** Who is judging a
+ * show, what runs when and what it costs are the questions somebody asks
+ * *before* deciding to enter, so putting the answer behind a registration hides
+ * it at exactly the moment it is useful. `/shows/[id]/showbill` is public —
+ * every fetcher behind it is anonymous. This link used to go to Show Details,
+ * which printed the bill below its facts card; the bill came off that page, and
+ * the facts it has left are the Event Details card already on this one.
  *
  * This is the *browsing* path only. `/shows/[id]/live`, `/schedule` and
  * `/results` stay open to everyone, because those are the at-the-rail screens
@@ -102,12 +103,12 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
           judges and the class list are what somebody reads in order to decide
           whether to press Register at all. */}
       <Link
-        href={`/shows/${showId}/details`}
+        href={`/shows/${showId}/showbill`}
         className="mt-6 block rounded-lg border p-4 transition hover:bg-amber-50"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
       >
         <div className="font-semibold" style={{ color: 'var(--foreground)' }}>
-          Show details &amp; show bill →
+          Show bill →
         </div>
         <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
           Judges, the class schedule, and the full fee schedule. No account needed.

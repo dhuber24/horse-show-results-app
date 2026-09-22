@@ -1,5 +1,3 @@
-import Link from 'next/link';
-
 /**
  * The show's own show bill, when the show chose to supply one (migration 127).
  *
@@ -14,9 +12,10 @@ import Link from 'next/link';
  *     that would need `updated_at` on classes, fees and judges, and none of them
  *     carries one. Printing the date is the honest substitute — a reader can see
  *     for themselves that the bill predates the schedule.
- *   * It **always links out to the live schedule and fee list**, which are what
- *     the app actually charges from. A show gets to choose what this button
- *     shows; it does not get to make the live data unreachable.
+ *   * It **points below itself, at the generated bill**, which the show bill page
+ *     always prints beneath it: that is the schedule and fee list the app
+ *     actually charges from. A show gets to choose what this button shows; it
+ *     does not get to make the live data unreachable.
  *   * It **offers the file for download**, because a browser that will not draw
  *     a PDF inline is common on a phone at a horse show, and an empty grey box
  *     with no way out is worse than no viewer at all.
@@ -45,16 +44,11 @@ export default function UploadedShowbill({
   showId,
   showName,
   document: doc,
-  embedded = false,
   actions,
 }: {
   showId: string;
   showName: string;
   document: ShowbillDoc;
-  /** Drops the outward links — the caller already carries them. Show Details
-   *  renders this above its own copy of the generated bill, so repeating
-   *  "see the class schedule" there would point at the page it is already on. */
-  embedded?: boolean;
   /** Anything else that belongs in the button row. The show bill page puts the
    *  class-list CSV here: the export is about the schedule in this app, not
    *  about which bill the show publishes, so it must not disappear because the
@@ -91,7 +85,7 @@ export default function UploadedShowbill({
         {showName}&rsquo;s own show bill
         {uploaded ? `, uploaded ${uploaded}` : ''} — {doc.original_filename} (
         {formatBytes(doc.file_size)}). Classes, fees and judges may have changed
-        since; the schedule and fee list in this app are the current ones.
+        since; the schedule and fee list below are the current ones.
       </p>
 
       <div
@@ -114,32 +108,6 @@ export default function UploadedShowbill({
           />
         )}
       </div>
-
-      {!embedded && (
-        <div className="no-print mt-5 flex flex-wrap gap-3 text-sm font-medium">
-          <Link
-            href={`/shows/${showId}/schedule`}
-            className="hover:underline"
-            style={{ color: 'var(--accent)' }}
-          >
-            Class schedule as entered →
-          </Link>
-          <Link
-            href={`/shows/${showId}/details`}
-            className="hover:underline"
-            style={{ color: 'var(--accent)' }}
-          >
-            Show details and fee schedule →
-          </Link>
-          <Link
-            href={`/shows/${showId}/contact`}
-            className="hover:underline"
-            style={{ color: 'var(--accent)' }}
-          >
-            Message the show office →
-          </Link>
-        </div>
-      )}
     </div>
   );
 }
