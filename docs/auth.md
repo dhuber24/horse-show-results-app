@@ -215,6 +215,23 @@ Two deliberate exceptions:
 - **Show staff at the desk.** `POST /shows/{id}/exhibitors/{exhibitor_id}/horses` creates a horse *owned by the exhibitor standing in front of them*, scoped to that show's roster, with `created_by_user_id` recording the staff member — the owner's instruction typed by staff, not staff acting on their own, and they cannot `PATCH` it afterwards. `StaffHorseCreate` still inherits the trainer fields from the shared base, so the endpoint would accept one; `StaffAddHorseForm` has no trainer input, so nothing sends one today.
 - **A trainer disowning a false claim.** `DELETE /trainers/me/horses/{horse_id}` clears `trainer_id` when the horse currently names the calling trainer. It only ever removes an assertion someone else made about them.
 
+### Who May Create An Exhibitor, And Who May Join Two
+
+Creating an exhibitor record used to be `ADMIN` alone (`POST /exhibitors/`, and `_ensure_role_profile` when somebody signs up). Since migration 140 the show office does it too: `POST /shows/{id}/desk/exhibitors/new` is the show-office tier (`ADMIN` / `SHOW_MANAGER` / `SHOW_SECRETARY` assigned to *that* show) and takes a first and last name. It is the same reach as staff creating a horse and taking an emergency contact — granted because the person is standing in front of them at their show, not because of staff rank.
+
+**It creates no `users` row.** A login belongs to the person who will sign in to it, and the office has no business inventing an email address and a password for somebody who has not asked for either. The record carries `created_by_user_id` so it is distinguishable from the accountless seed rows the pickers exclude, and `email` as a contact detail that is never a credential.
+
+The consequence worth stating, because it is the first thing anybody trips over: **an exhibitor record is not a user, and `/admin/users` will never list one of these people.** That screen is logins and roles. Every exhibitor *record* — with or without an account — is at `/admin/exhibitors` (`GET /exhibitors/registry`, show-office tier to read), filterable by whether it has a login and whether staff typed it in. A record nobody can find is one the office types in again, so the absence of that list was itself a source of duplicates. Renaming an accountless record is offered there too, since nothing else offers it; a record *with* an account takes its name from `users.first_name`/`last_name` through `_sync_linked_exhibitor_name`, so that rename belongs under Users.
+
+Joining two records of one person ([backend/exhibitor_merge.py](../backend/exhibitor_merge.py)) has two doors and one implementation:
+
+- **The desk** — `POST /shows/{id}/desk/exhibitors/{id}/merge`, show-office tier, needing **at least one** of the two records on that show's roster. Not both: the case it exists for is an office record from an earlier show meeting the account its owner opened afterwards, and that old record is not on this roster.
+- **An admin** — `POST /exhibitors/{id}/merge`, `ADMIN` only, any two records, from `/admin/exhibitors`. Two ways in on that screen: the *On file more than once* section, which lists pairs `GET /exhibitors/duplicates` **spotted** (a shared name or email, never an accountless row nobody claims), and *Join with…* on any two rows of the registry below it — for the pairs nothing spotted, which is most of the interesting ones.
+
+The one behavioural difference between them is deliberate: **the desk refuses two records that both hold a login** (`409 TWO_ACCOUNTS`). Deciding which of somebody's two accounts is the real one is not a registration-counter question, and the account left holding nothing after an admin merges is an ordinary one to close from Users. `GET /exhibitors/duplicates` and `/{id}/merge-candidates` are readable by the show-office tier so staff can *see* a duplicate they cannot resolve.
+
+Whichever door, **the login moves to the surviving record** if only the removed one had it. A merge that left somebody unable to sign in to their own entries would be worse than the duplicate it fixed.
+
 ## Sharp Edges
 
 - Do not trust client-provided role or user IDs from browser code. Only server-side Next route handlers should attach backend auth headers.

@@ -1,7 +1,7 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, union, func, or_
+from sqlalchemy import select, union, func, or_, and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, load_only
 from uuid import UUID
@@ -16,7 +16,7 @@ from routers.horse_access import approval_url, build_access_request, notify_requ
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
 from staff_certifications import plan_certification_changes
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry
 from schemas import (
     UserCreate, UserOut,
     CreatedHorseResult,
@@ -27,8 +27,10 @@ from schemas import (
     ExhibitorCreate, ExhibitorUpdate, ExhibitorOut, ExhibitorCreateWithUser,
     ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate, ExhibitorRegistrationOut,
     ExhibitorCompetitionCardCreate, ExhibitorCompetitionCardUpdate, ExhibitorCompetitionCardOut,
+    ExhibitorMergeCandidate, ExhibitorMergeRequest, ExhibitorMergeResult, ExhibitorRegistryRow,
     StaffCertificationOut, StaffCertificationsReplace,
 )
+from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
 
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER", "JUDGE"}
 
@@ -1251,25 +1253,243 @@ def _dedup_exhibitors(rows: list) -> list:
 class ExhibitorBasic(BaseModel):
     id: UUID
     full_name: str
+    #: Whether this record has a login behind it. A picker showing two people of
+    #: one name needs to say which is which, and this is the difference.
+    has_account: bool = False
+    #: Typed in by show staff rather than created by somebody signing up
+    #: (migration 140).
+    office_record: bool = False
 
     class Config:
         from_attributes = True
 
 
+def _exhibitor_basic(exhibitor) -> ExhibitorBasic:
+    return ExhibitorBasic(
+        id=exhibitor.id,
+        full_name=exhibitor.full_name,
+        has_account=exhibitor.user_id is not None,
+        office_record=exhibitor.user_id is None and exhibitor.created_by_user_id is not None,
+    )
+
+
 @exhibitors_router.get("/names", response_model=list[ExhibitorBasic])
 async def list_exhibitor_names(
+    dedupe: bool = Query(
+        True,
+        description=(
+            "Collapse records sharing a name, keeping the account-linked one. Right for "
+            "an owner picker; wrong for the registration desk, which has to be able to "
+            "see both records of somebody who is on the app twice and merge them."
+        ),
+    ),
+    accounts_only: bool = Query(
+        False,
+        description=(
+            "Only records with a login. For a picker whose action needs the person to "
+            "press something -- a horse transfer has to be accepted, and an approver "
+            "with no account can never accept it, so offering one is offering a "
+            "refusal. Owning a horse needs no account, so an owner picker leaves this off."
+        ),
+    ),
     user_id: str = Depends(require_authenticated),
     db: AsyncSession = Depends(get_db),
 ):
-    """Minimal name+id list for owner-selection dropdowns. Only returns exhibitors with a
-    linked user account — orphaned/test records without accounts are excluded. Use the
-    'Enter owner information' mode for owners who don't have an account."""
+    """Minimal name+id list for owner-selection dropdowns.
+
+    Two kinds of record qualify, and the second is why this is not simply
+    `user_id IS NOT NULL` any more. A person with an **account** is somebody the
+    app knows about because they told it. A person a member of staff **typed in
+    at a registration desk** (`created_by_user_id`, migration 140) is somebody
+    the app knows about because a show does — they have entries, a back number
+    and a bill, and leaving them out of every picker would mean the office
+    typing the same walk-up in again at the next show.
+
+    What stays excluded is a record with neither: an accountless row nobody
+    claims responsibility for is seed data or the leftover of a deleted account,
+    and offering it as a horse's owner is how a horse ends up on a profile
+    nobody can reach. Use the 'Enter owner information' mode for owners who have
+    no record at all.
+    """
+    qualifies = (
+        Exhibitor.user_id.is_not(None)
+        if accounts_only
+        else or_(Exhibitor.user_id.is_not(None), Exhibitor.created_by_user_id.is_not(None))
+    )
     result = await db.execute(
-        select(Exhibitor)
-        .where(Exhibitor.user_id.is_not(None))
+        select(Exhibitor).where(qualifies).order_by(Exhibitor.full_name)
+    )
+    rows = list(result.scalars().all())
+    return [_exhibitor_basic(row) for row in (_dedup_exhibitors(rows) if dedupe else rows)]
+
+
+@exhibitors_router.get(
+    "/registry",
+    response_model=list[ExhibitorRegistryRow],
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def list_exhibitor_registry(
+    q: Optional[str] = Query(None, max_length=200, description="Match on name or email."),
+    scope: str = Query(
+        "all",
+        pattern="^(all|office|no_account|accounts)$",
+        description="all | office (typed in by staff) | no_account | accounts",
+    ),
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every exhibitor *record*, which is not the same list as every user.
+
+    `/admin/users` is logins — roles, approval, passwords — and a person the
+    show office typed in at a desk has none of that, deliberately: an account
+    belongs to whoever will sign in to it. So from migration 140 onwards there
+    are real exhibitors that screen will never show, and until this endpoint
+    there was nowhere in the app that did. A record the office cannot find is
+    one it types in again, which is the duplicate this whole feature is trying
+    to avoid making.
+
+    Deliberately **not deduplicated**. `/exhibitors/names` collapses records
+    sharing a name because an owner picker wants one row per person; a registry
+    is asking which records exist, and hiding one behind another is the exact
+    question it was opened to answer.
+
+    The counts come from two aggregates over the whole result rather than a
+    query per row: this list is read at a screen somebody is scrolling.
+    """
+    conditions = []
+    if scope == "office":
+        conditions.append(
+            and_(Exhibitor.user_id.is_(None), Exhibitor.created_by_user_id.is_not(None))
+        )
+    elif scope == "no_account":
+        conditions.append(Exhibitor.user_id.is_(None))
+    elif scope == "accounts":
+        conditions.append(Exhibitor.user_id.is_not(None))
+
+    if q and q.strip():
+        needle = f"%{q.strip().lower()}%"
+        conditions.append(
+            or_(
+                func.lower(Exhibitor.full_name).like(needle),
+                func.lower(Exhibitor.email).like(needle),
+                func.lower(User.email).like(needle),
+            )
+        )
+
+    query = select(Exhibitor, User).outerjoin(User, User.id == Exhibitor.user_id)
+    if conditions:
+        query = query.where(and_(*conditions))
+    result = await db.execute(query.order_by(Exhibitor.full_name).limit(limit))
+    rows = result.all()
+    ids = [exhibitor.id for exhibitor, _ in rows]
+    if not ids:
+        return []
+
+    show_counts = dict(
+        (
+            await db.execute(
+                select(ShowEntry.exhibitor_id, func.count())
+                .where(ShowEntry.exhibitor_id.in_(ids))
+                .group_by(ShowEntry.exhibitor_id)
+            )
+        ).all()
+    )
+    entry_counts = dict(
+        (
+            await db.execute(
+                select(Entry.exhibitor_id, func.count())
+                .where(Entry.exhibitor_id.in_(ids))
+                .group_by(Entry.exhibitor_id)
+            )
+        ).all()
+    )
+
+    return [
+        ExhibitorRegistryRow(
+            id=exhibitor.id,
+            full_name=exhibitor.full_name,
+            email=(user.email if user and user.email else exhibitor.email),
+            has_account=exhibitor.user_id is not None,
+            office_record=exhibitor.user_id is None and exhibitor.created_by_user_id is not None,
+            created_at=exhibitor.created_at,
+            shows=int(show_counts.get(exhibitor.id, 0)),
+            class_entries=int(entry_counts.get(exhibitor.id, 0)),
+        )
+        for exhibitor, user in rows
+    ]
+
+
+@exhibitors_router.get("/duplicates", dependencies=[Depends(require_admin_or_show_admin)])
+async def list_duplicate_exhibitors(db: AsyncSession = Depends(get_db)):
+    """People who are on file more than once, grouped, strongest reason first.
+
+    The screen behind `POST /exhibitors/{id}/merge`. Everything else here
+    answers a question about one record; this is the only place that asks which
+    records ought not both to exist, and it exists because the commonest
+    duplicate in this app is now one it creates on purpose — the office types
+    somebody in at a show, and that person opens an account afterwards.
+
+    Two groupings, and they are not equally good. An **email** shared between
+    two records is the office having written down the address one of them was
+    later opened with. A **name** shared between two records is no evidence at
+    all: there are two Sarah Johnsons at plenty of shows, and the desk has
+    grouped on it for display since it was built precisely *without* merging
+    them. Both are listed, labelled, and neither is acted on.
+
+    Accountless records nobody claims are left out for the same reason the name
+    pickers leave them out: a seed leftover sharing a name with a real person is
+    not a duplicate anybody should be invited to merge.
+    """
+    result = await db.execute(
+        select(Exhibitor, User)
+        .outerjoin(User, User.id == Exhibitor.user_id)
+        .where(or_(Exhibitor.user_id.is_not(None), Exhibitor.created_by_user_id.is_not(None)))
         .order_by(Exhibitor.full_name)
     )
-    return _dedup_exhibitors(list(result.scalars().all()))
+    rows = result.all()
+
+    by_email: dict[str, list] = {}
+    by_name: dict[str, list] = {}
+    for exhibitor, user in rows:
+        email = ((user.email if user and user.email else exhibitor.email) or "").strip().lower()
+        if email:
+            by_email.setdefault(email, []).append(exhibitor)
+        name = " ".join((exhibitor.full_name or "").split()).lower()
+        if name:
+            by_name.setdefault(name, []).append(exhibitor)
+
+    groups: list[dict] = []
+    claimed: set[UUID] = set()
+
+    async def _pack(members: list, reason: str, label: str) -> dict:
+        return {
+            "reason": reason,
+            "label": label,
+            "records": [
+                {
+                    **_exhibitor_basic(member).model_dump(),
+                    "email": member.email,
+                    "created_at": member.created_at,
+                    "summary": await merge_summary(member.id, db),
+                }
+                for member in members
+            ],
+        }
+
+    for email, members in by_email.items():
+        if len(members) > 1:
+            groups.append(await _pack(members, "email", email))
+            claimed.update(m.id for m in members)
+
+    for name, members in by_name.items():
+        # Skip a name group already covered by an email group: the same pair
+        # listed twice reads as four people to reconcile rather than two.
+        remaining = [m for m in members if m.id not in claimed]
+        if len(remaining) > 1:
+            groups.append(await _pack(remaining, "name", members[0].full_name))
+
+    groups.sort(key=lambda g: (0 if g["reason"] == "email" else 1, g["label"].lower()))
+    return groups
 
 
 @exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin_or_show_admin)])
@@ -1803,6 +2023,84 @@ async def link_exhibitor(exhibitor_id: UUID, body: ExhibitorLink, db: AsyncSessi
     await db.commit()
     await db.refresh(exhibitor)
     return exhibitor
+
+# ── Merging two records of one person ─────────────────────────────────────────
+#
+# The desk has its own pair of these (`routers/show_desk.py`), scoped to the
+# show its staff are working and refusing two records that both hold accounts.
+# These are the admin's, and the difference is reach rather than behaviour: the
+# merge itself is `exhibitor_merge.merge_exhibitors` either way, because what a
+# merge leaves behind must not depend on who pressed it -- the same rule that
+# makes the exhibitor's cancellation and the office's one implementation.
+
+
+@exhibitors_router.get(
+    "/{exhibitor_id}/merge-candidates",
+    response_model=list[ExhibitorMergeCandidate],
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def list_merge_candidates(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Records that might be the same person as this one, and what each holds.
+
+    Ranked, never filtered, and never acted on: an email the office wrote down
+    matching the one an account was opened with is the best reason this app can
+    offer, and it is still a reason to ask somebody rather than a finding.
+    """
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    candidates = await merge_candidates(exhibitor, db)
+    for candidate in candidates:
+        candidate["summary"] = await merge_summary(candidate["exhibitor_id"], db)
+    return candidates
+
+
+@exhibitors_router.get(
+    "/{exhibitor_id}/merge-summary",
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def get_merge_summary(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    """What this record is carrying — read before deciding which one to keep."""
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+    return await merge_summary(exhibitor_id, db)
+
+
+@exhibitors_router.post(
+    "/{exhibitor_id}/merge",
+    response_model=ExhibitorMergeResult,
+    dependencies=[Depends(require_admin)],
+)
+async def merge_exhibitor(
+    exhibitor_id: UUID,
+    body: ExhibitorMergeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Fold one exhibitor record into another. The one in the path stays.
+
+    Admin-only, and with none of the desk's guard rails: any two records,
+    including two that each hold a login. That last case is the reason this
+    exists separately — somebody who made a second account is a real thing, the
+    merge moves every entry onto one record, and the account left holding
+    nothing is then an ordinary account to close from Users. A registration desk
+    has no business deciding which of somebody's two logins is the real one.
+
+    Which record survives is the caller's call. The login is not: an account on
+    the record being removed moves across, because a merge that left somebody
+    unable to sign in to their own entries would be worse than the duplicate.
+    """
+    keep = await db.get(Exhibitor, exhibitor_id)
+    remove = await db.get(Exhibitor, body.remove_exhibitor_id)
+    if not keep or not remove:
+        raise HTTPException(404, "Exhibitor not found")
+    if keep.id == remove.id:
+        raise HTTPException(422, "Pick two different records to merge.")
+
+    result = await merge_exhibitors(keep, remove, db)
+    await db.commit()
+    return result
+
 
 @exhibitors_router.delete("/{exhibitor_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):

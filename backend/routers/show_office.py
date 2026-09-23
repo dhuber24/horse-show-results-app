@@ -149,7 +149,11 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
         .options(
             selectinload(ShowEntry.exhibitor)
             .selectinload(Exhibitor.registrations)
-            .selectinload(ExhibitorRegistration.association)
+            .selectinload(ExhibitorRegistration.association),
+            # For the contact block: where the row is linked to an account,
+            # that account's address is the authority. An unloaded relationship
+            # here is lazy IO in an async request, so it is asked for by name.
+            selectinload(ShowEntry.exhibitor).selectinload(Exhibitor.user),
         )
         .where(ShowEntry.show_id == show_id)
     )
@@ -166,6 +170,7 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
             selectinload(Entry.exhibitor)
             .selectinload(Exhibitor.registrations)
             .selectinload(ExhibitorRegistration.association),
+            selectinload(Entry.exhibitor).selectinload(Exhibitor.user),
             selectinload(Entry.horse)
             .selectinload(Horse.registrations)
             .selectinload(HorseRegistration.association),
@@ -284,6 +289,55 @@ def _build_emergency_contact(exhibitor: Exhibitor) -> dict:
         "name": name,
         "phone": phone,
     }
+
+
+def _build_contact(exhibitor: Exhibitor) -> dict:
+    """How the office reaches this person away from the counter.
+
+    Read off the profile for the same reason the emergency contact beside it is
+    — a per-show copy would be a second, staler answer to "what is their
+    number?". Nothing here is a check and none of it counts toward
+    `outstanding`: an exhibitor with no email on file is not paperwork anybody
+    owes, they are simply somebody the office has to telephone instead.
+
+    **The account's address wins where there is an account.** `exhibitors.email`
+    (migration 140) is what somebody wrote on a paper entry blank, which is the
+    only address there is for an office record with no login; once that record
+    is linked to an account, the address they actually sign in with is the one
+    that reaches them. Same precedence as the exhibitor registry. Where the two
+    differ the office one is reported as well rather than dropped, because a
+    mismatch is usually either the better address or a typo worth seeing, and
+    silently preferring one of them hides both cases.
+    """
+    account_email = (exhibitor.user.email or "").strip() or None if exhibitor.user else None
+    office_email = (exhibitor.email or "").strip() or None
+    # Only a *second* address is worth printing. The same one written down twice
+    # is not two facts.
+    differs = bool(
+        account_email and office_email and account_email.lower() != office_email.lower()
+    )
+
+    contact = {
+        "email": account_email or office_email,
+        "email_source": "account" if account_email else ("office" if office_email else None),
+        "office_email": office_email if differs else None,
+        "phone": (exhibitor.phone or "").strip() or None,
+        "address": (exhibitor.address or "").strip() or None,
+        "city": (exhibitor.city or "").strip() or None,
+        "state": (exhibitor.state or "").strip() or None,
+        "zip": (exhibitor.zip or "").strip() or None,
+        # A youth exhibitor is reached through their guardian, so the number is
+        # contact detail rather than the emergency contact it sits near — the
+        # person you ring first, not the person you ring if something happens.
+        "guardian_name": (exhibitor.parent_guardian_name or "").strip() or None,
+        "guardian_phone": (exhibitor.parent_guardian_phone or "").strip() or None,
+    }
+    # One definition of "there is nothing here", so the screen's empty state and
+    # any future count cannot disagree about it.
+    contact["has_any"] = any(
+        contact[key] for key in ("email", "phone", "address", "city", "guardian_phone")
+    )
+    return contact
 
 
 def _build_check(
@@ -516,6 +570,9 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
             "horses": horses_out,
             "waivers": waiver_checks,
             "emergency_contact": emergency_contact,
+            # Reference, not a check — deliberately assembled after
+            # `outstanding` is counted so it cannot creep into the tally.
+            "contact": _build_contact(exhibitor),
             "outstanding": outstanding,
         })
 

@@ -33,6 +33,19 @@ export default async function UsersPage() {
           { label: 'Users' },
         ]} />
         <h1 className="text-3xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>User Management</h1>
+        {/* This list is logins. An exhibitor a show office typed in at a
+            registration desk has none — deliberately, an account belongs to
+            whoever will sign in to it — so they are real, entered, billed, and
+            will never show up here. Said plainly because the first place
+            somebody looks for a missing exhibitor is this screen. */}
+        <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+          Login accounts and their roles. Exhibitors added at a registration desk have no login —
+          find them under{' '}
+          <Link href="/admin/exhibitors" className="hover:underline" style={{ color: 'var(--accent)' }}>
+            Exhibitor Records
+          </Link>
+          .
+        </p>
       </div>
 
       <div className="flex justify-end mb-4">

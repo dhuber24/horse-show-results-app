@@ -2,6 +2,188 @@
 
 ## September 2026
 
+### The Class Builder Opens On What There Is To Work On
+
+- **Tap and hold anywhere on a class row to drag it into a new running order.**
+  The drag handle was the ⠿ alone — about ten pixels of target on the phone a
+  registration desk is actually worked from, which made the long-press drag
+  `@hello-pangea/dnd` already supports effectively unreachable. The row is the
+  handle now, with `touch-action: none` so a press that is becoming a drag does
+  not scroll the page instead, and the ⠿ kept as the visual cue. Safe with a
+  checkbox and a Delete button inside it: the library refuses to start a drag
+  whose event began on an interactive element.
+- **The picker and the class list swap depending on whether the show has a
+  schedule yet.** A show with no classes opens on the Quick Class Picker —
+  there is nothing to read, and the picker is what builds one. A show with
+  classes opens on the class list, with the picker folded away rather than
+  pushing a hundred rows below the fold. Read once on mount, so folding either
+  one is not overruled by the next class added.
+
+### The Show Bill Groups Classes By Discipline
+
+The generated show bill printed each day's classes as one flat table, with
+"Discipline · Division · Ring" in small grey type under every class name. A
+printed prize list does not read that way — it runs a discipline's classes
+together under a heading and works through the divisions inside it.
+
+- **Each day's classes now print under the discipline they run in**
+  (`ShowbillDocument`), with the division left on the row's own line beneath
+  the class name. A day that is all one discipline gets no headings, where they
+  would say nothing the class names do not.
+- **Runs, never buckets** (`runsOf` in `frontend/lib/class-order.ts`). The bill
+  prints `class_number` beside every row and those numbers are how the gate, the
+  entry form and the office refer to a class, so a heading may describe the
+  printed order and must never re-sort it — bucketing would pull class 44 up
+  under a heading printed at class 8. A discipline the show genuinely runs twice
+  in a day gets two headings: on the MNSPHC Paint-O-Rama bill the halter section
+  really does run Halter, Performance Halter, Halter again, and all three are
+  true.
+- **The Class Builder names a class `"{Discipline} {Division}"`** — "Halter Amateur", "Showmanship 10 & Under" — where it used to put the division first. Both doors changed together (the grid cell, its tooltips, and the **+ Add Class** form's suggestion including the Grand & Reserve shortcut), because `_assert_name_free` keys the one-class-per-name-per-day rule on the *name*: leaving the grid on "Amateur Halter" while the form suggested "Halter Amateur" would have let both onto the same day for the same cell. Newly created classes only; existing ones keep the names they were entered and published under.
+- **Nothing is reordered and nothing is renumbered.** Checked against the two
+  uploaded show bills, the performance half of a real bill already *is*
+  discipline-then-division without anybody sorting it — Showmanship 13 classes
+  in 13 slots, Hunter Under Saddle 16 in 16, Hunt Seat Equitation 10 in 10,
+  Western Riding 4 in 4, Trail 9 in 9. The order is the show office's to
+  manage, and the app leaves it alone.
+
+### The Office Can Write Somebody Down
+
+Every exhibitor record in this database had been made one of two ways: the
+person created an account, or somebody seeded test data. So `GET
+/exhibitors/names` filtered to `user_id IS NOT NULL` and called what was left
+"orphaned/test records", and the registration desk's add-somebody form said in
+as many words that an exhibitor "needs an account before they can be entered —
+an admin creates one from Users."
+
+That is not how a show takes entries. A walk-up hands over a paper entry blank
+with a name on it, and the office needs them on the roster now — with a back
+number, their classes and their bill — not after talking a stranger through
+creating a login at the counter with a queue behind them.
+
+- **A first and last name is the whole requirement.** `POST
+  /shows/{id}/desk/exhibitors/new` creates the `exhibitors` row and the roster
+  row and issues a back number, in one press. Email and phone are optional
+  boxes; **no `users` row is created**, because a login belongs to the person
+  who will sign in to it, and inventing an address and a password for somebody
+  who has not asked for either is not the office's business. The form splits
+  whatever is already in the search box into the two name fields, so a name
+  typed while looking for somebody is not typed again.
+- **The horse is offered after the person exists, not as more boxes.** It posts
+  to `POST /shows/{id}/exhibitors/{id}/horses`, the endpoint that already owned
+  staff creating a horse on somebody's behalf, and the new record is on the
+  roster, which is what that endpoint checks. Declining is a finished job: most
+  walk-ups have theirs on file already.
+- **Asked in the roster column, answered in the panel.** The add-somebody form
+  lives in the roster column, which is `minmax(0,20rem)` — a third of the width
+  the horse form was written for, and rendering it there wrung every field out
+  and pushed the association row through the card border. So creating a walk-up
+  asks *Add a horse / Not now*, and *Add a horse* selects them and opens the
+  panel with the form already showing (`openAddHorse`), scrolling to it for the
+  stacked layout where the panel is below the roster rather than beside it.
+  `StaffAddHorseForm` is now a `@container` with its field grid on `@sm:` and
+  its association row wrapping on `min-w-0`, so it is correct at any width
+  rather than only where it happens to be used: a `sm:` breakpoint measures the
+  **window**, which is the wrong question for a card in a narrow column on a
+  wide screen, and a `<select>` is as wide as its longest `<option>` unless
+  told otherwise.
+- **Deliberately not idempotent**, unlike adding an existing exhibitor. Two
+  people at one show really can be called Sarah Johnson, and the app must never
+  be the thing that decides otherwise.
+- `exhibitors.created_by_user_id` (migration 140) records the staff member who
+  typed the row in — the same column `horses.created_by_user_id` already carries
+  for the same reason. It is what tells a real accountless exhibitor apart from
+  the seed leftovers, so `/exhibitors/names` can offer the office's records at
+  the *next* show without also offering the orphans. `exhibitors.email` is the
+  address taken at the counter, and never a login: where `user_id` is set, the
+  account's address is the authority.
+
+### Two Records Of One Person Can Be Joined
+
+The desk has grouped same-name records under one roster entry since it was
+built, and the note ended "If they are the same person, remove the one that
+should not be here." Removing was all there was to offer, and it costs whatever
+that record was holding — entries, a back number, paperwork sign-offs, money
+taken. With the office now writing people down on purpose, the commonest
+duplicate in the app is one it creates itself: the record typed in at the August
+show, and the account its owner opens in November.
+
+- **One implementation, two doors.** `backend/exhibitor_merge.py` is called by
+  the desk (`POST /shows/{id}/desk/exhibitors/{id}/merge`, needing one of the
+  two records on that show's roster) and by an admin (`POST
+  /exhibitors/{id}/merge`, any two). The same rule as cancellations: the
+  permission differs and what it leaves behind must not.
+- **Nothing is dropped to make the move fit.** Fourteen FK columns across twelve
+  tables are repointed. The ones with a uniqueness rule are folded: two roster
+  rows at one show become one, two bookings of one fee are **added together**
+  keeping the **earlier `reserved_at`** (repricing an April booking at a July
+  date is the one thing an early rate promises against), and a duplicate
+  membership, signature or horse link is dropped only because the survivor
+  already says the same thing.
+- **The survivor takes the better standing.** A live sign-up beats a shell row
+  and beats a cancellation — somebody who cancelled under an old record and
+  signed up under a new one is entered, and a tidy-up must not be what takes
+  them off the stall chart. A back number is adopted only where the survivor has
+  none.
+- **The caller picks which record stays; the login is not theirs to lose.** An
+  account on the record being removed moves across, or the merge would leave
+  somebody unable to sign in to their own entries.
+- **Two records that both hold accounts are refused at the desk**
+  (`TWO_ACCOUNTS`) and allowed for an admin. Choosing between somebody's two
+  logins is not a registration-counter question; the account left holding
+  nothing afterwards is an ordinary one to close from Users.
+- **Suggested, never decided.** `merge_candidates` ranks by reason and says
+  which: an email the office wrote down matching the one an account was opened
+  with is the best evidence this app can offer, and a shared name is none at
+  all. `/admin/exhibitors` lists the same groups for an admin.
+
+### An Exhibitor Record Is Not A User
+
+`/admin/users` is logins — roles, approval, passwords. A person the show office
+types in at a registration desk has none of that deliberately, so from the
+change above there are real exhibitors with back numbers, entries and bills
+that the Users screen will never show, and at first there was nowhere in the app
+that did. The first place anybody looks for a missing exhibitor is Users, and
+**a record the office cannot find is one it types in again** — which is how the
+duplicate the merge exists to fix gets made in the first place.
+
+- **`/admin/exhibitors` is a registry, not only a duplicate list.**
+  `GET /exhibitors/registry` returns every exhibitor record with the two derived
+  facts that answer "what is this row?" — whether a login sits behind it, and
+  whether staff typed it in — plus its show and class counts, so a real person
+  is distinguishable from a stray row. Searchable, filterable by *All / Added by
+  the office / No account / Has an account*, and **deliberately not
+  deduplicated**: `/exhibitors/names` collapses same-name records because an
+  owner picker wants one row per person, and a registry is asking which records
+  exist. Duplicates keep their own section above it.
+- The counts come from two aggregates over the whole result, not a query per
+  row. This is a list somebody scrolls.
+- **Renaming is here because nowhere else offered one.** A name typed wrong at
+  the counter prints on entries, back-number lists and published results, and
+  the only fix was to delete the record and lose what it held. Offered **only
+  where there is no account**: a linked record's name mirrors the account
+  (`_sync_linked_exhibitor_name`), so an edit here would be overwritten the next
+  time that person touched their profile — that rename belongs under Users.
+- **Any two rows in the registry can be joined**, which is the half the
+  duplicate section cannot do. That section lists pairs the app *spotted* — a
+  shared name or a shared email — and never offers an accountless row nobody
+  claims, so two records spelled differently, or one of them a seed leftover,
+  appear in neither. Finding those is what a human is better at, and a screen
+  that shows somebody a duplicate and gives them no button is worse than one
+  that never showed them. Two presses (*Join with…*, then *Join with {name}*)
+  rather than a column of checkboxes, because joining is rare and destructive
+  and a row of ticks invites one. Both records' full holdings are read before
+  the direction is chosen, and the confirmation says plainly that **nothing has
+  checked they are the same person**.
+- `holdingText` and the merge types moved to `lib/exhibitor-merge.ts`. Three
+  screens print that line now, and three copies is how "2 horses" and "2 horse"
+  end up on the same page.
+- The Users screen now says this in as many words and links across, rather than
+  leaving somebody to conclude the walk-up they just created failed to save.
+- The three judgement calls — `adopt_standing`, `merge_reservation`,
+  `fill_profile_blanks` — are pure functions over plain attributes, so
+  `tests/test_exhibitor_merge.py` pins them without a database, the way the rest
+  of this repo's tests work.
+
 ### The Release Script Makes Its Own Backup
 
 A release carrying a migration refused to touch production without `-BackedUp`,

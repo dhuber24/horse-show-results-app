@@ -75,8 +75,17 @@ from models import (
 from routers.show_financials import _load_financials
 from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
+from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
 from rules.apha import division_for_class
-from schemas import ShowDeskExhibitorAdd, ShowDeskOut, ShowDeskRosterRow
+from schemas import (
+    ExhibitorMergeCandidate,
+    ExhibitorMergeRequest,
+    ExhibitorMergeResult,
+    ShowDeskExhibitorAdd,
+    ShowDeskExhibitorCreate,
+    ShowDeskOut,
+    ShowDeskRosterRow,
+)
 
 router = APIRouter(
     prefix="/shows/{show_id}/desk",
@@ -246,6 +255,10 @@ async def get_desk(
             "emergency_contact": (
                 paperwork["emergency_contact"] if paperwork else {"status": "missing"}
             ),
+            # Quoted from the checklist like everything else on this row: the
+            # desk does not read `exhibitors` a second time to answer a question
+            # `show_office` already answered off the same row.
+            "contact": paperwork["contact"] if paperwork else {"has_any": False},
             "paperwork_outstanding": paperwork["outstanding"] if paperwork else 0,
             "billed_cents": account["bill"]["total_cents"],
             "net_paid_cents": account["net_paid_cents"],
@@ -438,6 +451,180 @@ async def add_exhibitor_to_roster(
         "back_number": show_entry.back_number,
         "signed_up": is_on_roster(show_entry),
     }
+
+
+@router.post("/exhibitors/new", response_model=ShowDeskRosterRow, status_code=201)
+async def create_exhibitor_at_desk(
+    show_id: UUID,
+    body: ShowDeskExhibitorCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Type somebody in who has never used this app, and put them on the roster.
+
+    Until now the desk could only add a person who already had an account, and
+    said so: "Exhibitors need an account before they can be entered — an admin
+    creates one from Users." That is not a thing a secretary can do for somebody
+    standing at the counter with a paper entry blank, and it is not a thing the
+    person wants to do at the counter either. The office's job is to get them
+    entered; the account is their business, later or never.
+
+    So this creates the `exhibitors` row itself, with a name and whatever else
+    the office was given. **No `users` row and no login** — an account belongs to
+    the person who will sign in to it, and inventing one here would mean
+    inventing an email address and a password for somebody who has not asked for
+    either. `created_by_user_id` records the staff member who typed it in, which
+    is what tells this record apart from the accountless seed data the name
+    pickers exclude (see migration 140).
+
+    The horse is a separate press, because it is a separate form and most
+    walk-ups already have theirs on file. `POST /shows/{id}/exhibitors/{id}/horses`
+    is the one that takes it, and this person is on the roster, which is what
+    that endpoint checks.
+
+    Not idempotent, unlike adding an existing exhibitor: two staff members
+    typing the same name in twice is two records, because two people at one show
+    really can be called Sarah Johnson and the app must never decide otherwise.
+    The desk groups them under one roster entry and offers to merge them.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+
+    first = body.first_name.strip()
+    last = body.last_name.strip()
+    if not first or not last:
+        raise HTTPException(422, "A first and last name are both needed.")
+
+    exhibitor = Exhibitor(
+        full_name=f"{first} {last}",
+        email=(body.email or None),
+        phone=(body.phone or "").strip() or None,
+        created_by_user_id=safe_uuid(x_user_id),
+    )
+    db.add(exhibitor)
+    await db.flush()
+
+    show_entry = ShowEntry(show_id=show_id, exhibitor_id=exhibitor.id)
+    db.add(show_entry)
+    await db.commit()
+    await db.refresh(show_entry)
+
+    # Same as a walk-up added from the existing-exhibitor picker: they leave the
+    # counter with a number. After the commit, so a collision on the number can
+    # never be what costs somebody their place on the roster.
+    await assign_back_number_if_missing(show_entry, db)
+    await db.commit()
+
+    return {
+        "show_entry_id": show_entry.id,
+        "exhibitor_id": exhibitor.id,
+        "exhibitor_name": exhibitor.full_name,
+        "back_number": show_entry.back_number,
+        "signed_up": is_on_roster(show_entry),
+    }
+
+
+@router.get(
+    "/exhibitors/{exhibitor_id}/merge-candidates",
+    response_model=list[ExhibitorMergeCandidate],
+)
+async def list_merge_candidates_at_desk(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Records that might be this same person, with what each is carrying.
+
+    Read when staff open the merge control, not on every desk load: it is two
+    queries per candidate and the desk is one read by design.
+
+    Not scoped to this show. The whole point of the office record is that it
+    outlives the weekend it was made at, so the account somebody opens in
+    November has to be findable against the record the office typed in at the
+    August show — which is not on this roster and never will be.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    exhibitor = await db.get(Exhibitor, exhibitor_id)
+    if not exhibitor:
+        raise HTTPException(404, "Exhibitor not found")
+
+    candidates = await merge_candidates(exhibitor, db)
+    for candidate in candidates:
+        candidate["summary"] = await merge_summary(candidate["exhibitor_id"], db)
+    return candidates
+
+
+@router.post("/exhibitors/{exhibitor_id}/merge", response_model=ExhibitorMergeResult)
+async def merge_exhibitor_at_desk(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    body: ExhibitorMergeRequest,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fold one exhibitor record into another. The one in the path stays.
+
+    The desk is where duplicates are *seen* — it has grouped same-name records
+    under one roster entry since it was built, and its note has said "remove the
+    one that should not be here" because removing was all it could offer.
+
+    At least one of the two has to be on this show's roster, and that is the
+    whole scope rule. It is deliberately not "both": the case this exists for is
+    an office record made at a show last spring meeting the account its owner
+    opened afterwards, and the old record is not on this roster. Show staff get
+    this reach for the same reason they may edit a horse or take an emergency
+    contact — the person is standing in front of them at their show.
+
+    Refuses to merge somebody into themselves, and refuses two records that both
+    hold accounts: that is two logins, and deciding which of somebody's two
+    accounts is the real one is not a question to answer from a registration
+    desk. An admin does that from the exhibitor registry.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+
+    keep = await db.get(Exhibitor, exhibitor_id)
+    remove = await db.get(Exhibitor, body.remove_exhibitor_id)
+    if not keep or not remove:
+        raise HTTPException(404, "Exhibitor not found")
+    if keep.id == remove.id:
+        raise HTTPException(422, "Pick two different records to merge.")
+
+    on_roster = await db.execute(
+        select(ShowEntry.exhibitor_id).where(
+            ShowEntry.show_id == show_id,
+            ShowEntry.exhibitor_id.in_([keep.id, remove.id]),
+        )
+    )
+    if not on_roster.scalars().all():
+        raise HTTPException(
+            403,
+            "Neither of those records is on this show. The desk merges records it "
+            "is working with; an admin merges any two from the exhibitor registry.",
+        )
+
+    if keep.user_id is not None and remove.user_id is not None:
+        raise HTTPException(
+            409,
+            {
+                "code": "TWO_ACCOUNTS",
+                "message": (
+                    f"{keep.full_name} and {remove.full_name} each have their own login. "
+                    "Merging would leave one of the two accounts with no entries, so an "
+                    "admin does this one — they can close the account that is not wanted."
+                ),
+            },
+        )
+
+    result = await merge_exhibitors(keep, remove, db)
+    await db.commit()
+    return result
 
 
 class ShowDeskCancelRegistration(BaseModel):

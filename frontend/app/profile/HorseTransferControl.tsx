@@ -38,7 +38,11 @@ export default function HorseTransferControl({
 
   useEffect(() => {
     if (!open || people.length > 0) return;
-    fetch('/api/exhibitors/names')
+    // Account-holders only: a transfer has to be *accepted*, and approval is
+    // authorized by being the approver — so somebody the show office typed in
+    // at a desk could never answer it. The endpoint refuses one anyway; this
+    // is so the picker does not offer a refusal.
+    fetch('/api/exhibitors/names?accounts_only=true')
       .then((r) => (r.ok ? r.json() : []))
       .then((rows) => setPeople(Array.isArray(rows) ? rows : []))
       .catch(() => setPeople([]));

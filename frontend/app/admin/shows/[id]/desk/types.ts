@@ -81,6 +81,32 @@ export interface EmergencyContact {
   phone: string | null;
 }
 
+/** How the office reaches this exhibitor away from the counter. Read off their
+ *  profile, never copied per show — the same call the emergency contact makes.
+ *  Nothing here is a check and none of it counts as paperwork outstanding. */
+export interface ExhibitorContact {
+  /** The account's address where there is an account, otherwise the one the
+   *  office wrote down (migration 140). */
+  email: string | null;
+  /** Which of the two `email` came from — "the address they sign in with" and
+   *  "the address on their entry blank" are different promises about whether a
+   *  message actually arrives. */
+  email_source: 'account' | 'office' | null;
+  /** Set only when the office recorded a *different* address from the
+   *  account's. Either the better one or a typo, and both are worth seeing. */
+  office_email: string | null;
+  phone: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  /** A youth exhibitor is reached through their guardian — who you ring first,
+   *  as against the emergency contact, who you ring if something happens. */
+  guardian_name: string | null;
+  guardian_phone: string | null;
+  has_any: boolean;
+}
+
 export interface DeskClass {
   id: string;
   class_number: string;
@@ -158,6 +184,11 @@ export interface DeskExhibitor {
   horses: DeskHorse[];
   waivers: WaiverCheck[];
   emergency_contact: EmergencyContact;
+  /** Their email, phone and address, for reaching them away from the counter.
+   *  Show-office tier by virtue of the endpoint — the desk is ADMIN /
+   *  SHOW_MANAGER / SHOW_SECRETARY, and no scribe or gate steward screen
+   *  reads this payload. */
+  contact: ExhibitorContact;
   paperwork_outstanding: number;
   billed_cents: number;
   net_paid_cents: number;

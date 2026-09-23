@@ -20,6 +20,7 @@
  */
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
+import { runsOf } from '@/lib/class-order';
 
 export type ShowbillClassRow = {
   /** Optional so a caller building rows by hand still type-checks; without it
@@ -290,6 +291,26 @@ export default function ShowbillDocument({
   }
   const days = Array.from(byDay.keys()).sort();
 
+  /**
+   * The day's classes under the discipline each one runs in.
+   *
+   * Runs of the printed order, never buckets. The bill prints `class_number`
+   * beside every row and those numbers are how the gate, the entry form and
+   * the office refer to a class, so a heading may describe the order and must
+   * never re-sort it: bucketing would pull class 44 up under a heading printed
+   * at class 8. A discipline the show genuinely runs twice in a day gets two
+   * headings -- on a real Paint bill Halter, Performance Halter and Halter
+   * again is exactly what runs -- and all three are true.
+   *
+   * A day that is all one discipline gets no headings, where the heading would
+   * say nothing the class names do not.
+   */
+  const disciplineRuns = (rows: ShowbillClassRow[]) => {
+    const distinct = new Set(rows.map((c) => c.discipline_name ?? ''));
+    if (distinct.size < 2) return null;
+    return runsOf(rows, (c) => c.discipline_name ?? 'Other');
+  };
+
   const clubs: Club[] = show.sanctioning ?? [];
 
   const healthPapers = [
@@ -390,14 +411,27 @@ export default function ShowbillDocument({
           </p>
         ) : (
           <div className="space-y-5">
-            {days.map((day) => (
+            {days.map((day) => {
+              const runs = disciplineRuns(byDay.get(day)!);
+              const blocks = runs ?? [{ key: '', items: byDay.get(day)! }];
+              return (
               <div key={day} className="showbill-day">
                 <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--accent)' }}>
                   {formatDate(day)}
                 </h3>
+                {blocks.map((block, bi) => (
+                <div key={`${block.key}-${bi}`} className={runs ? 'mb-3 last:mb-0' : undefined}>
+                {runs && (
+                  <h4
+                    className="text-xs font-semibold uppercase tracking-wide mb-1 pb-0.5 border-b"
+                    style={{ color: 'var(--text-deep)', borderColor: 'var(--bg-subtle)' }}
+                  >
+                    {block.key}
+                  </h4>
+                )}
                 <table className="w-full text-sm" style={{ color: 'var(--foreground)' }}>
                   <tbody>
-                    {byDay.get(day)!.map((cls, i) => (
+                    {block.items.map((cls, i) => (
                       <tr
                         key={`${cls.class_number}-${i}`}
                         className="border-b last:border-b-0"
@@ -418,9 +452,13 @@ export default function ShowbillDocument({
                               {code}
                             </span>
                           ))}
-                          {(cls.discipline_name || cls.division_name || cls.ring_name) && (
+                          {/* The discipline is the heading above when the day
+                              runs more than one, so printing it again on every
+                              row would be the same word twice. */}
+                          {[runs ? null : cls.discipline_name, cls.division_name, cls.ring_name]
+                            .filter(Boolean).length > 0 && (
                             <div className="text-xs" style={{ color: 'var(--muted)' }}>
-                              {[cls.discipline_name, cls.division_name, cls.ring_name]
+                              {[runs ? null : cls.discipline_name, cls.division_name, cls.ring_name]
                                 .filter(Boolean)
                                 .join(' · ')}
                             </div>
@@ -433,8 +471,11 @@ export default function ShowbillDocument({
                     ))}
                   </tbody>
                 </table>
+                </div>
+                ))}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Section>

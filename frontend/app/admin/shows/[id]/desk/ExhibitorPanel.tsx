@@ -17,7 +17,7 @@ import {
   nextFreeBackNumber,
   unenrolledFuturityHorses,
 } from './types';
-import type { Desk, DeskExhibitor } from './types';
+import type { Desk, DeskExhibitor, ExhibitorContact } from './types';
 import { formatMoney } from '@/lib/financials';
 import type { BillClassLine } from '@/lib/my-shows';
 
@@ -54,6 +54,7 @@ function anchorFor(s: Subject): string {
 
 /** The id of the Paperwork section, for a jump with no single row to land on. */
 const PAPERWORK_SECTION_ID = 'desk-section-paperwork';
+const CONTACT_SECTION_ID = 'desk-section-contact';
 
 /**
  * The first sign-off the desk still owes, in the order the panel renders them.
@@ -279,6 +280,154 @@ function Section({
   );
 }
 
+/** The postal address as it would be written on an envelope. Joined here rather
+ *  than on the backend for the same reason `coatDescription()` joins a colour
+ *  and a pattern in the browser: the parts are the stored fact, and one line of
+ *  them is a rendering. */
+function addressLines(contact: ExhibitorContact): string[] {
+  const lines: string[] = [];
+  if (contact.address) lines.push(contact.address);
+  const town = [contact.city, contact.state].filter(Boolean).join(', ');
+  const lastLine = [town, contact.zip].filter(Boolean).join(' ').trim();
+  if (lastLine) lines.push(lastLine);
+  return lines;
+}
+
+/** One labelled line of the contact block. */
+function ContactLine({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <span
+        className="text-xs uppercase tracking-wide w-16 shrink-0"
+        style={{ color: COLORS.muted }}
+      >
+        {label}
+      </span>
+      <span className="text-sm" style={{ color: COLORS.text }}>
+        {children}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * How to reach this exhibitor away from the counter.
+ *
+ * Read-only: `PATCH /exhibitors/{id}` is ADMIN-or-self, so the office cannot
+ * correct a wrong number from here the way it can take an emergency contact.
+ * That is a gap rather than a decision — worth closing the same way, with an
+ * endpoint of its own.
+ *
+ * The addresses are `mailto:` and `tel:` links because the reason to open this
+ * section is to send something or ring somebody, and retyping an address off a
+ * screen is how it gets sent to the wrong person.
+ */
+function ContactDetails({
+  contact,
+  name,
+}: {
+  /** Undefined only against a desk payload cached from before this shipped —
+   *  the service worker serves one often enough to be worth not crashing on. */
+  contact: ExhibitorContact | undefined;
+  name: string;
+}) {
+  if (!contact?.has_any) {
+    return (
+      <p className="text-sm" style={{ color: COLORS.muted }}>
+        No email, telephone number or address on this profile. An exhibitor with an account
+        fills these in themselves; a record the office typed in carries whatever was written
+        on the entry blank.
+      </p>
+    );
+  }
+
+  const lines = addressLines(contact);
+
+  return (
+    <div className="space-y-1.5">
+      {contact.email && (
+        <ContactLine label="Email">
+          <a
+            href={`mailto:${contact.email}`}
+            className="hover:underline break-all"
+            style={{ color: COLORS.accent }}
+          >
+            {contact.email}
+          </a>
+          {contact.email_source === 'office' && (
+            <span
+              className="text-xs ml-2"
+              style={{ color: COLORS.muted }}
+              title="This record has no account. The address is what the office wrote down, so nobody has confirmed it reaches them."
+            >
+              from their entry blank
+            </span>
+          )}
+        </ContactLine>
+      )}
+
+      {/* Only ever a *second* address, and only when it differs from the
+          account's — either the better one or a typo, and both are worth a
+          glance before somebody sends a bill to the wrong inbox. */}
+      {contact.office_email && (
+        <ContactLine label="Also">
+          <a
+            href={`mailto:${contact.office_email}`}
+            className="hover:underline break-all"
+            style={{ color: COLORS.accent }}
+          >
+            {contact.office_email}
+          </a>
+          <span
+            className="text-xs ml-2"
+            style={{ color: COLORS.muted }}
+            title="The office wrote this one down at a desk; the address above is the one they sign in with."
+          >
+            on the entry blank
+          </span>
+        </ContactLine>
+      )}
+
+      {contact.phone && (
+        <ContactLine label="Phone">
+          <a href={`tel:${contact.phone}`} className="hover:underline" style={{ color: COLORS.accent }}>
+            {contact.phone}
+          </a>
+        </ContactLine>
+      )}
+
+      {lines.length > 0 && (
+        <ContactLine label="Address">
+          <span className="whitespace-pre-line">{lines.join('\n')}</span>
+        </ContactLine>
+      )}
+
+      {(contact.guardian_name || contact.guardian_phone) && (
+        <ContactLine label="Guardian">
+          {contact.guardian_name}
+          {contact.guardian_phone && (
+            <>
+              {contact.guardian_name ? ' · ' : ''}
+              <a
+                href={`tel:${contact.guardian_phone}`}
+                className="hover:underline"
+                style={{ color: COLORS.accent }}
+              >
+                {contact.guardian_phone}
+              </a>
+            </>
+          )}
+        </ContactLine>
+      )}
+
+      <p className="text-xs pt-1" style={{ color: COLORS.muted }}>
+        {name}&rsquo;s own details, from their profile rather than this show. The emergency
+        contact is in Paperwork above, where the desk chases it.
+      </p>
+    </div>
+  );
+}
+
 export default function ExhibitorPanel({
   showId,
   desk,
@@ -289,6 +438,7 @@ export default function ExhibitorPanel({
   patterns,
   onChanged,
   onRemoved,
+  openAddHorse = false,
 }: {
   showId: string;
   desk: Desk;
@@ -297,6 +447,11 @@ export default function ExhibitorPanel({
   breeds: LookupOption[];
   colors: LookupOption[];
   patterns: LookupOption[];
+  /** Open with the add-a-horse form already showing. Set when a walk-up was
+   *  just typed in at the roster column and said they have a horse to enter —
+   *  the form is rendered here rather than there because here it has the width
+   *  for its two-column grid. */
+  openAddHorse?: boolean;
   /** Re-reads the whole desk. Every mutation goes through the endpoint that
    *  already owned that job, so the authoritative state is always the reload. */
   onChanged: () => Promise<void>;
@@ -306,7 +461,7 @@ export default function ExhibitorPanel({
   const [busy, setBusy] = useState<Set<string>>(new Set());
 
   const [backNumber, setBackNumber] = useState(exhibitor.back_number?.toString() ?? '');
-  const [addingHorse, setAddingHorse] = useState(false);
+  const [addingHorse, setAddingHorse] = useState(openAddHorse);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -766,6 +921,25 @@ export default function ExhibitorPanel({
           >
             Record a payment →
           </Link>
+          {/* A panel for somebody in sixty-eight classes runs to several
+              screens, so the contact block at the foot of it is only reachable
+              by a long scroll — and the moment it is wanted is usually the
+              moment the person is *not* at the counter. Same jump the
+              paperwork count makes: open the section wherever it was folded to
+              and scroll to it. */}
+          <button
+            type="button"
+            onClick={() => jumpTo('contact', CONTACT_SECTION_ID)}
+            className="hover:underline text-left"
+            style={{ color: COLORS.accent }}
+            title={
+              exhibitor.contact?.has_any
+                ? `Email, telephone and address for ${exhibitor.exhibitor_name}`
+                : `No contact details on ${exhibitor.exhibitor_name}’s profile`
+            }
+          >
+            Contact →
+          </button>
         </div>
 
         {/* What they asked for on the grounds, quoted verbatim. Read while the
@@ -1456,6 +1630,27 @@ export default function ExhibitorPanel({
             ))}
           </>
         )}
+      </Section>
+
+      {/* Below the work rather than above it: entries, money and paperwork are
+          what somebody standing at the counter is doing, and this is what they
+          open when the person is *not* there — a lapsed Coggins to chase, a
+          balance to ask about. Foldable like the rest, and remembered, so an
+          office that never needs it folds it once. */}
+      <Section
+        id={CONTACT_SECTION_ID}
+        title="Contact"
+        collapsed={collapsed.has('contact')}
+        onToggle={() => toggle('contact')}
+        badge={
+          !exhibitor.contact?.has_any ? (
+            <span className="text-xs" style={{ color: COLORS.muted }}>
+              nothing on file
+            </span>
+          ) : undefined
+        }
+      >
+        <ContactDetails contact={exhibitor.contact} name={exhibitor.exhibitor_name} />
       </Section>
 
       {/* The office's half of the two-week rule: an exhibitor may cancel their

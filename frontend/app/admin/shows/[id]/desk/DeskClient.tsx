@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AddExhibitorForm from './AddExhibitorForm';
+import MergeExhibitors from './MergeExhibitors';
 import ByClassView from './ByClassView';
 import CogginsOverridePanel from './CogginsOverridePanel';
 import ExhibitorPanel from './ExhibitorPanel';
@@ -129,6 +130,10 @@ export default function DeskClient({
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [selectedId, setSelectedId] = useState<string | null>(initialExhibitorId);
+  /** A walk-up just typed in who said they have a horse to enter. The form is
+   *  opened in their panel rather than in the roster column it was requested
+   *  from: the column is 20rem wide and the horse form is not built for it. */
+  const [addHorseFor, setAddHorseFor] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
@@ -296,12 +301,28 @@ export default function DeskClient({
               <AddExhibitorForm
                 showId={showId}
                 onRosterIds={rosterIds}
-                onAdded={async (exhibitorId) => {
+                associations={associations}
+                breeds={breeds}
+                colors={colors}
+                patterns={patterns}
+                onAdded={async (exhibitorId, opts) => {
                   setAdding(false);
                   setFilter('all');
                   setQuery('');
+                  setAddHorseFor(opts?.addHorse ? exhibitorId : null);
                   await load();
                   setSelectedId(exhibitorId);
+                  if (opts?.addHorse) {
+                    // The form they just asked for is in the panel, which is
+                    // beside the roster on a desktop and *below* it once the
+                    // columns stack — where a button that appeared to do
+                    // nothing is the whole failure.
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById('desk-exhibitor-panel')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                    );
+                  }
                 }}
                 onCancel={() => setAdding(false)}
               />
@@ -344,7 +365,13 @@ export default function DeskClient({
                     <li key={group.key}>
                       <button
                         type="button"
-                        onClick={() => setSelectedId(members[0].exhibitor_id)}
+                        onClick={() => {
+                          // One-shot: picking anybody off the roster clears it,
+                          // so coming back to this person later opens their
+                          // panel as it normally would.
+                          setAddHorseFor(null);
+                          setSelectedId(members[0].exhibitor_id);
+                        }}
                         className="w-full text-left px-3 py-2.5 transition-colors hover:bg-amber-50"
                         style={isSelected ? { backgroundColor: 'var(--bg-subtle)' } : undefined}
                       >
@@ -388,9 +415,26 @@ export default function DeskClient({
                     <strong>{selectedGroup.name}</strong> is on this show under{' '}
                     {selectedGroup.members.length} exhibitor records, each with its own back number,
                     classes, paperwork and account — shown together below. If they are the same
-                    person, remove the one that should not be here.
+                    person, join the records: everything moves onto the one you keep.
                   </div>
                 )}
+                {/* Offered whether or not this show has the duplicate. The
+                    office record typed in at the August show is not on this
+                    roster and never will be; the account its owner opened in
+                    November is what has to find it. */}
+                <MergeExhibitors
+                  // Keyed so switching to another person on the roster starts
+                  // the control closed rather than showing the last person's
+                  // candidate list.
+                  key={selectedGroup.key}
+                  showId={showId}
+                  exhibitorId={selectedGroup.members[0].exhibitor_id}
+                  exhibitorName={selectedGroup.name}
+                  onMerged={async (keptId) => {
+                    await load();
+                    setSelectedId(keptId);
+                  }}
+                />
                 {selectedGroup.members.map((member, index) => (
                   <div key={member.exhibitor_id} className="space-y-2">
                     {selectedGroup.members.length > 1 && (
@@ -415,6 +459,7 @@ export default function DeskClient({
                       breeds={breeds}
                       colors={colors}
                       patterns={patterns}
+                      openAddHorse={member.exhibitor_id === addHorseFor}
                       onChanged={load}
                       onRemoved={() => {
                         // Keep the person open on whichever record is left.

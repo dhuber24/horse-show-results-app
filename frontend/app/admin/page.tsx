@@ -9,6 +9,7 @@ const adminTiles = [
   { href: '/admin/trainers', title: 'Trainer Registry', description: 'Manage trainer registry records used on horse profiles.', icon: 'R' },
   { href: '/admin/judges', title: 'Judge Registry', description: 'One record per judge, shared by every show they work.', icon: 'J' },
   { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scribes.', icon: 'U' },
+  { href: '/admin/exhibitors', title: 'Exhibitor Records', description: 'Everyone who competes, including walk-ups the office typed in and who have no login.', icon: 'E' },
   { href: '/admin/standard-classes', title: 'Class Codes', description: "Load an association's approved class list from their published file.", icon: 'C' },
 ];
 

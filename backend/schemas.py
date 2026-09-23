@@ -1812,6 +1812,93 @@ class ExhibitorOut(BaseModel):
         from_attributes = True
 
 
+# ── Folding two records of one person ─────────────────────────────────────────
+#
+# Reconstructed after an accidental `git checkout` of this file; the shapes are
+# taken from `backend/exhibitor_merge.py`, `routers/people.py`,
+# `routers/show_desk.py` and `frontend/lib/exhibitor-merge.ts`, which are the
+# only readers and writers.
+
+
+class ExhibitorMergeSummary(BaseModel):
+    """What one exhibitor record is carrying.
+
+    Deliberately the things a person would *miss* if the wrong record were the
+    one removed -- their shows, their classes, their horses, their money -- and
+    not a row count per table. A merge is chosen on these figures, so they are
+    the sentence the screens read out before the press, and the same shape comes
+    back after it as what moved.
+    """
+    shows: int = 0
+    class_entries: int = 0
+    horses: int = 0
+    memberships: int = 0
+    signatures: int = 0
+    payments_cents: int = 0
+
+
+class ExhibitorMergeCandidate(BaseModel):
+    """A record that might be the same person, and why it is being suggested.
+
+    `matched_on` is the whole of the evidence: `email` is an address the office
+    wrote down matching the one an account was opened with, which is the best
+    reason this app can offer; `name` is a shared name, which is no evidence at
+    all. Both are only ever a reason to ask somebody.
+    """
+    exhibitor_id: UUID
+    full_name: str
+    email: Optional[str] = None
+    has_account: bool
+    office_record: bool
+    matched_on: str
+    created_at: datetime
+    summary: Optional[ExhibitorMergeSummary] = None
+
+
+class ExhibitorMergeRequest(BaseModel):
+    """The record to fold in. The one in the path is the one that survives."""
+    remove_exhibitor_id: UUID
+
+
+class ExhibitorMergeResult(BaseModel):
+    kept_exhibitor_id: UUID
+    kept_name: str
+    moved: ExhibitorMergeSummary
+    shows_folded: int = 0
+    duplicates_dropped: int = 0
+    account_moved: bool = False
+
+
+class ExhibitorRegistryRow(BaseModel):
+    """One row of `/admin/exhibitors` -- every exhibitor record, account or not.
+
+    `has_account` and `office_record` are the two facts that say what a row is:
+    somebody who signed up, somebody the office typed in at a desk, or a seed
+    leftover that is neither.
+    """
+    id: UUID
+    full_name: str
+    email: Optional[str] = None
+    has_account: bool
+    office_record: bool
+    created_at: datetime
+    shows: int = 0
+    class_entries: int = 0
+
+
+class ShowDeskExhibitorCreate(BaseModel):
+    """A walk-up the app has never seen, typed in at the registration desk.
+
+    A first and last name is the whole requirement, because that is what is on
+    the paper entry blank being handed across. Email and phone are whatever the
+    office was given; no `users` row is created from this.
+    """
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
 # ── Entries ────────────────────────────────────────────────────────────────────
 
 # Named once rather than spelled out per schema. It was written twice, and both

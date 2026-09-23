@@ -614,7 +614,16 @@ class User(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     audits = relationship("ResultAudit", back_populates="changed_by_user")
-    exhibitor = relationship("Exhibitor", back_populates="user", uselist=False)
+    # `exhibitors` points at `users` twice since migration 140 -- the account
+    # this record belongs to, and the staff member who typed it in -- so both
+    # sides of the account link name their column or SQLAlchemy cannot tell
+    # which join it is.
+    exhibitor = relationship(
+        "Exhibitor",
+        back_populates="user",
+        uselist=False,
+        foreign_keys="Exhibitor.user_id",
+    )
     secretary_shows = relationship("ShowSecretary", back_populates="user", cascade="all, delete")
     scribe_shows = relationship("ShowScribe", back_populates="user", cascade="all, delete")
     gate_steward_shows = relationship("ShowGateSteward", back_populates="user", cascade="all, delete")
@@ -871,6 +880,20 @@ class Exhibitor(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     full_name = Column(Text, nullable=False)
+    # The address the office took at the counter (migration 140), never a login.
+    # `phone` has always lived here; an email has not, because it lives on
+    # `users` -- which a person the office typed in does not have. Where
+    # `user_id` is set, that account's email is the authority and this is what
+    # somebody wrote on a paper entry blank.
+    email = Column(Text, nullable=True)
+    # Which staff member typed this person in at a registration desk (migration
+    # 140), the same column `horses.created_by_user_id` carries for the same
+    # reason. NULL means the row came from an account signing up, or predates
+    # the column. It is what tells a real accountless exhibitor apart from the
+    # accountless seed data the name pickers exclude.
+    created_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     apha_member_number = Column(Text, nullable=True)
     apha_member_expiry = Column(Date, nullable=True)
     amateur_card_number = Column(Text, nullable=True)
@@ -888,7 +911,7 @@ class Exhibitor(Base):
     parent_guardian_phone = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    user = relationship("User", back_populates="exhibitor")
+    user = relationship("User", back_populates="exhibitor", foreign_keys=[user_id])
     entries = relationship("Entry", back_populates="exhibitor")
     exhibitor_horses = relationship("ExhibitorHorse", back_populates="exhibitor", cascade="all, delete")
     registrations = relationship("ExhibitorRegistration", back_populates="exhibitor", cascade="all, delete")

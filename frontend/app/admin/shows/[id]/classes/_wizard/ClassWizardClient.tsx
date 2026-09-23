@@ -365,15 +365,15 @@ function ClassBuilder({
 }) {
   const onChanged = onClassesChanged;
   const [classDate, setClassDate] = useState(showStartDate);
-  // The Quick Class Picker is open by default: it is the tool this step is for,
-  // and it is capped at 70vh, so an open one does not run away with the page.
-  // It folds because a schedule of a hundred classes is read below it.
-  const [pickerOpen, setPickerOpen] = useState(true);
-  // The schedule can run to hundreds of rows; it lives below the picker and
-  // stays folded so the grid — the thing being worked in — owns the screen.
-  // Adding a class by name opens it, because the point of that form is the row
-  // it produces.
-  const [listOpen, setListOpen] = useState(false);
+  // Which of the two is open depends on whether the show has a schedule yet.
+  //
+  // A show with no classes has nothing to read, so the picker — the tool that
+  // builds one — owns the screen. Once classes exist the schedule is what
+  // somebody came to look at, and the picker folds out of the way rather than
+  // pushing a hundred rows below the fold. Read once, on mount: a manager who
+  // folds either one is not overruled by the next class they add.
+  const [pickerOpen, setPickerOpen] = useState(() => classes.length === 0);
+  const [listOpen, setListOpen] = useState(() => classes.length > 0);
   // Filter over the class list. A show runs to hundreds of classes and the one
   // being removed is found by name, not by scrolling a day at a time.
   const [query, setQuery] = useState('');
@@ -975,7 +975,7 @@ function ClassBuilder({
       while (queueRef.current.length > 0) {
         const job = queueRef.current.shift()!;
         const dk = `${job.classDate}::${cellKey(job.discipline.key, job.division.key)}`;
-        const className = `${job.division.name} ${job.discipline.name}`;
+        const className = `${job.discipline.name} ${job.division.name}`;
         try {
           const disciplineIds = Array.from(
             new Set([...disciplines.map((d) => d.id), ...known.discipline.values()]),
@@ -1355,18 +1355,14 @@ function ClassBuilder({
 
       <ul className="text-xs list-disc pl-4 space-y-1" style={{ color: COLORS.muted }}>
         <li>
-          Create classes using the Class Picker to quickly add pre-built
-          discipline and division combinations, or use the <strong>+ Add Class</strong>{' '}
-          button to manually enter your own class details.
+          Use the <strong>Quick Class Picker</strong> to quickly add pre-built classes,
+          or use the <strong>+ Add Class</strong> button to manually enter your own
+          class details.
         </li>
-        <li>Select a date before using the Class Picker.</li>
+        <li>Make sure to select the correct date when creating/adding classes.</li>
         <li>
           Once a class is created, it can be reordered by clicking and dragging it
           to the proper order.
-        </li>
-        <li>
-          Check the <strong>Must Qualify</strong> box for any class that requires
-          an exhibitor/horse to qualify; i.e. Grand and Reserve.
         </li>
       </ul>
 
@@ -1557,10 +1553,10 @@ function ClassBuilder({
                         const queued = queuedKeys.has(`${classDate}::${k}`);
                         const disabled = taken || queued;
                         const title = taken
-                          ? `${div.name} ${disc.name} is already on the schedule for ${classDate}`
+                          ? `${disc.name} ${div.name} is already on the schedule for ${classDate}`
                           : queued
-                            ? `Adding ${div.name} ${disc.name}…`
-                            : `Add ${div.name} ${disc.name}`;
+                            ? `Adding ${disc.name} ${div.name}…`
+                            : `Add ${disc.name} ${div.name}`;
                         return (
                           <td
                             key={disc.key}
@@ -1759,10 +1755,10 @@ function ClassBuilder({
               )}
 
               <p className="text-xs mt-3" style={{ color: COLORS.muted }}>
-                Tick <strong>Must qualify</strong> on a class that is entered by
-                qualifying, such as a Grand &amp; Reserve champion class — exhibitors
-                can&rsquo;t enter it themselves, and the desk enters the horses called
-                back. Every unticked class is open entry.
+                Select <strong>Must qualify</strong> for classes that exhibitors must
+                qualify for; i.e. Grand &amp; Reserve classes.
+                <br />
+                A class cannot be deleted if there are current entries in it.
               </p>
 
               {filtering && (
@@ -1962,10 +1958,24 @@ function ClassRow({
       id={`class-row-${cls.id}`}
       ref={drag?.provided.innerRef}
       {...(drag?.provided.draggableProps ?? {})}
+      /* The handle is the whole row, not the ⠿ alone.
+       *
+       * @hello-pangea/dnd already starts a drag from a long press on its
+       * handle, so "tap and hold" was working — on a one-character span, which
+       * is about 10px of target on the phone the desk is actually worked from.
+       * Widening the handle to the row is the whole fix, and it is safe with a
+       * checkbox and a Delete button inside it: the library refuses to start a
+       * drag whose event began on an interactive element, so tapping those
+       * still does what they say. The ⠿ stays as the visual cue. */
+      {...(drag?.provided.dragHandleProps ?? {})}
       className="flex items-center justify-between gap-2 text-sm border-b py-1"
+      title={drag ? 'Tap and hold to drag into a new running order' : undefined}
       style={{
         borderColor: COLORS.borderSoft,
         backgroundColor: drag?.isDragging || highlighted ? COLORS.highlight : 'transparent',
+        // Stops the browser scrolling or text-selecting the row out from under
+        // a press that is becoming a drag.
+        ...(drag ? { touchAction: 'none', userSelect: 'none' as const, cursor: 'grab' } : {}),
         ...(drag?.provided.draggableProps.style ?? {}),
       }}
     >
@@ -1984,13 +1994,7 @@ function ClassRow({
           className="shrink-0"
         />
         {drag && (
-          <span
-            {...drag.provided.dragHandleProps}
-            className="cursor-grab active:cursor-grabbing select-none shrink-0"
-            title="Drag to reorder"
-            aria-label="Drag to reorder"
-            style={{ color: COLORS.border }}
-          >
+          <span aria-hidden className="select-none shrink-0" style={{ color: COLORS.border }}>
             ⠿
           </span>
         )}
@@ -2037,7 +2041,7 @@ function ClassRow({
 /**
  * A class the grid cannot name.
  *
- * The grid names every class "{Division} {Discipline}", which is right for an
+ * The grid names every class "{Discipline} {Division}", which is right for an
  * ordinary class and wrong for the ones a show bill names for themselves — a
  * Grand & Reserve champion class above all, which is not a division crossed
  * with a discipline but a call-back from the classes before it. There was no
@@ -2162,7 +2166,7 @@ function AddNamedClass({
   const disc = allDisciplines.find((d) => d.key === disciplineKey);
   const div = allDivisions.find((d) => d.key === divisionKey);
   const suggestedName = disc && div
-    ? `${preset === 'grand' ? 'Grand & Reserve ' : ''}${div.name} ${disc.name}`
+    ? `${preset === 'grand' ? 'Grand & Reserve ' : ''}${disc.name} ${div.name}`
     : '';
   const effectiveName = nameTouched ? name : suggestedName;
   const effectiveQualify = qualifyTouched ? mustQualify : looksLikeQualifyingClass(effectiveName);

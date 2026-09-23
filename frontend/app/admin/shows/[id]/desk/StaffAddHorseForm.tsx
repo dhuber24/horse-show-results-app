@@ -127,7 +127,12 @@ export default function StaffAddHorseForm({
   const inputStyle = { borderColor: 'var(--border)' };
 
   return (
-    <div className="mt-2 rounded border p-3 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+    // `@container` so the field grid below answers to the width of *this card*
+    // rather than the width of the window. A `sm:` breakpoint is a viewport
+    // measurement, which is the wrong question for a form that can be dropped
+    // into a 20rem roster column on a wide screen — it read as two columns and
+    // wrung every field out to nothing.
+    <div className="@container mt-2 rounded border p-3 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
       <div className="flex items-center justify-between">
         <h5 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
           Add a horse for {exhibitorName}
@@ -140,7 +145,7 @@ export default function StaffAddHorseForm({
         {exhibitorName} will own this horse and it will appear on their profile.
       </p>
 
-      <div className="grid sm:grid-cols-2 gap-2">
+      <div className="grid @sm:grid-cols-2 gap-2">
         <label className="text-xs" style={{ color: 'var(--muted)' }}>
           Registered name *
           <input
@@ -253,11 +258,18 @@ export default function StaffAddHorseForm({
             })}
           </ul>
         )}
-        <div className="flex gap-2">
+        {/* `min-w-0` on both controls, and nothing here sized by its content.
+            A <select> is as wide as its longest <option> by default, and
+            "APHA — American Paint Horse Association" is wider than the card
+            this form sits in — so without it the row pushed straight through
+            the border. Wrapping rather than shrinking to nothing, because
+            three controls squeezed onto one line of a narrow column are three
+            controls nobody can read. */}
+        <div className="flex flex-wrap gap-2">
           <select
             value={newReg.association_id}
             onChange={(e) => setNewReg((p) => ({ ...p, association_id: e.target.value }))}
-            className="border rounded px-2 py-1.5 text-sm" style={inputStyle}
+            className="border rounded px-2 py-1.5 text-sm min-w-0 flex-1 basis-40" style={inputStyle}
           >
             <option value="">Association</option>
             {availableAssociations.map((a) => (
@@ -268,12 +280,12 @@ export default function StaffAddHorseForm({
             value={newReg.registration_number}
             onChange={(e) => setNewReg((p) => ({ ...p, registration_number: e.target.value }))}
             placeholder="Registration number"
-            className="flex-1 border rounded px-2 py-1.5 text-sm" style={inputStyle}
+            className="flex-1 basis-40 min-w-0 border rounded px-2 py-1.5 text-sm" style={inputStyle}
           />
           <button
             type="button"
             onClick={addReg}
-            className="text-sm px-3 py-1.5 rounded border hover:bg-amber-50"
+            className="shrink-0 text-sm px-3 py-1.5 rounded border hover:bg-amber-50"
             style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
           >
             Add
