@@ -2,6 +2,81 @@
 
 ## September 2026
 
+### Starting From A Show Bill Is A Paid Feature, Switched On Per Show Company
+
+Reading a show bill spends model tokens on every upload, and it is sold to the
+business that runs the shows. Nothing in the schema named that business, so
+migration 142 adds it.
+
+- **Show companies** (`show_companies`, `show_company_members`) — a club or
+  firm, the staff accounts that work for it (an account may be in several), and
+  admin-only notes for the billing arrangement. Managed by GaitDesk admins at
+  `/admin/companies`; an account's companies show on `/admin/users/[id]`.
+- **A paid feature is a row on the company** (`show_company_features`): present
+  is on, off deletes it, and it reaches every account in the company. An ADMIN
+  has every feature. The app collects no payment — an admin turns it on once
+  the company has paid.
+- **The show bill import is gated at every door** — upload, recent reads, the
+  poll and the Create — by `require_feature("showbill_import")`, a 403 naming
+  the feature and the plan.
+- **Sold where a show starts.** `/admin/shows` and `/admin/shows/new` carry an
+  *Automate your show setup* card for everybody who can create a show. On the
+  plan, **Upload show bill & automate my show** opens the upload; off it, the
+  same button is disabled with *"You must upgrade to GaitDesk Pro to enable this
+  feature"* and whose company it is. The plan is named once, on the feature in
+  `show_companies.FEATURES`.
+- **A switch on every company row** at `/admin/companies` turns a feature on or
+  off without opening the company — the same switch as on the company's page,
+  immediate both ways, since turning one off keeps the company's work.
+- Adding the next paid feature is one entry in `show_companies.FEATURES` and a
+  `Depends(require_feature(...))` on its endpoints. See `docs/auth.md`.
+
+### Every Show Manager And Secretary Is In A Show Company
+
+A paid feature reaches an account only through a company, and plenty of show
+managers and secretaries work for nobody. Migration 143 closes that.
+
+- **An independent gets a company of their own**, named after them
+  (`show_companies.owner_user_id`), made with their account — at sign-up, when
+  an admin creates the account, and when a role change makes somebody show
+  office. The migration backfills one for every existing independent. Names are
+  unique among organizations only, and an own company follows its person's
+  name until somebody renames it.
+- **The sign-up forms ask for a Company / Organization, optionally.** A name
+  nobody has used creates that organization. A name that exists is a **request
+  to join**, never a membership — joining carries the company's paid features —
+  shown on the company's admin page with *Add to company* and *Decline*.
+- **Nobody is left in no company.** Joining an organization retires a spare own
+  company; leaving or deleting an organization gives anybody it leaves homeless
+  their own back; an own company cannot be removed from under its person.
+- `/admin/companies` sorts companies with a join request first, tags
+  independents, and has a search and a filter.
+
+### A Show Can Be Set Up From Its Own Show Bill
+
+A real show is a lot of keying, and the club has usually laid every piece of it
+out already, in the bill it sent to the printer. `/admin/shows/new` now offers
+the other door: upload that bill, check what was read, press Create.
+
+- **The model reads; a person creates.** The upload makes a `pending`
+  `show_bill_imports` row (migration 141) and reads the bill in the background;
+  the review screen polls it, then lays out every read value for editing. Apply
+  uses only the reviewed payload and makes a **DRAFT** show — venue, judges,
+  club sanctioning, the class schedule with its prices, and the fee catalogue —
+  in one transaction, with the PDF put on file as the show's uploaded bill.
+- **Judges, venues and clubs are matched, never assumed.** One exact name match
+  is preselected and says it matched on the name; two people of one name are
+  both offered and neither picked; an existing judge's cards are not edited.
+- **Class prices are the bill's rates**, with the per-judge arithmetic shown
+  against the panel the reviewer has left ticked, so the per-judge rate a bill
+  quotes is multiplied the way billing counts judges, not the way the model
+  guessed.
+- **Checked against the MNSPHC hand transcription** (172 classes): every class
+  lands in the same discipline, and the created prices match the seed's
+  hand-multiplied figures class for class.
+- Side pots, a futurity's programme and show staff are listed as not imported
+  rather than guessed at. See `docs/showbill-import.md`.
+
 ### The Class Builder Opens On What There Is To Work On
 
 - **Tap and hold anywhere on a class row to drag it into a new running order.**

@@ -20,7 +20,14 @@ import { useRouter } from 'next/navigation';
  */
 export default function ShowManagerRegisterForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
+  const [form, setForm] = useState({
+    first_name: '',
+    last_name: '',
+    organization_name: '',
+    email: '',
+    password: '',
+    confirm_password: '',
+  });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -53,6 +60,7 @@ export default function ShowManagerRegisterForm() {
         last_name: form.last_name.trim(),
         email: form.email,
         password: form.password,
+        organization_name: form.organization_name.trim() || null,
       }),
     });
 
@@ -80,6 +88,18 @@ export default function ShowManagerRegisterForm() {
         {[
           { name: 'first_name', label: 'First Name', type: 'text', placeholder: 'Jane' },
           { name: 'last_name', label: 'Last Name', type: 'text', placeholder: 'Smith' },
+          // Optional (migration 143). Blank is an independent, who gets a company of
+          // their own under their name; a name already on GaitDesk is a request to
+          // join it, which a GaitDesk admin approves, because joining carries that
+          // company's paid features.
+          {
+            name: 'organization_name',
+            label: 'Company / Organization',
+            type: 'text',
+            placeholder: 'e.g. Minnesota Paint Horse Club',
+            optional: true,
+            hint: "Leave blank if you work for yourself — we'll set you up under your own name. If your organization is already on GaitDesk, we'll confirm you with them first.",
+          },
           { name: 'email', label: 'Email', type: 'email', placeholder: 'you@example.com' },
           { name: 'password', label: 'Password', type: 'password', placeholder: '•••••••• (min 8 chars)' },
           { name: 'confirm_password', label: 'Confirm Password', type: 'password', placeholder: '••••••••' },
@@ -87,6 +107,7 @@ export default function ShowManagerRegisterForm() {
           <div key={field.name}>
             <label className="block text-sm font-medium mb-1" style={{ color: 'var(--foreground)' }}>
               {field.label}
+              {field.optional && <span className="font-normal" style={{ color: 'var(--muted)' }}> (optional)</span>}
             </label>
             <input
               name={field.name}
@@ -97,6 +118,9 @@ export default function ShowManagerRegisterForm() {
               className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             />
+            {field.hint && (
+              <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{field.hint}</p>
+            )}
           </div>
         ))}
       </div>

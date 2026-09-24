@@ -29,8 +29,17 @@ from schemas import (
     ExhibitorCompetitionCardCreate, ExhibitorCompetitionCardUpdate, ExhibitorCompetitionCardOut,
     ExhibitorMergeCandidate, ExhibitorMergeRequest, ExhibitorMergeResult, ExhibitorRegistryRow,
     StaffCertificationOut, StaffCertificationsReplace,
+    MyFeaturesOut, ShowCompanyRef, FeatureInfoOut,
 )
 from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
+from show_companies import (
+    FEATURES,
+    SHOW_OFFICE_ROLES,
+    companies_for_user,
+    enabled_features,
+    place_in_company,
+    sync_personal_company_name,
+)
 
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER", "JUDGE"}
 
@@ -107,6 +116,12 @@ async def _ensure_role_profile(user: User, db: AsyncSession):
                     email=user.email,
                     user_id=user.id,
                 ))
+    if user.role in SHOW_OFFICE_ROLES:
+        # Every show manager and secretary belongs to a show company (migration
+        # 143) -- their own, named after them, when an admin makes the account
+        # or promotes somebody into the role. The sign-up screens pass the
+        # Company / Organization box through `place_in_company` themselves.
+        await place_in_company(user, db)
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
@@ -283,10 +298,14 @@ async def update_current_user(
     if "email" in updates and updates["email"] is not None:
         updates["email"] = _normalize_email(updates["email"])
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
+    # Captured before the edit: the first query below autoflushes the rename,
+    # and the flush rewrites full_name.
+    old_full_name = user.full_name
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
     if "first_name" in updates or "last_name" in updates:
         await _sync_linked_exhibitor_name(user, db)
+        await sync_personal_company_name(user, old_full_name, db)
     try:
         await db.commit()
         await db.refresh(user)
@@ -466,6 +485,32 @@ async def replace_own_certifications(
     return await list_own_certifications(user_id=user_id, db=db)
 
 
+@users_router.get("/me/features", response_model=MyFeaturesOut)
+async def list_own_features(
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The paid features the caller may use, and the show companies they work
+    for (migration 142).
+
+    What a page reads to decide whether to *offer* a feature. It is never the
+    enforcement -- each gated endpoint checks for itself through
+    `show_companies.require_feature` -- so a stale answer here costs a screen
+    an offer it should not have made, never a feature somebody did not pay for.
+    """
+    uid = safe_uuid(user_id)
+    features = await enabled_features(db, uid, x_user_role)
+    companies = await companies_for_user(db, uid)
+    return MyFeaturesOut(
+        features=sorted(features),
+        companies=[
+            ShowCompanyRef(id=c.id, name=c.name, personal=c.owner_user_id == uid) for c in companies
+        ],
+        catalog=[FeatureInfoOut(key=f.key, label=f.label, plan=f.plan) for f in FEATURES.values()],
+    )
+
+
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
 async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSession = Depends(get_db)):
     user = await db.get(User, user_id)
@@ -475,10 +520,14 @@ async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSess
     if "email" in updates and updates["email"] is not None:
         updates["email"] = _normalize_email(updates["email"])
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
+    # Captured before the edit: the first query below autoflushes the rename,
+    # and the flush rewrites full_name.
+    old_full_name = user.full_name
     for k, v in updates.items():
         setattr(user, k, v.strip() if isinstance(v, str) else v)
     if "first_name" in updates or "last_name" in updates:
         await _sync_linked_exhibitor_name(user, db)
+        await sync_personal_company_name(user, old_full_name, db)
     try:
         await db.commit()
         await db.refresh(user)

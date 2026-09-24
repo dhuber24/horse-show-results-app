@@ -1145,6 +1145,125 @@ class DocumentExtraction(Base):
     requested_by = relationship("User")
 
 
+class ShowBillImport(Base):
+    """One AI read of an uploaded show bill, and the show made from it.
+
+    The show-sized sibling of `DocumentExtraction`: the model reads the bill,
+    a person reviews what it read, and only their press creates anything.
+    `extracted` is the read, `accepted` is what the reviewer submitted, and
+    `show_id` is what that became -- see `backend/showbill_import.py`.
+
+    **No relationships, deliberately.** `file_data` is a multi-megabyte BYTEA
+    and the review screen polls this row every few seconds, so readers select
+    the columns they want by name, the same rule `ShowDocument` follows.
+    """
+    __tablename__ = "show_bill_imports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    original_filename = Column(Text, nullable=False)
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    file_data = Column(LargeBinary, nullable=False)
+    # pending -> succeeded / failed / unsupported_media. A pending row the
+    # process never finished is reported as failed by the reader once it is
+    # older than the read could take; see `showbill_import.effective_status`.
+    status = Column(
+        Text,
+        CheckConstraint("status IN ('pending', 'succeeded', 'failed', 'unsupported_media')"),
+        nullable=False,
+        server_default="pending",
+    )
+    error_message = Column(Text, nullable=True)
+    extracted = Column(JSONB, nullable=True)
+    accepted = Column(JSONB, nullable=True)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True)
+    model = Column(Text, nullable=True)
+    input_tokens = Column(Integer, nullable=True)
+    output_tokens = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    applied_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+
+class ShowCompany(Base):
+    """The business that runs shows, and what GaitDesk has switched on for it.
+
+    Migration 142. A paid feature is sold to the club or firm, not to one of its
+    staff and not to one show, so it is switched on here and reaches every
+    account in `members`. See `backend/show_companies.py`.
+    """
+    __tablename__ = "show_companies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    # GaitDesk admin only: the billing arrangement while the app takes no payment.
+    notes = Column(Text, nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Migration 143: set when the company *is* one independent person, named
+    # after them and made with their account. NULL on an organization, and only
+    # organizations need a unique name.
+    owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    members = relationship("ShowCompanyMember", back_populates="company", cascade="all, delete-orphan")
+    features = relationship("ShowCompanyFeature", back_populates="company", cascade="all, delete-orphan")
+    join_requests = relationship("ShowCompanyJoinRequest", back_populates="company", cascade="all, delete-orphan")
+    owner = relationship("User", foreign_keys=[owner_user_id])
+
+
+class ShowCompanyMember(Base):
+    """An account that works for a show company. Many to many -- a freelance
+    secretary may work for several clubs, each with its own features."""
+    __tablename__ = "show_company_members"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    added_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("company_id", "user_id", name="uq_show_company_members"),)
+
+    company = relationship("ShowCompany", back_populates="members")
+    user = relationship("User", foreign_keys=[user_id])
+
+
+class ShowCompanyFeature(Base):
+    """A paid feature switched on for a company. The row is the switch: present
+    is on, and turning it off deletes it. `feature` is a key of
+    `show_companies.FEATURES`, checked there rather than by a CHECK."""
+    __tablename__ = "show_company_features"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    feature = Column(Text, nullable=False)
+    enabled_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    enabled_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("company_id", "feature", name="uq_show_company_features"),)
+
+    company = relationship("ShowCompany", back_populates="features")
+    enabled_by = relationship("User", foreign_keys=[enabled_by_user_id])
+
+
+class ShowCompanyJoinRequest(Base):
+    """Somebody who typed an existing organization's name at sign-up (migration
+    143). Not a membership: joining carries the company's paid features, so a
+    GaitDesk admin approves it on the company's page."""
+    __tablename__ = "show_company_join_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("company_id", "user_id", name="uq_show_company_join_requests"),)
+
+    company = relationship("ShowCompany", back_populates="join_requests")
+    user = relationship("User", foreign_keys=[user_id])
+
+
 class ExhibitorDocument(Base):
     __tablename__ = "exhibitor_documents"
 

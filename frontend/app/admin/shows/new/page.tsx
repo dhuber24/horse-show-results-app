@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { fetchVenues, fetchShowTypes } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import AutomateShowCard from '@/components/AutomateShowCard';
+import { fetchMyFeatures } from '@/lib/show-companies';
 import WizardStepper from '../_wizard/WizardStepper';
 import { buildSteps } from '../_wizard/steps';
 import Step1Client, { type ExistingSecretary } from './Step1Client';
@@ -27,10 +29,11 @@ export default async function NewShowPage() {
     redirect('/admin');
   }
 
-  const [venues, showTypes, secretaries] = await Promise.all([
+  const [venues, showTypes, secretaries, myFeatures] = await Promise.all([
     fetchVenues(),
     fetchShowTypes(),
     fetchSecretaries(),
+    getAuthHeaders().then(fetchMyFeatures),
   ]);
 
   // The same list every setup step and the hub draw, read from `buildSteps`
@@ -72,6 +75,12 @@ export default async function NewShowPage() {
       {/* No hub link: the show does not exist yet, which is also why every step
           here is an unlinked preview of what is coming. */}
       <WizardStepper current="basic" steps={steps} hubHref={null} />
+
+      {/* The other door: a show whose club has already laid out its bill can
+          start from that instead of being keyed in step by step. A paid
+          feature (migration 142): the card is the same for everybody, and
+          only the button knows whether their company is on the plan. */}
+      <AutomateShowCard mine={myFeatures} />
 
       <Step1Client
         callerRole={role}

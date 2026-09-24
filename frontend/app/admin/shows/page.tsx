@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { API_URL } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import AutomateShowCard from '@/components/AutomateShowCard';
+import { fetchMyFeatures } from '@/lib/show-companies';
 import ShowList from './ShowList';
 
 async function fetchShowsForUser(headers: Record<string, string>) {
@@ -23,7 +25,7 @@ export default async function AdminShowsPage() {
     'X-User-Role': role ?? '',
   };
 
-  const shows = await fetchShowsForUser(headers);
+  const [shows, myFeatures] = await Promise.all([fetchShowsForUser(headers), fetchMyFeatures(headers)]);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -56,6 +58,11 @@ export default async function AdminShowsPage() {
           </div>
         </div>
       </div>
+
+      {/* Where a show starts, so where the faster way to start one is sold.
+          Only to the roles that can create a show -- every role this page
+          admits, today, but the check keeps it honest if that widens. */}
+      {['ADMIN', 'SHOW_MANAGER', 'SHOW_SECRETARY'].includes(role) && <AutomateShowCard mine={myFeatures} />}
 
       <ShowList initialShows={shows} role={role ?? ''} />
     </main>

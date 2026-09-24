@@ -3,7 +3,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -12,6 +12,7 @@ import logging
 
 from database import get_db
 from models import User, Exhibitor, ShowSecretaryCertification, Association, Trainer
+from show_companies import place_in_company
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,9 @@ class ShowSecretaryRegister(BaseModel):
     first_name: str
     last_name: str
     certifications: list[SecretaryCertificationIn] = []
+    # The optional Company / Organization box (migration 143). Blank means an
+    # independent, who gets a company of their own; see `place_in_company`.
+    organization_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class ShowManagerRegister(BaseModel):
@@ -74,6 +78,7 @@ class ShowManagerRegister(BaseModel):
     password: str
     first_name: str
     last_name: str
+    organization_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class TrainerRegister(BaseModel):
@@ -374,6 +379,7 @@ async def register_show_secretary(
             secretary_id_number=cert.secretary_id_number,
         ))
 
+    await place_in_company(user, db, body.organization_name)
     await db.commit()
     await db.refresh(user)
 
@@ -409,6 +415,8 @@ async def register_show_manager(
         hashed_password=hash_password(body.password),
     )
     db.add(user)
+    await db.flush()
+    await place_in_company(user, db, body.organization_name)
     await db.commit()
     await db.refresh(user)
 

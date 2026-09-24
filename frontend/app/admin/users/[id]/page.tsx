@@ -10,6 +10,7 @@ import DeleteUserButton from './DeleteUserButton';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import AdminTrainerDetail from '@/app/admin/trainers/[id]/AdminTrainerDetail';
 import { coatDescription } from '@/lib/horse-coat';
+import type { ShowCompany } from '@/lib/show-companies';
 
 async function getUser(id: string, headers: Record<string, string>) {
   const res = await fetch(`${API_URL}/users/${id}`, { headers, cache: 'no-store' });
@@ -39,6 +40,13 @@ async function getTrainerByUser(userId: string, headers: Record<string, string>)
 
 async function getTrainerAffiliations(trainerId: string, headers: Record<string, string>): Promise<any[]> {
   const res = await fetch(`${API_URL}/trainers/${trainerId}/registrations`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+/** The show companies this account works for -- what its paid features come from. */
+async function getCompanies(userId: string, headers: Record<string, string>): Promise<ShowCompany[]> {
+  const res = await fetch(`${API_URL}/show-companies/?user_id=${userId}`, { headers, cache: 'no-store' });
   if (!res.ok) return [];
   return res.json();
 }
@@ -75,6 +83,8 @@ export default async function UserDetailPage({
   let trainer: any = null;
   let trainerAffiliations: any[] = [];
   let trainerHorses: any[] = [];
+  const isShowOffice = user.role === 'SHOW_MANAGER' || user.role === 'SHOW_SECRETARY';
+  const companies = isShowOffice ? await getCompanies(user.id, headers) : [];
 
   if (user.role === 'EXHIBITOR') {
     exhibitor = await getExhibitorByUser(user.id, headers);
@@ -142,6 +152,43 @@ export default async function UserDetailPage({
         <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Role</h2>
         <ChangeRoleForm user={user} />
       </section>
+
+      {isShowOffice && (
+        <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Show Companies</h2>
+          <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
+            Paid features reach this account through the companies it works for. Add or remove it on the
+            company&apos;s page.
+          </p>
+          {companies.length === 0 ? (
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
+              Not in any show company, so no paid features.{' '}
+              <Link href="/admin/companies" className="underline" style={{ color: 'var(--accent)' }}>
+                Show companies →
+              </Link>
+            </p>
+          ) : (
+            <ul className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
+              {companies.map((company) => {
+                const on = company.features.filter((f) => f.enabled);
+                return (
+                  <li key={company.id} className="py-2 first:pt-0 last:pb-0">
+                    <Link href={`/admin/companies/${company.id}`} className="text-sm font-medium hover:underline" style={{ color: 'var(--foreground)' }}>
+                      {company.name}
+                    </Link>
+                    {company.owner_user_id === user.id && (
+                      <span className="ml-2 text-xs" style={{ color: 'var(--muted)' }}>their own company</span>
+                    )}
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {on.length === 0 ? 'No paid features on' : on.map((f) => f.label).join(', ')}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       {user.role === 'EXHIBITOR' && (
         <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>

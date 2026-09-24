@@ -1171,6 +1171,195 @@ class DocumentExtractionOut(BaseModel):
     notes: Optional[str] = None
 
 
+# ── Show bill imports (migration 141) ────────────────────────────────────────────
+
+class ShowBillImportOut(BaseModel):
+    """One read of an uploaded show bill, as the review screen polls it.
+
+    `extracted` is what the model read and `resolved` is what the app matched
+    it to -- judges, venue, clubs, the breed body, each class's discipline. The
+    two stay apart so the screen can show what the bill *said* next to what it
+    is about to *do*. Both are None until the read has succeeded.
+    """
+    id: UUID
+    status: str
+    message: Optional[str] = None
+    original_filename: str
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    show_id: Optional[UUID] = None
+    extracted: Optional[dict] = None
+    resolved: Optional[dict] = None
+
+
+class ShowBillImportShow(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    show_type_id: UUID
+    start_date: date
+    end_date: date
+    entry_deadline: Optional[date] = None
+    apha_show_number: Optional[str] = Field(default=None, max_length=50)
+    aqha_show_number: Optional[str] = Field(default=None, max_length=50)
+    apha_zone: Optional[int] = Field(default=None, ge=1, le=14)
+    shavings_ban_outside: bool = False
+    requires_coggins: bool = True
+    requires_health_certificate: bool = False
+    health_certificate_valid_days: int = Field(default=30, ge=1, le=365)
+    requires_vaccination: bool = False
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.end_date < self.start_date:
+            raise ValueError("The end date must be on or after the start date.")
+        return self
+
+
+class ShowBillImportVenue(BaseModel):
+    """An existing venue by id, or a new one by name -- `venue_id` wins."""
+    venue_id: Optional[UUID] = None
+    name: Optional[str] = Field(default=None, max_length=200)
+    address: Optional[str] = Field(default=None, max_length=300)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+
+
+class ShowBillImportJudge(BaseModel):
+    """A registry judge by id, or a new one by name.
+
+    `association_ids` are the new judge's cards. They are ignored for a
+    registry pick: editing a registry judge is admin-only, and one show's bill
+    is not the place to rewrite a record every show that judge worked shares.
+    """
+    judge_id: Optional[UUID] = None
+    first_name: Optional[str] = Field(default=None, max_length=100)
+    last_name: Optional[str] = Field(default=None, max_length=100)
+    email: Optional[str] = Field(default=None, max_length=200)
+    association_ids: list[UUID] = Field(default_factory=list)
+
+
+class ShowBillImportClub(BaseModel):
+    association_id: UUID
+    fee_amount_cents: int = Field(default=0, ge=0)
+    fee_unit: ClubSanctionUnit = "per_entry"
+
+
+class ShowBillImportClass(BaseModel):
+    class_date: date
+    class_name: str = Field(min_length=1, max_length=200)
+    discipline: Optional[str] = Field(default=None, max_length=100)
+    bracket: Optional[str] = Field(default=None, max_length=100)
+    association_class_code: Optional[str] = Field(default=None, max_length=50)
+    entry_fee_cents: int = Field(default=0, ge=0)
+    club_association_ids: list[UUID] = Field(default_factory=list)
+    entered_by_qualification: bool = False
+
+
+class ShowBillImportFee(BaseModel):
+    label: str = Field(min_length=1, max_length=200)
+    amount_cents: int = Field(default=0, ge=0)
+    unit: FeeUnit
+    notes: Optional[str] = Field(default=None, max_length=500)
+    early_amount_cents: Optional[int] = Field(default=None, ge=0)
+    early_deadline: Optional[date] = None
+    min_quantity: int = Field(default=0, ge=0, le=999)
+
+
+class ShowBillImportApply(BaseModel):
+    """The reviewed show, exactly as the person on the review screen left it.
+
+    Nothing the model read is used when this is applied -- only this payload --
+    so every value that reaches a record passed in front of somebody first.
+    """
+    show: ShowBillImportShow
+    venue: Optional[ShowBillImportVenue] = None
+    judges: list[ShowBillImportJudge] = Field(default_factory=list, max_length=30)
+    clubs: list[ShowBillImportClub] = Field(default_factory=list, max_length=20)
+    classes: list[ShowBillImportClass] = Field(default_factory=list, max_length=1000)
+    fees: list[ShowBillImportFee] = Field(default_factory=list, max_length=100)
+    attach_showbill: bool = True
+
+
+# ── Show companies (migration 142) ────────────────────────────────────────────
+
+class ShowCompanyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=5000)
+
+
+class ShowCompanyUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=5000)
+
+
+class ShowCompanyMemberAdd(BaseModel):
+    user_id: UUID
+
+
+class ShowCompanyMemberOut(BaseModel):
+    user_id: UUID
+    full_name: str
+    email: str
+    role: str
+    added_at: Optional[datetime] = None
+
+
+class ShowCompanyFeatureOut(BaseModel):
+    """One registered paid feature and whether this company has it -- every
+    feature is listed, so the admin screen can offer the ones that are off."""
+    key: str
+    label: str
+    description: str
+    plan: str
+    enabled: bool
+    enabled_at: Optional[datetime] = None
+    enabled_by_name: Optional[str] = None
+
+
+class ShowCompanyJoinRequestOut(BaseModel):
+    """Somebody who typed this organization's name at sign-up (migration 143)."""
+    user_id: UUID
+    full_name: str
+    email: str
+    role: str
+    requested_at: Optional[datetime] = None
+
+
+class ShowCompanyOut(BaseModel):
+    id: UUID
+    name: str
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # Set when the company is one independent person's own (migration 143).
+    owner_user_id: Optional[UUID] = None
+    members: list[ShowCompanyMemberOut] = Field(default_factory=list)
+    features: list[ShowCompanyFeatureOut] = Field(default_factory=list)
+    join_requests: list[ShowCompanyJoinRequestOut] = Field(default_factory=list)
+
+
+class ShowCompanyRef(BaseModel):
+    id: UUID
+    name: str
+    # The caller's own company, named after them -- so a locked button can say
+    # "your account" rather than print the caller's name back at them.
+    personal: bool = False
+
+
+class FeatureInfoOut(BaseModel):
+    key: str
+    label: str
+    plan: str
+
+
+class MyFeaturesOut(BaseModel):
+    """What the caller may use, the companies they belong to, and every paid
+    feature with the plan that includes it -- so a locked button can name the
+    subscription and *whose* company is not on it, without a second copy of
+    the plan name in the frontend."""
+    features: list[str]
+    companies: list[ShowCompanyRef]
+    catalog: list[FeatureInfoOut]
+
+
 # ── Breeds ─────────────────────────────────────────────────────────────────────
 
 class BreedCreate(BaseModel):

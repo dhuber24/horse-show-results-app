@@ -29,6 +29,11 @@ Two consequences in the code:
   complete behavior is suppressed and an explicit **Looks right — save** button
   appears. Auto-upload stays on for values the uploader typed themselves.
 
+The same rule, at the size of a whole show, is how a show is set up from its
+own printed show bill — see [showbill-import.md](showbill-import.md). That
+reader lives beside this one in `backend/extraction/` and shares its client,
+document block and failure statuses.
+
 ## Two upload surfaces
 
 | Surface | Endpoint | Gate |
