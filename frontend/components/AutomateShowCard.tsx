@@ -35,8 +35,8 @@ export default function AutomateShowCard({ mine }: { mine: MyFeatures }) {
           Automate your show setup
         </h2>
         <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
-          Upload the show bill you sent to the printer. GaitDesk reads the dates, venue, judges, clubs,
-          every class and every fee into a draft show — you check it and press Create.
+          Upload your showbill&apos;s PDF. GaitDesk reads the dates, venue, judges, clubs, every class and
+          every fee into a draft show for you to review.
         </p>
       </div>
 
