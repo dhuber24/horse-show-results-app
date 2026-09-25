@@ -108,13 +108,10 @@ export type PreviewHorse = {
   /** Who owns it, when that is not the exhibitor — names the person the
    *  relationship is being asked about. */
   owner_name?: string | null;
-  /** Whether this exhibitor created the horse record, which decides which door
-   *  removing it goes through: clearing the creator, or dropping the rider
-   *  link. Neither deletes the horse. */
-  is_creator?: boolean;
-  /** How many classes at this show it is entered in. Removing a horse it is
-   *  down the card on would leave entries pointing at a horse the exhibitor can
-   *  no longer reach, so the control says so and the endpoint refuses. */
+  /** How many classes at this show it is entered in. Taking it off the
+   *  registration while it is down the card would leave entries on a horse the
+   *  exhibitor can no longer pick, so the control says so and the endpoint
+   *  refuses. */
   entered_class_count?: number;
 };
 
@@ -163,6 +160,11 @@ export type ProfileStatus = {
   complete: boolean;
   missing: string[];
   checklist: ProfileChecklistItem[];
+  /** Which steps this show holds its own answer for (migration 145). False is
+   *  a step still reading the profile, so a profile edit reaches this show;
+   *  true is a step changed here, which no longer follows it. Optional for a
+   *  frontend deployed ahead of the backend that sends it. */
+  own_copy?: { details: boolean; memberships: boolean; horses: boolean };
   exhibitor: {
     id: string;
     full_name: string;
@@ -202,9 +204,9 @@ export type PreviewData = {
   /** Step one. The stalls half is locked on this the same way the classes half
    *  is locked on `signup`. */
   profile: ProfileStatus;
-  /** The exhibitor's own association memberships, so the wizard's
-   *  memberships step can render them without a second round trip. The same
-   *  rows the `memberships` checklist item above is computed from. */
+  /** The memberships on this show's registration — the profile's until the
+   *  memberships step is changed here — so that step renders without a second
+   *  round trip. The same rows the `memberships` checklist item is built from. */
   registrations: Registration[];
   cancellation: CancellationWindow;
   show: {
@@ -217,7 +219,12 @@ export type PreviewData = {
   };
   exhibitor: { id: string; full_name: string };
   classes: PreviewClass[];
+  /** The horses on this show's registration — the profile's until the horses
+   *  step is changed here. */
   horses: PreviewHorse[];
+  /** On the profile but taken off this registration, so the horses step can
+   *  offer them back. Optional for a frontend ahead of its backend. */
+  other_profile_horses?: { id: string; name: string }[];
   existing_entries: ExistingEntry[];
   /** From `billing.build_bill` — never re-derived here. See Claude.md. */
   bill: Bill;

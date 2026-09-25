@@ -2,6 +2,31 @@
 
 ## September 2026
 
+### A Show Registration No Longer Writes The Exhibitor's Profile
+
+Removing a horse on a show's registration took it off the exhibitor's profile —
+and off every other show's picker — because the wizard's first three steps wrote
+the profile directly. A phone number corrected for one weekend was rewritten for
+every show the same way.
+
+- **The profile prefills; the registration keeps its own copy** (migration 145,
+  `show_registration_profiles` with `show_registration_horses` and
+  `show_registration_memberships`). Details, memberships, the horse list and the
+  owner-relationship answer are all saved against that show only.
+- **Each step follows the profile until it is changed there.** A registration
+  nobody edited keeps up with profile corrections; the first edit copies that
+  step's answers across and applies the change. Saving the details form
+  unchanged is not an edit. Each step says which it is doing.
+- **Remove takes a horse off this show only**, still refused while it is entered
+  in a class or a futurity there. Removed horses are listed under *On your
+  profile, not at this show* with an *Add to this show* button.
+- **A horse created from the horses step still goes on the profile**, and the
+  wizard puts it on the registration too, so it is not re-created next show.
+- **The show reads its copy everywhere**: the desk's contact, emergency contact
+  and membership sign-offs, the youth-age and AQHA member checks, the compliance
+  report and the APHA export. An emergency contact taken at the desk is written
+  to the show's copy, no longer the profile.
+
 ### A Locked Paid Feature Asks For The Upgrade Itself
 
 The locked show-bill button said *"ask GaitDesk about upgrading"* and gave no

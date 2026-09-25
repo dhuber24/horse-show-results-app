@@ -29,12 +29,20 @@ import type { ProfileChecklistItem } from './types';
  * Somebody who holds an AQHA card at an APHA show should be able to file it
  * while they are here; what the show is waiting on is said in the line above
  * the list, which is the backend's own checklist hint.
+ *
+ * **Saved to this show, never to the profile** (migration 145). The list opens
+ * on the profile's memberships and every add, fix or removal lands on this
+ * show's registration. The card-scan upload is left off for the same reason:
+ * a scan is filed on the profile.
  */
 export default function MembershipsStep({
+  showId,
   exhibitorId,
   registrations,
   item,
+  ownCopy = false,
 }: {
+  showId: string;
   exhibitorId: string;
   registrations: Registration[];
   /** The `memberships` row from the profile checklist — which associations
@@ -42,6 +50,8 @@ export default function MembershipsStep({
    *  when the show has no breed or club affiliation at all, in which case this
    *  step is not rendered. */
   item: ProfileChecklistItem;
+  /** True once this show holds its own list rather than reading the profile. */
+  ownCopy?: boolean;
 }) {
   const router = useRouter();
 
@@ -59,9 +69,17 @@ export default function MembershipsStep({
         )}
       </div>
 
+      <p className="text-xs" style={{ color: 'var(--muted)' }}>
+        {ownCopy
+          ? 'Changed for this show — your profile is unchanged.'
+          : 'From your profile. Changes here apply to this show only.'}
+      </p>
+
       <ExhibitorRegistrations
         exhibitorId={exhibitorId}
         initialRegistrations={registrations}
+        registrationsUrl={`/api/shows/${showId}/register/memberships`}
+        showCertificates={false}
         // The checklist and the stepper's tick are both server-rendered, so a
         // refresh is what re-ticks this step. Fires on an add, an edit or a
         // removal — never on a keystroke — and the list below keeps its own

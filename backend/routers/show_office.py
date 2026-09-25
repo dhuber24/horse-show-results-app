@@ -106,6 +106,15 @@ from schemas import (
     StaffHorseCreate,
     VerificationChecklistOut,
 )
+from registration_profile import (
+    ShowExhibitorView,
+    add_horse,
+    get_or_create_copy,
+    load_copies_for_show,
+    load_copy,
+    membership_for,
+    take_details,
+)
 from show_associations import asked_of, show_associations
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Show Office"])
@@ -135,6 +144,17 @@ class _Roster:
         # How many classes each horse is in, across every exhibitor riding it.
         # Sizes the problem when the office is deciding who to call first.
         self.entry_counts: dict[UUID, int] = {}
+        # Each exhibitor's copy of their profile at this show, where they have
+        # changed something on their registration (migration 145). What the
+        # desk reads their details and memberships through -- see `view`.
+        self.copies: dict = {}
+
+    def view(self, exhibitor_id: UUID) -> ShowExhibitorView:
+        """The exhibitor as this show holds them: their registration's own
+        details and memberships where they changed any, the profile otherwise."""
+        return ShowExhibitorView(
+            self.exhibitors[exhibitor_id], self.copies.get(exhibitor_id)
+        )
 
     def horse_ids(self) -> list[UUID]:
         """Every distinct horse entered in this show."""
@@ -190,6 +210,7 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
             roster.horses.setdefault(entry.exhibitor_id, {})[entry.horse_id] = entry.horse
             roster.entry_counts[entry.horse_id] = roster.entry_counts.get(entry.horse_id, 0) + 1
 
+    roster.copies = await load_copies_for_show(show_id, db, roster.exhibitors.keys())
     return roster
 
 
@@ -279,9 +300,10 @@ def _build_waiver_check(waiver: ShowWaiver, signature: Optional[ShowWaiverSignat
     }
 
 
-def _build_emergency_contact(exhibitor: Exhibitor) -> dict:
-    """Read off the profile, never copied per show: a second copy would be a
-    second, staler answer to the only question that matters here."""
+def _build_emergency_contact(exhibitor) -> dict:
+    """Read off what the exhibitor gave this show -- a `ShowExhibitorView`, so
+    the registration's own answer where they changed it there and the profile's
+    otherwise (migration 145)."""
     name = (exhibitor.emergency_contact_name or "").strip() or None
     phone = (exhibitor.emergency_contact_phone or "").strip() or None
     return {
@@ -291,12 +313,14 @@ def _build_emergency_contact(exhibitor: Exhibitor) -> dict:
     }
 
 
-def _build_contact(exhibitor: Exhibitor) -> dict:
+def _build_contact(exhibitor) -> dict:
     """How the office reaches this person away from the counter.
 
-    Read off the profile for the same reason the emergency contact beside it is
-    — a per-show copy would be a second, staler answer to "what is their
-    number?". Nothing here is a check and none of it counts toward
+    Read off a `ShowExhibitorView`, like the emergency contact beside it: the
+    telephone and address the exhibitor gave this show's registration where they
+    changed them there, the profile's otherwise (migration 145). The email is
+    the account's or the office's, which no registration edits. Nothing here is
+    a check and none of it counts toward
     `outstanding`: an exhibitor with no email on file is not paperwork anybody
     owes, they are simply somebody the office has to telephone instead.
 
@@ -472,9 +496,13 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
 
     exhibitors_out = []
     for exhibitor_id, exhibitor in roster.exhibitors.items():
+        # What the exhibitor gave *this show* -- a phone number or a membership
+        # corrected on their registration here is not on their profile, and the
+        # desk has to read the one they gave the show (migration 145).
+        view = roster.view(exhibitor_id)
         memberships = []
         for reg in sorted(
-            asked_of(exhibitor.registrations or [], asked_association_ids),
+            asked_of(view.registrations or [], asked_association_ids),
             key=lambda r: (r.association.code if r.association else ""),
         ):
             key = _verification_key(
@@ -540,7 +568,7 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
             if w.futurity_id is None
             or w.futurity_id in enrolled_futurities.get(exhibitor_id, set())
         ]
-        emergency_contact = _build_emergency_contact(exhibitor)
+        emergency_contact = _build_emergency_contact(view)
 
         # Outstanding is what is left at *this person's* desk visit, so a shared
         # horse counts for each exhibitor who has to present it.
@@ -572,7 +600,7 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
             "emergency_contact": emergency_contact,
             # Reference, not a check — deliberately assembled after
             # `outstanding` is counted so it cannot creep into the tally.
-            "contact": _build_contact(exhibitor),
+            "contact": _build_contact(view),
             "outstanding": outstanding,
         })
 
@@ -839,13 +867,25 @@ async def _current_value_for(
         raise HTTPException(422, "horse_id does not apply to this verification")
     await _assert_exhibitor_on_roster(show_id, body.exhibitor_id, db)
 
-    result = await db.execute(
-        select(ExhibitorRegistration).where(
-            ExhibitorRegistration.exhibitor_id == body.exhibitor_id,
-            ExhibitorRegistration.association_id == body.association_id,
+    # The membership the exhibitor gave this show, which is the profile's until
+    # they changed their memberships on the registration (migration 145) -- the
+    # same rows the checklist was built from, so a sign-off cannot snapshot a
+    # number the desk was not shown.
+    # A select rather than `db.get(..., options=...)`: the roster check above
+    # has just put this row in the identity map, where `get` drops the options.
+    exhibitor_result = await db.execute(
+        select(Exhibitor)
+        .options(
+            selectinload(Exhibitor.registrations).selectinload(
+                ExhibitorRegistration.association
+            )
         )
+        .where(Exhibitor.id == body.exhibitor_id)
+        .execution_options(populate_existing=True)
     )
-    membership = result.scalar_one_or_none()
+    exhibitor = exhibitor_result.scalar_one()
+    view = ShowExhibitorView(exhibitor, await load_copy(show.id, body.exhibitor_id, db))
+    membership = membership_for(view, body.association_id)
     if membership is None:
         raise HTTPException(422, "No membership number on file for that association")
     return membership.member_number
@@ -968,17 +1008,17 @@ async def set_emergency_contact(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Take an emergency contact over the counter and put it on the profile.
+    """Take an emergency contact over the counter, for this show.
 
     The desk checks that the show has somebody to telephone, and until now could
     only report that it did not — leaving staff to ask the exhibitor to go and
-    edit their own account, at a counter, with a queue behind them. `PATCH
-    /exhibitors/{id}` is ADMIN-or-self, so a secretary could not do it for them.
+    edit their own account, at a counter, with a queue behind them.
 
-    Written to the exhibitor's profile rather than to a per-show copy, on
-    purpose. Who to call if something happens to this person is not a fact about
-    one weekend, and a per-show duplicate would be a second answer that goes
-    stale the moment they change their phone number.
+    Written to this show's copy of the exhibitor's details, never to the
+    profile (migration 145): show data does not write back to the profile, from
+    the exhibitor's registration or from the desk. The first write copies the
+    rest of the profile's details across with it, so the show goes on holding
+    the telephone and address it already had.
 
     Scoped to this show's roster, the same rule as staff creating a horse: the
     reach exists because the person is standing in front of them at *their*
@@ -996,11 +1036,12 @@ async def set_emergency_contact(
             "one without the other still reads as missing.",
         )
 
-    exhibitor.emergency_contact_name = name
-    exhibitor.emergency_contact_phone = phone
+    copy = await get_or_create_copy(show_id, exhibitor_id, db)
+    take_details(copy, exhibitor)
+    copy.emergency_contact_name = name
+    copy.emergency_contact_phone = phone
     await db.commit()
-    await db.refresh(exhibitor)
-    return _build_emergency_contact(exhibitor)
+    return _build_emergency_contact(ShowExhibitorView(exhibitor, copy))
 
 
 # ── Creating a horse for an exhibitor ──────────────────────────────────────────
@@ -1046,6 +1087,11 @@ async def create_horse_for_show_exhibitor(
     # Ownership alone does not put a horse on the profile's horse list — that
     # reads created_by_exhibitor_id or an exhibitor_horses link.
     db.add(ExhibitorHorse(exhibitor_id=exhibitor_id, horse_id=horse.id))
+    # And on this show's registration, where the exhibitor has changed their
+    # horse list there and it no longer follows the profile (migration 145) --
+    # a horse the office just created for them at this show is one they are
+    # bringing to it. A no-op while the list follows the profile.
+    await add_horse(show_id, exhibitor_id, horse.id, None, db)
 
     try:
         await db.commit()

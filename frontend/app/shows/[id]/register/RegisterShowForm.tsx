@@ -31,6 +31,11 @@ import type { BillClassLine } from '@/lib/my-shows';
  * 1. **Your details.** Contact details, date of birth, an emergency contact.
  *    The office used to reach a stall chart before it had somebody's telephone
  *    number, and nobody goes back afterwards to fill that in.
+ *
+ *    Steps one to three open on the exhibitor's profile and **never write it**
+ *    (migration 145): a detail, a membership or a horse changed here is
+ *    changed for this show only. Removing a horse on this screen used to take
+ *    it off the profile.
  * 2. **Your association memberships.** The exhibitor's own cards. Only at a
  *    show with a breed or club affiliation to hold one against, and it blocks
  *    nothing — see `MembershipsStep`.
@@ -198,9 +203,9 @@ export default function RegisterShowForm({
   const membershipItem = profile.checklist.find((i) => i.key === 'memberships');
 
   // Bookmark this show as one they started (migration 136). The first three
-  // steps write their profile and their horses, neither of which belongs to
-  // this weekend, so without this a registration abandoned before sign-up
-  // leaves no trace at all and My Shows has nothing to remind them with.
+  // steps read the profile and write nothing against the show until something
+  // in them is changed, so without this a registration abandoned before
+  // sign-up leaves no trace at all and My Shows has nothing to remind them with.
   //
   // Fire and forget, and silent on failure by design: it is a beacon on a page
   // load rather than something the exhibitor asked for, and a red box about a
@@ -445,6 +450,8 @@ export default function RegisterShowForm({
               boxes nobody had written down. */}
           <ProfileStep
             profile={profile}
+            // Saved to this show's registration, never to the profile.
+            showId={showId}
             // The memberships step carries this now, so step one no longer
             // ends in a link out to /profile for it.
             hasMembershipsStep={membershipItem !== undefined}
@@ -469,9 +476,11 @@ export default function RegisterShowForm({
             onNext={() => go('horses')}
           >
             <MembershipsStep
+              showId={showId}
               exhibitorId={exhibitor.id}
               registrations={preview.registrations}
               item={membershipItem}
+              ownCopy={profile.own_copy?.memberships ?? false}
             />
           </RegistrationSection>
         </div>
@@ -494,8 +503,9 @@ export default function RegisterShowForm({
         >
           <HorsesStep
             showId={showId}
-            exhibitorId={exhibitor.id}
             horses={horses}
+            otherProfileHorses={preview.other_profile_horses ?? []}
+            ownCopy={profile.own_copy?.horses ?? false}
             // Only a show whose association asks. Elsewhere it is a field with
             // no reader, and a form that asks for what nothing consumes is how
             // people learn to skim past the questions that matter.
@@ -639,7 +649,7 @@ export default function RegisterShowForm({
                 className="rounded-lg border p-3 text-sm"
                 style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
               >
-                No horses on your profile yet — add one on the horses step above.
+                No horses on this registration yet — add one on the horses step above.
               </div>
             ) : (
               <>

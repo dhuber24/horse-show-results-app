@@ -16,8 +16,14 @@ import type { ProfileStatus } from './types';
  *
  * **Edited in place rather than linked out to.** Bouncing somebody to
  * `/profile` mid-registration on a phone is how people lose their place and
- * never come back; the boxes are here and post to the same
- * `PATCH /api/exhibitors/{id}` the profile screen uses, so there is one writer.
+ * never come back, so the boxes are here.
+ *
+ * **Inside a show's registration it never writes the profile** (migration
+ * 145). With `showId` the boxes are prefilled from the profile and saved to
+ * `PUT /shows/{id}/register/details` — that show's copy — so a phone number
+ * corrected for one weekend is not rewritten on every other. Without one, on
+ * `/welcome`, this *is* the profile being filled in, and it saves through the
+ * same `PATCH /api/exhibitors/{id}` the profile screen uses.
  *
  * **Required is marked in the field, and enforced on the way out.** The
  * asterisk rides in the placeholder rather than in a list above the form,
@@ -136,10 +142,15 @@ function Field({
 
 export default function ProfileStep({
   profile,
+  showId,
   hasMembershipsStep = false,
   onSaved,
 }: {
   profile: ProfileStatus;
+  /** The show whose registration this is. Saves go to that show's copy and
+   *  never to the profile. Absent on `/welcome`, where the profile is what is
+   *  being filled in. */
+  showId?: string;
   /** True when the caller renders a memberships step of its own — the
    *  registration wizard does, between this step and the horses. The prompt
    *  below is then a second, worse copy of that step: a line of hint text
@@ -210,9 +221,14 @@ export default function ProfileStep({
 
     setSaving(true);
     setError(null);
+    // A show's registration saves to that show's copy; only /welcome, which
+    // has no show, writes the profile.
+    const url = showId
+      ? `/api/shows/${showId}/register/details`
+      : `/api/exhibitors/${exhibitor.id}`;
     try {
-      const res = await fetch(`/api/exhibitors/${exhibitor.id}`, {
-        method: 'PATCH',
+      const res = await fetch(url, {
+        method: showId ? 'PUT' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           date_of_birth: form.date_of_birth || null,
@@ -273,6 +289,15 @@ export default function ProfileStep({
         <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--foreground)' }}>
           Your details
         </h3>
+        {/* One line, because it is the thing somebody would otherwise assume
+            wrong: that fixing a number here fixes it everywhere. */}
+        {showId && (
+          <p className="text-xs -mt-1 mb-3" style={{ color: 'var(--muted)' }}>
+            {profile.own_copy?.details
+              ? 'Changed for this show — your profile is unchanged.'
+              : 'From your profile. Changes here apply to this show only.'}
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field
             label="Date of birth"

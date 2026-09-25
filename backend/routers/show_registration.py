@@ -2,13 +2,14 @@
 
 Registration is three steps, in order:
 
-1. **Complete your profile** (`/profile-status`, read-only here; the fields are
-   edited through `PATCH /exhibitors/{id}` as they always were). Contact
-   details, date of birth, an emergency contact, and one horse. Enforced by
-   `PUT /signup`, which is the first write in the flow — see
-   `exhibitor_profile.py` for what blocks and what only prompts. The office
-   used to reach a stall chart before it had the exhibitor's telephone number,
-   and nobody goes back afterwards to fill that in.
+1. **Complete your details** (`/profile-status`, `/details`, `/memberships`,
+   `/horses`). Contact details, date of birth, an emergency contact, and one
+   horse, enforced by `PUT /signup` — see `exhibitor_profile.py` for what
+   blocks and what only prompts. The office used to reach a stall chart before
+   it had the exhibitor's telephone number, and nobody goes back afterwards to
+   fill that in. **Prefilled from the profile and never written to it**
+   (migration 145): every edit here lands on this show's copy, and a step reads
+   the profile until something in it is changed — see `registration_profile.py`.
 
 2. **Sign up for the show** (`/signup`). Creates the `show_entries` row — the
    show-level record that carries the back number — and captures what the show
@@ -41,6 +42,7 @@ Once a show flips out of PUBLISHED (ACTIVE / COMPLETED / DRAFT), these
 endpoints return 403 and the secretary must add late entries through the admin
 flow.
 """
+import uuid
 from datetime import date
 from types import SimpleNamespace
 from uuid import UUID
@@ -48,7 +50,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, union
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -66,6 +68,22 @@ from horse_eligibility import (
     horse_registration_flags,
     owns_horse,
     registration_codes,
+)
+from registration_profile import (
+    DETAIL_FIELDS,
+    ShowExhibitorView,
+    add_horse,
+    details_match,
+    get_or_create_copy,
+    horse_links,
+    load_copy,
+    owns_details,
+    owns_horses,
+    owns_memberships,
+    profile_horse_links,
+    take_details,
+    take_horses,
+    take_memberships,
 )
 from reservations import minimum_shortfall
 from show_associations import show_associations
@@ -88,7 +106,6 @@ from models import (
     ClassAssociation,
     Entry,
     Exhibitor,
-    ExhibitorHorse,
     ExhibitorRegistration,
     Futurity,
     FuturityClass,
@@ -101,9 +118,10 @@ from models import (
     ShowEntryReservation,
     ShowFee,
     ShowRegistrationDraft,
+    ShowRegistrationMembership,
 )
 from routers.futurities import load_billable_futurities, missing_horse_details
-from routers.people import _exhibitor_reg_out
+from routers.people import _exhibitor_reg_out, _require_expiry_for_breed
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
 from rules import get_rules
@@ -127,7 +145,7 @@ from side_pot_membership import (
     requirement_detail,
     unmet_pots,
 )
-from schemas import EntryOut
+from schemas import EntryOut, ExhibitorRegistrationCreate, ExhibitorRegistrationUpdate
 import standard_classes
 
 router = APIRouter(prefix="/shows/{show_id}/register", tags=["Show Registration"])
@@ -238,23 +256,19 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
     return show
 
 
-async def _exhibitor_horse_ids(exhibitor_id: UUID, db: AsyncSession) -> set[UUID]:
-    """Horses on this exhibitor's profile — matches the /my-horses endpoint (created or linked).
+async def _registration_horses(
+    show_id: UUID, exhibitor_id: UUID, copy, db: AsyncSession
+) -> tuple[dict, dict]:
+    """The horses on this registration, and the ones on the profile.
 
-    Intentionally excludes horses that only have owner_exhibitor_id set: those are
-    invisible to the exhibitor in their profile UI and cannot be managed there, so they
-    should not appear in the self-registration picker either. Use ExhibitorHorse to
-    explicitly grant an exhibitor access to a horse they didn't create.
+    Returned as a pair because every caller that needs the first needs the
+    second: the registration's list is the profile's until the horses step is
+    changed (`registration_profile.horse_links`), and the preview offers the
+    profile horses the registration has since dropped. Both are
+    `{horse_id: stored relationship}`.
     """
-    from_created = select(Horse.id).where(Horse.created_by_exhibitor_id == exhibitor_id)
-    from_link = (
-        select(Horse.id)
-        .join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id)
-        .where(ExhibitorHorse.exhibitor_id == exhibitor_id)
-    )
-    combined = union(from_created, from_link).subquery()
-    result = await db.execute(select(combined.c.id))
-    return {row[0] for row in result.all()}
+    profile_links = await profile_horse_links(exhibitor_id, db)
+    return horse_links(copy, profile_links), profile_links
 
 
 async def _load_show_entry(
@@ -356,42 +370,48 @@ async def _show_associations(show: Show, db: AsyncSession) -> list[tuple]:
     return await show_associations(show, db)
 
 
-async def _profile_status(show: Show, exhibitor: Exhibitor, db: AsyncSession) -> dict:
-    """Step one of registration, as data.
+async def _profile_status(
+    show: Show, exhibitor: Exhibitor, copy, db: AsyncSession
+) -> dict:
+    """The first three steps of registration, as data.
 
     Assembled here rather than on each screen so the checklist the exhibitor
     reads and the list `PUT /signup` refuses on are the same list — a form that
     says "you're done" over an endpoint that says otherwise is the disagreement
     this is shaped to prevent.
+
+    Judged on what *this show* holds (migration 145): the registration's own
+    details, memberships and horses where a step has been changed, the profile
+    where it has not. `copy` is the exhibitor's `show_registration_profiles`
+    row, or None while every step still follows the profile.
     """
-    horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
+    view = ShowExhibitorView(exhibitor, copy)
+    links, _profile = await _registration_horses(show.id, exhibitor.id, copy, db)
     checklist = profile_checklist(
-        exhibitor,
-        horse_count=len(horse_ids),
+        view,
+        horse_count=len(links),
         associations=await _show_associations(show, db),
-        registered_association_ids={r.association_id for r in (exhibitor.registrations or [])},
+        registered_association_ids={r.association_id for r in (view.registrations or [])},
     )
     missing = missing_blocking(checklist)
     return {
         "complete": not missing,
         "missing": missing,
         "checklist": checklist,
-        # The values the inline form on the registration screen edits. Sent
-        # back so that screen does not need a second round trip to
-        # /exhibitors/{id} just to prefill the boxes it is about to gate on.
+        # The values the inline form on the registration screen edits -- this
+        # show's, prefilled from the profile until the step is saved.
         "exhibitor": {
             "id": str(exhibitor.id),
             "full_name": exhibitor.full_name,
-            "date_of_birth": exhibitor.date_of_birth,
-            "phone": exhibitor.phone,
-            "address": exhibitor.address,
-            "city": exhibitor.city,
-            "state": exhibitor.state,
-            "zip": exhibitor.zip,
-            "emergency_contact_name": exhibitor.emergency_contact_name,
-            "emergency_contact_phone": exhibitor.emergency_contact_phone,
-            "parent_guardian_name": exhibitor.parent_guardian_name,
-            "parent_guardian_phone": exhibitor.parent_guardian_phone,
+            **{field: getattr(view, field) for field in DETAIL_FIELDS},
+        },
+        # Which steps this show has its own answer for. False means the step is
+        # still reading the profile, so a change made there will reach this
+        # show; true means it was changed here and no longer follows it.
+        "own_copy": {
+            "details": owns_details(copy),
+            "memberships": owns_memberships(copy),
+            "horses": owns_horses(copy),
         },
     }
 
@@ -471,7 +491,8 @@ async def get_profile_status(
     """
     show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
-    return await _profile_status(show, exhibitor, db)
+    copy = await load_copy(show.id, exhibitor.id, db)
+    return await _profile_status(show, exhibitor, copy, db)
 
 
 @router.get("/signup")
@@ -504,7 +525,9 @@ async def get_signup(
         "signup": _signup_out(show_entry),
         # Step one, so the screen can lock this half rather than offering a
         # form the save is going to refuse.
-        "profile": await _profile_status(show, exhibitor, db),
+        "profile": await _profile_status(
+            show, exhibitor, await load_copy(show.id, exhibitor.id, db), db
+        ),
         # What the cancel control says and whether it is the exhibitor's to
         # press. Always sent, even before sign-up, because it costs nothing and
         # a screen that only learns the rule after signing up cannot warn
@@ -547,7 +570,9 @@ async def save_signup(
     # type in a minute, and nobody at the desk can produce their date of birth
     # for them. See `exhibitor_profile.py` for what blocks and what prompts.
     missing = missing_blocking(
-        (await _profile_status(show, exhibitor, db))["checklist"]
+        (await _profile_status(
+            show, exhibitor, await load_copy(show.id, exhibitor.id, db), db
+        ))["checklist"]
     )
     if missing:
         raise _profile_incomplete(missing)
@@ -751,16 +776,197 @@ async def cancel_signup(
     return {"cancelled": True, "show_id": str(show_id)}
 
 
-# ── How this exhibitor may show this horse ────────────────────────────────────
+# ── This show's copy of the profile ───────────────────────────────────────────
 #
+# Migration 145. The first three steps of the wizard used to write the
+# exhibitor's own profile -- `PATCH /exhibitors/{id}` for the details,
+# `exhibitor_registrations` for the memberships, the profile's horse links for
+# the horses -- so taking a horse off one show's registration took it off the
+# profile. Every write below lands on this show's `show_registration_profiles`
+# row instead, and none of them touches the profile. A step keeps reading the
+# profile until something in it is changed here; see `registration_profile.py`.
+#
+# One door still reaches the profile, by decision: a horse *created* during
+# registration goes through the add-a-horse wizard onto the profile, and then
+# `POST /horses` puts it on this registration too.
+
+
+class RegistrationDetailsBody(BaseModel):
+    """The details step. Same fields and limits as `ExhibitorUpdate`, because
+    the form prefills from the profile and a value it could not save back here
+    would be one it could never have been prefilled with."""
+
+    date_of_birth: Optional[date] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    address: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
+    emergency_contact_name: Optional[str] = Field(default=None, max_length=200)
+    emergency_contact_phone: Optional[str] = Field(default=None, max_length=30)
+    parent_guardian_name: Optional[str] = Field(default=None, max_length=200)
+    parent_guardian_phone: Optional[str] = Field(default=None, max_length=30)
+
+
+def _check_internal_key(x_api_key: str) -> None:
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+
+
+@router.put("/details")
+async def save_registration_details(
+    show_id: UUID,
+    body: RegistrationDetailsBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the details step for this show. The profile is not written.
+
+    A form that says exactly what the profile says is not a change, so pressing
+    *Save & continue* over boxes that were only prefilled leaves the step
+    following the profile -- a correction made on `/profile` next week still
+    reaches this show. Anything else copies the details into the registration
+    and keeps them there.
+    """
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+    values = body.model_dump()
+
+    copy = await load_copy(show.id, exhibitor.id, db)
+    if owns_details(copy) or not details_match(values, exhibitor):
+        copy = copy or await get_or_create_copy(show.id, exhibitor.id, db)
+        take_details(copy, exhibitor)
+        for field in DETAIL_FIELDS:
+            value = values.get(field)
+            if isinstance(value, str):
+                value = value.strip() or None
+            setattr(copy, field, value)
+        await db.commit()
+        copy = await load_copy(show.id, exhibitor.id, db)
+
+    return await _profile_status(show, exhibitor, copy, db)
+
+
+# ── Horses on this registration ───────────────────────────────────────────────
+
+
+class RegistrationHorseBody(BaseModel):
+    horse_id: UUID
+
+
+@router.post("/horses", status_code=204)
+async def add_registration_horse(
+    show_id: UUID,
+    body: RegistrationHorseBody,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Put one of the caller's profile horses on this show's registration.
+
+    How a horse removed from this show comes back, and how one just created in
+    the add-a-horse wizard reaches a registration that has stopped following
+    the profile. A no-op while the horses step still follows it -- every profile
+    horse is already listed -- and for a horse already on the list.
+    """
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    profile_links = await profile_horse_links(exhibitor.id, db)
+    if body.horse_id not in profile_links:
+        # A horse pending its owner's approval is not on the profile yet, and
+        # neither is anybody else's horse. The wizard ignores this answer for
+        # the first case; the second is not the caller's to enter.
+        raise HTTPException(404, "That horse is not on your profile.")
+
+    await add_horse(
+        show.id, exhibitor.id, body.horse_id, profile_links[body.horse_id], db
+    )
+    await db.commit()
+
+
+@router.delete("/horses/{horse_id}", status_code=204)
+async def remove_registration_horse(
+    show_id: UUID,
+    horse_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take a horse off this show's registration. It stays on the profile.
+
+    This is the bug the change was made for: the button here used to clear the
+    horse's creator or drop its rider link, which took it off the profile and
+    every other show's picker with it.
+
+    Refused while the horse is entered in a class or enrolled in a futurity at
+    this show, the same guard the profile's own removal has: a horse removed out
+    from under its entries leaves the exhibitor billed for classes they can no
+    longer withdraw from.
+    """
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    copy = await load_copy(show.id, exhibitor.id, db)
+    links, profile_links = await _registration_horses(show.id, exhibitor.id, copy, db)
+    if horse_id not in links:
+        raise HTTPException(404, "That horse is not on this registration.")
+
+    entered = await db.scalar(
+        select(func.count(Entry.id))
+        .join(Class, Entry.class_id == Class.id)
+        .where(
+            Class.show_id == show.id,
+            Entry.exhibitor_id == exhibitor.id,
+            Entry.horse_id == horse_id,
+        )
+    )
+    enrolled = await db.scalar(
+        select(func.count(FuturityEntry.id))
+        .join(ShowEntry, ShowEntry.id == FuturityEntry.show_entry_id)
+        .where(
+            ShowEntry.show_id == show.id,
+            ShowEntry.exhibitor_id == exhibitor.id,
+            FuturityEntry.horse_id == horse_id,
+        )
+    )
+    if entered or enrolled:
+        what = []
+        if entered:
+            what.append(f"{entered} class{'' if entered == 1 else 'es'}")
+        if enrolled:
+            what.append("a futurity")
+        raise HTTPException(
+            409,
+            {
+                "code": "HORSE_HAS_ENTRIES",
+                "message": (
+                    f"This horse is entered in {' and '.join(what)} at this show. "
+                    "Withdraw those first, then remove the horse."
+                ),
+                "entry_count": entered or 0,
+            },
+        )
+
+    copy = copy or await get_or_create_copy(show.id, exhibitor.id, db)
+    take_horses(copy, profile_links)
+    for row in list(copy.horses):
+        if row.horse_id == horse_id:
+            # delete-orphan on the relationship turns this into a DELETE.
+            copy.horses.remove(row)
+    await db.commit()
+
+
 # APHA's ownership rule (AM-300.E, YP-015) needs the exhibitor's relationship to
 # the horse's owner on every Amateur and Youth entry. It was asked on the entry
 # form, per class, from a list of twenty-five -- so entering eight classes on
 # your own horse meant answering "Self" eight times, and answering it
-# differently on the eighth was a data error nothing would catch.
-#
-# It is a fact about the person and the horse, not about the class. Asked once
-# on the wizard's horses step and copied onto every entry from there.
+# differently on the eighth was a data error nothing would catch. Asked once on
+# the wizard's horses step and copied onto every entry at this show from there.
 
 class HorseRelationshipBody(BaseModel):
     relationship_to_owner: Optional[str] = Field(default=None, max_length=200)
@@ -775,26 +981,22 @@ async def set_horse_relationship(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Record how the caller is entitled to show one of their own horses.
+    """Record how the caller is entitled to show a horse, at this show.
 
-    Scoped to the caller's own profile, not to the show -- the show is only in
-    the path because this is where the question gets asked, the same way the
-    profile checklist is served from this router. The value it writes is read
-    back by every entry the caller makes, at this show and any other.
-
-    The horse must already be on their profile. That is what makes upserting
-    the `exhibitor_horses` row safe: a horse reaches a profile either through
-    that table or through `horses.created_by_exhibitor_id`, and creating the
-    link row for the second kind asserts nothing that was not already true.
+    It used to be written to the profile's link row and read by every entry the
+    caller made anywhere; it is this registration's answer now, prefilled from
+    that row. Answering it is a change to the horses step, so the step stops
+    following the profile's horse list -- unless the answer is the one already
+    on file, which changes nothing.
     """
-    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
-        raise HTTPException(401, "Unauthorized")
-
-    await _load_published_show_or_403(show_id, db)
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
 
-    if horse_id not in await _exhibitor_horse_ids(exhibitor.id, db):
-        raise HTTPException(404, "That horse is not on your profile.")
+    copy = await load_copy(show.id, exhibitor.id, db)
+    links, profile_links = await _registration_horses(show.id, exhibitor.id, copy, db)
+    if horse_id not in links:
+        raise HTTPException(404, "That horse is not on this registration.")
 
     value = (body.relationship_to_owner or "").strip() or None
     if value is not None and value not in RELATIONSHIP_OPTIONS:
@@ -804,20 +1006,145 @@ async def set_horse_relationship(
         # relationship nobody can report against.
         raise HTTPException(422, "That is not one of the recognised relationships.")
 
-    result = await db.execute(
-        select(ExhibitorHorse).where(
-            ExhibitorHorse.exhibitor_id == exhibitor.id,
-            ExhibitorHorse.horse_id == horse_id,
-        )
-    )
-    link = result.scalar_one_or_none()
-    if link is None:
-        link = ExhibitorHorse(exhibitor_id=exhibitor.id, horse_id=horse_id)
-        db.add(link)
-    link.relationship_to_owner = value
-    await db.commit()
+    if owns_horses(copy) or links[horse_id] != value:
+        copy = copy or await get_or_create_copy(show.id, exhibitor.id, db)
+        take_horses(copy, profile_links)
+        for row in copy.horses:
+            if row.horse_id == horse_id:
+                row.relationship_to_owner = value
+        await db.commit()
 
     return {"horse_id": str(horse_id), "relationship_to_owner": value}
+
+
+# ── Memberships on this registration ──────────────────────────────────────────
+
+
+async def _membership_out(show_id: UUID, exhibitor_id: UUID, association_id: UUID, db):
+    copy = await load_copy(show_id, exhibitor_id, db)
+    for row in copy.memberships if copy else []:
+        if row.association_id == association_id:
+            # Same shape as the profile's own membership rows, so the one editor
+            # component serves both screens.
+            return _exhibitor_reg_out(row)
+    raise HTTPException(404, "Membership not found")
+
+
+def _membership_association(exhibitor, copy, membership_id: UUID) -> Optional[UUID]:
+    """Which association a membership id on the screen refers to.
+
+    The screen prefills from the profile, so until the step is changed the ids
+    it holds are the profile's rows -- and even after, the other rows it already
+    rendered keep those ids. Both kinds are accepted and resolved to the
+    association, which is what is unique on either side.
+    """
+    rows = list(copy.memberships) if owns_memberships(copy) else []
+    for row in rows + list(exhibitor.registrations or []):
+        if row.id == membership_id:
+            return row.association_id
+    return None
+
+
+@router.post("/memberships", status_code=201)
+async def add_registration_membership(
+    show_id: UUID,
+    body: ExhibitorRegistrationCreate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a membership to this show's registration. The profile is not written.
+
+    Held to the profile's own rule: a breed membership must say when it lapses
+    (`_require_expiry_for_breed`), because the desk judges it against the show.
+    """
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    if await db.get(Association, body.association_id) is None:
+        raise HTTPException(422, "Association not found")
+    await _require_expiry_for_breed(body.association_id, body.expires_at, db)
+
+    copy = await get_or_create_copy(show.id, exhibitor.id, db)
+    take_memberships(copy, exhibitor.registrations or [])
+    if any(row.association_id == body.association_id for row in copy.memberships):
+        raise HTTPException(
+            409, "A membership for this association is already on this registration"
+        )
+    copy.memberships.append(
+        ShowRegistrationMembership(
+            id=uuid.uuid4(),
+            association_id=body.association_id,
+            member_number=body.member_number.strip(),
+            expires_at=body.expires_at,
+        )
+    )
+    await db.commit()
+    return await _membership_out(show.id, exhibitor.id, body.association_id, db)
+
+
+@router.patch("/memberships/{membership_id}")
+async def update_registration_membership(
+    show_id: UUID,
+    membership_id: UUID,
+    body: ExhibitorRegistrationUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Correct a membership on this show's registration -- usually supplying the
+    expiry a breed row was filed without. The profile's row is not touched."""
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    copy = await load_copy(show.id, exhibitor.id, db)
+    association_id = _membership_association(exhibitor, copy, membership_id)
+    if association_id is None:
+        raise HTTPException(404, "Membership not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    if "expires_at" in fields:
+        await _require_expiry_for_breed(association_id, fields["expires_at"], db)
+
+    copy = copy or await get_or_create_copy(show.id, exhibitor.id, db)
+    take_memberships(copy, exhibitor.registrations or [])
+    row = next((m for m in copy.memberships if m.association_id == association_id), None)
+    if row is None:
+        raise HTTPException(404, "Membership not found")
+    if fields.get("member_number") is not None:
+        row.member_number = fields["member_number"].strip()
+    if "expires_at" in fields:
+        row.expires_at = fields["expires_at"]
+    await db.commit()
+    return await _membership_out(show.id, exhibitor.id, association_id, db)
+
+
+@router.delete("/memberships/{membership_id}", status_code=204)
+async def remove_registration_membership(
+    show_id: UUID,
+    membership_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take a membership off this show's registration. It stays on the profile."""
+    _check_internal_key(x_api_key)
+    show = await _load_published_show_or_403(show_id, db)
+    exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    copy = await load_copy(show.id, exhibitor.id, db)
+    association_id = _membership_association(exhibitor, copy, membership_id)
+    if association_id is None:
+        raise HTTPException(404, "Membership not found")
+
+    copy = copy or await get_or_create_copy(show.id, exhibitor.id, db)
+    take_memberships(copy, exhibitor.registrations or [])
+    for row in list(copy.memberships):
+        if row.association_id == association_id:
+            copy.memberships.remove(row)
+    await db.commit()
 
 
 # ── Back number ──────────────────────────────────────────────
@@ -951,8 +1278,8 @@ async def start_registration_draft(
     """Bookmark this show as one the caller has started registering for.
 
     Fired by the registration screen when it opens. It exists because the first
-    three steps of the wizard write nothing against the show -- the details and
-    the horses belong to the exhibitor's own profile -- so somebody who opened
+    three steps of the wizard leave nothing against the show until something in
+    them is changed -- they read the exhibitor's own profile -- so somebody who opened
     the form, saw they needed the horse's Coggins and closed the tab left no
     trace at all, and My Shows had nothing to remind them with.
 
@@ -1051,7 +1378,7 @@ async def preview_registration(
     db: AsyncSession = Depends(get_db),
 ):
     """Return the published-show classes the caller can register for, along
-    with the horses on their exhibitor profile and existing entries.
+    with the horses on their registration for this show and existing entries.
 
     The frontend uses this to render the registration form: a horse picker per
     class, with already-entered (class, horse) combinations preselected.
@@ -1079,7 +1406,15 @@ async def preview_registration(
     )
     classes = classes_result.scalars().all()
 
-    horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
+    # The horses on this show's registration -- the profile's until the horses
+    # step is changed here, its own rows after (migration 145) -- with the
+    # relationship this show holds for each.
+    copy = await load_copy(show.id, exhibitor.id, db)
+    view = ShowExhibitorView(exhibitor, copy)
+    relationship_by_horse, profile_links = await _registration_horses(
+        show.id, exhibitor.id, copy, db
+    )
+    horse_ids = set(relationship_by_horse)
     horses: list[Horse] = []
     # Advisory only. This used to decide whether the horse could be entered at
     # all; it now tells the exhibitor what to sort out before they ship in, and
@@ -1089,7 +1424,6 @@ async def preview_registration(
     # requirements, same deadline.
     health_by_horse_id: dict[UUID, list[dict]] = {}
     registrations_by_horse: dict[UUID, list] = {}
-    relationship_by_horse: dict[UUID, Optional[str]] = {}
     if horse_ids:
         horses_result = await db.execute(
             select(Horse).where(Horse.id.in_(horse_ids)).order_by(Horse.name)
@@ -1110,18 +1444,16 @@ async def preview_registration(
         for row in reg_rows.scalars().all():
             registrations_by_horse.setdefault(row.horse_id, []).append(row)
 
-        # How this exhibitor is entitled to show each horse (migration 128).
-        # Answered once on the horses step and copied onto every entry, so the
-        # class form never asks -- see `_relationship_for_horse`.
-        link_rows = await db.execute(
-            select(ExhibitorHorse.horse_id, ExhibitorHorse.relationship_to_owner).where(
-                ExhibitorHorse.exhibitor_id == exhibitor.id,
-                ExhibitorHorse.horse_id.in_(horse_ids),
-            )
+    # Profile horses this registration no longer lists, so the horses step can
+    # offer them back. Empty while the step follows the profile, when every one
+    # of them is already listed.
+    dropped_ids = set(profile_links) - horse_ids
+    other_profile_horses: list[Horse] = []
+    if dropped_ids:
+        dropped_result = await db.execute(
+            select(Horse).where(Horse.id.in_(dropped_ids)).order_by(Horse.name)
         )
-        relationship_by_horse = {
-            horse_id: relationship for horse_id, relationship in link_rows.all()
-        }
+        other_profile_horses = dropped_result.scalars().all()
 
     # `class_` and `horse` come along because `build_bill` reads both. The
     # screen's entered-class table *is* the bill's class lines, so the fee shown
@@ -1155,15 +1487,12 @@ async def preview_registration(
         # Step one. The screen locks the stalls half on this, the same way it
         # locks the classes half on `signup` — and `PUT /signup` refuses on the
         # identical list, so the lock and the refusal cannot disagree.
-        "profile": await _profile_status(show, exhibitor, db),
-        # The exhibitor's own association memberships. Step two of the wizard
-        # asks for these outright now, rather than linking out to `/profile` and
-        # hoping somebody finds their way back mid-registration on a phone.
-        # Sent with the preview rather than fetched separately because
-        # `_load_exhibitor_for_user` has already loaded them -- the membership
-        # row on the profile checklist is built from these same rows, so a
-        # second round trip would be asking twice for what is in hand.
-        "registrations": [_exhibitor_reg_out(r) for r in (exhibitor.registrations or [])],
+        "profile": await _profile_status(show, exhibitor, copy, db),
+        # The memberships on this registration -- the profile's until the
+        # memberships step is changed here. Sent with the preview rather than
+        # fetched separately because both halves are already loaded, and the
+        # membership row on the checklist above is built from these same rows.
+        "registrations": [_exhibitor_reg_out(r) for r in (view.registrations or [])],
         # Whether cancelling is still the exhibitor's to do, and by when.
         "cancellation": cancellation_window(show.start_date),
         "show": {
@@ -1273,20 +1602,10 @@ async def preview_registration(
                 # than from an answer somebody typed. The screen states it
                 # instead of offering a picker.
                 "owns_horse": owns_horse(h, exhibitor.id),
-                # Whether this horse can be taken off the profile from here, and
-                # by which door. Both endpoints already exist and the profile
-                # screen already picks between them the same way -- the flag is
-                # sent so the registration screen does not have to fetch a second
-                # payload to work out which one applies. Creating the horse and
-                # linking somebody else's are removed differently: one clears the
-                # creator (and the ownership, if it was theirs), the other drops
-                # the rider link, and neither deletes the horse.
-                "is_creator": h.created_by_exhibitor_id == exhibitor.id,
                 # How many classes at *this* show it is entered in. Removing a
-                # horse mid-registration is the accident this is here for, and a
-                # horse that is already down the card is exactly the one somebody
-                # would remove by mistake -- so the control says what it would
-                # cost and the endpoint refuses until the entries are withdrawn.
+                # horse from the registration is refused while it is down the
+                # card, so the control says what it would cost rather than
+                # offering a button the endpoint will turn down.
                 "entered_class_count": sum(
                     1 for e in existing if e.horse_id == h.id
                 ),
@@ -1306,6 +1625,11 @@ async def preview_registration(
                 ],
             }
             for h in horses
+        ],
+        # On the profile, and taken off this registration. Offered back on the
+        # horses step; never enterable until they are.
+        "other_profile_horses": [
+            {"id": str(h.id), "name": h.name} for h in other_profile_horses
         ],
         # Which (class, horse) pairs are already taken. Display comes from
         # `bill.class_lines`; this list is what the pickers filter against.
@@ -1352,15 +1676,20 @@ async def register_for_show(
     show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(user_uuid, db)
 
-    # Verify each horse belongs to this exhibitor before we touch the DB.
+    # Every horse has to be on this show's registration -- the profile's horses
+    # until the horses step was changed here, the registration's own list after.
+    # Checked before anything touches the database.
     requested_horse_ids = {item.horse_id for item in body.entries}
-    allowed_horse_ids = await _exhibitor_horse_ids(exhibitor.id, db)
-    not_yours = requested_horse_ids - allowed_horse_ids
+    copy = await load_copy(show.id, exhibitor.id, db)
+    relationship_by_horse, _profile_links = await _registration_horses(
+        show.id, exhibitor.id, copy, db
+    )
+    not_yours = requested_horse_ids - set(relationship_by_horse)
     if not_yours:
         raise HTTPException(
             403,
-            "One or more horses are not on your profile. Add them to your "
-            "profile first before registering.",
+            "One or more horses are not on your registration for this show. "
+            "Add them on the horses step first.",
         )
 
     # Resolve classes once, with association data for validation rules.
@@ -1431,24 +1760,15 @@ async def register_for_show(
     )
     horses_by_id = {h.id: h for h in horses_result.scalars().all()}
 
-    # How this exhibitor is entitled to show each horse. Derived from ownership
-    # where it can be -- almost every entry ever made is somebody showing their
-    # own horse, and `horses.owner_exhibitor_id` already says so -- and read
-    # from `exhibitor_horses` where it cannot, which is only a horse somebody
-    # else owns. The entry form used to ask this per class from a list of
-    # twenty-five, so entering eight classes on your own horse meant answering
-    # "Self" eight times and could produce a different answer on the eighth.
-    # A value on the request still wins, because the show office's own entry
-    # form legitimately types one in for a walk-up.
-    relationship_rows = await db.execute(
-        select(ExhibitorHorse.horse_id, ExhibitorHorse.relationship_to_owner).where(
-            ExhibitorHorse.exhibitor_id == exhibitor.id,
-            ExhibitorHorse.horse_id.in_(requested_horse_ids),
-        )
-    )
-    relationship_by_horse = {
-        horse_id: relationship for horse_id, relationship in relationship_rows.all()
-    }
+    # How this exhibitor is entitled to show each horse, read with the horse
+    # list above. Derived from ownership where it can be -- almost every entry
+    # ever made is somebody showing their own horse, and
+    # `horses.owner_exhibitor_id` already says so -- and read from this show's
+    # registration where it cannot, which is only a horse somebody else owns.
+    # The entry form used to ask this per class from a list of twenty-five, so
+    # entering eight classes on your own horse meant answering "Self" eight
+    # times and could produce a different answer on the eighth. A value on the
+    # request still wins, for an API caller with a reason.
 
     rules = get_rules(show.show_type.code if show.show_type else None)
 
@@ -1459,6 +1779,10 @@ async def register_for_show(
     shared_context: dict = {}
     if show.show_type and show.show_type.code == "APHA":
         shared_context = await apha_entry_context(show.id, db)
+    # The rules read the exhibitor's date of birth and memberships as this show
+    # holds them, which may not be what the profile says -- see
+    # `DefaultRules.exhibitor_of`.
+    shared_context["exhibitor_views"] = {exhibitor.id: ShowExhibitorView(exhibitor, copy)}
 
     # Pull all of this exhibitor's existing entries for the requested classes
     # so we can pre-check "exhibitor already in this non-pattern class" rules
@@ -1886,8 +2210,11 @@ async def enroll_in_futurity(
 
     futurity = await _load_futurity_for_show(show_id, body.futurity_id, db)
 
-    if body.horse_id not in await _exhibitor_horse_ids(exhibitor.id, db):
-        raise HTTPException(403, "You can only enter a horse on your own profile")
+    links, _profile_links = await _registration_horses(
+        show_id, exhibitor.id, await load_copy(show_id, exhibitor.id, db), db
+    )
+    if body.horse_id not in links:
+        raise HTTPException(403, "You can only enter a horse on your registration for this show")
 
     if futurity.fee_tiers:
         if body.fee_tier_id is None:

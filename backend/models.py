@@ -2028,6 +2028,108 @@ class ShowRegistrationDraft(Base):
     exhibitor = relationship("Exhibitor")
 
 
+class ShowRegistrationProfile(Base):
+    """One show's copy of an exhibitor's profile (migration 145).
+
+    The registration wizard used to write the exhibitor's own profile, so taking
+    a horse off one show's registration took it off the profile. The profile now
+    prepopulates the registration and is never written by it.
+
+    **Each step follows the profile until something in it changes.** A
+    `*_saved_at` of NULL means that step reads the profile live; set, the rows
+    here are the answer, even when there are none. `registration_profile.py` is
+    the one place that reads this, so no caller has to remember the rule.
+    """
+    __tablename__ = "show_registration_profiles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False
+    )
+    exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False
+    )
+    details_saved_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    date_of_birth = Column(Date, nullable=True)
+    phone = Column(Text, nullable=True)
+    address = Column(Text, nullable=True)
+    city = Column(Text, nullable=True)
+    state = Column(Text, nullable=True)
+    zip = Column(Text, nullable=True)
+    emergency_contact_name = Column(Text, nullable=True)
+    emergency_contact_phone = Column(Text, nullable=True)
+    parent_guardian_name = Column(Text, nullable=True)
+    parent_guardian_phone = Column(Text, nullable=True)
+    memberships_saved_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    horses_saved_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("show_id", "exhibitor_id"),)
+
+    horses = relationship(
+        "ShowRegistrationHorse", back_populates="registration", cascade="all, delete-orphan"
+    )
+    memberships = relationship(
+        "ShowRegistrationMembership", back_populates="registration", cascade="all, delete-orphan"
+    )
+
+
+class ShowRegistrationHorse(Base):
+    """A horse on one show's registration, once it stopped following the profile.
+
+    Removing this row is what "remove from this show" does. The profile's own
+    link (`exhibitor_horses`, `horses.created_by_exhibitor_id`) is untouched.
+    """
+    __tablename__ = "show_registration_horses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    registration_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("show_registration_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    horse_id = Column(
+        UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False
+    )
+    # How the exhibitor is entitled to show this horse at this show (AM-300.E,
+    # YP-015). Copied from `exhibitor_horses` when the list was taken; answered
+    # here afterwards without touching the profile.
+    relationship_to_owner = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("registration_id", "horse_id"),)
+
+    registration = relationship("ShowRegistrationProfile", back_populates="horses")
+
+
+class ShowRegistrationMembership(Base):
+    """A membership on one show's registration, once it stopped following the
+    profile. Same shape as `ExhibitorRegistration`, so the desk's membership
+    sign-off and the rules engine read either without knowing which it has."""
+    __tablename__ = "show_registration_memberships"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    registration_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("show_registration_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="CASCADE"), nullable=False
+    )
+    member_number = Column(Text, nullable=False)
+    expires_at = Column(Date, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("registration_id", "association_id"),)
+
+    registration = relationship("ShowRegistrationProfile", back_populates="memberships")
+    # Always wanted with the row -- every reader prints the code and decides the
+    # expiry rule by the association's type -- and an unloaded relationship in
+    # an async request is a MissingGreenlet rather than a slow query.
+    association = relationship("Association", lazy="selectin")
+
+
 class ShowMarquee(Base):
     """What the marquee along the bottom of the show's live screens carries.
 

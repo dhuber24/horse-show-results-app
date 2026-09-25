@@ -16,9 +16,12 @@ export default async function NewHorsePage({
     /** Where to go when the wizard finishes — the registration step
      *  somebody left to come here. Sanitised in `NewHorseWizard`. */
     next?: string;
+    /** The show whose registration sent them here. The new horse is put on
+     *  that registration as well as the profile. */
+    show?: string;
   }>;
 }) {
-  const { name, association_id, registration_number, next } = await searchParams;
+  const { name, association_id, registration_number, next, show } = await searchParams;
   const session = await auth();
   if (!session?.user) redirect('/login');
 
@@ -56,6 +59,7 @@ export default async function NewHorsePage({
         initialRegAssociationId={association_id}
         initialRegNumber={registration_number}
         nextPath={next}
+        showId={show}
       />
     </main>
   );

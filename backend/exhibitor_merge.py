@@ -54,6 +54,7 @@ from models import (
     ShowEntryReservation,
     ShowPayment,
     ShowRegistrationDraft,
+    ShowRegistrationProfile,
     ShowVerification,
     ShowWaiverSignature,
     SidePotEntry,
@@ -545,6 +546,12 @@ async def merge_exhibitors(
     )
     duplicates += await _move_unique_children(
         db, ShowRegistrationDraft, ("show_id",), keep.id, remove.id
+    )
+    # One copy of the profile per show (migration 145). Where both records hold
+    # one for the same show the survivor's stands, and its horses and
+    # memberships go with it by cascade -- the same rule as the draft above.
+    duplicates += await _move_unique_children(
+        db, ShowRegistrationProfile, ("show_id",), keep.id, remove.id
     )
     duplicates += await _move_unique_children(
         db, ShowVerification, ("show_id", "kind", "association_id"), keep.id, remove.id

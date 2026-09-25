@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { RELATIONSHIP_OPTION_GROUPS } from '@/lib/apha';
+import { errorMessage } from '@/lib/api-error';
 import { healthWarnings, type PreviewHorse } from './types';
 
 /**
@@ -36,9 +37,23 @@ import { healthWarnings, type PreviewHorse } from './types';
  *    computed for the office; shown here so the exhibitor sees the same list
  *    with time to do something about it.
  *
- * Adding a horse is still a link. That flow runs the document-extraction
- * wizard, and a second copy of it here would be a second copy to keep in step.
+ * **The list is this show's, not the profile's** (migration 145). It opens
+ * on the horses on the profile, and removing one, putting one back or
+ * answering the relationship changes this registration only. Removing a horse
+ * here used to take it off the profile too.
+ *
+ * Adding a *new* horse is still a link, and the one door that reaches the
+ * profile: the wizard runs document extraction, a second copy of it here would
+ * be a second copy to keep in step, and a horse created for one show is one
+ * the exhibitor will bring to the next.
  */
+
+/** A refusal from these endpoints carries `{ code, message }` in `detail`,
+ *  which `errorMessage` does not read. */
+function failure(json: unknown, fallback: string): string {
+  const detail = (json as { detail?: { message?: unknown } } | null)?.detail;
+  return typeof detail?.message === 'string' ? detail.message : errorMessage(json, fallback);
+}
 
 const RELATIONSHIP_HELP =
   'APHA asks this on Amateur and Youth entries (AM-300.E, YP-015). You do not own ' +
@@ -50,24 +65,18 @@ const RELATIONSHIP_HELP =
 const RELATIONSHIP_HINT = 'Asked once — used on every class.';
 
 /**
- * Take a horse back off the profile.
+ * Take a horse off this show's registration — never off the profile.
  *
- * Added because the way onto this step is a link to the add-a-horse wizard, and
- * the way back off it was nothing at all — somebody who added the wrong horse,
- * or added one twice, had to leave registration, find the profile screen, and
- * work out which of two similarly-named rows was the accident.
+ * This used to be the profile's own removal (clearing the creator, or dropping
+ * the rider link), so a horse taken off one show's registration vanished from
+ * the profile and from every other show's picker. It is this show's list now
+ * (migration 145): the horse stays on the profile, and it can be put back from
+ * the "On your profile" list below.
  *
- * Two doors, picked the same way `MyHorsesPanel` picks them: a horse this
- * exhibitor created is removed by clearing the creator, one somebody else owns
- * by dropping the rider link. **Neither deletes the horse** — its papers, its
- * documents and its history at other shows are untouched — so the wording says
- * "remove from my profile" rather than "delete".
- *
- * Refused outright while the horse is entered in a class at a show ahead, by
- * the endpoint and again here so the button never looks available. A horse
- * removed out from under its own entries leaves the exhibitor billed for
- * classes they can no longer withdraw from, on a horse that has disappeared
- * from every picker they can reach.
+ * Refused while the horse is entered in a class at this show, by the endpoint
+ * and again here so the button never looks available — a horse removed out
+ * from under its own entries leaves the exhibitor billed for classes they can
+ * no longer withdraw from.
  *
  * Inline confirmation rather than a straight click, matching the class table
  * above it: this is the exhibitor's own phone, and a mis-tap that quietly
@@ -75,12 +84,10 @@ const RELATIONSHIP_HINT = 'Asked once — used on every class.';
  */
 function RemoveHorse({
   showId,
-  exhibitorId,
   horse,
   onRemoved,
 }: {
   showId: string;
-  exhibitorId: string;
   horse: PreviewHorse;
   onRemoved: () => void;
 }) {
@@ -93,18 +100,13 @@ function RemoveHorse({
   const remove = async () => {
     setRemoving(true);
     setError(null);
-    const url = horse.is_creator
-      ? `/api/exhibitors/${exhibitorId}/created-horses/${horse.id}`
-      : `/api/exhibitors/${exhibitorId}/linked-horses/${horse.id}`;
     try {
-      const res = await fetch(url, { method: 'DELETE' });
+      const res = await fetch(`/api/shows/${showId}/register/horses/${horse.id}`, {
+        method: 'DELETE',
+      });
       if (res.status !== 204 && !res.ok) {
         const json = await res.json().catch(() => ({}));
-        setError(
-          typeof json?.detail === 'string'
-            ? json.detail
-            : json?.detail?.message || 'Could not remove that horse.',
-        );
+        setError(failure(json, 'Could not remove that horse.'));
         setRemoving(false);
         return;
       }
@@ -162,7 +164,7 @@ function RemoveHorse({
           onClick={() => setConfirming(true)}
           className="text-xs hover:underline"
           style={{ color: 'var(--error)' }}
-          title={`Remove ${horse.name} from your profile — this does not delete the horse`}
+          title={`Take ${horse.name} off this show — it stays on your profile`}
         >
           Remove
         </button>
@@ -176,15 +178,87 @@ function RemoveHorse({
   );
 }
 
+/**
+ * Profile horses this registration no longer lists, each with a way back on.
+ *
+ * Only ever non-empty once the horses step has been changed for this show:
+ * until then the registration *is* the profile's list, so there is nothing
+ * missing from it to offer.
+ */
+function OtherProfileHorses({
+  showId,
+  horses,
+  onAdded,
+}: {
+  showId: string;
+  horses: { id: string; name: string }[];
+  onAdded: () => void;
+}) {
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const add = async (horseId: string) => {
+    setAddingId(horseId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shows/${showId}/register/horses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ horse_id: horseId }),
+      });
+      if (res.status !== 204 && !res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError(failure(json, 'Could not add that horse.'));
+        setAddingId(null);
+        return;
+      }
+      setAddingId(null);
+      onAdded();
+    } catch {
+      setError('Network error — please try again.');
+      setAddingId(null);
+    }
+  };
+
+  if (horses.length === 0) return null;
+
+  return (
+    <div className="pt-1">
+      <h4 className="text-xs font-semibold mb-1" style={{ color: 'var(--text-deep)' }}>
+        On your profile, not at this show
+      </h4>
+      <ul className="space-y-1">
+        {horses.map((horse) => (
+          <li key={horse.id} className="flex items-center justify-between gap-2 text-sm">
+            <span style={{ color: 'var(--foreground)' }}>{horse.name}</span>
+            <button
+              type="button"
+              onClick={() => add(horse.id)}
+              disabled={addingId !== null}
+              className="text-xs font-medium hover:underline disabled:opacity-50"
+              style={{ color: 'var(--accent)' }}
+            >
+              {addingId === horse.id ? 'Adding…' : 'Add to this show'}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && (
+        <p className="text-xs mt-1" style={{ color: 'var(--error)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function HorseCard({
   showId,
-  exhibitorId,
   horse,
   needsRelationship,
   onChanged,
 }: {
   showId: string;
-  exhibitorId: string;
   horse: PreviewHorse;
   /** Only relevant at a show whose association cares. Everywhere else it is a
    *  field with no reader, and a form that asks for something nothing consumes
@@ -243,12 +317,7 @@ function HorseCard({
               ? `Registered: ${(horse.registrations ?? []).join(', ')}`
               : 'No registration numbers on file'}
           </span>
-          <RemoveHorse
-            showId={showId}
-            exhibitorId={exhibitorId}
-            horse={horse}
-            onRemoved={onChanged}
-          />
+          <RemoveHorse showId={showId} horse={horse} onRemoved={onChanged} />
         </span>
       </div>
 
@@ -351,14 +420,19 @@ function HorseCard({
 
 export default function HorsesStep({
   showId,
-  exhibitorId,
   horses,
+  otherProfileHorses = [],
+  ownCopy = false,
   needsRelationship,
   showTypeCode,
 }: {
   showId: string;
-  exhibitorId: string;
+  /** The horses on this show's registration. */
   horses: PreviewHorse[];
+  /** On the profile, taken off this registration — offered back. */
+  otherProfileHorses?: { id: string; name: string }[];
+  /** True once this show holds its own horse list rather than the profile's. */
+  ownCopy?: boolean;
   needsRelationship: boolean;
   /** Only for the wording — which body's papers this show is asking about. */
   showTypeCode: string | null;
@@ -369,14 +443,23 @@ export default function HorsesStep({
   // Adding a horse is a five-step detour on another route, and returning
   // somebody to the top of their profile afterwards means finding the show
   // again and re-opening the step they were on. `safeNextPath` sanitises it at
-  // the far end, because a `?next=` is a URL a stranger can compose.
+  // the far end, because a `?next=` is a URL a stranger can compose. `show`
+  // tells the wizard to put the new horse on this registration as well as the
+  // profile — a registration that stopped following the profile would
+  // otherwise not list the horse somebody just created for it.
   const addHorseHref =
-    `/profile/horses/new?next=${encodeURIComponent(`/shows/${showId}/register?step=horses`)}`;
+    `/profile/horses/new?show=${encodeURIComponent(showId)}` +
+    `&next=${encodeURIComponent(`/shows/${showId}/register?step=horses`)}`;
 
   return (
     <div className="space-y-3">
       <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
         Nothing flagged below stops you entering — sort it before you ship in.
+      </p>
+      <p className="text-xs -mt-2" style={{ color: 'var(--muted)' }}>
+        {ownCopy
+          ? 'Changed for this show — your profile is unchanged.'
+          : 'From your profile. Removing a horse here only takes it off this show.'}
       </p>
 
       {horses.length === 0 ? (
@@ -384,7 +467,9 @@ export default function HorsesStep({
           className="rounded-lg border p-3 text-sm"
           style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
         >
-          No horses on your profile yet. Add one to carry on.
+          {otherProfileHorses.length > 0
+            ? 'No horses on this registration yet. Add one to carry on.'
+            : 'No horses on your profile yet. Add one to carry on.'}
           <div className="mt-2">
             <Link
               href={addHorseHref}
@@ -401,7 +486,6 @@ export default function HorsesStep({
             <HorseCard
               key={horse.id}
               showId={showId}
-              exhibitorId={exhibitorId}
               horse={horse}
               needsRelationship={needsRelationship}
               onChanged={() => router.refresh()}
@@ -409,6 +493,12 @@ export default function HorsesStep({
           ))}
         </ul>
       )}
+
+      <OtherProfileHorses
+        showId={showId}
+        horses={otherProfileHorses}
+        onAdded={() => router.refresh()}
+      />
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1">
         <span className="text-xs" style={{ color: 'var(--muted)' }}>

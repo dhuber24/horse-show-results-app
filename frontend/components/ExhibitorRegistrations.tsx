@@ -38,6 +38,18 @@ interface Props {
    * has to make the card picker appear without a page reload.
    */
   onRegistrationsChanged?: (regs: Registration[]) => void;
+  /**
+   * Where the membership rows are written. The profile's own list by default;
+   * a show's registration passes its own endpoint (migration 145), so a number
+   * added or removed there stays with that show and the profile is untouched.
+   */
+  registrationsUrl?: string;
+  /**
+   * Whether to offer uploading a scan of the card. Off on a show's
+   * registration: the scan is filed on the profile, which that screen must
+   * never write.
+   */
+  showCertificates?: boolean;
 }
 
 const UNCERTIFIED_CODES = ['OPEN'];
@@ -101,7 +113,10 @@ export default function ExhibitorRegistrations({
   onCertificateUploaded,
   onCertificateDeleted,
   onRegistrationsChanged,
+  registrationsUrl,
+  showCertificates = true,
 }: Props) {
+  const regsUrl = registrationsUrl ?? `/api/exhibitors/${exhibitorId}/registrations`;
   const [regs, setRegs] = useState<Registration[]>(initialRegistrations ?? []);
   const [associations, setAssociations] = useState<Association[]>([]);
   const [newReg, setNewReg] = useState({ association_id: '', member_number: '', expires_at: '' });
@@ -174,7 +189,7 @@ export default function ExhibitorRegistrations({
     }
     setSaving(true);
     setError(null);
-    const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations`, {
+    const res = await fetch(regsUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,7 +211,7 @@ export default function ExhibitorRegistrations({
 
   const handleDeleteReg = async (regId: string) => {
     setDeletingRegId(regId);
-    const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations/${regId}`, { method: 'DELETE' });
+    const res = await fetch(`${regsUrl}/${regId}`, { method: 'DELETE' });
     setDeletingRegId(null);
     if (res.ok || res.status === 204) {
       commitRegs(regs.filter((r) => r.id !== regId));
@@ -211,7 +226,7 @@ export default function ExhibitorRegistrations({
     }
     setSavingExpiryFor(reg.id);
     setError(null);
-    const res = await fetch(`/api/exhibitors/${exhibitorId}/registrations/${reg.id}`, {
+    const res = await fetch(`${regsUrl}/${reg.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expires_at: expiryDraft || null }),
@@ -219,7 +234,10 @@ export default function ExhibitorRegistrations({
     setSavingExpiryFor(null);
     if (res.ok) {
       const updated: Registration = await res.json();
-      commitRegs(regs.map((r) => (r.id === updated.id ? updated : r)));
+      // Matched on the association, which is unique on either list: a show's
+      // registration answers with its own row, whose id is not the profile row
+      // the screen was prefilled with.
+      commitRegs(regs.map((r) => (r.association_id === updated.association_id ? updated : r)));
       setExpiryEditFor(null);
     } else {
       const err = await res.json().catch(() => ({}));
@@ -358,6 +376,7 @@ export default function ExhibitorRegistrations({
                 </div>
 
                 {/* Certificate status */}
+                {showCertificates && (
                 <div className="border-t pt-2" style={{ borderColor: 'var(--bg-subtle)' }}>
                   {cert && status ? (
                     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -444,6 +463,7 @@ export default function ExhibitorRegistrations({
                     </div>
                   )}
                 </div>
+                )}
               </li>
             );
           })}

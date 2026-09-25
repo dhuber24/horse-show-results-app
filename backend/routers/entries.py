@@ -14,12 +14,12 @@ from models import (
     CogginsOverrideAudit,
     Entry,
     Exhibitor,
-    ExhibitorHorse,
     Horse,
     Show,
     ShowEntry,
 )
 from horse_eligibility import effective_relationship
+from registration_profile import ShowExhibitorView, load_copy, relationship_for
 from futurity_enrollment import release_scratched_enrollments
 from side_pot_membership import (
     assert_pots_joinable,
@@ -102,8 +102,17 @@ def _aqha_class_code(show: Show, class_: Class) -> str | None:
     return None
 
 
-async def _association_validation_context(show: Show, class_: Class, db: AsyncSession):
+async def _association_validation_context(
+    show: Show, class_: Class, db: AsyncSession, exhibitor=None
+):
     context = {}
+    if exhibitor is not None:
+        # The exhibitor's date of birth and memberships as this show holds them,
+        # which is not the profile once they changed either on their
+        # registration here (migration 145) -- see `DefaultRules.exhibitor_of`.
+        copy = await load_copy(show.id, exhibitor.id, db)
+        if copy is not None:
+            context["exhibitor_views"] = {exhibitor.id: ShowExhibitorView(exhibitor, copy)}
     if show.show_type and show.show_type.code == "AQHA":
         aqha_code = _aqha_class_code(show, class_)
         context["aqha_show_type_id"] = show.show_type_id
@@ -262,20 +271,16 @@ async def create_entry(
 
     # How the exhibitor is entitled to show this horse (AM-300.E, YP-015),
     # filled in rather than asked for again. Derived from ownership where it can
-    # be and read off `exhibitor_horses` where it cannot -- the same two sources
-    # the exhibitor's own registration uses, because a relationship that only
-    # one of the two doors fills in is a compliance sheet that disagrees with
-    # itself depending on who keyed the entry. The desk no longer asks; a value
-    # on the request still wins over both.
+    # be and read from what the exhibitor told this show where it cannot -- the
+    # same two sources the exhibitor's own registration uses, because a
+    # relationship that only one of the two doors fills in is a compliance sheet
+    # that disagrees with itself depending on who keyed the entry. The desk no
+    # longer asks; a value on the request still wins over both.
     if not payload.get("relationship_to_owner"):
-        link = await db.execute(
-            select(ExhibitorHorse.relationship_to_owner).where(
-                ExhibitorHorse.exhibitor_id == body.exhibitor_id,
-                ExhibitorHorse.horse_id == body.horse_id,
-            )
-        )
         payload["relationship_to_owner"] = effective_relationship(
-            horse, body.exhibitor_id, link.scalar_one_or_none()
+            horse,
+            body.exhibitor_id,
+            await relationship_for(show_id, body.exhibitor_id, body.horse_id, db),
         )
     entry = Entry(class_id=class_id, **payload)
     entry.class_ = class_
@@ -291,7 +296,7 @@ async def create_entry(
         entry,
         show,
         class_,
-        await _association_validation_context(show, class_, db),
+        await _association_validation_context(show, class_, db, exhibitor),
     )
     _raise_for_validation_errors(issues)
 
@@ -343,7 +348,7 @@ async def update_entry(
         entry,
         show,
         class_,
-        await _association_validation_context(show, class_, db),
+        await _association_validation_context(show, class_, db, entry.exhibitor),
     )
     _raise_for_validation_errors(issues)
     await db.commit()

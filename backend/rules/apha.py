@@ -1213,7 +1213,7 @@ class APHARules(DefaultRules):
         if cap is None:
             return []
 
-        exhibitor = getattr(entry, "exhibitor", None)
+        exhibitor = self.exhibitor_of(entry, context)
         age = youth_age(exhibitor, show)
         if age is None or age <= cap:
             return []

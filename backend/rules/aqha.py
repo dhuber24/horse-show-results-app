@@ -75,7 +75,7 @@ class AQHARules(DefaultRules):
         class_name = getattr(aqha_class, "name", None) or getattr(cls, "class_name", "")
         class_division = getattr(aqha_class, "division", None)
         horse = getattr(entry, "horse", None)
-        exhibitor = getattr(entry, "exhibitor", None)
+        exhibitor = self.exhibitor_of(entry, context)
 
         if horse is None:
             issues.append(self._issue(

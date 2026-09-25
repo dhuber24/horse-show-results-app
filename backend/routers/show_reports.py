@@ -27,6 +27,7 @@ from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import require_admin_or_show_admin
+from registration_profile import exhibitor_views, load_copies_for_show
 from judging import effective_score, is_overridden
 from models import (
     Class,
@@ -157,6 +158,12 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
         )).scalars().all()
     }
 
+    # The membership each exhibitor gave this show, where they changed it on
+    # their registration (migration 145).
+    views = exhibitor_views(
+        (e.exhibitor for e in entry_rows), await load_copies_for_show(show_id, db)
+    )
+
     def member(exhibitor) -> tuple[Optional[str], Optional[object]]:
         """This show's association membership number and its expiry.
 
@@ -187,7 +194,7 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
 
     entries = []
     for e in entry_rows:
-        member_number, member_expires = member(e.exhibitor)
+        member_number, member_expires = member(views.get(e.exhibitor_id) or e.exhibitor)
         entries.append({
             "id": e.id,
             "class_id": e.class_id,

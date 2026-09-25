@@ -19,6 +19,23 @@ class DefaultRules:
         """
         return (getattr(entry, "status", None) or "ENTERED") == "ENTERED"
 
+    @staticmethod
+    def exhibitor_of(entry, context=None):
+        """The exhibitor as the show knows them, for a rule reading their details.
+
+        An exhibitor may correct their date of birth or memberships on one show's
+        registration without touching their profile (migration 145), and the
+        youth-age and membership rules have to judge the entry on what the show
+        holds. Callers put a `ShowExhibitorView` per exhibitor under
+        `exhibitor_views` in the context; with none there, the entry's own
+        exhibitor row is the answer, which is every entry whose registration
+        still follows the profile.
+        """
+        views = (context or {}).get("exhibitor_views") or {}
+        exhibitor = getattr(entry, "exhibitor", None)
+        exhibitor_id = getattr(entry, "exhibitor_id", None) or getattr(exhibitor, "id", None)
+        return views.get(exhibitor_id) or exhibitor
+
     def validate_entry(self, entry, show, cls, context=None):
         """Return list[str] of validation errors. Empty = valid."""
         return []

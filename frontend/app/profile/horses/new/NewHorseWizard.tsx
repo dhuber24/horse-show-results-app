@@ -14,6 +14,9 @@ interface Props {
   /** Where the exhibitor came from, to be returned to when the wizard is done.
    *  Set by the show-registration screen, which sends them here mid-flow. */
   nextPath?: string;
+  /** The show whose registration sent them here. The horse goes on the
+   *  profile either way; this puts it on that registration too. */
+  showId?: string;
 }
 
 /**
@@ -32,18 +35,34 @@ interface Props {
  * to the profile. Cancelling honours it too — somebody who changes their mind
  * about adding a horse still wants to be back at their registration.
  *
+ * **A horse created from a registration goes on that registration too.** A
+ * registration follows the profile's horses until the exhibitor changes the
+ * list for that show (migration 145); after that, a horse added to the profile
+ * is not on it. So with `showId` the wizard asks the registration to list the
+ * new horse before going back. Best-effort: a horse waiting on its owner's
+ * approval is not on the profile yet and the registration refuses it, which is
+ * the right answer — the approval is what puts it there, and the registration's
+ * "On your profile" list offers it once it is.
+ *
  * No `router.refresh()` here: `/profile` fetches with `cache: 'no-store'`, so the
  * push already lands on fresh data, and refreshing in the same tick cancels the
  * in-flight navigation and strands the wizard on screen.
  */
 export default function NewHorseWizard({
   exhibitorId, profileHorseIds, initialName, initialRegAssociationId, initialRegNumber,
-  nextPath,
+  nextPath, showId,
 }: Props) {
   const router = useRouter();
 
   const destination = safeNextPath(nextPath) ?? '/profile?tab=horses';
-  const goBack = (_horse?: MyHorse) => {
+  const goBack = async (horse?: MyHorse) => {
+    if (horse && showId) {
+      await fetch(`/api/shows/${encodeURIComponent(showId)}/register/horses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ horse_id: horse.id }),
+      }).catch(() => {});
+    }
     router.push(destination);
   };
 

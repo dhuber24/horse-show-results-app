@@ -67,7 +67,7 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
             className="rounded-lg border p-4"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >
-            <ProfileStep profile={data.profile} />
+            <ProfileStep profile={data.profile} showId={id} />
           </div>
           <div className="mt-4 text-sm font-medium">
             <Link

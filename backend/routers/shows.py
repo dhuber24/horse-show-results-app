@@ -41,6 +41,7 @@ from schemas import (
     ShowAffiliationUpdate,
 )
 from apha_context import apha_entry_context
+from registration_profile import exhibitor_views, load_copies_for_show
 from rules import get_rules
 from rules.apha import (
     RESULTS_RETENTION_REQUIREMENTS,
@@ -674,7 +675,13 @@ async def aqha_validation(
         )
         .order_by(Class.sort_order.nullslast(), Class.class_number, Entry.back_number)
     )
-    for entry in entries_result.scalars().all():
+    entries = entries_result.scalars().all()
+    # Membership numbers and dates of birth as each exhibitor gave them to this
+    # show, where they changed either on their registration (migration 145).
+    views = exhibitor_views(
+        (entry.exhibitor for entry in entries), await load_copies_for_show(show_id, db)
+    )
+    for entry in entries:
         class_ = entry.class_
         aqha_code = _class_association_code(class_, show.show_type_id)
         entry_issues = rules.validate_entry(
@@ -686,6 +693,7 @@ async def aqha_validation(
                 "aqha_association_id": aqha_association_id,
                 "aqha_class_code": aqha_code,
                 "aqha_class": standard_by_code.get(aqha_code),
+                "exhibitor_views": views,
             },
         )
         for issue in entry_issues:
@@ -774,7 +782,13 @@ async def apha_validation(
         )
         .order_by(Class.sort_order.nullslast(), Class.class_number)
     )
-    for entry in entries_result.scalars().all():
+    entries = entries_result.scalars().all()
+    # Dates of birth as each exhibitor gave them to this show, where they
+    # corrected one on their registration (migration 145).
+    entry_context["exhibitor_views"] = exhibitor_views(
+        (entry.exhibitor for entry in entries), await load_copies_for_show(show_id, db)
+    )
+    for entry in entries:
         entry_issues = rules.validate_entry(entry, show, entry.class_, entry_context)
         for issue in entry_issues:
             issue.setdefault("entry_id", str(entry.id))
@@ -901,6 +915,12 @@ async def apha_export(
                     return reg.member_number or ""
         return exhibitor.apha_member_number or ""
 
+    # The membership number each exhibitor gave this show, where they changed
+    # it on their registration (migration 145).
+    views = exhibitor_views(
+        (entry.exhibitor for entry in entries), await load_copies_for_show(show_id, db)
+    )
+
     for entry in entries:
         writer.writerow([
             show.apha_show_number,
@@ -910,7 +930,7 @@ async def apha_export(
             entry.horse.name if entry.horse else "",
             apha_code_by_class.get(entry.class_.id, ""),
             entry.class_.class_name,
-            apha_member_number(entry.exhibitor),
+            apha_member_number(views.get(entry.exhibitor_id) or entry.exhibitor),
             entry.exhibitor.full_name,
         ])
 

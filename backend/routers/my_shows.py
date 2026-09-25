@@ -47,7 +47,13 @@ from models import (
 from exhibitor_profile import missing_blocking, profile_checklist
 from placings import is_placed, place_key
 from routers.futurities import load_billable_futurities
-from routers.show_registration import _exhibitor_horse_ids, _show_associations
+from registration_profile import (
+    ShowExhibitorView,
+    horse_links,
+    load_copies_for_exhibitor,
+    profile_horse_links,
+)
+from routers.show_registration import _show_associations
 
 router = APIRouter(prefix="/my-shows", tags=["My Shows"])
 
@@ -93,9 +99,9 @@ def resume_step(checklist, horse_count: int) -> str:
 async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list[dict]:
     """Shows this exhibitor started registering for and never signed up to.
 
-    Migration 136. Registration's first three steps write nothing against the
-    show -- the details and the horses are the exhibitor's own profile -- so
-    until `PUT /signup` there is no `show_entries` row, and the list above,
+    Migration 136. Registration's first three steps leave nothing against the
+    show until something in them is changed -- they read the exhibitor's own
+    profile -- so until `PUT /signup` there is no `show_entries` row, and the list above,
     which finds a show through that row or a class entry, could not mention it.
     Somebody who opened a form, found they needed the horse's Coggins and
     closed the tab had nothing anywhere telling them which show it was.
@@ -136,17 +142,25 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
     if not drafts:
         return []
 
-    # Show-independent, so counted once rather than per draft.
-    horse_count = len(await _exhibitor_horse_ids(exhibitor.id, db))
-    held = {r.association_id for r in (exhibitor.registrations or [])}
+    # Judged on what each show's registration holds (migration 145): the
+    # profile's answers until a step was changed there, that show's own after.
+    # The profile's horses are read once; each show's copy in one query.
+    profile_links = await profile_horse_links(exhibitor.id, db)
+    copies = await load_copies_for_exhibitor(
+        exhibitor.id, [draft.show_id for draft in drafts], db
+    )
 
     out = []
     for draft in drafts:
         show = draft.show
         if show is None:
             continue
+        copy = copies.get(show.id)
+        view = ShowExhibitorView(exhibitor, copy)
+        horse_count = len(horse_links(copy, profile_links))
+        held = {r.association_id for r in (view.registrations or [])}
         checklist = profile_checklist(
-            exhibitor,
+            view,
             horse_count=horse_count,
             # Per show: which bodies a membership is wanted for depends on what
             # this show runs under, which is the whole reason the row is

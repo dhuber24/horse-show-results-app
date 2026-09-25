@@ -29,6 +29,11 @@ sittings rather than one: `details` is the person, `horses` is the animals they
 brought. The split is what the screens render against, and it is here rather
 than in the frontend so a step cannot go green over an item the backend is
 still refusing on -- `missing_blocking` reads the same rows either way.
+
+`exhibitor` here is whatever the show holds -- a `ShowExhibitorView` from
+`registration_profile.py` on every registration path, so a date of birth
+corrected for one show is judged as corrected there and nowhere else. The
+function reads attributes only, and cannot tell the two apart.
 """
 from typing import Iterable, Optional
 
@@ -136,7 +141,7 @@ def profile_checklist(
             "label": "At least one horse",
             "complete": horse_count > 0,
             "blocking": True,
-            "hint": "You enter classes on a horse from your profile.",
+            "hint": "You enter classes on a horse listed on this registration.",
         },
     ]
 
