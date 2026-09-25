@@ -37,19 +37,38 @@ registered but gates nothing is a switch that does nothing. Gate an endpoint
 with `Depends(require_feature(KEY))` and a page by reading `GET
 /users/me/features`; the endpoint is the enforcement and the page only decides
 what to offer, the same split as every screen lock in this app.
+
+**A locked door asks for the upgrade itself** (migration 144). The button
+beside it writes a `show_company_upgrade_requests` row for the company, which
+GaitDesk's admins find on the Show Companies screens and as a count on the
+admin home; each of them is also emailed, best-effort. The row is the
+notification and the email a courtesy, because `mailer.py` does nothing without
+SMTP. One request per company and feature -- the feature is sold to the
+company, so a second colleague pressing the button is told the first already
+asked -- and **switching the feature on answers it**, in the same transaction.
 """
+import asyncio
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import safe_uuid
-from models import ShowCompany, ShowCompanyFeature, ShowCompanyJoinRequest, ShowCompanyMember, User
+from mailer import public_app_url, send_email
+from models import (
+    ShowCompany,
+    ShowCompanyFeature,
+    ShowCompanyJoinRequest,
+    ShowCompanyMember,
+    ShowCompanyUpgradeRequest,
+    User,
+)
 
 
 @dataclass(frozen=True)
@@ -314,6 +333,135 @@ async def companies_for_user(db: AsyncSession, user_id: UUID) -> list[ShowCompan
         .order_by(ShowCompany.name)
     )
     return list(rows.scalars().all())
+
+
+def resolve_upgrade_company(role: str, requested: UUID | None, member_of: Sequence[UUID]) -> UUID:
+    """Which company an upgrade request is for.
+
+    Only a company the caller works for: asking on behalf of somebody else's
+    club would put a request in front of GaitDesk that the club never made.
+    Somebody in exactly one company -- nearly everybody, since an independent
+    has their own (migration 143) -- need not say which.
+    """
+    if role in ALL_FEATURE_ROLES:
+        raise HTTPException(409, "GaitDesk admins already have every feature.")
+    if not member_of:
+        raise HTTPException(
+            409,
+            "Your account isn't in a show company yet, so there is nothing to upgrade. "
+            "Ask GaitDesk to set your show company up.",
+        )
+    if requested is None:
+        if len(member_of) == 1:
+            return member_of[0]
+        raise HTTPException(422, "You work for more than one show company. Choose which one the upgrade is for.")
+    if requested not in member_of:
+        raise HTTPException(403, "You can only ask for an upgrade for a show company you work for.")
+    return requested
+
+
+_ROLE_LABEL = {"SHOW_MANAGER": "Show Manager", "SHOW_SECRETARY": "Show Secretary"}
+
+
+def upgrade_request_email(
+    *,
+    feature: str,
+    company_id: UUID,
+    company_name: str,
+    personal: bool,
+    requester_name: str,
+    requester_email: str,
+    requester_role: str,
+) -> tuple[str, str]:
+    """The subject and body GaitDesk's admins are sent when a company asks.
+
+    An independent's company is named after them, so "Jane Smith asked for Pro
+    for Jane Smith" would say nothing -- it names what they are instead."""
+    entry = FEATURES[feature]
+    whom = "their own account (an independent -- no club or firm)" if personal else company_name
+    subject = f"{requester_name if personal else company_name} asked for {entry.plan}"
+    role = _ROLE_LABEL.get(requester_role, requester_role)
+    body = (
+        f"{requester_name} ({requester_email}, {role}) asked for {entry.plan} for {whom}, "
+        f"to use: {entry.label}.\n\n"
+        "GaitDesk doesn't take payment in the app, so get in touch with them to arrange it. "
+        "Once it's settled, switch the feature on for the company -- that answers the request:\n"
+        f"{public_app_url()}/admin/companies/{company_id}\n"
+    )
+    return subject, body
+
+
+async def load_upgrade_request(db: AsyncSession, company_id: UUID, feature: str) -> ShowCompanyUpgradeRequest | None:
+    """A company's request for a feature, with the company and the requester
+    loaded -- refreshed, since the write path has the row in the identity map
+    and would otherwise keep its unloaded relationships (see CLAUDE.md)."""
+    return (
+        await db.execute(
+            select(ShowCompanyUpgradeRequest)
+            .where(
+                ShowCompanyUpgradeRequest.company_id == company_id,
+                ShowCompanyUpgradeRequest.feature == feature,
+            )
+            .options(
+                selectinload(ShowCompanyUpgradeRequest.company),
+                selectinload(ShowCompanyUpgradeRequest.requested_by),
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
+async def request_upgrade(
+    db: AsyncSession, user_id: UUID, role: str, feature: str, company_id: UUID | None
+) -> tuple[UUID, bool]:
+    """Record that a company wants `feature`, in the caller's transaction.
+
+    Returns the company and whether this call made the request -- False when
+    one was already standing, so nobody is emailed twice. Refuses a feature the
+    company already has: the caller's page is stale, and a request for
+    something that is on would sit on the admin's list with nothing to do.
+    """
+    if feature not in FEATURES:
+        raise HTTPException(404, "No such feature")
+    member_of = [c.id for c in await companies_for_user(db, user_id)]
+    target = resolve_upgrade_company(role, company_id, member_of)
+
+    already_on = (
+        await db.execute(
+            select(ShowCompanyFeature.id).where(
+                ShowCompanyFeature.company_id == target, ShowCompanyFeature.feature == feature
+            )
+        )
+    ).first()
+    if already_on is not None:
+        company = await db.get(ShowCompany, target)
+        raise HTTPException(
+            409, f"{company.name} already has {FEATURES[feature].label}. Reload the page to use it."
+        )
+
+    try:
+        # A savepoint, so a request the company already made -- a colleague's
+        # earlier press, or two in the same second -- is found rather than
+        # doubled, without costing the caller's transaction.
+        async with db.begin_nested():
+            db.add(ShowCompanyUpgradeRequest(company_id=target, feature=feature, requested_by_user_id=user_id))
+            await db.flush()
+    except IntegrityError:
+        return target, False
+    return target, True
+
+
+async def admin_emails(db: AsyncSession) -> list[str]:
+    """Where an upgrade request is mailed: every GaitDesk admin whose account
+    is not locked."""
+    rows = await db.execute(select(User.email).where(User.role == "ADMIN", User.is_approved.is_(True)))
+    return [email for email in rows.scalars().all() if email]
+
+
+async def email_admins(recipients: Sequence[str], subject: str, body: str) -> None:
+    """Best-effort, and run after the response: `send_email` never raises, and
+    nothing about the request depends on whether it arrived."""
+    await asyncio.gather(*(send_email(to, subject, body) for to in recipients))
 
 
 def feature_not_enabled_message(feature: str) -> str:

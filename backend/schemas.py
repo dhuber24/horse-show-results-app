@@ -1313,6 +1313,12 @@ class ShowCompanyFeatureOut(BaseModel):
     enabled: bool
     enabled_at: Optional[datetime] = None
     enabled_by_name: Optional[str] = None
+    # Migration 144: the company has asked for this feature and is waiting on
+    # GaitDesk. Cleared by switching it on, or by an admin dismissing it.
+    requested_at: Optional[datetime] = None
+    requested_by_user_id: Optional[UUID] = None
+    requested_by_name: Optional[str] = None
+    requested_by_email: Optional[str] = None
 
 
 class ShowCompanyJoinRequestOut(BaseModel):
@@ -1350,14 +1356,40 @@ class FeatureInfoOut(BaseModel):
     plan: str
 
 
+class UpgradeRequestCreate(BaseModel):
+    feature: str = Field(min_length=1, max_length=100)
+    # Which of the caller's companies is asking. May be left out by somebody
+    # who works for exactly one.
+    company_id: Optional[UUID] = None
+
+
+class UpgradeRequestOut(BaseModel):
+    """A company's standing request for a paid feature (migration 144), as the
+    locked button shows it -- including when a colleague pressed it first."""
+    feature: str
+    company_id: UUID
+    company_name: str
+    requested_at: Optional[datetime] = None
+    requested_by_name: Optional[str] = None
+    requested_by_me: bool = False
+
+
+class PendingCompanyRequestsOut(BaseModel):
+    """What is waiting on a GaitDesk admin, for the badge on the admin home."""
+    join_requests: int
+    upgrade_requests: int
+
+
 class MyFeaturesOut(BaseModel):
     """What the caller may use, the companies they belong to, and every paid
     feature with the plan that includes it -- so a locked button can name the
     subscription and *whose* company is not on it, without a second copy of
-    the plan name in the frontend."""
+    the plan name in the frontend. `upgrade_requests` are the ones already
+    made for those companies, so the button says so rather than asking twice."""
     features: list[str]
     companies: list[ShowCompanyRef]
     catalog: list[FeatureInfoOut]
+    upgrade_requests: list[UpgradeRequestOut] = Field(default_factory=list)
 
 
 # ── Breeds ─────────────────────────────────────────────────────────────────────

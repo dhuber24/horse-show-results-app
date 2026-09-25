@@ -56,6 +56,15 @@ turned by hand.
   `show_companies.FEATURES`, reaching the page through `GET /users/me/features`
   (`catalog`), so the button, the show-bill pages and the 403 all name the same
   subscription and renaming it is one edit.
+- **The locked door asks for the upgrade itself** (migration 144). Under the
+  disabled button, and on both show-bill pages' upgrade message, a **Request
+  upgrade to GaitDesk Pro** button (`UpgradeRequestButton`) records a request for
+  the caller's company and emails GaitDesk's admins if mail is configured. It
+  becomes *"Upgrade requested"* with a note that the request is being reviewed
+  and someone from the GaitDesk team will be in contact — naming the colleague
+  who asked first, if it was somebody else, since the request is the company's
+  and GaitDesk answers whoever pressed it — and the admin answers it by switching the
+  feature on at `/admin/companies`, which clears it.
 - **The screens only decide what to offer.** Both show-bill pages print the same
   upgrade message instead of a form. The endpoint is the enforcement — a stale
   page costs an offer, never a read.

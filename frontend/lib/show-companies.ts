@@ -26,12 +26,28 @@ export interface FeatureInfo {
   plan: string;
 }
 
+/**
+ * A company's standing request for a paid feature (migration 144) — from the
+ * caller or a colleague, since the feature is sold to the company.
+ */
+export interface UpgradeRequest {
+  feature: string;
+  company_id: string;
+  company_name: string;
+  requested_at: string | null;
+  requested_by_name: string | null;
+  requested_by_me: boolean;
+}
+
 export interface MyFeatures {
   features: string[];
   companies: CompanyRef[];
   /** Every paid feature, whether or not the caller has it — so a locked
    *  button can name the plan without the frontend spelling it too. */
   catalog: FeatureInfo[];
+  /** Requests already made for the caller's companies, so a locked door says
+   *  "asked" rather than offering the button twice. */
+  upgrade_requests: UpgradeRequest[];
 }
 
 export interface CompanyMember {
@@ -50,6 +66,12 @@ export interface CompanyFeature {
   enabled: boolean;
   enabled_at: string | null;
   enabled_by_name: string | null;
+  /** Set while the company is waiting on GaitDesk for this feature (migration
+   *  144). Switching it on answers the request. */
+  requested_at?: string | null;
+  requested_by_user_id?: string | null;
+  requested_by_name?: string | null;
+  requested_by_email?: string | null;
 }
 
 /** Somebody who typed this organization's name at sign-up (migration 143). */
@@ -74,7 +96,7 @@ export interface ShowCompany {
 }
 
 /** No features, no companies -- what a caller with no clean answer has. */
-export const NO_FEATURES: MyFeatures = { features: [], companies: [], catalog: [] };
+export const NO_FEATURES: MyFeatures = { features: [], companies: [], catalog: [], upgrade_requests: [] };
 
 /**
  * The caller's features, for a server component. Anything short of a clean
@@ -92,6 +114,7 @@ export async function fetchMyFeatures(headers: Record<string, string> | null): P
       features: Array.isArray(body?.features) ? body.features : [],
       companies: Array.isArray(body?.companies) ? body.companies : [],
       catalog: Array.isArray(body?.catalog) ? body.catalog : [],
+      upgrade_requests: Array.isArray(body?.upgrade_requests) ? body.upgrade_requests : [],
     };
   } catch {
     return NO_FEATURES;
@@ -110,9 +133,10 @@ export function planFor(mine: MyFeatures, key: string): string {
 /**
  * What a locked paid feature says, in the words every locked door prints.
  *
- * One sentence to upgrade, then one naming whose plan it is — "ask GaitDesk"
- * lands better when the office knows which company it is asking about, and
- * somebody in no company at all needs to know that is the first step.
+ * One sentence to upgrade, then one naming whose plan it is — the Request
+ * upgrade button beside it asks on behalf of a company, so the office should
+ * know which one before pressing it. Somebody in no company at all has no
+ * button, and needs to know that is the first thing to sort out.
  */
 export function upgradeText(mine: MyFeatures, key: string): { headline: string; detail: string } {
   const plan = planFor(mine, key);
@@ -125,11 +149,25 @@ export function upgradeText(mine: MyFeatures, key: string): { headline: string; 
       headline,
       detail:
         mine.companies.length > 0
-          ? `Your account isn't on ${plan} yet — ask GaitDesk about upgrading.`
+          ? `Your account isn't on ${plan} yet.`
           : 'Ask GaitDesk to set your show company up.',
     };
   }
   const whose =
     names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
-  return { headline, detail: `${whose} isn't on ${plan} yet — ask GaitDesk about upgrading.` };
+  return { headline, detail: `${whose} isn't on ${plan} yet.` };
+}
+
+/**
+ * The company a locked door asks on behalf of when the caller has not chosen:
+ * the organization they work for ahead of their own company, because a club
+ * that pays reaches everyone in it.
+ */
+export function defaultUpgradeCompany(mine: MyFeatures): CompanyRef | null {
+  return mine.companies.find((c) => !c.personal) ?? mine.companies[0] ?? null;
+}
+
+/** A request for this feature already standing for any of the caller's companies. */
+export function upgradeRequestFor(mine: MyFeatures, key: string): UpgradeRequest | null {
+  return mine.upgrade_requests.find((r) => r.feature === key) ?? null;
 }

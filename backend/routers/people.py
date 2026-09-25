@@ -1,5 +1,5 @@
 import re
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, union, func, or_, and_
 from sqlalchemy.exc import IntegrityError
@@ -16,7 +16,7 @@ from routers.horse_access import approval_url, build_access_request, notify_requ
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
 from staff_certifications import plan_certification_changes
-from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry
+from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry, ShowCompanyUpgradeRequest
 from schemas import (
     UserCreate, UserOut,
     CreatedHorseResult,
@@ -29,16 +29,21 @@ from schemas import (
     ExhibitorCompetitionCardCreate, ExhibitorCompetitionCardUpdate, ExhibitorCompetitionCardOut,
     ExhibitorMergeCandidate, ExhibitorMergeRequest, ExhibitorMergeResult, ExhibitorRegistryRow,
     StaffCertificationOut, StaffCertificationsReplace,
-    MyFeaturesOut, ShowCompanyRef, FeatureInfoOut,
+    MyFeaturesOut, ShowCompanyRef, FeatureInfoOut, UpgradeRequestCreate, UpgradeRequestOut,
 )
 from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
 from show_companies import (
     FEATURES,
     SHOW_OFFICE_ROLES,
+    admin_emails,
     companies_for_user,
+    email_admins,
     enabled_features,
+    load_upgrade_request,
     place_in_company,
+    request_upgrade,
     sync_personal_company_name,
+    upgrade_request_email,
 )
 
 VALID_ROLES = {"ADMIN", "SHOW_MANAGER", "SHOW_SECRETARY", "SCRIBE", "GATE_STEWARD", "EXHIBITOR", "TRAINER", "JUDGE"}
@@ -502,13 +507,80 @@ async def list_own_features(
     uid = safe_uuid(user_id)
     features = await enabled_features(db, uid, x_user_role)
     companies = await companies_for_user(db, uid)
+    requests = []
+    if companies:
+        requests = (
+            await db.execute(
+                select(ShowCompanyUpgradeRequest)
+                .where(ShowCompanyUpgradeRequest.company_id.in_([c.id for c in companies]))
+                .options(
+                    selectinload(ShowCompanyUpgradeRequest.company),
+                    selectinload(ShowCompanyUpgradeRequest.requested_by),
+                )
+            )
+        ).scalars().all()
     return MyFeaturesOut(
         features=sorted(features),
         companies=[
             ShowCompanyRef(id=c.id, name=c.name, personal=c.owner_user_id == uid) for c in companies
         ],
         catalog=[FeatureInfoOut(key=f.key, label=f.label, plan=f.plan) for f in FEATURES.values()],
+        upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in FEATURES],
     )
+
+
+def _upgrade_request_out(request: ShowCompanyUpgradeRequest, caller_id: UUID) -> UpgradeRequestOut:
+    return UpgradeRequestOut(
+        feature=request.feature,
+        company_id=request.company_id,
+        company_name=request.company.name,
+        requested_at=request.created_at,
+        requested_by_name=request.requested_by.full_name if request.requested_by else None,
+        requested_by_me=request.requested_by_user_id == caller_id,
+    )
+
+
+@users_router.post("/me/upgrade-requests", response_model=UpgradeRequestOut, status_code=201)
+async def create_upgrade_request(
+    body: UpgradeRequestCreate,
+    response: Response,
+    background: BackgroundTasks,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask GaitDesk to switch a paid feature on for one of the caller's show
+    companies (migration 144) -- the Request upgrade button on a locked door.
+
+    Stored first, so GaitDesk's admins find it on the Show Companies screens
+    whether or not mail is configured; then each admin is emailed after the
+    response, since a slow mail server is not the caller's wait. A request the
+    company already made answers 200 with that one and sends nothing: the
+    feature is sold to the company, so a colleague's press counts."""
+    uid = safe_uuid(user_id)
+    company_id, created = await request_upgrade(db, uid, x_user_role, body.feature, body.company_id)
+    recipients = await admin_emails(db) if created else []
+    await db.commit()
+
+    request = await load_upgrade_request(db, company_id, body.feature)
+    if request is None:
+        # Answered (switched on, or dismissed) between the write and this read.
+        raise HTTPException(409, "That request has already been answered. Reload the page.")
+    if not created:
+        response.status_code = 200
+    elif recipients:
+        requester = request.requested_by
+        subject, mail_body = upgrade_request_email(
+            feature=request.feature,
+            company_id=request.company_id,
+            company_name=request.company.name,
+            personal=request.company.owner_user_id == uid,
+            requester_name=requester.full_name if requester else "Somebody",
+            requester_email=requester.email if requester else "",
+            requester_role=requester.role if requester else x_user_role,
+        )
+        background.add_task(email_admins, recipients, subject, mail_body)
+    return _upgrade_request_out(request, uid)
 
 
 @users_router.patch("/{user_id}", response_model=UserOut, dependencies=[Depends(require_admin)])

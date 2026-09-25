@@ -241,6 +241,7 @@ Some features are sold, and a paid feature is gated **on top of** the role check
 - **`ADMIN` has every feature**, without belonging to a company: GaitDesk staff support every customer.
 - **Only an `ADMIN` can turn one on**, and only an `ADMIN` can add an account to a company (`/show-companies/*`, `require_admin`). The switch stands for a payment the app does not take, so anybody who would benefit from it must not be able to set it.
 - **The endpoint enforces; the page offers.** A gated endpoint takes `Depends(require_feature(KEY))`, which answers `403` naming the feature and the plan that includes it, and saying to ask GaitDesk. A page reads `GET /users/me/features` (`fetchMyFeatures` in `frontend/lib/show-companies.ts`) only to decide whether to show the door — the same split as every screen lock in this app.
+- **Anybody in a company may ask for a feature; only an `ADMIN` can grant one.** `POST /users/me/upgrade-requests` (migration 144) records the company's request and emails GaitDesk's admins, best-effort. It is limited to a company the caller works for (`403` otherwise) because a request on another club's behalf is one that club never made, and it changes nothing a gate reads — the switch is still `show_company_features`, set only by an admin.
 
 ## Sharp Edges
 

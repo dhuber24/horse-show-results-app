@@ -1209,6 +1209,9 @@ class ShowCompany(Base):
     members = relationship("ShowCompanyMember", back_populates="company", cascade="all, delete-orphan")
     features = relationship("ShowCompanyFeature", back_populates="company", cascade="all, delete-orphan")
     join_requests = relationship("ShowCompanyJoinRequest", back_populates="company", cascade="all, delete-orphan")
+    upgrade_requests = relationship(
+        "ShowCompanyUpgradeRequest", back_populates="company", cascade="all, delete-orphan"
+    )
     owner = relationship("User", foreign_keys=[owner_user_id])
 
 
@@ -1262,6 +1265,25 @@ class ShowCompanyJoinRequest(Base):
 
     company = relationship("ShowCompany", back_populates="join_requests")
     user = relationship("User", foreign_keys=[user_id])
+
+
+class ShowCompanyUpgradeRequest(Base):
+    """A show company asking GaitDesk to switch a paid feature on (migration
+    144). One per (company, feature), because the feature is sold to the
+    company rather than to whoever pressed the button; switching the feature on
+    deletes it. `feature` is a key of `show_companies.FEATURES`."""
+    __tablename__ = "show_company_upgrade_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    feature = Column(Text, nullable=False)
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("company_id", "feature", name="uq_show_company_upgrade_requests"),)
+
+    company = relationship("ShowCompany", back_populates="upgrade_requests")
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
 
 
 class ExhibitorDocument(Base):

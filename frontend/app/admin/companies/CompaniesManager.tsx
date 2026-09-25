@@ -10,16 +10,28 @@ import FeatureToggle from './FeatureToggle';
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 const labelStyle = { color: 'var(--text-deep)' } as const;
 
-type Filter = 'all' | 'organizations' | 'independent' | 'requests';
+type Filter = 'all' | 'organizations' | 'independent' | 'requests' | 'upgrades';
+
+/** Whether the company has asked for a feature it does not have (migration 144). */
+function asksForUpgrade(company: ShowCompany): boolean {
+  return company.features.some((f) => f.requested_at && !f.enabled);
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 /**
- * Companies somebody is waiting on come first, then organizations, then the
- * independents -- there is one of those for every show manager and secretary
- * who works for nobody (migration 143), and they would otherwise bury the
- * handful of clubs this screen is mostly for.
+ * Companies somebody is waiting on come first -- asking to join, or asking for
+ * an upgrade -- then organizations, then the independents: there is one of
+ * those for every show manager and secretary who works for nobody (migration
+ * 143), and they would otherwise bury the handful of clubs this screen is
+ * mostly for.
  */
 function rank(company: ShowCompany): number {
-  if (company.join_requests.length > 0) return 0;
+  if (company.join_requests.length > 0 || asksForUpgrade(company)) return 0;
   return company.owner_user_id ? 2 : 1;
 }
 
@@ -31,6 +43,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
   const [filter, setFilter] = useState<Filter>('all');
 
   const requestCount = companies.filter((c) => c.join_requests.length > 0).length;
+  const upgradeCount = companies.filter(asksForUpgrade).length;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies
@@ -41,7 +54,9 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
             ? Boolean(c.owner_user_id)
             : filter === 'requests'
               ? c.join_requests.length > 0
-              : true,
+              : filter === 'upgrades'
+                ? asksForUpgrade(c)
+                : true,
       )
       .filter(
         (c) =>
@@ -183,6 +198,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
               <option value="organizations">Organizations</option>
               <option value="independent">Independent people</option>
               <option value="requests">Asking to join ({requestCount})</option>
+              <option value="upgrades">Asking to upgrade ({upgradeCount})</option>
             </select>
           </div>
         </div>
@@ -267,6 +283,19 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                             <span className="block text-xs" style={{ color: 'var(--warning)' }}>
                               On, but reaches nobody yet — add an account
                             </span>
+                          )}
+                          {/* Switching it on answers the request, so the note
+                              sits against the switch that does. */}
+                          {feature.requested_at && !feature.enabled && (
+                            <Link
+                              href={`/admin/companies/${company.id}`}
+                              className="mt-1 block w-fit sm:ml-auto text-xs px-1.5 py-0.5 rounded font-medium"
+                              style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+                              suppressHydrationWarning
+                            >
+                              Requested {formatDate(feature.requested_at)}
+                              {feature.requested_by_name ? ` by ${feature.requested_by_name}` : ''}
+                            </Link>
                           )}
                         </span>
                       </div>

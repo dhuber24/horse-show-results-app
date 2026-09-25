@@ -2,6 +2,29 @@
 
 ## September 2026
 
+### A Locked Paid Feature Asks For The Upgrade Itself
+
+The locked show-bill button said *"ask GaitDesk about upgrading"* and gave no
+way to do it — the app's only contact form is a show's own inbox.
+
+- **Request upgrade to GaitDesk Pro** (`UpgradeRequestButton`) sits under the
+  disabled button on `/admin/shows` and `/admin/shows/new`, and on both
+  show-bill pages. One press, no form: GaitDesk knows who asked and has their
+  email. Somebody in several companies chooses which one is asking, the club
+  ahead of their own account.
+- **The request is the company's** (migration 144,
+  `show_company_upgrade_requests`, unique on company and feature), so a
+  colleague's earlier press shows as *"Sam Lee asked for GaitDesk Pro…"* rather
+  than offering the button twice. `GET /users/me/features` carries the standing
+  requests.
+- **Stored, then emailed.** Every approved ADMIN is mailed after the response,
+  best-effort; the row is what the admin actually reads — a count on the Show
+  Companies tile at `/admin`, an *Asking to upgrade* filter and a *Requested …
+  by …* note beside the switch on `/admin/companies`, and who asked, their email
+  and a Dismiss on the company's page.
+- **Switching the feature on answers the request** in the same transaction, the
+  way adding a member answers a join request.
+
 ### Starting From A Show Bill Is A Paid Feature, Switched On Per Show Company
 
 Reading a show bill spends model tokens on every upload, and it is sold to the

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { SHOWBILL_IMPORT, hasFeature, planFor, upgradeText, type MyFeatures } from '@/lib/show-companies';
+import UpgradeRequestButton from './UpgradeRequestButton';
 
 /**
  * The show bill import, sold.
@@ -9,6 +10,11 @@ import { SHOWBILL_IMPORT, hasFeature, planFor, upgradeText, type MyFeatures } fr
  * button; one that does not gets the same button, disabled, with the plan to
  * upgrade to and whose company it is — the pitch is identical either way, so
  * the locked card tells somebody exactly what they are missing.
+ *
+ * The locked card also carries the way out of it: a Request upgrade button
+ * that asks GaitDesk on the company's behalf (migration 144), so "upgrade" is
+ * something the office can do from here rather than an instruction to go and
+ * find somebody to ask.
  *
  * The button is an offer, never the enforcement: every show-bill endpoint
  * checks the feature for itself.
@@ -63,7 +69,7 @@ export default function AutomateShowCard({ mine }: { mine: MyFeatures }) {
           Upload show bill &amp; automate my show
         </Link>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <button
             type="button"
             disabled
@@ -79,6 +85,7 @@ export default function AutomateShowCard({ mine }: { mine: MyFeatures }) {
             <span className="font-semibold">{locked?.headline}</span>{' '}
             <span style={{ color: 'var(--muted)' }}>{locked?.detail}</span>
           </p>
+          <UpgradeRequestButton mine={mine} feature={SHOWBILL_IMPORT} />
         </div>
       )}
     </section>

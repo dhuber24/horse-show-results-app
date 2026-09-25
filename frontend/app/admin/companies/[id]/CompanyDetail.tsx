@@ -110,6 +110,11 @@ export default function CompanyDetail({
   const declineRequest = (userId: string) =>
     send(`request:${userId}`, `${base}/join-requests/${userId}`, { method: 'DELETE' }, 'The request could not be declined.');
 
+  // Switching the feature on answers an upgrade request; this is the other
+  // answer, for a company that decided against it.
+  const dismissUpgrade = (feature: string) =>
+    send(`upgrade:${feature}`, `${base}/upgrade-requests/${feature}`, { method: 'DELETE' }, 'The request could not be dismissed.');
+
   const owner = company.owner_user_id
     ? company.members.find((m) => m.user_id === company.owner_user_id)
     : undefined;
@@ -252,6 +257,45 @@ export default function CompanyDetail({
                     On for {accountsText(company.members.length)} since {formatDate(feature.enabled_at)}
                     {feature.enabled_by_name ? ` · turned on by ${feature.enabled_by_name}` : ''}
                   </p>
+                )}
+                {feature.requested_at && !feature.enabled && (
+                  <div
+                    className="mt-2 rounded border p-2.5 text-xs space-y-1"
+                    style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
+                  >
+                    <p suppressHydrationWarning>
+                      <span className="font-semibold">
+                        {feature.requested_by_user_id && feature.requested_by_name ? (
+                          <Link href={`/admin/users/${feature.requested_by_user_id}`} className="hover:underline">
+                            {feature.requested_by_name}
+                          </Link>
+                        ) : (
+                          'Somebody who has since left'
+                        )}
+                      </span>{' '}
+                      asked for {feature.plan} on {formatDate(feature.requested_at)}
+                      {feature.requested_by_email && (
+                        <>
+                          {' '}·{' '}
+                          <a href={`mailto:${feature.requested_by_email}`} className="underline">
+                            {feature.requested_by_email}
+                          </a>
+                        </>
+                      )}
+                    </p>
+                    <p style={{ color: 'var(--muted)' }}>
+                      Once payment is arranged, switch it on — that answers the request.{' '}
+                      <button
+                        onClick={() => dismissUpgrade(feature.key)}
+                        disabled={busy !== null}
+                        title={busy !== null ? 'Waiting for the last change to save' : 'Take the request off the list without switching the feature on'}
+                        className="font-medium hover:underline disabled:opacity-50"
+                        style={{ color: 'var(--text-deep)' }}
+                      >
+                        {busy === `upgrade:${feature.key}` ? 'Dismissing…' : 'Dismiss'}
+                      </button>
+                    </p>
+                  </div>
                 )}
               </div>
               <FeatureToggle

@@ -195,3 +195,71 @@ def test_an_own_company_other_people_were_added_to_stays():
 def test_nobody_elses_company_and_no_organization_is_ever_spare():
     assert not is_spare_personal_company(SOMEBODY_ELSE, PERSON, feature_count=0, member_ids={PERSON})
     assert not is_spare_personal_company(None, PERSON, feature_count=0, member_ids={PERSON})
+
+
+# ── Asking GaitDesk for a feature (migration 144) ────────────────────────────
+
+from show_companies import resolve_upgrade_company, upgrade_request_email  # noqa: E402
+
+
+def test_somebody_in_one_company_need_not_say_which_is_asking():
+    """Nearly everybody -- an independent has their own company (migration 143)."""
+    assert resolve_upgrade_company("SHOW_SECRETARY", None, [CLUB]) == CLUB
+
+
+def test_somebody_in_several_companies_must_choose_one():
+    with pytest.raises(HTTPException) as refused:
+        resolve_upgrade_company("SHOW_MANAGER", None, [CLUB, OTHER])
+    assert refused.value.status_code == 422
+
+
+def test_the_company_they_chose_is_the_one_asking():
+    assert resolve_upgrade_company("SHOW_MANAGER", OTHER, [CLUB, OTHER]) == OTHER
+
+
+def test_nobody_asks_on_behalf_of_a_company_they_do_not_work_for():
+    """Otherwise GaitDesk is chasing a club for a request the club never made."""
+    with pytest.raises(HTTPException) as refused:
+        resolve_upgrade_company("SHOW_MANAGER", OTHER, [CLUB])
+    assert refused.value.status_code == 403
+
+
+def test_somebody_in_no_company_has_nothing_to_upgrade():
+    with pytest.raises(HTTPException) as refused:
+        resolve_upgrade_company("SHOW_SECRETARY", None, [])
+    assert refused.value.status_code == 409
+
+
+def test_an_admin_has_nothing_to_ask_for():
+    with pytest.raises(HTTPException) as refused:
+        resolve_upgrade_company("ADMIN", None, [CLUB])
+    assert refused.value.status_code == 409
+
+
+def _email(personal: bool) -> tuple[str, str]:
+    return upgrade_request_email(
+        feature=SHOWBILL_IMPORT,
+        company_id=CLUB,
+        company_name="Jane Smith" if personal else "Minnesota Paint Club",
+        personal=personal,
+        requester_name="Jane Smith",
+        requester_email="jane@example.com",
+        requester_role="SHOW_SECRETARY",
+    )
+
+
+def test_the_admin_email_names_the_company_the_plan_who_asked_and_where_to_answer():
+    subject, body = _email(personal=False)
+    assert "Minnesota Paint Club" in subject
+    assert FEATURES[SHOWBILL_IMPORT].plan in subject
+    assert "Jane Smith (jane@example.com, Show Secretary)" in body
+    assert FEATURES[SHOWBILL_IMPORT].label in body
+    assert f"/admin/companies/{CLUB}" in body
+
+
+def test_an_independents_request_does_not_read_their_name_back_as_the_company():
+    """Their own company is named after them; "Jane Smith asked for Pro for
+    Jane Smith" tells the admin nothing about who they are."""
+    _, body = _email(personal=True)
+    assert "for Jane Smith" not in body
+    assert "independent" in body

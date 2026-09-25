@@ -9,6 +9,10 @@ The one way in that is not an admin's is the sign-up form (migration 143): an
 independent gets a company of their own, and somebody who types an existing
 organization's name leaves a **join request** here for an admin to answer.
 Approving one is adding the member, which clears the request.
+
+The other thing that waits here is an **upgrade request** (migration 144),
+made from a locked paid feature's Request upgrade button. It rides on the
+feature it asks for, and switching that feature on answers it.
 """
 from uuid import UUID
 
@@ -20,8 +24,16 @@ from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import require_admin, safe_uuid
-from models import ShowCompany, ShowCompanyFeature, ShowCompanyJoinRequest, ShowCompanyMember, User
+from models import (
+    ShowCompany,
+    ShowCompanyFeature,
+    ShowCompanyJoinRequest,
+    ShowCompanyMember,
+    ShowCompanyUpgradeRequest,
+    User,
+)
 from schemas import (
+    PendingCompanyRequestsOut,
     ShowCompanyCreate,
     ShowCompanyFeatureOut,
     ShowCompanyJoinRequestOut,
@@ -48,6 +60,7 @@ _LOAD = (
     selectinload(ShowCompany.members).selectinload(ShowCompanyMember.user),
     selectinload(ShowCompany.features).selectinload(ShowCompanyFeature.enabled_by),
     selectinload(ShowCompany.join_requests).selectinload(ShowCompanyJoinRequest.user),
+    selectinload(ShowCompany.upgrade_requests).selectinload(ShowCompanyUpgradeRequest.requested_by),
 )
 
 
@@ -57,6 +70,7 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         key=lambda m: (m.user.last_name.lower(), m.user.first_name.lower()),
     )
     switched_on = {f.feature: f for f in company.features}
+    asked_for = {r.feature: r for r in company.upgrade_requests}
     requests = sorted(
         (r for r in company.join_requests if r.user is not None),
         key=lambda r: r.created_at or company.created_at,
@@ -102,10 +116,24 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
                     if feature.key in switched_on and switched_on[feature.key].enabled_by
                     else None
                 ),
+                **_request_fields(asked_for.get(feature.key)),
             )
             for feature in FEATURES.values()
         ],
     )
+
+
+def _request_fields(request: ShowCompanyUpgradeRequest | None) -> dict:
+    """Who asked for a feature and when, for its row on the admin screens."""
+    if request is None:
+        return {}
+    who = request.requested_by
+    return {
+        "requested_at": request.created_at,
+        "requested_by_user_id": request.requested_by_user_id,
+        "requested_by_name": who.full_name if who else None,
+        "requested_by_email": who.email if who else None,
+    }
 
 
 async def _load(db: AsyncSession, company_id: UUID) -> ShowCompany:
@@ -184,6 +212,22 @@ async def create_company(
         await db.rollback()
         raise HTTPException(409, f"There is already a show company called {name}.")
     return _company_out(await _load(db, company.id))
+
+
+@router.get("/pending-requests", response_model=PendingCompanyRequestsOut)
+async def pending_requests(db: AsyncSession = Depends(get_db)):
+    """How much is waiting on a GaitDesk admin, for the count on the admin home.
+    Declared before `/{company_id}`, which would otherwise take the path.
+
+    An upgrade request for a feature the registry no longer names is not
+    counted: nothing could answer it."""
+    joins = await db.scalar(select(func.count()).select_from(ShowCompanyJoinRequest))
+    upgrades = await db.scalar(
+        select(func.count())
+        .select_from(ShowCompanyUpgradeRequest)
+        .where(ShowCompanyUpgradeRequest.feature.in_(list(FEATURES)))
+    )
+    return PendingCompanyRequestsOut(join_requests=joins or 0, upgrade_requests=upgrades or 0)
 
 
 @router.get("/{company_id}", response_model=ShowCompanyOut)
@@ -339,9 +383,13 @@ async def enable_feature(
     db: AsyncSession = Depends(get_db),
 ):
     """Turn a feature on. A second press is not an error -- it is already on,
-    and the original `enabled_at` is kept, since that is when it started."""
+    and the original `enabled_at` is kept, since that is when it started.
+
+    Turning it on answers the company's request for it (migration 144), in the
+    same commit -- the way adding a member answers a join request."""
     _registered(feature)
     company = await _load(db, company_id)
+    changed = False
     if not any(f.feature == feature for f in company.features):
         db.add(
             ShowCompanyFeature(
@@ -350,10 +398,17 @@ async def enable_feature(
                 enabled_by_user_id=safe_uuid(x_user_id),
             )
         )
+        changed = True
+    request = next((r for r in company.upgrade_requests if r.feature == feature), None)
+    if request is not None:
+        company.upgrade_requests.remove(request)
+        changed = True
+    if changed:
         try:
             await db.commit()
         except IntegrityError:
-            # Two admins pressed at once; the other press turned it on.
+            # Two admins pressed at once; the other press turned it on, and
+            # cleared the request with it.
             await db.rollback()
     return _company_out(await _load(db, company_id))
 
@@ -367,4 +422,18 @@ async def disable_feature(company_id: UUID, feature: str, db: AsyncSession = Dep
     if row is not None:
         company.features.remove(row)
         await db.commit()
+    return _company_out(await _load(db, company_id))
+
+
+@router.delete("/{company_id}/upgrade-requests/{feature}", response_model=ShowCompanyOut)
+async def dismiss_upgrade_request(company_id: UUID, feature: str, db: AsyncSession = Depends(get_db)):
+    """Dismiss a company's request for a feature without switching it on --
+    they decided against it, or it was pressed by mistake. Nothing tells them;
+    their locked button simply offers the request again."""
+    company = await _load(db, company_id)
+    request = next((r for r in company.upgrade_requests if r.feature == feature), None)
+    if request is None:
+        raise HTTPException(404, "This company has not asked for that feature.")
+    company.upgrade_requests.remove(request)
+    await db.commit()
     return _company_out(await _load(db, company_id))
