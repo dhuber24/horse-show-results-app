@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { patternFileHref } from '@/lib/patterns';
 
 type GateClassStatus = 'pending' | 'ready' | 'in_progress' | 'done';
 
@@ -17,6 +18,10 @@ type ClassRow = {
   score_type?: string;
   /** When the judge posted this class’s pattern (migration 120). */
   pattern_posted_at?: string | null;
+  /** The pattern file the office put on file for this class (migration 146) —
+   *  what the steward checks the board by the gate against. */
+  pattern_id?: string | null;
+  pattern_name?: string | null;
   /** The association’s class-procedure note for this show’s zone, where it has
    *  one. APHA Zones 12-14 run equitation and horsemanship individually from
    *  the gate with no rail work — a different class than the same class in
@@ -474,7 +479,7 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 <span className="text-xs" style={{ color: 'var(--success-strong)' }}>· saving…</span>
               )}
             </div>
-            {selectedClass.score_type === 'pattern' && (
+            {(selectedClass.score_type === 'pattern' || selectedClass.pattern_id) && (
               <div
                 className="text-xs mb-3 rounded px-2 py-1.5 flex items-center gap-2 flex-wrap"
                 style={{ backgroundColor: selectedClass.pattern_posted_at ? 'var(--success-bg)' : 'var(--background)', border: `1px solid ${selectedClass.pattern_posted_at ? 'var(--success-border)' : 'var(--border-subtle)'}` }}
@@ -493,6 +498,18 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                 >
                   {selectedClass.pattern_posted_at ? 'Undo' : 'Mark posted'}
                 </button>
+                {selectedClass.pattern_id && (
+                  <a
+                    href={patternFileHref(showId, selectedClass.pattern_id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                    style={{ color: 'var(--accent)' }}
+                    title="The file exhibitors see for this class. The one posted at the gate is the official copy."
+                  >
+                    Open {selectedClass.pattern_name ?? 'pattern'} ↗
+                  </a>
+                )}
               </div>
             )}
             {selectedClass.procedure_note && (

@@ -1,36 +1,11 @@
+import Link from 'next/link';
 import { auth } from '@/auth';
 import { canActAsExhibitor } from '@/lib/exhibitor-access';
 import { fetchShow, fetchClasses, fetchProgramIndex } from '@/lib/api';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { fetchRegisteredClassIds } from '@/lib/my-class-ids';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import ScheduleBoard, { type ScheduleClass, type ProgramEntry } from './ScheduleBoard';
-
-/**
- * The classes the signed-in exhibitor is entered in at this show.
- *
- * Read from the dashboard endpoint, which is already the exhibitor's own
- * entry list — the schedule is a public spectator page and must keep working
- * for everyone else, so a failure here degrades to "no registered filter"
- * rather than breaking the page.
- */
-async function fetchRegisteredClassIds(showId: string, userId: string): Promise<string[]> {
-  try {
-    const headers = await getAuthHeaders();
-    if (!headers) return [];
-    const res = await fetch(`${API_URL}/dashboard/exhibitor/${userId}`, {
-      headers,
-      cache: 'no-store',
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.entries ?? [])
-      .filter((e: { show_id: string }) => e.show_id === showId)
-      .map((e: { class_id: string }) => e.class_id);
-  } catch {
-    return [];
-  }
-}
 
 export default async function ShowSchedulePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -52,7 +27,14 @@ export default async function ShowSchedulePage({ params }: { params: Promise<{ i
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <ShowHubHeader show={show} backHref={back.backHref} backLabel={back.backLabel} />
 
-      <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Class Schedule</h2>
+      <div className="flex items-baseline justify-between gap-3 mb-3">
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Class Schedule</h2>
+        {visible.some((c) => c.pattern_id) && (
+          <Link href={`/shows/${id}/patterns`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
+            All patterns →
+          </Link>
+        )}
+      </div>
 
       {visible.length === 0 ? (
         <p style={{ color: 'var(--muted)' }}>No classes have been posted yet.</p>

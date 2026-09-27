@@ -622,6 +622,15 @@ Because payments land on an *account* rather than on individual charges, collect
 
 Access is the show-office tier — ADMIN, or the SHOW_SECRETARY / SHOW_MANAGER assigned to that show. `SCRIBE` and `GATE_STEWARD` are excluded; see "Who May See The Money" in [auth.md](auth.md).
 
+## Patterns
+
+A pattern class is ridden to a pattern the judge sets, and exhibitors want it in hand before they walk to the gate. The office adds each one at `/admin/shows/[id]/patterns` (migration 146), which is what makes it available to exhibitors, and — optionally — picks it for its classes in the class list below (one dropdown per class, or *Set all* for a whole discipline). Exhibitors view or download it from the show's **Patterns** page, which lists every pattern with the classes it is used in and, for a signed-in exhibitor, their own classes' patterns first; a class with a pattern also gets a **Pattern** button beside it on the class schedule.
+
+- **The in-gate copy is still the official one.** Migration 120 recorded when the judge posts a pattern at the gate and declined to store the pattern itself, because a second copy could disagree with the one exhibitors walked. Shows were already e-mailing and posting patterns ahead, so the upload is here — but posting at the gate is still recorded on the gate screen (`classes.pattern_posted_at`), and an upload a week before is not a posting and does not set it.
+- **When a judge changes a pattern, replace the file; do not delete and re-upload.** *Replace file* keeps the pattern's classes and moves its time, and every reader prints **Changed {time}**, which is what tells somebody who opened Thursday's copy that there is a new one. Files are served `no-cache` so a phone does not keep the old one.
+- **A class runs one pattern.** Picking a pattern for a class takes it off whichever pattern it had.
+- **Patterns are public**, like the schedule — read at the rail, often by somebody who never signed in. Only the show office (ADMIN, or a manager or secretary assigned to the show) can add, change or remove one. The gate steward sees an **Open pattern** link beside the posting control.
+
 ## Scribe Flow
 
 1. Scribe opens `/scribe`.

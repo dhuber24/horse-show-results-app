@@ -304,6 +304,53 @@ class ShowbillSourceUpdate(BaseModel):
     source: Literal["generated", "uploaded"]
 
 
+# ── Show Patterns ──────────────────────────────────────────────────────────────
+
+class ShowPatternClassOut(BaseModel):
+    """A class a pattern runs -- enough to print "12 — Youth Showmanship"."""
+    id: UUID
+    class_number: str
+    class_name: str
+    class_date: date
+
+
+class ShowPatternOut(BaseModel):
+    """A pattern on file, and the classes that run it. Never the bytes.
+
+    `file_uploaded_at` is when the *current* file went up, and moves when the
+    file is replaced. Every reader prints it: it is how somebody who looked at a
+    pattern on Thursday can tell the judge changed it on Saturday.
+    """
+    id: UUID
+    show_id: UUID
+    name: str
+    notes: Optional[str] = None
+    original_filename: str
+    mime_type: str
+    file_size: int
+    created_at: Optional[datetime] = None
+    file_uploaded_at: datetime
+    classes: list[ShowPatternClassOut] = Field(default_factory=list)
+
+
+class ShowPatternUpdate(BaseModel):
+    """Renaming a pattern or changing its notes. The file is replaced on its own
+    endpoint, since that is the change an exhibitor needs to be told about."""
+    name: Optional[str] = Field(default=None, max_length=200)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ShowPatternAssignment(BaseModel):
+    """Point classes at a pattern, or at none (`pattern_id` null).
+
+    One class from its row on the office's class list, or a discipline's worth
+    from that group's "set all". A class runs one pattern, so each class listed
+    leaves whatever pattern it ran before.
+    """
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    pattern_id: Optional[UUID] = None
+
+
 # ── Sanctioned Associations ────────────────────────────────────────────────────
 
 class SanctionedAssociationCreate(BaseModel):
@@ -684,8 +731,8 @@ class ClassUpdate(BaseModel):
     # Entered by placing rather than by signing up (migration 129). Derived
     # from the class name at creation; this is how it is corrected.
     entered_by_qualification: Optional[bool] = None
-    # Which pattern, in the judge’s words (migration 120). The pattern itself is
-    # posted physically at the show and is deliberately not stored.
+    # Which pattern, in the judge’s words (migration 120). The file exhibitors
+    # read ahead is assigned through `show_pattern_classes` (migration 146).
     pattern_notes: Optional[str] = Field(default=None, max_length=2000)
     # Which card shape this class is judged on (migration 122). Null means the
     # scribe types a total, which is how a rail class still works.

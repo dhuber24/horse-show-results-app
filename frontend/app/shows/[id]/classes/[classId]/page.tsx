@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import { auth } from '@/auth';
+import { patternFileHref } from '@/lib/patterns';
 import PlacingsTable, { type CardColumn, type PlacingRow } from './PlacingsTable';
 
 const NO_JUDGE = '__none__';
@@ -104,6 +105,17 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
             📅 {cls?.class_date} &nbsp;·&nbsp;
             <span className="font-medium" style={{ color: 'var(--accent)' }}>{cls?.status}</span>
           </p>
+          {cls?.pattern_id && (
+            <a
+              href={patternFileHref(id, cls.pattern_id)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-sm mt-1 hover:underline"
+              style={{ color: 'var(--accent)' }}
+            >
+              📐 Pattern: {cls.pattern_name ?? 'open'} ↗
+            </a>
+          )}
         </div>
         {canEnterPlacings && (
           <Link href={`/shows/${id}/classes/${classId}/scribe`}

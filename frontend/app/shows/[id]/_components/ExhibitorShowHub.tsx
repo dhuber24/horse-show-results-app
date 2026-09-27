@@ -33,6 +33,8 @@ export default function ExhibitorShowHub({
   show,
   standing,
   classCount,
+  patternCount = 0,
+  hasPatternClasses = false,
   canSelfRegister,
 }: {
   showId: string;
@@ -46,6 +48,11 @@ export default function ExhibitorShowHub({
   };
   standing: MyShowStanding | null;
   classCount: number;
+  /** Patterns on file that run at least one class (migration 146). */
+  patternCount?: number;
+  /** Whether any class is judged on a pattern — the tile is worth showing
+   *  before the office has posted one, since that is where to look. */
+  hasPatternClasses?: boolean;
   canSelfRegister: boolean;
 }) {
   const registrationOpen = show.status === 'PUBLISHED';
@@ -111,6 +118,22 @@ export default function ExhibitorShowHub({
         ? `All ${classCount} classes by day and ring.`
         : 'Classes by day and ring, once they are posted.',
   });
+
+  // Beside the schedule because that is where a pattern is used from: the
+  // schedule links each class to its own, and this is the whole list. Absent
+  // at a show with nothing judged on a pattern and nothing on file — a halter
+  // and rail show has no patterns to look for.
+  if (patternCount > 0 || hasPatternClasses) {
+    tiles.push({
+      href: `/shows/${showId}/patterns`,
+      icon: '📐',
+      title: 'Patterns',
+      description:
+        patternCount > 0
+          ? 'Open the pattern each class runs.'
+          : 'Posted here once the judges’ patterns are in.',
+    });
+  }
 
   // Both always offered, registered or not. What a show is, who is judging it,
   // what runs when and what it costs are the questions somebody asks *before*

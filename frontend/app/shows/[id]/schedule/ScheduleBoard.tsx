@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { patternFileHref } from '@/lib/patterns';
 
 export type ScheduleClass = {
   id: string;
@@ -21,6 +22,10 @@ export type ScheduleClass = {
    *  entering (migration 129). Marked on the programme so somebody comparing
    *  the schedule against their entry form can see why it is not on offer. */
   entered_by_qualification?: boolean;
+  /** The pattern this class runs, if the office has put one on file
+   *  (migration 146). */
+  pattern_id?: string | null;
+  pattern_name?: string | null;
 };
 
 export type ProgramEntry = {
@@ -182,6 +187,7 @@ export default function ScheduleBoard({
       const parts = [
         c.class_number, c.class_name, c.ring_name ?? '',
         c.discipline_name ?? '', c.division_name ?? '',
+        c.pattern_name ?? '',
         formatDayLong(c.class_date),
       ];
       for (const e of programIndex[c.id] ?? []) parts.push(entryText(e));
@@ -469,6 +475,23 @@ export default function ScheduleBoard({
                         </div>
                       </button>
 
+                      {/* One tap to the pattern, beside the class rather than
+                          inside the row's toggle — a link inside a button is
+                          not a link a screen reader or a phone can trust. */}
+                      {cls.pattern_id && (
+                        <a
+                          href={patternFileHref(showId, cls.pattern_id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open the pattern for class ${cls.class_number}${cls.pattern_name ? `: ${cls.pattern_name}` : ''}`}
+                          className="px-2.5 shrink-0 flex flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition hover:bg-amber-50 border-l"
+                          style={{ borderColor: 'var(--bg-subtle)', color: 'var(--accent)' }}
+                        >
+                          <span aria-hidden="true" className="text-base leading-none">📐</span>
+                          <span>Pattern</span>
+                        </a>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => toggleFavorite(cls.id)}
@@ -509,13 +532,26 @@ export default function ScheduleBoard({
                           renderEntryTable(entries)
                         )}
 
-                        <Link
-                          href={`/shows/${showId}/classes/${cls.id}`}
-                          className="inline-block text-sm mt-3 hover:underline"
-                          style={{ color: 'var(--accent)' }}
-                        >
-                          {cls.placed_count > 0 ? 'View results' : 'View class'} →
-                        </Link>
+                        <div className="flex flex-wrap gap-x-4 mt-3">
+                          <Link
+                            href={`/shows/${showId}/classes/${cls.id}`}
+                            className="inline-block text-sm hover:underline"
+                            style={{ color: 'var(--accent)' }}
+                          >
+                            {cls.placed_count > 0 ? 'View results' : 'View class'} →
+                          </Link>
+                          {cls.pattern_id && (
+                            <a
+                              href={patternFileHref(showId, cls.pattern_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block text-sm hover:underline"
+                              style={{ color: 'var(--accent)' }}
+                            >
+                              Pattern: {cls.pattern_name ?? 'open'} ↗
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
                   </li>

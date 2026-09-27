@@ -259,8 +259,10 @@ async def set_pattern_posted(
     posted its pattern any earlier, which is the same reasoning that took the
     block off health paperwork.
 
-    The pattern *itself* is not stored. It goes up on a board by the gate, and a
-    second copy here could disagree with the one exhibitors actually walked.
+    This is the posting at the in-gate, which stays the official copy. The file
+    exhibitors read ahead lives in `show_patterns` (migration 146) and is
+    assigned to the class there; uploading it is not a posting and does not set
+    this.
     """
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await _get_class_or_404(show_id, class_id, db)

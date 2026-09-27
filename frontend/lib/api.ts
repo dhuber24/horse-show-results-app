@@ -1,3 +1,5 @@
+import type { ShowPattern } from './patterns';
+
 const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000';
 
 export async function fetchShows() {
@@ -93,6 +95,21 @@ export async function fetchShowbill(showId: string): Promise<{
     return await res.json();
   } catch {
     return fallback;
+  }
+}
+
+/** The show's patterns and the classes each one runs (migration 146), in the
+ *  order their first class runs. Public, like the schedule they hang off.
+ *
+ *  Returns [] rather than throwing: a show with no patterns on file is the
+ *  ordinary case, and a failed lookup must not take down the page around it. */
+export async function fetchShowPatterns(showId: string): Promise<ShowPattern[]> {
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/patterns`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
   }
 }
 

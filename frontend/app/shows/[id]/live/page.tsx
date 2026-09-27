@@ -13,6 +13,14 @@ const TILES = [
     title: 'Class Schedule',
     description: 'Browse the full class list by day and ring.',
   },
+  // Always offered: the tiles here are static, and a pattern is exactly what
+  // somebody at the rail with no account opens on their phone.
+  {
+    slug: 'patterns',
+    icon: '📐',
+    title: 'Patterns',
+    description: 'The pattern each class runs, as the office posts them.',
+  },
   {
     slug: 'results',
     icon: '🏆',

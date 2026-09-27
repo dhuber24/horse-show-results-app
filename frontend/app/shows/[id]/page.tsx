@@ -52,12 +52,15 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   // Everybody else was landing on forty rows of something to read rather than
   // the four things they came to do.
   if (!canScore) {
+    const posted = classes.filter((cls: any) => cls.status !== 'DRAFT');
     return (
       <ExhibitorShowHub
         showId={id}
         show={show}
         standing={standing}
-        classCount={classes.filter((cls: any) => cls.status !== 'DRAFT').length}
+        classCount={posted.length}
+        patternCount={new Set(posted.map((cls: any) => cls.pattern_id).filter(Boolean)).size}
+        hasPatternClasses={posted.some((cls: any) => cls.score_type === 'pattern')}
         canSelfRegister={canSelfRegister}
       />
     );

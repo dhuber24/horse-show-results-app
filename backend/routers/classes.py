@@ -22,6 +22,8 @@ from models import (
     Discipline,
     Division,
     FuturityClass,
+    ShowPattern,
+    ShowPatternClass,
     discipline_divisions,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -490,10 +492,18 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Ring.sort_order.label("ring_sort_order"),
             Discipline.name.label("discipline_name"),
             Division.name.label("division_name"),
+            # The pattern this class runs, if the office has put one on file
+            # (migration 146). Names only -- joining the pattern's row would
+            # otherwise be the one place its bytes rode along on a class read.
+            ShowPattern.id.label("pattern_id"),
+            ShowPattern.name.label("pattern_name"),
         )
         .outerjoin(Ring, Ring.id == Class.ring_id)
         .outerjoin(Discipline, Discipline.id == Class.discipline_id)
         .outerjoin(Division, Division.id == Class.division_id)
+        # Keyed on the class, so this can never turn one class into two rows.
+        .outerjoin(ShowPatternClass, ShowPatternClass.class_id == Class.id)
+        .outerjoin(ShowPattern, ShowPattern.id == ShowPatternClass.pattern_id)
         .where(Class.show_id == show_id)
         .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
     )
@@ -522,6 +532,10 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 if row.association is not None
             ],
             "is_futurity_class": futurity_class_count > 0,
+            # On the class payload so the schedule, the gate and the class page
+            # can each link straight to it without a second request.
+            "pattern_id": pattern_id,
+            "pattern_name": pattern_name,
         }
         for (
             cls,
@@ -532,6 +546,8 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             ring_sort_order,
             discipline_name,
             division_name,
+            pattern_id,
+            pattern_name,
         ) in result.all()
     ]
 

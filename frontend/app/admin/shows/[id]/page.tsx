@@ -74,6 +74,16 @@ const tiles = (showId: string): Tile[] => [
       'Futurity classes, entry fee categories, entries, and Hi-Point award divisions.',
     icon: '🌟',
   },
+  // Not a setup step: patterns arrive from the judges in the days before the
+  // show and change on the day, so this is worked alongside the show rather
+  // than set once in the wizard.
+  {
+    href: `/admin/shows/${showId}/patterns`,
+    title: 'Patterns',
+    description:
+      'The judges’ patterns, on file and ticked against the classes that run them — exhibitors open them from the schedule.',
+    icon: '📐',
+  },
   // What the office sends the association afterwards. Its own tile rather than
   // a link under Financials: these reports are the record of what happened —
   // placings, entries, judges' cards, compliance — and none of them are money.

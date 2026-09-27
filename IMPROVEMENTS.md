@@ -18,6 +18,33 @@ switched on for it, so an independent with a paid feature on stayed on
   request waiting — the admin home counts that request, so the list has to show
   where it is.
 
+### Patterns, On File And One Tap From The Class
+
+A pattern class is ridden to a pattern the judge sets, and there was nowhere in
+the app to put one — exhibitors got them by e-mail, from a club page, or from a
+photo passed round the barn aisle.
+
+- **A Patterns section for show staff** (migration 146, `show_patterns` and
+  `show_pattern_classes`): a tile on the show dashboard opens
+  `/admin/shows/[id]/patterns`, where the office adds each pattern (PDF or a
+  photo, 10 MB) — which makes it available to exhibitors — and, optionally,
+  picks it for its classes in a class list below: a dropdown per class,
+  grouped by discipline, with *Set all* for a whole group.
+- **A class runs one pattern; a pattern runs many.** Picking a pattern for a
+  class takes it off the one it had.
+- **Exhibitors open it from their class.** The class schedule has a *Pattern*
+  button beside every class that has one; the gate screen and the class page
+  link it too; and `/shows/[id]/patterns` lists every pattern with **View**,
+  **Download** and the classes it is used in, a signed-in exhibitor's own
+  classes first. Public, like the schedule.
+- **A changed pattern is replaced, not re-uploaded.** *Replace file* keeps the
+  classes and moves the time, and every reader prints **Changed {time}**. The
+  pattern posted at the in-gate stays the official copy, and the page says so —
+  this reverses migration 120's decision not to store patterns, for the reason
+  127 reversed it for the show bill.
+- **Times print in the reader's zone.** New `components/LocalTime.tsx`, since a
+  server component formats in UTC.
+
 ### A Show Registration No Longer Writes The Exhibitor's Profile
 
 Removing a horse on a show's registration took it off the exhibitor's profile —

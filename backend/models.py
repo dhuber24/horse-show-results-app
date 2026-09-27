@@ -6,7 +6,7 @@ from sqlalchemy import (
     Index, Numeric, func, event, text, exists
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
-from sqlalchemy.orm import column_property, relationship
+from sqlalchemy.orm import column_property, deferred, relationship
 from database import Base
 
 
@@ -285,6 +285,65 @@ class ShowDocument(Base):
     )
 
 
+class ShowPattern(Base):
+    """A pattern the show put on file for exhibitors to read (migration 146).
+
+    Shaped after `ShowDocument` -- bytes in the row, MIME sniffed from the magic
+    bytes -- but many per show and named, because a show runs a dozen patterns.
+    Replacing the file keeps the row and its class assignments and moves
+    `file_uploaded_at`, which every reader prints: a judge who changes a pattern
+    leaves one current file here, never two.
+
+    `file_data` is deferred, and nothing relates to this model, for the reason
+    `ShowDocument` gives: a list of patterns must not drag a dozen images through
+    memory. Readers select the columns they need by name; the download endpoint
+    is the one place that asks for the bytes. See `routers/show_patterns.py`.
+    """
+
+    __tablename__ = "show_patterns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    # What an exhibitor reads ("Showmanship Pattern 2"). Unique per show,
+    # case-insensitively, by show_patterns_show_name_uniq in the migration.
+    name = Column(Text, nullable=False)
+    notes = Column(Text, nullable=True)
+    original_filename = Column(Text, nullable=False)
+    file_data = deferred(Column(LargeBinary, nullable=False))
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # When the current file went up; moves on a replacement.
+    file_uploaded_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+
+class ShowPatternClass(Base):
+    """Which pattern a class runs (migration 146).
+
+    Keyed on the class: a class runs one pattern, and one pattern often runs a
+    dozen classes. A table rather than `classes.pattern_id` so the hottest table
+    in the app gains no column a running release could fail to map. The class and
+    the pattern belong to the same show -- enforced in the router.
+    """
+
+    __tablename__ = "show_pattern_classes"
+
+    class_id = Column(
+        UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True
+    )
+    pattern_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_patterns.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Named as the migration names it, so whichever of `create_all` and the
+    # migration gets there first, the other finds it rather than adding a twin.
+    __table_args__ = (
+        Index("show_pattern_classes_pattern_idx", "pattern_id"),
+    )
+
+
 class Ring(Base):
     __tablename__ = "rings"
 
@@ -482,9 +541,10 @@ class Class(Base):
     results_published_at = Column(TIMESTAMP(timezone=True), nullable=True)
     # When the judge posted this class's pattern, and which pattern it was
     # (migration 120). Every pattern class in the rule book requires it at least
-    # an hour before the class. The pattern *itself* is posted physically at the
-    # show and is deliberately not stored — a second copy here could disagree
-    # with the board exhibitors actually walked, and somebody would ride this one.
+    # an hour before the class. This is the posting at the in-gate, which stays
+    # the official copy. The file exhibitors read ahead lives in `show_patterns`
+    # (migration 146), assigned through `show_pattern_classes` -- an upload a week
+    # before the show is not a posting and does not set this.
     pattern_posted_at = Column(TIMESTAMP(timezone=True), nullable=True)
     pattern_notes = Column(Text, nullable=True)
     # Which card shape this class is judged on (migration 122). NULL means the
