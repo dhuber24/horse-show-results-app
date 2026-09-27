@@ -2,6 +2,22 @@
 
 ## September 2026
 
+### An Independent Who Joins A Club Is Listed Under The Club
+
+Joining an organization deletes somebody's own company only when nothing is
+switched on for it, so an independent with a paid feature on stayed on
+`/admin/companies` as an **Independent** row after their club added them.
+
+- **The list folds it away.** An own company whose owner is in an organization
+  is left off the list and the count, and a line under the heading says how
+  many were (`foldedOwnCompanies`, `lib/show-companies.ts`). The company and its
+  switch are untouched.
+- **A search brings it back.** Searching a person's name or email lists every
+  company they are in, their own included, marked *Now works for …*.
+- **Never folded:** an own company anybody else is in, or one with an upgrade
+  request waiting — the admin home counts that request, so the list has to show
+  where it is.
+
 ### A Show Registration No Longer Writes The Exhibitor's Profile
 
 Removing a horse on a show's registration took it off the exhibitor's profile —

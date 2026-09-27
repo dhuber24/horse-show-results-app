@@ -95,6 +95,41 @@ export interface ShowCompany {
   join_requests: CompanyJoinRequest[];
 }
 
+/**
+ * Independents' own companies the admin list folds away, each with the
+ * organizations its owner now works for.
+ *
+ * Joining an organization normally deletes somebody's own company
+ * (`retire_spare_personal_company`), but not one with a feature switched on --
+ * that is a switch somebody paid for -- so it lingers as an "Independent" row
+ * for a person who is not independent any more. The list leaves it out and a
+ * search that matches it brings it back, which is how an admin finds every
+ * company one person is in. Never folded: a company anybody else is in, since
+ * it is then theirs too, and one with a request waiting, since the admin home
+ * counts that request and the list must show where it is.
+ */
+export function foldedOwnCompanies(companies: ShowCompany[]): Map<string, string[]> {
+  const organizationsOf = new Map<string, string[]>();
+  for (const company of companies) {
+    if (company.owner_user_id) continue;
+    for (const member of company.members) {
+      organizationsOf.set(member.user_id, [...(organizationsOf.get(member.user_id) ?? []), company.name]);
+    }
+  }
+  const folded = new Map<string, string[]>();
+  for (const company of companies) {
+    const owner = company.owner_user_id;
+    if (!owner) continue;
+    const joined = organizationsOf.get(owner);
+    if (!joined) continue;
+    if (company.members.some((m) => m.user_id !== owner)) continue;
+    if (company.join_requests.length > 0) continue;
+    if (company.features.some((f) => f.requested_at && !f.enabled)) continue;
+    folded.set(company.id, joined);
+  }
+  return folded;
+}
+
 /** No features, no companies -- what a caller with no clean answer has. */
 export const NO_FEATURES: MyFeatures = { features: [], companies: [], catalog: [], upgrade_requests: [] };
 

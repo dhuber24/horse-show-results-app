@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
-import type { ShowCompany } from '@/lib/show-companies';
+import { foldedOwnCompanies, type ShowCompany } from '@/lib/show-companies';
 import FeatureToggle from './FeatureToggle';
 
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
@@ -44,9 +44,14 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
 
   const requestCount = companies.filter((c) => c.join_requests.length > 0).length;
   const upgradeCount = companies.filter(asksForUpgrade).length;
+  // An independent who now works for an organization is listed under it, not
+  // as a row of their own; searching their name finds every company they're in.
+  const folded = useMemo(() => foldedOwnCompanies(companies), [companies]);
+  const listedCount = companies.length - folded.size;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies
+      .filter((c) => Boolean(q) || !folded.has(c.id))
       .filter((c) =>
         filter === 'organizations'
           ? !c.owner_user_id
@@ -65,7 +70,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
           c.members.some((m) => m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)),
       )
       .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  }, [companies, filter, query]);
+  }, [companies, filter, folded, query]);
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState('');
   const [notes, setNotes] = useState('');
@@ -173,7 +178,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
       <section className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
           <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
-            {filter === 'all' && !query.trim() ? `All Companies (${companies.length})` : `Companies (${shown.length} of ${companies.length})`}
+            {filter === 'all' && !query.trim() ? `All Companies (${listedCount})` : `Companies (${shown.length} of ${listedCount})`}
           </h2>
           <div className="flex flex-col sm:flex-row gap-2">
             <label htmlFor="company-search" className="sr-only">Search companies</label>
@@ -211,6 +216,14 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
             {toggleError}
           </p>
         )}
+        {folded.size > 0 && !query.trim() && (
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
+            {folded.size === 1
+              ? "1 independent now works for an organization, so their own company isn't listed."
+              : `${folded.size} independents now work for an organization, so their own companies aren't listed.`}{' '}
+            Search a name to see every company somebody is in.
+          </p>
+        )}
         {companies.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>No show companies yet.</p>
         ) : shown.length === 0 ? (
@@ -221,6 +234,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
               const owner = company.owner_user_id
                 ? company.members.find((m) => m.user_id === company.owner_user_id)
                 : undefined;
+              const worksFor = folded.get(company.id);
               return (
                 <li
                   key={company.id}
@@ -262,6 +276,12 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                           ? '1 account'
                           : `${company.members.length} accounts`}
                     </p>
+                    {/* Only reached by a search: say why it isn't on the list. */}
+                    {worksFor && (
+                      <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
+                        Now works for {worksFor.join(', ')} — listed only when searched
+                      </p>
+                    )}
                   </div>
                   {/* The switch sits on the row so a feature can be turned on
                       without opening the company. */}
