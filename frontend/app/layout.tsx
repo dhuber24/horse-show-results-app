@@ -3,6 +3,8 @@ import { Inter, Roboto_Mono } from 'next/font/google';
 import './globals.css';
 import Navbar from './components/Navbar';
 import ServiceWorkerRegistration from './components/ServiceWorkerRegistration';
+import GoogleAnalytics from './components/GoogleAnalytics';
+import { gaMeasurementId } from '@/lib/analytics';
 
 const inter = Inter({
   variable: '--font-inter',
@@ -61,12 +63,17 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read per request, not at build: every page renders dynamically (Navbar
+  // reads the session), so this is the web service's runtime environment.
+  const measurementId = gaMeasurementId(process.env.GA_MEASUREMENT_ID);
+
   return (
     <html lang="en">
       <body className={`${inter.variable} ${robotoMono.variable} antialiased min-h-screen`}>
         <Navbar />
         {children}
         <ServiceWorkerRegistration />
+        {measurementId && <GoogleAnalytics measurementId={measurementId} />}
       </body>
     </html>
   );

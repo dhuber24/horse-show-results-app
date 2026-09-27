@@ -385,6 +385,33 @@ Worth knowing before debugging a symptom against the wrong setting.
   is unset and never raises, and every flow that mails a link also returns the
   link. The variables it reads are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
   `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`.
+- **`GA_MEASUREMENT_ID` turns Google Analytics on, and only on the web
+  service.** Unset — every environment but production — loads no tag at all.
+  It is read by the root layout on the server at request time, not baked into
+  the bundle, so it is not a `NEXT_PUBLIC_*` variable and changing it takes a
+  restart, not a rebuild. A value that is not a GA4 ID (`G-` then letters and
+  digits) is ignored rather than rendered into the page. See
+  [Google Analytics](#google-analytics) below.
+
+## Google Analytics
+
+Web traffic is measured with a GA4 property through the standard gtag.js tag
+(`frontend/app/components/GoogleAnalytics.tsx`).
+
+1. In [analytics.google.com](https://analytics.google.com), create a property
+   and a **Web** data stream for the production domain. Leave **Enhanced
+   measurement** on: its *Page changes based on browser history events* option
+   is what counts App Router navigations as page views, and the app sends no
+   page_view of its own, so turning it off leaves only full page loads counted.
+2. Copy the stream's **Measurement ID** (`G-…`) into `GA_MEASUREMENT_ID` on
+   `gaitdesk-web` in Render and restart the service.
+3. Open the site and check **Reports → Realtime** in GA for the visit.
+
+Two routes never load the tag, because their URL carries a token GA would store
+in full: `/invite/[token]` and `/horse-requests/[token]`
+(`UNTRACKED_PREFIXES` in `frontend/lib/analytics.ts`). A new page that puts a
+secret in its path or query string belongs on that list. Staff screens are
+tracked like any other page; their URLs carry only record ids.
 
 ## Operations
 

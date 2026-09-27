@@ -88,3 +88,8 @@ services:
         generateValue: true
       - key: AUTH_URL
         sync: false
+      # Google Analytics 4 measurement ID (G-XXXXXXXXXX). Optional: unset loads
+      # no tag. Read at request time like API_URL, so changing it needs a
+      # restart rather than a rebuild. See docs/deployment.md.
+      - key: GA_MEASUREMENT_ID
+        sync: false
