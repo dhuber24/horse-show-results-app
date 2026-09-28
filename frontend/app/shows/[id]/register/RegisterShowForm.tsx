@@ -100,6 +100,8 @@ function EnteredRow({
   onAsk,
   onCancel,
   onConfirm,
+  lockedReason,
+  live,
 }: {
   line: BillClassLine;
   isConfirming: boolean;
@@ -107,7 +109,13 @@ function EnteredRow({
   onAsk: () => void;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Why this entry is the show office's to scratch now — its class is
+   *  finished, or the horse has a result — or null. */
+  lockedReason: string | null;
+  /** The show is running, where the word at the gate is "scratch". */
+  live: boolean;
 }) {
+  const verb = live ? 'Scratch' : 'Remove';
   return (
     <tr className="border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
       <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
@@ -124,7 +132,13 @@ function EnteredRow({
         {formatMoney(line.fee_cents + line.sanction_cents)}
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
-        {isConfirming ? (
+        {lockedReason ? (
+          // Not a disabled button: there is nothing to press, and the line
+          // under the table says who to ask. `title` carries the exact reason.
+          <span className="text-xs whitespace-nowrap" style={{ color: 'var(--muted)' }} title={lockedReason}>
+            Office only
+          </span>
+        ) : isConfirming ? (
           <span className="inline-flex items-center gap-2">
             <button
               type="button"
@@ -133,7 +147,7 @@ function EnteredRow({
               className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
               style={{ backgroundColor: 'var(--error)' }}
             >
-              {isRemoving ? 'Removing…' : 'Yes, remove'}
+              {isRemoving ? `${verb === 'Scratch' ? 'Scratching' : 'Removing'}…` : `Yes, ${verb.toLowerCase()}`}
             </button>
             <button
               type="button"
@@ -151,10 +165,10 @@ function EnteredRow({
             onClick={onAsk}
             className="text-xs hover:underline"
             style={{ color: 'var(--error)' }}
-            title={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
-            aria-label={`Remove ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
+            title={`${verb} ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
+            aria-label={`${verb} ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
           >
-            Remove
+            {verb}
           </button>
         )}
       </td>
@@ -183,6 +197,15 @@ export default function RegisterShowForm({
   const searchParams = useSearchParams();
   const { show, exhibitor, classes, horses, existing_entries, bill, profile } = preview;
   const signedUp = preview.signup !== null;
+  // The show is running. Only the class doors stay open (`backend/self_entry.py`)
+  // — entering a class that has not started and scratching from one that has
+  // not finished — so the screen is the classes and the bill, and nothing else.
+  const live = show.status === 'ACTIVE';
+
+  const scratchLocks = useMemo(
+    () => new Map(existing_entries.map((e) => [e.id, e.scratch_locked ?? null])),
+    [existing_entries],
+  );
 
   // The two halves of the profile, kept apart because they are two steps. Both
   // answers are the backend's — `exhibitor_profile.py` tags every row with the
@@ -213,9 +236,9 @@ export default function RegisterShowForm({
   // The endpoint is idempotent and no-ops for anyone already signed up; the
   // guard here only saves the round trip.
   useEffect(() => {
-    if (signedUp) return;
+    if (signedUp || live) return;
     fetch(`/api/shows/${showId}/register/draft`, { method: 'POST' }).catch(() => {});
-  }, [showId, signedUp]);
+  }, [showId, signedUp, live]);
 
   const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
   const [withdrawingEntryId, setWithdrawingEntryId] = useState<string | null>(null);
@@ -404,20 +427,200 @@ export default function RegisterShowForm({
   };
   const toggle = (key: StepKey) => setOpenStep((current) => (current === key ? null : key));
 
+  // The classes step's contents, shared by the wizard and a running show's
+  // screen — one copy of the table, the picker and the scratch rule.
+  const classesBody = (
+    <>
+      {/* First inside on purpose: people who ride the same number every year
+          come here to claim it, and burying it under the class table would
+          mean they only remember at the desk. */}
+      {live ? (
+        // Asking for a number closes when the show opens — the numbers are on
+        // backs by then — so a running show states the one they have.
+        <p className="text-sm" style={{ color: 'var(--foreground)' }}>
+          {preview.signup?.back_number != null ? (
+            <>
+              Your back number is{' '}
+              <span className="font-semibold">#{preview.signup.back_number}</span>.
+            </>
+          ) : (
+            'No back number yet — the show office gives you one at the desk.'
+          )}
+        </p>
+      ) : (
+        <BackNumberRequest
+          showId={showId}
+          backNumber={preview.signup?.back_number ?? null}
+          preferredBackNumber={preview.signup?.preferred_back_number ?? null}
+        />
+      )}
+
+      <div className="mt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+            {entered.length === 0
+              ? 'Your classes'
+              : `You're entered in ${entered.length} class${entered.length === 1 ? '' : 'es'}`}
+          </h3>
+          {entered.length > 0 && (
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>
+              {/* The per-class sanction money only — it is part of what
+                  each class below costs. A club charging per horse or per
+                  exhibitor (migration 133) is not a class fee and is in
+                  the bill further down, with its arithmetic. */}
+              {formatMoney(
+                bill.class_fee_total_cents + bill.class_sanction_total_cents,
+              )}{' '}
+              in class fees
+            </span>
+          )}
+        </div>
+
+        {horses.length === 0 ? (
+          <div
+            className="rounded-lg border p-3 text-sm"
+            style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+          >
+            {live
+              ? 'No horses on this registration — the show office can add one at the desk.'
+              : 'No horses on this registration yet — add one on the horses step above.'}
+          </div>
+        ) : (
+          <>
+            {entered.length === 0 ? (
+              <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
+                Nothing entered yet — pick a class below.
+              </p>
+            ) : (
+              <div className="overflow-x-auto mb-3">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
+                      <th className="text-left font-semibold pb-1 pr-3">Class</th>
+                      <th className="text-left font-semibold pb-1 pr-3">Horse</th>
+                      <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Day</th>
+                      <th className="text-right font-semibold pb-1 pr-3 whitespace-nowrap">Fee</th>
+                      <th className="pb-1"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entered.map((line) => (
+                      <EnteredRow
+                        key={line.entry_id}
+                        line={line}
+                        isConfirming={confirmWithdrawEntryId === line.entry_id}
+                        isRemoving={withdrawingEntryId === line.entry_id}
+                        onAsk={() => {
+                          setConfirmWithdrawEntryId(line.entry_id);
+                          setWithdrawError(null);
+                        }}
+                        onCancel={() => {
+                          setConfirmWithdrawEntryId(null);
+                          setWithdrawError(null);
+                        }}
+                        onConfirm={() => handleWithdraw(line.entry_id)}
+                        lockedReason={scratchLocks.get(line.entry_id) ?? null}
+                        live={live}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+                {/* Said once under the table rather than per row, because a
+                    tooltip is no help on a phone. */}
+                {entered.some((line) => scratchLocks.get(line.entry_id)) && (
+                  <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
+                    <span className="font-medium">Office only</span>: that class is finished, or
+                    your horse already has a result in it — only the show office can take you
+                    out of it now.
+                  </p>
+                )}
+              </div>
+            )}
+
+            <AddClassEntry
+              showId={showId}
+              showTypeCode={show.show_type_code}
+              classes={classes}
+              horses={horses}
+              existingEntries={existing_entries}
+              onAdded={() => router.refresh()}
+            />
+          </>
+        )}
+
+        {withdrawError && (
+          <div
+            className="mt-3 rounded-lg border p-3 text-sm"
+            style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
+          >
+            {withdrawError}
+          </div>
+        )}
+      </div>
+
+      {/* Advisory, never a gate — the entry goes in either way and the office
+          gets the same list with time to chase it. In here rather than at the
+          top of the page because it is about the horses in the table above
+          it. */}
+      {horsesNeedingRecords.length > 0 && (
+        <div
+          className="mt-4 rounded-lg border p-3 space-y-2"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
+        >
+          <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
+            {horsesNeedingRecords.length === 1
+              ? '1 horse needs'
+              : `${horsesNeedingRecords.length} horses need`}{' '}
+            health records updated before the show
+          </p>
+          <p className="text-xs" style={{ color: 'var(--warning)' }}>
+            You can still enter — the office expects current paperwork when you ship in.
+          </p>
+          <ul className="space-y-1.5">
+            {horsesNeedingRecords.map((h) => {
+              const warnings = healthWarnings(h);
+              return (
+                <li
+                  key={h.id}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm"
+                >
+                  <span style={{ color: 'var(--warning-strong)' }}>
+                    <span className="font-medium">{h.name}</span>
+                    {' — '}
+                    {warnings[0] ?? 'documents needed'}
+                  </span>
+                  <Link
+                    href={`/profile/horses/${h.id}`}
+                    className="shrink-0 text-xs font-medium hover:underline"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    Upload documents →
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="mt-6">
       <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
       <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-        My registration — {exhibitor.full_name}
+        {live ? 'My classes' : 'My registration'} — {exhibitor.full_name}
       </p>
 
-      <div className="mt-4">
-        <RegistrationStepper
-          steps={steps}
-          current={openStep ?? 'details'}
-          onSelect={(key) => go(key as StepKey)}
-        />
-      </div>
+      {!live && (
+        <div className="mt-4">
+          <RegistrationStepper
+            steps={steps}
+            current={openStep ?? 'details'}
+            onSelect={(key) => go(key as StepKey)}
+          />
+        </div>
+      )}
 
       <div
         className="mt-4 rounded-lg border p-3 text-sm"
@@ -426,7 +629,11 @@ export default function RegisterShowForm({
         {/* Says what to do next rather than describing the screen. Somebody
             halfway through needs to be told which step they are on, not read a
             paragraph about all five. */}
-        {!detailsDone
+        {live
+          ? signedUp
+            ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
+            : 'The show is under way and online sign-up has closed.'
+          : !detailsDone
           ? 'Start with your details — the rest opens up once they’re in.'
           : !horsesDone
             ? 'Next: the horses you’re bringing.'
@@ -435,6 +642,8 @@ export default function RegisterShowForm({
               : 'Open any step to change it, up until the show starts. Fees shown here are what the office will collect at the show.'}
       </div>
 
+      {!live && (
+      <>
       <div id="registration-details">
         <RegistrationSection
           step={stepNumber('details')}
@@ -586,8 +795,38 @@ export default function RegisterShowForm({
           </RegistrationSection>
         </div>
       )}
+      </>
+      )}
 
 
+      {live ? (
+        signedUp ? (
+          <section
+            id="registration-classes"
+            className="mt-4 rounded-lg border p-4"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+          >
+            {classesBody}
+          </section>
+        ) : (
+          // Not signed up: the class door needs a sign-up behind it
+          // (`SHOW_SIGNUP_REQUIRED`), and sign-up closed with the show's
+          // opening. The office still often takes a late entry at the counter.
+          <div
+            className="mt-4 rounded-lg border p-4 text-sm"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
+          >
+            Ask the show office whether they are still taking entries.{' '}
+            <Link
+              href={`/shows/${showId}/contact?about=entering`}
+              className="font-medium hover:underline"
+              style={{ color: 'var(--accent)' }}
+            >
+              Message the show office →
+            </Link>
+          </div>
+        )
+      ) : (
       <div id="registration-classes">
         <RegistrationSection
           step={stepNumber('classes')}
@@ -614,151 +853,10 @@ export default function RegisterShowForm({
             </span>
           }
         >
-          {/* First inside on purpose: people who ride the same number every year
-              come here to claim it, and burying it under the class table would
-              mean they only remember at the desk. */}
-          <BackNumberRequest
-            showId={showId}
-            backNumber={preview.signup?.back_number ?? null}
-            preferredBackNumber={preview.signup?.preferred_back_number ?? null}
-          />
-
-          <div className="mt-4">
-            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-              <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-                {entered.length === 0
-                  ? 'Your classes'
-                  : `You're entered in ${entered.length} class${entered.length === 1 ? '' : 'es'}`}
-              </h3>
-              {entered.length > 0 && (
-                <span className="text-xs" style={{ color: 'var(--muted)' }}>
-                  {/* The per-class sanction money only — it is part of what
-                      each class below costs. A club charging per horse or per
-                      exhibitor (migration 133) is not a class fee and is in
-                      the bill further down, with its arithmetic. */}
-                  {formatMoney(
-                    bill.class_fee_total_cents + bill.class_sanction_total_cents,
-                  )}{' '}
-                  in class fees
-                </span>
-              )}
-            </div>
-
-            {horses.length === 0 ? (
-              <div
-                className="rounded-lg border p-3 text-sm"
-                style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
-              >
-                No horses on this registration yet — add one on the horses step above.
-              </div>
-            ) : (
-              <>
-                {entered.length === 0 ? (
-                  <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-                    Nothing entered yet — pick a class below.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto mb-3">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="text-xs uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
-                          <th className="text-left font-semibold pb-1 pr-3">Class</th>
-                          <th className="text-left font-semibold pb-1 pr-3">Horse</th>
-                          <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Day</th>
-                          <th className="text-right font-semibold pb-1 pr-3 whitespace-nowrap">Fee</th>
-                          <th className="pb-1"><span className="sr-only">Actions</span></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {entered.map((line) => (
-                          <EnteredRow
-                            key={line.entry_id}
-                            line={line}
-                            isConfirming={confirmWithdrawEntryId === line.entry_id}
-                            isRemoving={withdrawingEntryId === line.entry_id}
-                            onAsk={() => {
-                              setConfirmWithdrawEntryId(line.entry_id);
-                              setWithdrawError(null);
-                            }}
-                            onCancel={() => {
-                              setConfirmWithdrawEntryId(null);
-                              setWithdrawError(null);
-                            }}
-                            onConfirm={() => handleWithdraw(line.entry_id)}
-                          />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                <AddClassEntry
-                  showId={showId}
-                  showTypeCode={show.show_type_code}
-                  classes={classes}
-                  horses={horses}
-                  existingEntries={existing_entries}
-                  onAdded={() => router.refresh()}
-                />
-              </>
-            )}
-
-            {withdrawError && (
-              <div
-                className="mt-3 rounded-lg border p-3 text-sm"
-                style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
-              >
-                {withdrawError}
-              </div>
-            )}
-          </div>
-
-          {/* Advisory, never a gate — the entry goes in either way and the office
-              gets the same list with time to chase it. In here rather than at the
-              top of the page because it is about the horses in the table above
-              it. */}
-          {horsesNeedingRecords.length > 0 && (
-            <div
-              className="mt-4 rounded-lg border p-3 space-y-2"
-              style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
-            >
-              <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
-                {horsesNeedingRecords.length === 1
-                  ? '1 horse needs'
-                  : `${horsesNeedingRecords.length} horses need`}{' '}
-                health records updated before the show
-              </p>
-              <p className="text-xs" style={{ color: 'var(--warning)' }}>
-                You can still enter — the office expects current paperwork when you ship in.
-              </p>
-              <ul className="space-y-1.5">
-                {horsesNeedingRecords.map((h) => {
-                  const warnings = healthWarnings(h);
-                  return (
-                    <li
-                      key={h.id}
-                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm"
-                    >
-                      <span style={{ color: 'var(--warning-strong)' }}>
-                        <span className="font-medium">{h.name}</span>
-                        {' — '}
-                        {warnings[0] ?? 'documents needed'}
-                      </span>
-                      <Link
-                        href={`/profile/horses/${h.id}`}
-                        className="shrink-0 text-xs font-medium hover:underline"
-                        style={{ color: 'var(--accent)' }}
-                      >
-                        Upload documents →
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
+          {classesBody}
         </RegistrationSection>
       </div>
+      )}
 
       <section
         className="mt-4 rounded-lg border p-4"
@@ -798,7 +896,7 @@ export default function RegisterShowForm({
           the bill on purpose: the figure somebody is looking at when they
           decide to withdraw is what they would owe, and the confirm step says
           what happens to anything already paid. */}
-      {signedUp && (
+      {signedUp && !live && (
         <CancelRegistration
           showId={showId}
           window={preview.cancellation}

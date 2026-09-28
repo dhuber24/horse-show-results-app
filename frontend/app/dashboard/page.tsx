@@ -237,13 +237,15 @@ function ShowCard({ show, sevenDaysAgo }: { show: ShowGroup; sevenDaysAgo: Date 
             >
               Full class schedule
             </Link>
-            {show.show_status === 'PUBLISHED' && (
+            {(show.show_status === 'PUBLISHED' || show.show_status === 'ACTIVE') && (
               <Link
                 href={`/shows/${show.show_id}/register`}
                 className="text-xs font-medium px-2.5 py-1 rounded"
                 style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
               >
-                Manage registration
+                {/* Once the show is running only the classes are still the
+                    exhibitor's to change (`backend/self_entry.py`). */}
+                {show.show_status === 'ACTIVE' ? 'My classes' : 'Manage registration'}
               </Link>
             )}
           </div>

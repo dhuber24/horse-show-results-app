@@ -189,7 +189,9 @@ function ShowBillCard({ show }: { show: MyShow }) {
             You are signed up but have not entered any classes.{' '}
             {show.show_status === 'PUBLISHED'
               ? 'Add them from Manage registration below.'
-              : 'Registration has closed — the show office can still add entries at the desk.'}
+              : show.show_status === 'ACTIVE'
+                ? 'The show is under way — add any class that has not started from My classes below.'
+                : 'Registration has closed — the show office can still add entries at the desk.'}
           </div>
         )}
         <ShowBillBreakdown bill={bill} />
@@ -240,6 +242,18 @@ function ShowBillCard({ show }: { show: MyShow }) {
                 Manage registration
               </Link>
             </>
+          )}
+          {/* A running show keeps the class doors open for somebody signed up
+              (`backend/self_entry.py`): enter what has not started, scratch
+              what has not finished. Sign-up itself has closed. */}
+          {show.show_status === 'ACTIVE' && show.registered_at !== null && show.cancelled_at === null && (
+            <Link
+              href={`/shows/${show.show_id}/register`}
+              className="text-xs font-medium px-2.5 py-1 rounded"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
+            >
+              My classes
+            </Link>
           )}
         </div>
       </div>

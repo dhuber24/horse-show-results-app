@@ -92,6 +92,16 @@ export default function ExhibitorShowHub({
             primary: true,
           },
     );
+  } else if (canSelfRegister && show.status === 'ACTIVE' && signedUp) {
+    // Under way and signed up: the class doors stay open (`backend/self_entry.py`),
+    // so the same slot keeps leading back to what they entered.
+    tiles.push({
+      href: `/shows/${showId}/register`,
+      icon: '📝',
+      title: 'My Classes',
+      description: 'Enter a class that hasn’t started, or scratch from one that hasn’t finished.',
+      primary: true,
+    });
   } else if (canSelfRegister && show.status === 'ACTIVE' && !hasStanding) {
     // Under way and not entered: online sign-up has closed, but the office may
     // still take a late entry at the counter, so the same slot sends them to

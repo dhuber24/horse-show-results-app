@@ -40,7 +40,10 @@ request body — so a logged-in EXHIBITOR can only register themselves.
 
 Once a show flips out of PUBLISHED (ACTIVE / COMPLETED / DRAFT), these
 endpoints return 403 and the secretary must add late entries through the admin
-flow.
+flow -- **except the class doors** (`POST /`, `DELETE /entries/{id}` and the
+`/preview` they are drawn from), which stay open while the show is ACTIVE for
+somebody already signed up. A class the ring has finished is closed to both, and
+only the show office takes an exhibitor out of it: see `self_entry.py`.
 """
 import uuid
 from datetime import date
@@ -132,7 +135,17 @@ from backnumbers import assign_back_number_if_missing
 from futurity_enrollment import (
     class_ids_of,
     entered_class_ids as futurity_entered_class_ids,
+    futurities_covering_class,
+    load_show_futurities,
     release_scratched_enrollments,
+)
+from self_entry import (
+    SELF_ENTRY_STATUSES,
+    class_completed,
+    class_under_way,
+    entry_refusal,
+    scratch_refusal,
+    unnominated,
 )
 from side_pot_membership import (
     assert_pots_joinable,
@@ -227,7 +240,9 @@ async def _load_exhibitor_for_user(user_id: UUID, db: AsyncSession) -> Exhibitor
     return exhibitor
 
 
-async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
+async def _load_published_show_or_403(
+    show_id: UUID, db: AsyncSession, allowed: frozenset[str] = frozenset({"PUBLISHED"})
+) -> Show:
     result = await db.execute(
         select(Show)
         .options(
@@ -246,7 +261,7 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
     show = result.scalar_one_or_none()
     if not show:
         raise HTTPException(404, "Show not found")
-    if show.status != "PUBLISHED":
+    if show.status not in allowed:
         raise HTTPException(
             403,
             "Self-registration is only available while the show is open for "
@@ -254,6 +269,16 @@ async def _load_published_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
             "Contact the show secretary to be added.",
         )
     return show
+
+
+async def _load_entry_window_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
+    """The class doors' loader: PUBLISHED, or ACTIVE while the show runs.
+
+    Everything else in this router stays PUBLISHED-only -- sign-up, stalls,
+    horses, back numbers and futurity nominations are settled before the show,
+    and a running show's office takes those at the counter.
+    """
+    return await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
 
 
 async def _registration_horses(
@@ -1382,8 +1407,13 @@ async def preview_registration(
 
     The frontend uses this to render the registration form: a horse picker per
     class, with already-entered (class, horse) combinations preselected.
+
+    Open while the show is ACTIVE too, for the class doors -- the screen then
+    renders the classes alone. Each class says whether it is under way or
+    completed, and each entry whether its exhibitor may still scratch it, so the
+    screen offers exactly what `POST /` and `DELETE /entries/{id}` will accept.
     """
-    show = await _load_published_show_or_403(show_id, db)
+    show = await _load_entry_window_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
     is_apha = bool(show.show_type and show.show_type.code == "APHA")
     # The bodies this show runs under. The same list the membership checklist
@@ -1468,6 +1498,17 @@ async def preview_registration(
     )
     existing = existing_result.scalars().all()
 
+    # Which of those already have a placing or a score on a judge's card, so the
+    # screen can say which it will no longer scratch. One query for the lot.
+    with_results: set[UUID] = set()
+    if existing:
+        result_rows = await db.execute(
+            select(Result.entry_id)
+            .where(Result.entry_id.in_([e.id for e in existing]))
+            .distinct()
+        )
+        with_results = {entry_id for (entry_id,) in result_rows.all()}
+
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
 
     # The show's side pots, for the class payload below. A class an open pot
@@ -1519,6 +1560,11 @@ async def preview_registration(
                 # once per exhibitor and the POST enforces that.
                 "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
+                # Where the ring has got to (`self_entry.py`). A class under way
+                # or completed is not offered for entry; a completed one cannot
+                # be scratched from here either.
+                "under_way": class_under_way(c),
+                "completed": class_completed(c),
                 # Reached by placing first or second in a qualifying class, not
                 # by signing up (migration 129). Sent so the picker can leave it
                 # out and say why -- offering a Grand & Reserve Champion class in
@@ -1638,6 +1684,14 @@ async def preview_registration(
                 "id": str(e.id),
                 "class_id": str(e.class_id),
                 "horse_id": str(e.horse_id) if e.horse_id else None,
+                # Why the exhibitor can no longer scratch this entry themselves
+                # -- the class is finished, or the horse has a result -- or
+                # null. The same rule `DELETE /entries/{id}` refuses on.
+                "scratch_locked": (
+                    (scratch_refusal(e.class_, e.id in with_results) or {}).get("message")
+                    if e.class_ is not None
+                    else None
+                ),
             }
             for e in existing
         ],
@@ -1673,7 +1727,7 @@ async def register_for_show(
         raise HTTPException(401, "Unauthorized")
 
     user_uuid = safe_uuid(x_user_id)
-    show = await _load_published_show_or_403(show_id, db)
+    show = await _load_entry_window_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(user_uuid, db)
 
     # Every horse has to be on this show's registration -- the profile's horses
@@ -1712,6 +1766,12 @@ async def register_for_show(
                 f"Class {cls.class_number} ({cls.class_name}) is closed and not "
                 "accepting entries.",
             )
+        # Under way or already run. Only reachable at a running show, where this
+        # door now stays open -- a late entry into a class in the ring is the
+        # gate's and the office's to take (`self_entry.py`).
+        refusal = entry_refusal(cls)
+        if refusal:
+            raise HTTPException(409, {**refusal, "class_id": str(cls.id)})
         # A Grand & Reserve Champion class is reached by placing first or second
         # in a qualifying class, not by signing up for it (migration 129).
         # Refused rather than flagged, and this is not the health-paperwork rule
@@ -1814,6 +1874,36 @@ async def register_for_show(
         except ValueError as exc:
             raise HTTPException(422, str(exc))
         join_pots(show_entry.id, joining, db)
+
+    # A futurity class is priced by the horse's nomination, and once the show is
+    # running the nomination step is closed -- so a live show refuses a futurity
+    # class the horse is not nominated in, rather than taking an entry that bills
+    # nothing and leaves the desk to chase it. Before the show the futurity step
+    # is on the same screen, and this does not apply.
+    if show.status == "ACTIVE":
+        live_futurities = await load_show_futurities(show_id, db)
+        for item in body.entries:
+            cls = classes_by_id[item.class_id]
+            missing = unnominated(
+                futurities_covering_class(live_futurities, cls.id),
+                show_entry.id,
+                item.horse_id,
+            )
+            if missing:
+                names = " or ".join(f.name for f in missing)
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "FUTURITY_NOMINATION_REQUIRED",
+                        "message": (
+                            f"Class {cls.class_number} ({cls.class_name}) is judged "
+                            f"in {names}, and this horse is not nominated. Now the "
+                            "show is under way, the show office takes futurity "
+                            "nominations."
+                        ),
+                        "class_id": str(cls.id),
+                    },
+                )
 
     created: list[Entry] = []
     fee_breakdown: list[FeeBreakdownItem] = []
@@ -1965,16 +2055,17 @@ async def withdraw_entry(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Exhibitor-self withdraw of a single entry.
+    """Exhibitor-self scratch of a single entry.
 
-    Allowed while the show is PUBLISHED and the calling user owns the entry's
-    exhibitor profile. Blocked once a result has been recorded — at that point
-    the secretary handles edits through the admin flow.
+    Allowed while the show is PUBLISHED or ACTIVE and the calling user owns the
+    entry's exhibitor profile. Refused once the class is finished or the entry
+    has a result recorded -- from then on only the show office takes somebody
+    out of a class, through the desk (`self_entry.scratch_refusal`).
     """
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
 
-    await _load_published_show_or_403(show_id, db)  # asserts PUBLISHED status
+    await _load_entry_window_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
 
     entry_result = await db.execute(
@@ -1990,17 +2081,15 @@ async def withdraw_entry(
     if not entry.class_ or entry.class_.show_id != show_id:
         raise HTTPException(404, "Entry not found in this show")
 
-    # Defensive: results shouldn't exist during PUBLISHED, but if a class was
-    # scored before being reverted, refuse to silently wipe historical results.
+    # Deleting the entry cascades to its results, so a class the ring has
+    # finished -- or a horse with a placing already on a card -- is the office's
+    # to change, never a side effect of an exhibitor tidying their list.
     result_exists = await db.execute(
         select(Result.id).where(Result.entry_id == entry_id).limit(1)
     )
-    if result_exists.scalar_one_or_none():
-        raise HTTPException(
-            409,
-            "This entry already has a result recorded and cannot be withdrawn. "
-            "Contact the show secretary.",
-        )
+    refusal = scratch_refusal(entry.class_, result_exists.scalar_one_or_none() is not None)
+    if refusal:
+        raise HTTPException(409, refusal)
 
     scratched_class_id = entry.class_id
     scratched_horse_id = entry.horse_id

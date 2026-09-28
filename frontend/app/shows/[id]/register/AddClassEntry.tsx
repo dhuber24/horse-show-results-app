@@ -137,6 +137,14 @@ export default function AddClassEntry({
     [classes],
   );
 
+  // At a running show: a class in the ring or already run. Entering one is the
+  // in-gate's and the office's to sort out (`backend/self_entry.py`), so it is
+  // left out rather than offered and refused.
+  const startedClasses = useMemo(
+    () => classes.filter((c) => !c.entered_by_qualification && (c.under_way || c.completed)),
+    [classes],
+  );
+
   // Being entered finishes a class — except a pattern class, and even that only
   // while a horse is left to put in it. Mirrors `selectableClasses` on the desk
   // form; the backend 409s on the rest either way.
@@ -144,6 +152,7 @@ export default function AddClassEntry({
     () =>
       classes.filter((c) => {
         if (c.entered_by_qualification) return false;
+        if (c.under_way || c.completed) return false;
         const taken = horseIdsByClass.get(c.id);
         if (!taken || taken.length === 0) return true;
         if (c.score_type !== 'pattern') return false;
@@ -258,7 +267,8 @@ export default function AddClassEntry({
   // Classes dropped from the picker because this exhibitor is done with them.
   // Worth saying out loud: somebody looking for a class they entered an hour
   // ago should not be left wondering whether the show pulled it.
-  const enteredCount = classes.length - qualificationClasses.length - selectableClasses.length;
+  const enteredCount =
+    classes.length - qualificationClasses.length - startedClasses.length - selectableClasses.length;
 
   return (
     <div
@@ -333,6 +343,14 @@ export default function AddClassEntry({
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
           {enteredCount === 1 ? '1 class is' : `${enteredCount} classes are`} off this list —
           you&apos;re already entered, see above.
+        </p>
+      )}
+
+      {startedClasses.length > 0 && (
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
+          {startedClasses.length === 1 ? '1 class has' : `${startedClasses.length} classes have`}{' '}
+          already started or finished and {startedClasses.length === 1 ? 'is' : 'are'} not listed —
+          ask at the in-gate or the show office about a late entry.
         </p>
       )}
 

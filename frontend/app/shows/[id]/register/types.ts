@@ -20,6 +20,11 @@ export type PreviewClass = {
    *  horses in them. Everything else is once per exhibitor. */
   score_type: string;
   entry_fee_cents: number;
+  /** In the ring now, and finished (gate done or results posted) — see
+   *  `backend/self_entry.py`. Neither is offered for entry. Optional for a
+   *  frontend deployed ahead of the backend that sends them. */
+  under_way?: boolean;
+  completed?: boolean;
   /** Entered by placing first or second in a qualifying class, not by signing
    *  up (migration 129) -- a Grand & Reserve Champion halter class calls back
    *  the top two from each qualifying class. The picker leaves these out and
@@ -115,7 +120,15 @@ export type PreviewHorse = {
   entered_class_count?: number;
 };
 
-export type ExistingEntry = { id: string; class_id: string; horse_id: string | null };
+export type ExistingEntry = {
+  id: string;
+  class_id: string;
+  horse_id: string | null;
+  /** Why the exhibitor can no longer scratch this themselves — the class is
+   *  finished or the horse has a result — or null. Only the show office takes
+   *  them out then. */
+  scratch_locked?: string | null;
+};
 
 export type Signup = {
   show_entry_id: string;
