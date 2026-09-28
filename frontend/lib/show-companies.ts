@@ -74,13 +74,19 @@ export interface CompanyFeature {
   requested_by_email?: string | null;
 }
 
-/** Somebody who typed this organization's name at sign-up (migration 143). */
+/** Somebody waiting to be added (migration 143): they typed this
+ *  organization's name at sign-up, or somebody in the company asked for them
+ *  from My Company Staff (migration 149). */
 export interface CompanyJoinRequest {
   user_id: string;
   full_name: string;
   email: string;
   role: string;
   requested_at: string | null;
+  source?: 'signup' | 'company';
+  /** The company member standing behind it, if any. */
+  vouched_by_name?: string | null;
+  vouched_at?: string | null;
 }
 
 export interface ShowCompany {

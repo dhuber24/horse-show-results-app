@@ -26,6 +26,48 @@ async function pendingCompanyRequests(): Promise<string | null> {
   }
 }
 
+/**
+ * Somebody waiting to join one of the caller's show companies -- they typed
+ * its name at sign-up (migration 143), and the company's own staff answer
+ * them on My Company Staff. Like the admin's count above, anything short of a
+ * clean answer shows no badge rather than a wrong one.
+ */
+async function pendingJoinRequests(): Promise<string | null> {
+  const headers = await getAuthHeaders();
+  if (!headers) return null;
+  try {
+    const res = await fetch(`${API_URL}/my-company`, { headers, cache: 'no-store' });
+    if (!res.ok) return null;
+    // Only the ones waiting on the company. A request somebody here has
+    // already approved is waiting on GaitDesk, which is not theirs to chase.
+    const companies: { join_requests?: { vouched_by_name?: string | null }[] }[] =
+      (await readJsonBody(res)) ?? [];
+    const waiting = companies.reduce(
+      (sum, c) => sum + (c.join_requests ?? []).filter((r) => !r.vouched_by_name).length,
+      0,
+    );
+    return waiting > 0 ? `${waiting} asking to join` : null;
+  } catch {
+    return null;
+  }
+}
+
+const MY_COMPANY_TILE = {
+  href: '/admin/my-company',
+  title: 'My Company Staff',
+  description: 'The managers and secretaries in your company — ask for colleagues to be added, answer requests to join, remove anybody who has left.',
+  icon: 'S',
+};
+
+// A show company keeps its own points systems (migration 148), so every
+// manager and secretary -- all of them are in a company -- gets the tile.
+const POINT_SYSTEMS_TILE = {
+  href: '/admin/point-systems',
+  title: 'Points Systems',
+  description: "Your company's high-point charts — how a posted placing becomes points at your shows.",
+  icon: 'P',
+};
+
 const adminTiles = [
   { href: '/admin/shows', title: 'Shows', description: 'Create, edit, and manage horse shows, classes, and entries.', icon: 'T' },
   { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where shows are held.', icon: 'V' },
@@ -36,15 +78,23 @@ const adminTiles = [
   { href: '/admin/companies', title: 'Show Companies', description: 'The clubs and firms that run shows, and the paid features turned on for them.', icon: 'S' },
   { href: '/admin/exhibitors', title: 'Exhibitor Records', description: 'Everyone who competes, including walk-ups the office typed in and who have no login.', icon: 'E' },
   { href: '/admin/standard-classes', title: 'Class Codes', description: "Load an association's approved class list from their published file.", icon: 'C' },
+  { href: '/admin/point-systems', title: 'Points Systems', description: "Every show company's high-point charts — how a posted placing becomes points.", icon: 'P' },
+  { href: '/admin/circuits', title: 'Season Circuits', description: 'Several shows added together for a season high point.', icon: 'O' },
 ];
 
 const showSecretaryTiles = [
   { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you own.', icon: 'T' },
+  { href: '/admin/circuits', title: 'Season Circuits', description: 'Add your shows together for a season high point.', icon: 'O' },
+  POINT_SYSTEMS_TILE,
+  MY_COMPANY_TILE,
 ];
 
 const showManagerTiles = [
   { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you run.', icon: 'T' },
   { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where your shows are held.', icon: 'V' },
+  { href: '/admin/circuits', title: 'Season Circuits', description: 'Add your shows together for a season high point.', icon: 'O' },
+  POINT_SYSTEMS_TILE,
+  MY_COMPANY_TILE,
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -65,7 +115,9 @@ export default async function AdminPage() {
     role === 'SHOW_MANAGER' ? showManagerTiles :
     adminTiles;
   const waiting: Record<string, string | null> =
-    role === 'ADMIN' ? { '/admin/companies': await pendingCompanyRequests() } : {};
+    role === 'ADMIN'
+      ? { '/admin/companies': await pendingCompanyRequests() }
+      : { [MY_COMPANY_TILE.href]: await pendingJoinRequests() };
 
   return (
     <main className="max-w-4xl mx-auto p-4 md:p-6">

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { fetchShows } from '@/lib/api';
+import { signUpLink } from '@/lib/show-signup';
 
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -54,11 +55,12 @@ export default async function ActiveShowsPage() {
         </div>
       ) : (
         <ul className="space-y-3">
-          {active.map((show) => (
-            <li key={show.id}>
-              <Link href={`/shows/${show.id}/live`}
-                className="block p-4 rounded-lg border transition hover:shadow-md"
-                style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+          {active.map((show) => {
+            const signUp = signUpLink(show.id, show.status);
+            return (
+            <li key={show.id} className="rounded-lg border overflow-hidden transition hover:shadow-md"
+              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
+              <Link href={`/shows/${show.id}/live`} className="block p-4">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{show.name}</span>
                   {show.show_type_code && (
@@ -76,8 +78,23 @@ export default async function ActiveShowsPage() {
                   📅 {formatDate(show.start_date)} – {formatDate(show.end_date)}
                 </div>
               </Link>
+              {signUp && (
+                // Its own link below the card rather than inside it: a link
+                // inside a link is not one a phone or a screen reader can
+                // trust, and this is the one people came to the list to press.
+                <Link
+                  href={signUp.href}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5 border-t text-sm font-medium transition hover:bg-amber-50"
+                  style={{ borderColor: 'var(--border-subtle)', color: 'var(--accent)' }}
+                  title={signUp.hint}
+                >
+                  <span>✍️ {signUp.label}</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </main>

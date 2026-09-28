@@ -344,6 +344,118 @@ class ShowPatternClass(Base):
     )
 
 
+class PointSystem(Base):
+    """A named high-point chart (migration 147), entered by a GaitDesk admin.
+
+    Each association scores placings its own way, usually scaled by class size,
+    so the chart is data rather than code and none is seeded. `association_id`
+    only labels whose rules it follows. Read through `backend/high_point.py`.
+
+    Owned by a show company (migration 148): only its members see or use it,
+    and GaitDesk admins see every one. `company_id` NULL is admins only.
+    """
+
+    __tablename__ = "point_systems"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Unique within its owner, case-insensitively, by
+    # point_systems_company_name_uniq in migration 148.
+    name = Column(Text, nullable=False)
+    company_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="SET NULL"), nullable=True
+    )
+    association_id = Column(
+        UUID(as_uuid=True), ForeignKey("associations.id", ondelete="SET NULL"), nullable=True
+    )
+    notes = Column(Text, nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    association = relationship("Association", lazy="selectin")
+    company = relationship("ShowCompany", lazy="selectin")
+    awards = relationship(
+        "PointSystemAward",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="[PointSystemAward.min_entries, PointSystemAward.place]",
+    )
+
+
+class PointSystemAward(Base):
+    """One cell of a chart: from a class of `min_entries` horses up, `place`
+    earns `points`. The largest band at or below the class size applies."""
+
+    __tablename__ = "point_system_awards"
+
+    point_system_id = Column(
+        UUID(as_uuid=True), ForeignKey("point_systems.id", ondelete="CASCADE"), primary_key=True
+    )
+    min_entries = Column(Integer, primary_key=True)
+    place = Column(Integer, primary_key=True)
+    # NUMERIC because association charts award half points.
+    points = Column(Numeric(7, 2), nullable=False)
+
+    # How many places a row may pay depends on where the next row starts
+    # (`high_point.place_limits`), so the router enforces it; migration 152
+    # dropped the CHECK that 150 added for the stricter rule.
+
+
+class ShowPointSystem(Base):
+    """Which points system the show's own high point uses (migration 147).
+
+    A table rather than a column on `shows`, for migration 146's reason. No row
+    means the show has no high point, and its leaderboard says so.
+    """
+
+    __tablename__ = "show_point_systems"
+
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
+    point_system_id = Column(
+        UUID(as_uuid=True), ForeignKey("point_systems.id", ondelete="RESTRICT"), nullable=False
+    )
+    chosen_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    chosen_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class Circuit(Base):
+    """A season circuit: several shows added up under its own points system.
+
+    Managed by whoever created it, or a GaitDesk admin; a show is added only by
+    somebody who works that show. Both rules live in `routers/high_point.py`.
+    """
+
+    __tablename__ = "circuits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(Text, nullable=False)
+    season = Column(Text, nullable=True)
+    point_system_id = Column(
+        UUID(as_uuid=True), ForeignKey("point_systems.id", ondelete="RESTRICT"), nullable=True
+    )
+    notes = Column(Text, nullable=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    point_system = relationship("PointSystem", lazy="selectin")
+    circuit_shows = relationship("CircuitShow", cascade="all, delete-orphan", lazy="selectin")
+
+
+class CircuitShow(Base):
+    """One show counting toward a circuit."""
+
+    __tablename__ = "circuit_shows"
+
+    circuit_id = Column(UUID(as_uuid=True), ForeignKey("circuits.id", ondelete="CASCADE"), primary_key=True)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
+    added_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    added_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("circuit_shows_show_idx", "show_id"),
+    )
+
+
 class Ring(Base):
     __tablename__ = "rings"
 
@@ -1311,20 +1423,33 @@ class ShowCompanyFeature(Base):
 
 
 class ShowCompanyJoinRequest(Base):
-    """Somebody who typed an existing organization's name at sign-up (migration
-    143). Not a membership: joining carries the company's paid features, so a
-    GaitDesk admin approves it on the company's page."""
+    """Somebody waiting to be added to a company (migration 143). Not a
+    membership: joining carries the company's paid features, so a GaitDesk
+    admin approves it on the company's page.
+
+    Since migration 149 it has two sources. `signup`: the person typed an
+    existing organization's name when they signed up. `company`: somebody in
+    the company asked for them from My Company Staff. `vouched_by` is the
+    company member standing behind it -- always, on a `company` row, and on a
+    `signup` row once the company approves it on its side."""
     __tablename__ = "show_company_join_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    source = Column(Text, nullable=False, server_default="signup", default="signup")
+    vouched_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    vouched_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
-    __table_args__ = (UniqueConstraint("company_id", "user_id", name="uq_show_company_join_requests"),)
+    __table_args__ = (
+        UniqueConstraint("company_id", "user_id", name="uq_show_company_join_requests"),
+        CheckConstraint("source IN ('signup', 'company')", name="ck_show_company_join_requests_source"),
+    )
 
     company = relationship("ShowCompany", back_populates="join_requests")
     user = relationship("User", foreign_keys=[user_id])
+    vouched_by = relationship("User", foreign_keys=[vouched_by_user_id])
 
 
 class ShowCompanyUpgradeRequest(Base):

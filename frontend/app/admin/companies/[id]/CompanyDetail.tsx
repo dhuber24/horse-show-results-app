@@ -185,9 +185,9 @@ export default function CompanyDetail({
               Asked to join ({company.join_requests.length})
             </h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-deep)' }}>
-              They typed this company&apos;s name when they signed up. They aren&apos;t members until you add
-              them, because members get this company&apos;s paid features. Until then they have a company of
-              their own.
+              They typed this company&apos;s name when they signed up, or somebody in the company asked for
+              them from My Company Staff. They aren&apos;t members until you add them, because members get
+              this company&apos;s paid features.
             </p>
           </div>
           <ul className="divide-y" style={{ borderColor: 'var(--warning-border)' }}>
@@ -205,6 +205,13 @@ export default function CompanyDetail({
                     {request.email} · {ROLE_LABEL[request.role] ?? request.role}
                     {request.requested_at ? ` · asked ${formatDate(request.requested_at)}` : ''}
                   </p>
+                  {request.vouched_by_name && (
+                    <p className="text-xs" style={{ color: 'var(--text-deep)' }}>
+                      {request.source === 'company'
+                        ? `Asked for by ${request.vouched_by_name}, of this company — they did not ask themselves`
+                        : `Approved by ${request.vouched_by_name}, of this company`}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   <button

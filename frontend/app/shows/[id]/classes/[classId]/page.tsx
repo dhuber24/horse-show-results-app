@@ -91,10 +91,16 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
 
   const multiJudge = judgeColumns.length > 1;
 
+  // The public reach this page from Results, so that is where they go back
+  // to. Scoring staff reach it from the show's class list.
+  const back = canEnterPlacings
+    ? { href: `/shows/${id}`, label: `Back to ${show.name}` }
+    : { href: `/shows/${id}/results`, label: 'Back to Results' };
+
   return (
     <main className={`${multiJudge ? 'max-w-5xl' : 'max-w-2xl'} mx-auto p-4 md:p-6`}>
-      <Link href={`/shows/${id}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-        ← Back to {show.name}
+      <Link href={back.href} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
+        ← {back.label}
       </Link>
       <div className="flex items-start justify-between mt-4 mb-2">
         <div>

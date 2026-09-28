@@ -1,4 +1,5 @@
 import type { ShowPattern } from './patterns';
+import type { Circuit, CircuitLeaderboard, PointSystem, PointSystemOwner, ShowLeaderboard } from './high-point';
 
 const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000';
 
@@ -383,4 +384,63 @@ export async function fetchStandardDivisions(showTypeId?: string) {
   const res = await fetch(url);
   if (!res.ok) return [];
   return res.json();
+}
+
+/** The show's high-point standings (migration 147). Public. Null when the
+ *  backend cannot answer, so the page can say so rather than render nothing. */
+export async function fetchShowLeaderboard(showId: string): Promise<ShowLeaderboard | null> {
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/leaderboard`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** A season circuit and its standings. Public; null on 404 or failure. */
+export async function fetchCircuitLeaderboard(circuitId: string): Promise<CircuitLeaderboard | null> {
+  try {
+    const res = await fetch(`${API_URL}/circuits/${circuitId}/leaderboard`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** The points systems the caller may use — their show companies', or every
+ *  one for a GaitDesk admin (migration 148). Needs the caller's headers. */
+export async function fetchPointSystems(headers: HeadersInit | null): Promise<PointSystem[]> {
+  if (!headers) return [];
+  try {
+    const res = await fetch(`${API_URL}/point-systems`, { headers, cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+/** The companies the caller may keep a points system under. */
+export async function fetchPointSystemOwners(headers: HeadersInit | null): Promise<PointSystemOwner[]> {
+  if (!headers) return [];
+  try {
+    const res = await fetch(`${API_URL}/point-systems/companies`, { headers, cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+/** Every circuit. Pass staff headers to include DRAFT shows in each list. */
+export async function fetchCircuits(headers?: HeadersInit): Promise<Circuit[]> {
+  try {
+    const res = await fetch(`${API_URL}/circuits`, { cache: 'no-store', ...(headers ? { headers } : {}) });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
 }

@@ -9,6 +9,7 @@ import {
 } from '@/lib/api';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
+import BackToShow from '../_components/BackToShow';
 import ShowbillDocument, { type ShowbillClassRow } from '../_components/ShowbillDocument';
 import UploadedShowbill from '../_components/UploadedShowbill';
 import ClassListCsvButton from '../_components/ClassListCsvButton';
@@ -53,13 +54,13 @@ const PRINT_CSS = `
 export default async function ShowbillPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [show, allClasses, judges, fees, futurities, back, showbill] = await Promise.all([
+  const back = showHubBack(id);
+  const [show, allClasses, judges, fees, futurities, showbill] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchShowJudgesPublic(id),
     fetchShowFeesPublic(id),
     fetchShowFuturitiesPublic(id),
-    showHubBack(id),
     fetchShowbill(id),
   ]);
 
@@ -116,6 +117,8 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
           Message the show office →
         </Link>
       </div>
+
+      <BackToShow showId={id} />
     </main>
   );
 }

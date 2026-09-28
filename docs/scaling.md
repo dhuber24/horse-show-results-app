@@ -32,8 +32,8 @@ on the in-gate table. Nobody is clicking. The traffic is timers.
 repaint — every tick is a full trip through Next, the API and Neon.
 
 Per `/schedule` render the fan-out is `fetchShow` + `fetchClasses` +
-`fetchProgramIndex`, plus an `auth()` session decrypt in
-[showHubBack.ts](../frontend/app/shows/%5Bid%5D/_components/showHubBack.ts).
+`fetchProgramIndex`, plus the page's own `auth()` session decrypt (for the
+Registered filter).
 
 So for 270 spectators on the live schedule:
 
@@ -113,7 +113,7 @@ one cached answer for ten seconds collapses nine renders/sec to roughly
 current two $7 services, plus Neon on show days.
 
 **Next's Data Cache works inside a dynamic route.** This is the detail that
-makes the cheap fix cheap: the `auth()` call in `showHubBack` marks these routes
+makes the cheap fix cheap: the `auth()` call on the schedule page marks it
 dynamic and therefore blocks *route-level* caching, but a per-`fetch`
 `revalidate` still dedupes across users regardless. The win does not require
 restructuring the signed-in/signed-out split first.

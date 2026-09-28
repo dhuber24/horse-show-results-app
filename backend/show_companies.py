@@ -49,6 +49,7 @@ asked -- and **switching the feature on answers it**, in the same transaction.
 """
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Iterable, Sequence
 from uuid import UUID
 
@@ -288,6 +289,168 @@ async def retire_spare_personal_company(user_id: UUID, joined_company_id: UUID, 
         return False
     await db.delete(own)
     return True
+
+
+def member_removal_refusal(
+    *,
+    company_name: str,
+    owner_user_id: UUID | None,
+    target_user_id: UUID,
+    target_name: str,
+    member_ids: set[UUID],
+    caller_user_id: UUID | None = None,
+) -> str | None:
+    """Why this member may not be taken out of the company, or None.
+
+    * **Nobody leaves their own company** -- it goes by itself once they join
+      the company they work for, and removing them would only make it again.
+    * **A company's own staff cannot leave it empty** (`caller_user_id` set, the
+      My Company Staff door): the last person out would take the company's
+      paid features and its join requests with them, with nobody left who
+      could answer either. A GaitDesk admin passes no caller and may.
+    """
+    if owner_user_id is not None and owner_user_id == target_user_id:
+        return (
+            f"This is {target_name}'s own company. Add them to the company they work "
+            "for instead -- this one goes by itself once they have joined it."
+        )
+    if caller_user_id is not None and not (member_ids - {target_user_id}):
+        return (
+            f"{target_name} is the only person in {company_name}, and a company needs "
+            "somebody in it. Add a colleague first, or ask GaitDesk to close the company."
+        )
+    return None
+
+
+async def add_company_member(company: ShowCompany, user: User, added_by: UUID, db: AsyncSession) -> None:
+    """Put an account in a company, in the caller's transaction.
+
+    One implementation behind both doors -- a GaitDesk admin's Show Companies
+    screen and a member's My Company Staff -- because who may press the button
+    differs and what the press does must not. The company must be loaded with
+    its members and join requests.
+    """
+    if any(m.user_id == user.id for m in company.members):
+        raise HTTPException(409, f"{user.full_name} is already in {company.name}.")
+    db.add(ShowCompanyMember(company_id=company.id, user_id=user.id, added_by_user_id=added_by))
+    # Adding somebody who asked to join is approving the request.
+    request = next((r for r in company.join_requests if r.user_id == user.id), None)
+    if request is not None:
+        company.join_requests.remove(request)
+    # And somebody who now works for an organization is no longer independent:
+    # their own company goes, if nothing is on it and nobody else is in it.
+    if company.owner_user_id is None:
+        await retire_spare_personal_company(user.id, company.id, db)
+
+
+async def remove_company_member(
+    company: ShowCompany,
+    user_id: UUID,
+    db: AsyncSession,
+    caller_user_id: UUID | None = None,
+) -> None:
+    """Take an account out of a company, in the caller's transaction. Pass
+    `caller_user_id` from the My Company Staff door, which may not empty the
+    company. Nobody who creates shows is left in no company (migration 143)."""
+    member = next((m for m in company.members if m.user_id == user_id), None)
+    if member is None:
+        raise HTTPException(404, "That account is not in this company.")
+    refusal = member_removal_refusal(
+        company_name=company.name,
+        owner_user_id=company.owner_user_id,
+        target_user_id=user_id,
+        target_name=member.user.full_name if member.user else "This account",
+        member_ids={m.user_id for m in company.members},
+        caller_user_id=caller_user_id,
+    )
+    if refusal:
+        raise HTTPException(409, refusal)
+    removed = member.user
+    company.members.remove(member)
+    await db.flush()
+    if removed is not None and removed.role in SHOW_OFFICE_ROLES:
+        await place_in_company(removed, db)
+
+
+def vouch_for_member(company: ShowCompany, user: User, voucher_id: UUID) -> bool:
+    """A company member asks for somebody to be added (migration 149).
+
+    **Never a membership.** Membership carries the company's paid features, so
+    the company's own say-so is a request a GaitDesk admin approves -- adding
+    them on the company's page, which clears it like any join request. Somebody
+    who already asked at sign-up has that request vouched for rather than a
+    second one made. Returns whether anything changed: a colleague vouching
+    again for somebody already vouched for is not news to anybody.
+
+    The company must be loaded with its members and join requests.
+    """
+    if any(m.user_id == user.id for m in company.members):
+        raise HTTPException(409, f"{user.full_name} is already in {company.name}.")
+    request = next((r for r in company.join_requests if r.user_id == user.id), None)
+    if request is not None and request.vouched_by_user_id is not None:
+        return False
+    now = datetime.now(timezone.utc)
+    if request is None:
+        company.join_requests.append(
+            ShowCompanyJoinRequest(
+                company_id=company.id,
+                user_id=user.id,
+                source="company",
+                vouched_by_user_id=voucher_id,
+                vouched_at=now,
+                created_at=now,
+            )
+        )
+    else:
+        request.vouched_by_user_id = voucher_id
+        request.vouched_at = now
+    return True
+
+
+def staff_request_email(
+    *,
+    company_id: UUID,
+    company_name: str,
+    voucher_name: str,
+    voucher_email: str,
+    person_name: str,
+    person_email: str,
+    person_role: str,
+    asked_at_signup: bool,
+    features: Sequence[str],
+) -> tuple[str, str]:
+    """What GaitDesk's admins are sent when a company asks to add somebody.
+    Best-effort, like the upgrade email: the request on the company's page is
+    the notification, and the count on the admin home points at it."""
+    role = _ROLE_LABEL.get(person_role, person_role)
+    subject = f"{company_name} asked to add {person_name}"
+    how = (
+        f"{person_name} asked to join when they signed up, and {voucher_name} ({voucher_email}) "
+        f"approved it for {company_name}."
+        if asked_at_signup
+        else f"{voucher_name} ({voucher_email}) asked to add {person_name} to {company_name}."
+    )
+    gets = (
+        f"Members get the company's paid features: {', '.join(features)}."
+        if features
+        else "The company has no paid features switched on yet."
+    )
+    body = (
+        f"{how}\n\n"
+        f"{person_name}: {person_email}, {role}.\n{gets}\n\n"
+        "Add them or decline on the company's page:\n"
+        f"{public_app_url()}/admin/companies/{company_id}\n"
+    )
+    return subject, body
+
+
+def decline_join_request(company: ShowCompany, user_id: UUID) -> None:
+    """Turn down somebody who asked to join at sign-up. They keep the company of
+    their own that sign-up gave them."""
+    request = next((r for r in company.join_requests if r.user_id == user_id), None)
+    if request is None:
+        raise HTTPException(404, "That account has not asked to join this company.")
+    company.join_requests.remove(request)
 
 
 async def sync_personal_company_name(user: User, old_full_name: str, db: AsyncSession) -> None:

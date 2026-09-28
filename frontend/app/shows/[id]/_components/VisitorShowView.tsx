@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { signUpLink } from '@/lib/show-signup';
 
 /**
  * What a visitor with no account sees when they open a show.
@@ -21,6 +22,17 @@ import Link from 'next/link';
  * This is the *browsing* path only. `/shows/[id]/live`, `/schedule` and
  * `/results` stay open to everyone, because those are the at-the-rail screens
  * people reach by QR code during a show without signing in.
+ *
+ * **This is the show's main page for a visitor, so it links to every section.**
+ * Every section's "Back to Show Menu" lands here (`showHubBack`), which is only
+ * fair if the visitor can get from here to wherever they were going next. The
+ * links are a short row, not the class list — the schedule is still a page of
+ * its own.
+ *
+ * **Sign-up is never a dead end.** While the show is taking entries it is the
+ * registration flow; once the show is under way it is the show office's
+ * contact form, because the office may still take a late entry at the counter
+ * (`lib/show-signup.ts`).
  */
 
 function formatDate(dateStr: string): string {
@@ -44,6 +56,19 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default function VisitorShowView({ showId, show }: { showId: string; show: any }) {
   const registrationOpen = show.status === 'PUBLISHED';
+  const signUp = signUpLink(showId, show.status);
+  const resultsWorthShowing = show.status === 'ACTIVE' || show.status === 'COMPLETED';
+  const sections = [
+    { href: `/shows/${showId}/schedule`, label: 'Class schedule' },
+    { href: `/shows/${showId}/patterns`, label: 'Patterns' },
+    ...(resultsWorthShowing
+      ? [
+          { href: `/shows/${showId}/results`, label: 'Results' },
+          { href: `/shows/${showId}/leaderboard`, label: 'Leaderboard' },
+        ]
+      : []),
+    { href: `/shows/${showId}/details`, label: 'Show details' },
+  ];
   // Land them back on this show's registration once they have an account,
   // rather than on the home page having forgotten why they signed up. The
   // show's `/register` is the whole flow in order — profile, then stalls, then
@@ -127,15 +152,28 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
               You&apos;ll create an account first
             </div>
           </Link>
+        ) : signUp ? (
+          // Under way: online sign-up has closed, but the office may still
+          // take a late entry, so this goes to them rather than nowhere.
+          <Link
+            href={signUp.href}
+            className="rounded-lg border p-4 text-center transition hover:opacity-90"
+            style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--accent)', color: 'var(--surface)' }}
+          >
+            <div className="font-semibold">Sign up</div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--bg-subtle)' }}>
+              Show in progress — ask the office about entering
+            </div>
+          </Link>
         ) : (
-          // Not a dead button: the show simply isn't taking online entries, and
-          // saying so beats a disabled control they have to hover to understand.
+          // Not a dead button: the show is over, and saying so beats a
+          // disabled control they have to hover to understand.
           <div
             className="rounded-lg border p-4 text-center"
             style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--muted)' }}
           >
             <div className="font-semibold" style={{ color: 'var(--text-deep)' }}>Registration is closed</div>
-            <div className="text-xs mt-0.5">Message the show office to ask about entries</div>
+            <div className="text-xs mt-0.5">This show has finished</div>
           </div>
         )}
 
@@ -151,7 +189,25 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
         </Link>
       </div>
 
-      <p className="text-sm mt-4 text-center" style={{ color: 'var(--muted)' }}>
+      <nav aria-label="Show sections" className="mt-6">
+        <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--muted)' }}>
+          More about this show
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {sections.map((section) => (
+            <Link
+              key={section.href}
+              href={section.href}
+              className="text-sm font-medium px-3 py-1.5 rounded-full border transition hover:bg-amber-50"
+              style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--accent)' }}
+            >
+              {section.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <p className="text-sm mt-6 text-center" style={{ color: 'var(--muted)' }}>
         Already have an account?{' '}
         <Link href={signInHref} className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
           Sign in

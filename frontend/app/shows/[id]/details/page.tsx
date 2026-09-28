@@ -3,6 +3,7 @@ import { fetchShow } from '@/lib/api';
 import { unitLabel } from '@/lib/fee-units';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
+import BackToShow from '../_components/BackToShow';
 
 /**
  * The show, described.
@@ -48,7 +49,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, back] = await Promise.all([fetchShow(id), showHubBack(id)]);
+  const show = await fetchShow(id);
+  const back = showHubBack(id);
 
   const clubs: {
     association_id: string;
@@ -133,6 +135,8 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           Message the show office →
         </Link>
       </div>
+
+      <BackToShow showId={id} />
     </main>
   );
 }

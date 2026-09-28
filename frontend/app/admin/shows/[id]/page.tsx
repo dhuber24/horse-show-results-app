@@ -84,6 +84,16 @@ const tiles = (showId: string): Tile[] => [
       'The judges’ patterns, on file and ticked against the classes that run them — exhibitors open them from the schedule.',
     icon: '📐',
   },
+  // Beside the patterns because both are worked while the show runs. The
+  // standings are the public leaderboard; this is where the office says which
+  // points system scores them (migration 147).
+  {
+    href: `/admin/shows/${showId}/high-point`,
+    title: 'High Point',
+    description:
+      'Choose the points system the public leaderboard scores posted classes by, and see the season circuits this show counts toward.',
+    icon: '⭐',
+  },
   // What the office sends the association afterwards. Its own tile rather than
   // a link under Financials: these reports are the record of what happened —
   // placings, entries, judges' cards, compliance — and none of them are money.

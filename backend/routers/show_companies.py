@@ -10,6 +10,14 @@ independent gets a company of their own, and somebody who types an existing
 organization's name leaves a **join request** here for an admin to answer.
 Approving one is adding the member, which clears the request.
 
+A company's own managers and secretaries manage their colleagues from **My
+Company Staff** (`routers/my_company.py`), but **only an admin adds anybody**:
+a company asking to add somebody, or approving a sign-up's request on its side,
+leaves a join request here with who vouched for it (migration 149), and adding
+the member answers it. Removing and leaving run through the same
+`show_companies` functions as the buttons here. Features and notes stay here:
+they stand for what somebody paid.
+
 The other thing that waits here is an **upgrade request** (migration 144),
 made from a locked paid feature's Request upgrade button. It rides on the
 feature it asks for, and switching that feature on answers it.
@@ -25,11 +33,14 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from dependencies import require_admin, safe_uuid
 from models import (
+    Circuit,
+    PointSystem,
     ShowCompany,
     ShowCompanyFeature,
     ShowCompanyJoinRequest,
     ShowCompanyMember,
     ShowCompanyUpgradeRequest,
+    ShowPointSystem,
     User,
 )
 from schemas import (
@@ -45,9 +56,11 @@ from schemas import (
 from show_companies import (
     FEATURES,
     SHOW_OFFICE_ROLES,
+    add_company_member,
+    decline_join_request as decline_request,
     normalize_company_name,
     place_in_company,
-    retire_spare_personal_company,
+    remove_company_member,
 )
 
 router = APIRouter(
@@ -60,6 +73,7 @@ _LOAD = (
     selectinload(ShowCompany.members).selectinload(ShowCompanyMember.user),
     selectinload(ShowCompany.features).selectinload(ShowCompanyFeature.enabled_by),
     selectinload(ShowCompany.join_requests).selectinload(ShowCompanyJoinRequest.user),
+    selectinload(ShowCompany.join_requests).selectinload(ShowCompanyJoinRequest.vouched_by),
     selectinload(ShowCompany.upgrade_requests).selectinload(ShowCompanyUpgradeRequest.requested_by),
 )
 
@@ -88,6 +102,9 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
                 email=r.user.email,
                 role=r.user.role,
                 requested_at=r.created_at,
+                source=r.source or "signup",
+                vouched_by_name=r.vouched_by.full_name if r.vouched_by else None,
+                vouched_at=r.vouched_at,
             )
             for r in requests
         ],
@@ -276,8 +293,34 @@ async def delete_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
     Every show manager and secretary belongs to a company (migration 143), so
     anybody this leaves in none gets their own back, and somebody's own company
     cannot be deleted while it is the only one they have: it would only be made
-    again."""
+    again.
+
+    **Its points systems go with it** (migration 148), and the delete is refused
+    while one of them still scores a show or a circuit. Left behind with no
+    company, a system would read as a GaitDesk standard one (migration 151) and
+    appear in every other company's list under GaitDesk's name."""
     company = await _load(db, company_id)
+    systems = (
+        await db.execute(select(PointSystem).where(PointSystem.company_id == company_id))
+    ).scalars().all()
+    if systems:
+        ids = [s.id for s in systems]
+        in_use = set(
+            (await db.execute(
+                select(ShowPointSystem.point_system_id).where(ShowPointSystem.point_system_id.in_(ids))
+            )).scalars().all()
+        ) | set(
+            (await db.execute(
+                select(Circuit.point_system_id).where(Circuit.point_system_id.in_(ids))
+            )).scalars().all()
+        )
+        if in_use:
+            names = ", ".join(sorted(s.name for s in systems if s.id in in_use))
+            raise HTTPException(
+                409,
+                f"{company.name}'s points systems still score shows or circuits ({names}). "
+                "Choose another system for those first.",
+            )
     if company.owner_user_id is not None:
         owner = next((m.user for m in company.members if m.user_id == company.owner_user_id), None)
         if (
@@ -291,6 +334,8 @@ async def delete_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
                 "Add them to the company they work for first -- this one then goes by itself.",
             )
     staff = [m.user for m in company.members if m.user is not None and m.user.role in SHOW_OFFICE_ROLES]
+    for system in systems:
+        await db.delete(system)
     await db.delete(company)
     await db.flush()
     for user in staff:
@@ -309,23 +354,7 @@ async def add_member(
     user = await db.get(User, body.user_id)
     if user is None:
         raise HTTPException(404, "User not found")
-    if any(m.user_id == user.id for m in company.members):
-        raise HTTPException(409, f"{user.full_name} is already in {company.name}.")
-    db.add(
-        ShowCompanyMember(
-            company_id=company.id,
-            user_id=user.id,
-            added_by_user_id=safe_uuid(x_user_id),
-        )
-    )
-    # Adding somebody who asked to join is approving the request.
-    request = next((r for r in company.join_requests if r.user_id == user.id), None)
-    if request is not None:
-        company.join_requests.remove(request)
-    # And somebody who now works for an organization is no longer independent:
-    # their own company goes, if nothing is on it and nobody else is in it.
-    if company.owner_user_id is None:
-        await retire_spare_personal_company(user.id, company.id, db)
+    await add_company_member(company, user, safe_uuid(x_user_id), db)
     try:
         await db.commit()
     except IntegrityError:
@@ -337,21 +366,7 @@ async def add_member(
 @router.delete("/{company_id}/members/{user_id}", response_model=ShowCompanyOut)
 async def remove_member(company_id: UUID, user_id: UUID, db: AsyncSession = Depends(get_db)):
     company = await _load(db, company_id)
-    member = next((m for m in company.members if m.user_id == user_id), None)
-    if member is None:
-        raise HTTPException(404, "That account is not in this company.")
-    if company.owner_user_id == user_id:
-        raise HTTPException(
-            409,
-            f"This is {member.user.full_name}'s own company. Add them to the company they work "
-            "for instead -- this one goes by itself once they have joined it.",
-        )
-    removed = member.user
-    company.members.remove(member)
-    await db.flush()
-    # Nobody who creates shows is left in no company (migration 143).
-    if removed is not None and removed.role in SHOW_OFFICE_ROLES:
-        await place_in_company(removed, db)
+    await remove_company_member(company, user_id, db)
     await db.commit()
     return _company_out(await _load(db, company_id))
 
@@ -361,10 +376,7 @@ async def decline_join_request(company_id: UUID, user_id: UUID, db: AsyncSession
     """Decline somebody who asked to join at sign-up. They keep the company of
     their own that sign-up gave them; approving is adding them as a member."""
     company = await _load(db, company_id)
-    request = next((r for r in company.join_requests if r.user_id == user_id), None)
-    if request is None:
-        raise HTTPException(404, "That account has not asked to join this company.")
-    company.join_requests.remove(request)
+    decline_request(company, user_id)
     await db.commit()
     return _company_out(await _load(db, company_id))
 

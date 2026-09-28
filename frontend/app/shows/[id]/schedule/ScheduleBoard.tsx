@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { patternFileHref } from '@/lib/patterns';
 
@@ -456,9 +455,11 @@ export default function ScheduleBoard({
                             {meta && (
                               <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{meta}</div>
                             )}
+                            {/* Entries only. The schedule is the programme —
+                                what runs, when, and who is in it; placings
+                                live on the Results page. */}
                             <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                               {cls.entry_count} {cls.entry_count === 1 ? 'entry' : 'entries'}
-                              {cls.placed_count > 0 && ' · results posted'}
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
@@ -532,15 +533,12 @@ export default function ScheduleBoard({
                           renderEntryTable(entries)
                         )}
 
-                        <div className="flex flex-wrap gap-x-4 mt-3">
-                          <Link
-                            href={`/shows/${showId}/classes/${cls.id}`}
-                            className="inline-block text-sm hover:underline"
-                            style={{ color: 'var(--accent)' }}
-                          >
-                            {cls.placed_count > 0 ? 'View results' : 'View class'} →
-                          </Link>
-                          {cls.pattern_id && (
+                        {/* No link to the class's placings: the schedule
+                            carries none, and the Results page is where they
+                            are read. The class page it used to open was a
+                            results table. */}
+                        {cls.pattern_id && (
+                          <div className="mt-3">
                             <a
                               href={patternFileHref(showId, cls.pattern_id)}
                               target="_blank"
@@ -550,8 +548,8 @@ export default function ScheduleBoard({
                             >
                               Pattern: {cls.pattern_name ?? 'open'} ↗
                             </a>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </li>

@@ -2,6 +2,83 @@
 
 ## September 2026
 
+### My Company Staff
+
+A club's own managers and secretaries had no screen for who works for them —
+every change went through a GaitDesk admin with nothing from the club to go on.
+
+- **A My Company Staff tile for show managers and secretaries** opens
+  `/admin/my-company`: the company's staff, anybody asking to join (with a count
+  on the tile), and an **Add a staff member** box that takes the email the
+  colleague's account signs in with.
+- **GaitDesk still approves every new member** (migration 149), because members
+  get the company's paid features. Asking to add a colleague, or approving
+  somebody who asked at sign-up, sends it to GaitDesk with the club member's
+  name on it; the admins are emailed, and the company's page says who asked.
+  The club sees it under *Waiting for GaitDesk* until then, and can withdraw it.
+- **Removing somebody who has left, and leaving, are immediate** — the same code
+  as the admin's buttons.
+- **Only from inside the company.** Nobody can reach a company they are not in;
+  the paid features and billing notes stay with GaitDesk; and the company's own
+  staff cannot leave it with nobody in it.
+
+### High-Point Standings, For The Show And The Season
+
+The public Leaderboard was a "coming soon" card: nothing turned a posted placing
+into points, so it never moved however many classes were judged.
+
+- **Points systems are entered, not invented** (migration 147,
+  `point_systems` and `point_system_awards`). Each association scores its own
+  way, usually by class size, so each chart is entered at
+  `/admin/point-systems` as a grid — a row per class size the rules name, a
+  column per place. **Each row is a range of class sizes, the way the rules print
+  them** — 3–4, 5–9, 10 & over — and pays as many places as the largest class in
+  its range, so a 5–9 row can pay down to 9th (migration 152). The editor greys
+  out the cells past a row's range, and typing where a row ends starts the next.
+- **The associations' own charts are there to choose** (migration 151), entered
+  from their published rules: APHA, ApHC, FQHR, NSBA (traditional and
+  year-end) and WSCA (color points and Championship Show). Every company can
+  choose them, only GaitDesk changes them, and **Use this template** starts an
+  editable one from any of them.
+  AQHA isn't included — its rulebook couldn't be read from an American source —
+  and MNSPHC publishes no chart.
+- **Each belongs to a show company** (migration 148). Every manager and
+  secretary gets a Points Systems tile; the systems they add are their
+  company's, and only the company's people see them or can choose them for a
+  show or circuit. GaitDesk admins see every company's.
+- **The show office picks the show's system** from a new **High Point** tile on
+  the show dashboard, which also shows the current leaders.
+- **The leaderboard updates as classes are posted**: per division, per horse and
+  rider, each judge's card earning its own points, with the chart printed
+  underneath. It refreshes itself while the show runs.
+- **Season circuits** (`circuits`, `circuit_shows`): several shows added up under
+  the circuit's own system, set up at `/admin/circuits` by managers and
+  secretaries for the shows they work. Public standings at `/circuits/[id]`,
+  linked from each show's leaderboard.
+
+### Every Show Has A Sign-Up Link
+
+- **On both show lists, the rail hub and both versions of the show page.** While
+  a show is taking entries it opens registration; once it is under way it opens
+  the show office's contact form with the subject filled in and a line saying
+  to ask whether they still take entries (`lib/show-signup.ts`). A finished
+  show has none.
+
+### One Main Page Per Show, And A Way Back To It From Every Section
+
+- **Class Schedule, Results, Leaderboard, Show Bill and Show Details** each link
+  back to the show's main page at the top and again at the foot. Results and the
+  Leaderboard used to send everybody to the rail hub instead, so an exhibitor
+  came back to a different menu from the one they left.
+- **A signed-out visitor's show page links to every section**, since it is now
+  where they come back to.
+
+### The Class Schedule No Longer Shows Placings
+
+- The schedule is the programme: what runs, when, and who is in it. It no longer
+  marks a class *results posted* or links to its placings; the Results page is
+  where they are read, and a class's results page now leads back there.
+
 ### An Independent Who Joins A Club Is Listed Under The Club
 
 Joining an organization deletes somebody's own company only when nothing is

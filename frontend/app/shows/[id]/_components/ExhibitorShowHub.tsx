@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { MyShowStanding } from '@/lib/my-shows';
+import { signUpLink } from '@/lib/show-signup';
 import ExhibitorStatusBanner from './ExhibitorStatusBanner';
 import ShowHubHeader from './ShowHubHeader';
 
@@ -91,6 +92,20 @@ export default function ExhibitorShowHub({
             primary: true,
           },
     );
+  } else if (canSelfRegister && show.status === 'ACTIVE' && !hasStanding) {
+    // Under way and not entered: online sign-up has closed, but the office may
+    // still take a late entry at the counter, so the same slot sends them to
+    // the office with the question already framed (`lib/show-signup.ts`).
+    const late = signUpLink(showId, show.status);
+    if (late) {
+      tiles.push({
+        href: late.href,
+        icon: '✍️',
+        title: 'Sign Up',
+        description: late.hint,
+        primary: true,
+      });
+    }
   }
 
   // Straight off the show menu rather than buried on Show Details. "What do I
@@ -164,6 +179,12 @@ export default function ExhibitorShowHub({
       icon: '🏆',
       title: 'Results',
       description: 'Posted placings as classes finish.',
+    });
+    tiles.push({
+      href: `/shows/${showId}/leaderboard`,
+      icon: '⭐',
+      title: 'Leaderboard',
+      description: 'High-point standings, updated as each class is posted.',
     });
   }
 

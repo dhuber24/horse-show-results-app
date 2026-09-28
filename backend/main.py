@@ -70,6 +70,8 @@ from routers.show_marquee import router as show_marquee_router
 from routers.show_patterns import router as show_patterns_router
 from routers.show_bill_imports import router as show_bill_imports_router
 from routers.show_companies import router as show_companies_router
+from routers.high_point import router as high_point_router
+from routers.my_company import router as my_company_router
 
 # uvicorn configures its own named loggers but leaves the root logger with no
 # handlers at WARNING, so every logger.info() in this codebase was being
@@ -226,6 +228,8 @@ app.include_router(show_marquee_router)
 app.include_router(show_patterns_router)
 app.include_router(show_bill_imports_router)
 app.include_router(show_companies_router)
+app.include_router(high_point_router)
+app.include_router(my_company_router)
 
 
 @app.get("/", tags=["Health"])

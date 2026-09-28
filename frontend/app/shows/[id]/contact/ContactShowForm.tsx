@@ -22,6 +22,7 @@ export default function ContactShowForm({
   showName,
   defaultName = '',
   defaultEmail = '',
+  defaultSubject = '',
 }: {
   showId: string;
   showName: string;
@@ -31,12 +32,15 @@ export default function ContactShowForm({
    *  so what they type here is a contact preference, not a claim. */
   defaultName?: string;
   defaultEmail?: string;
+  /** Set when the sender arrived with a question already framed — the sign-up
+   *  link of a show that is under way. Editable like the rest. */
+  defaultSubject?: string;
 }) {
   const [form, setForm] = useState({
     sender_name: defaultName,
     sender_email: defaultEmail,
     sender_phone: '',
-    subject: '',
+    subject: defaultSubject,
     message: '',
   });
   const [sending, setSending] = useState(false);

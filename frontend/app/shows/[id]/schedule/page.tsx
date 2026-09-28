@@ -5,6 +5,7 @@ import { fetchShow, fetchClasses, fetchProgramIndex } from '@/lib/api';
 import { fetchRegisteredClassIds } from '@/lib/my-class-ids';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
+import BackToShow from '../_components/BackToShow';
 import ScheduleBoard, { type ScheduleClass, type ProgramEntry } from './ScheduleBoard';
 
 export default async function ShowSchedulePage({ params }: { params: Promise<{ id: string }> }) {
@@ -12,14 +13,14 @@ export default async function ShowSchedulePage({ params }: { params: Promise<{ i
   const session = await auth();
   const isExhibitor = session ? await canActAsExhibitor() : false;
 
-  const [show, classes, programIndex, registeredClassIds, back] = await Promise.all([
+  const back = showHubBack(id);
+  const [show, classes, programIndex, registeredClassIds] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchProgramIndex(id),
     isExhibitor
       ? fetchRegisteredClassIds(id, (session!.user as { id: string }).id)
       : Promise.resolve([]),
-    showHubBack(id),
   ]);
   const visible: ScheduleClass[] = classes.filter((c: ScheduleClass) => c.status !== 'DRAFT');
 
@@ -48,6 +49,8 @@ export default async function ShowSchedulePage({ params }: { params: Promise<{ i
           registeredClassIds={registeredClassIds}
         />
       )}
+
+      <BackToShow showId={id} />
     </main>
   );
 }

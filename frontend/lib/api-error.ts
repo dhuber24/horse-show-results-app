@@ -87,6 +87,9 @@ export function errorMessage(body: unknown, fallback: string): string {
   if (detail && typeof detail === 'object') {
     const { msg } = detail as ValidationItem;
     if (typeof msg === 'string' && msg.trim()) return cleanMessage(msg);
+    // A coded refusal: `{"detail": {"code": "…", "message": "…"}}`.
+    const { message } = detail as { message?: unknown };
+    if (typeof message === 'string' && message.trim()) return message.trim();
   }
 
   // Next route handlers answer with `{ error: … }` rather than `detail` — an

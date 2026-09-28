@@ -1369,12 +1369,19 @@ class ShowCompanyFeatureOut(BaseModel):
 
 
 class ShowCompanyJoinRequestOut(BaseModel):
-    """Somebody who typed this organization's name at sign-up (migration 143)."""
+    """Somebody waiting to be added (migration 143): they typed this
+    organization's name at sign-up, or (migration 149) somebody in the company
+    asked for them from My Company Staff."""
     user_id: UUID
     full_name: str
     email: str
     role: str
     requested_at: Optional[datetime] = None
+    # "signup" or "company" -- who started it.
+    source: str = "signup"
+    # The company member who stands behind it, and when.
+    vouched_by_name: Optional[str] = None
+    vouched_at: Optional[datetime] = None
 
 
 class ShowCompanyOut(BaseModel):

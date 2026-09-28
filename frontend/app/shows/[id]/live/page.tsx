@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { fetchShow } from '@/lib/api';
+import { signUpLink } from '@/lib/show-signup';
 import ShowHubHeader from '../_components/ShowHubHeader';
 
 // The full-screen results board is deliberately not here. It lives at
@@ -50,10 +51,24 @@ const TILES = [
 export default async function ShowLiveHubPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const show = await fetchShow(id);
+  // Somebody at the rail who decides they want in: the registration flow while
+  // it is open, the show office once the show is under way.
+  const signUp = signUpLink(id, show.status);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
       <ShowHubHeader show={show} backHref="/shows/active" backLabel="Back to Active Shows" />
+
+      {signUp && (
+        <Link
+          href={signUp.href}
+          className="block mb-3 p-4 rounded-lg border transition hover:opacity-90"
+          style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' }}
+        >
+          <div className="font-semibold" style={{ color: 'var(--surface)' }}>✍️ {signUp.label}</div>
+          <div className="text-sm mt-0.5" style={{ color: 'var(--bg-subtle)' }}>{signUp.hint}</div>
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {TILES.map((tile) => (
