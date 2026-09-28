@@ -55,7 +55,7 @@ export default async function SetupSanctioningPage({
       showId={id}
       showName={show.name}
       current="sanctioning"
-      title="Step 5: Sanctioning"
+      title="Sanctioning"
       subtitle="Optional. Pick the clubs whose points apply, set what each charges and how, and tick the classes each one approves — a club sanctions a list of classes, not the whole schedule."
       stepsInput={{ ...stepsInput, sanctioningCount: current.length }}
       skip={

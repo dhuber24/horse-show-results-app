@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { AutosaveNavLink } from '../[id]/setup/_lib/StepAutosave';
 import { stepName } from './steps';
 
@@ -20,6 +21,9 @@ export type StepDef = {
   label: string;
   href: string | null;
   done: boolean;
+  /** The office said this step does not apply, and it is still empty
+   *  (migration 154). Minimized rather than hidden: it is one press away. */
+  skipped: boolean;
 };
 
 const COLORS = {
@@ -37,6 +41,9 @@ const COLORS = {
 
 const TAB =
   'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs sm:text-sm leading-none transition-colors';
+
+const SKIPPED_TAB =
+  'inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-1 text-xs leading-none opacity-80 transition-colors';
 
 const BADGE =
   'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0';
@@ -67,6 +74,13 @@ const BADGE =
  * Sticky only from `sm` up. Pinned to the top of a phone screen, a four-row tab
  * bar is half the viewport, which is the opposite of getting somebody to the
  * work.
+ *
+ * **A skipped step is folded away** (migration 154). A show that runs no
+ * futurity and no side pots would otherwise carry both at full size every time
+ * somebody manages it, looking exactly like work nobody has done. They collapse
+ * behind one small *N skipped* toggle at the end of the bar; opening it shows
+ * them in place, minimized. The step you are standing on is always shown, even
+ * if skipped — a tab bar with no current tab reads as a broken page.
  */
 export default function WizardStepper({
   steps,
@@ -80,6 +94,9 @@ export default function WizardStepper({
    *  no setup hub — and, for the same reason, no step has a link either. */
   hubHref: string | null;
 }) {
+  const [showSkipped, setShowSkipped] = useState(false);
+  const skippedCount = steps.filter((s) => s.skipped && s.key !== current).length;
+
   return (
     <nav
       aria-label="Show setup steps"
@@ -98,25 +115,46 @@ export default function WizardStepper({
             </Tab>
           </li>
         )}
-        {steps.map((step, idx) => (
-          <li key={step.key}>
-            <Tab
-              href={step.href}
-              isCurrent={step.key === current}
-              done={step.done}
-              // The tick and the number are the only status on a tab, and
-              // neither says what it means on its own.
-              title={
-                step.done
-                  ? `Step ${idx + 1} — set up`
-                  : `Step ${idx + 1} — nothing on file yet`
-              }
-              badge={step.done ? '✓' : String(idx + 1)}
+        {steps.map((step, idx) => {
+          const isCurrent = step.key === current;
+          if (step.skipped && !isCurrent && !showSkipped) return null;
+          return (
+            <li key={step.key}>
+              <Tab
+                href={step.href}
+                isCurrent={isCurrent}
+                done={step.done}
+                skipped={step.skipped}
+                // The tick and the number are the only status on a tab, and
+                // neither says what it means on its own.
+                title={
+                  step.skipped
+                    ? `Step ${idx + 1} — skipped, not used at this show`
+                    : step.done
+                      ? `Step ${idx + 1} — set up`
+                      : `Step ${idx + 1} — nothing on file yet`
+                }
+                badge={step.skipped ? '–' : step.done ? '✓' : String(idx + 1)}
+              >
+                {stepName(step.label)}
+              </Tab>
+            </li>
+          );
+        })}
+        {skippedCount > 0 && (
+          <li>
+            <button
+              type="button"
+              onClick={() => setShowSkipped((v) => !v)}
+              aria-expanded={showSkipped}
+              className="inline-flex items-center rounded-full border border-dashed px-2.5 py-1 text-xs leading-none"
+              style={{ borderColor: COLORS.border, color: COLORS.muted, backgroundColor: 'transparent' }}
+              title={showSkipped ? 'Fold the skipped steps away again' : 'Show the steps skipped for this show'}
             >
-              {stepName(step.label)}
-            </Tab>
+              {showSkipped ? 'Hide skipped' : `${skippedCount} skipped`}
+            </button>
           </li>
-        ))}
+        )}
       </ol>
     </nav>
   );
@@ -126,6 +164,7 @@ function Tab({
   href,
   isCurrent,
   done,
+  skipped,
   badge,
   title,
   children,
@@ -133,11 +172,21 @@ function Tab({
   href: string | null;
   isCurrent: boolean;
   done?: boolean;
+  skipped?: boolean;
   badge?: string;
   title: string;
   children: React.ReactNode;
 }) {
-  const style: React.CSSProperties = isCurrent
+  // Minimized: smaller, dashed, and muted, so it reads as set aside rather than
+  // as a step still waiting to be done.
+  const className = skipped && !isCurrent ? SKIPPED_TAB : TAB;
+  const style: React.CSSProperties = skipped && !isCurrent
+    ? {
+        backgroundColor: 'transparent',
+        borderColor: COLORS.border,
+        color: COLORS.muted,
+      }
+    : isCurrent
     ? {
         backgroundColor: COLORS.accent,
         borderColor: COLORS.accent,
@@ -156,7 +205,9 @@ function Tab({
           color: COLORS.muted,
         };
 
-  const badgeStyle: React.CSSProperties = isCurrent
+  const badgeStyle: React.CSSProperties = skipped && !isCurrent
+    ? { backgroundColor: 'transparent', color: COLORS.muted }
+    : isCurrent
     ? { backgroundColor: COLORS.onAccent, color: COLORS.accent }
     : done
       ? { backgroundColor: COLORS.done, color: COLORS.surface }
@@ -176,7 +227,7 @@ function Tab({
   if (isCurrent || !href) {
     return (
       <span
-        className={TAB}
+        className={className}
         style={style}
         title={title}
         aria-current={isCurrent ? 'step' : undefined}
@@ -187,7 +238,7 @@ function Tab({
   }
 
   return (
-    <AutosaveNavLink href={href} className={TAB} style={style} title={title}>
+    <AutosaveNavLink href={href} className={className} style={style} title={title}>
       {inner}
     </AutosaveNavLink>
   );

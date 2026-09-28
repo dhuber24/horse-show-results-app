@@ -1,23 +1,31 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import { fetchPointSystems, fetchShow, fetchShowLeaderboard } from '@/lib/api';
+import { fetchAssociations, fetchPointSystems, fetchShow, fetchShowLeaderboard } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
 import { formatPoints } from '@/lib/high-point';
-import PointSystemPicker from './PointSystemPicker';
+import ShowPointChart, { type AssociationOption } from './ShowPointChart';
 
 /**
- * The show's high point (migration 147): which points system its public
- * leaderboard uses, and which season circuits it counts toward. The standings
+ * The show's high point (migration 147): the chart its public leaderboard
+ * scores by, and which season circuits it counts toward. The standings
  * themselves are the public leaderboard — derived from posted placings on
  * every read, so there is nothing here to recalculate or publish.
+ *
+ * The chart is chosen from a template and kept as the show's own (migration
+ * 153) — see `ShowPointChart`.
  */
 export default async function ShowHighPointPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
   const headers = await getAuthHeaders();
-  const [show, systems, board] = await Promise.all([fetchShow(id), fetchPointSystems(headers), fetchShowLeaderboard(id)]);
+  const [show, systems, board, associations] = await Promise.all([
+    fetchShow(id),
+    fetchPointSystems(headers),
+    fetchShowLeaderboard(id),
+    fetchAssociations(headers ?? undefined).catch(() => [] as AssociationOption[]),
+  ]);
   const leaders = (board?.divisions ?? []).map((d) => ({ division: d.name, top: d.standings[0] }));
 
   return (
@@ -34,33 +42,20 @@ export default async function ShowHighPointPage({ params }: { params: Promise<{ 
       </div>
 
       <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
-        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Points system</h2>
+        <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>Points chart</h2>
         <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
           Every class adds to the public leaderboard as soon as its placings are posted, scored by
-          the system chosen here. Each judge&apos;s card counts on its own.
+          the chart set here. Start from an association&apos;s chart or from scratch, and change any
+          number for this show. Each judge&apos;s card counts on its own.
         </p>
-        {systems.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            Your show company has no points systems yet.{' '}
-            <Link href="/admin/point-systems" className="underline" style={{ color: 'var(--accent)' }}>
-              Add one
-            </Link>{' '}
-            from your association&apos;s rule book.
-          </p>
-        ) : (
-          <PointSystemPicker
-            showId={id}
-            systems={systems.map((s) => ({
-              id: s.id,
-              name: s.standard
-                ? `${s.name} — GaitDesk standard`
-                : isAdmin && s.company_name
-                  ? `${s.name} — ${s.company_name}`
-                  : s.name,
-            }))}
-            current={board?.point_system ? { id: board.point_system.id, name: board.point_system.name } : null}
-          />
-        )}
+        <ShowPointChart
+          showId={id}
+          showName={show.name}
+          templates={systems}
+          current={board?.point_system ?? null}
+          associations={(associations as AssociationOption[]).map((a) => ({ id: a.id, code: a.code, name: a.name }))}
+          isAdmin={isAdmin}
+        />
       </section>
 
       <section className="border rounded-lg p-4 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>

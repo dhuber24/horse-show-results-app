@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import QrCode from '@/components/QrCode';
 import Ribbon from '@/components/Ribbon';
 import { errorMessage } from '@/lib/api-error';
 import type { Marquee, MarqueeMode } from '@/lib/api';
@@ -838,6 +839,71 @@ function useFullscreen() {
   return { isFullscreen, toggle };
 }
 
+/* ── A second screen ───────────────────────────────────────────────────────── */
+
+// The Window Management API (Chrome and Edge on desktop), which is what lets a
+// page find a monitor plugged into the laptop and put a window on it. Not in
+// TypeScript's DOM library yet, so the few members used are declared here.
+type ScreenDetailed = {
+  availLeft: number;
+  availTop: number;
+  availWidth: number;
+  availHeight: number;
+  label?: string;
+};
+type ScreenDetails = { screens: ScreenDetailed[]; currentScreen: ScreenDetailed };
+
+/** Named, so opening the board a second time reuses its window rather than
+ *  stacking another one onto the TV. */
+const BOARD_WINDOW = 'gaitdesk-results-board';
+
+type SecondScreenResult =
+  | { kind: 'blocked' }
+  | { kind: 'placed'; win: Window; screen: string | null }
+  | { kind: 'window'; win: Window; reason: 'unsupported' | 'refused' | 'no-second-screen' };
+
+/**
+ * Open the running board in a window of its own, on the monitor attached to
+ * this laptop or tablet where the browser can find one.
+ *
+ * The window opens **first**, while the press still counts as a user gesture —
+ * asking for screen access can put up a permission prompt, and by the time it
+ * is answered the gesture has expired and a popup would be blocked. It is then
+ * moved onto the other screen and sized to fill it. A browser without the API,
+ * a refused permission, or a display set to mirror all leave the window open
+ * here to be dragged across.
+ */
+async function openOnSecondScreen(url: string): Promise<SecondScreenResult> {
+  const win = window.open(url, BOARD_WINDOW, 'popup,width=1280,height=720');
+  if (!win) return { kind: 'blocked' };
+
+  const getScreenDetails = (window as Window & { getScreenDetails?: () => Promise<ScreenDetails> })
+    .getScreenDetails;
+  if (!getScreenDetails) return { kind: 'window', win, reason: 'unsupported' };
+
+  let details: ScreenDetails;
+  try {
+    details = await getScreenDetails.call(window);
+  } catch {
+    return { kind: 'window', win, reason: 'refused' };
+  }
+  // Any screen but the one this page is on, largest first: with a TV and a
+  // small second monitor both plugged in, the TV is the likelier target.
+  const others = details.screens
+    .filter((s) => s !== details.currentScreen)
+    .sort((a, b) => b.availWidth * b.availHeight - a.availWidth * a.availHeight);
+  const target = others[0];
+  if (!target) return { kind: 'window', win, reason: 'no-second-screen' };
+
+  try {
+    win.moveTo(target.availLeft, target.availTop);
+    win.resizeTo(target.availWidth, target.availHeight);
+  } catch {
+    return { kind: 'window', win, reason: 'refused' };
+  }
+  return { kind: 'placed', win, screen: target.label || null };
+}
+
 const MARQUEE_MODES: { key: MarqueeMode; label: string; hint: string }[] = [
   {
     key: 'results',
@@ -1056,7 +1122,12 @@ function HubHeading({ title, note }: { title: string; note?: string }) {
  *  Same dark panel as the board and sized off `vh` like it, because it is
  *  usually opened on the TV's own browser — but it scrolls, and every size has
  *  a px floor, because the marquee is as likely to be changed from a phone in
- *  the office while a board runs somewhere else. */
+ *  the office while a board runs somewhere else.
+ *
+ *  **Or on a second screen.** A laptop or tablet with a TV plugged in should
+ *  not have to give its own screen up to the board: choosing *A second screen*
+ *  opens the board in a window of its own on the attached monitor
+ *  (`openOnSecondScreen`), and this page stays here, free for the desk. */
 function ResultsBoardSetup({
   showId,
   showName,
@@ -1074,6 +1145,41 @@ function ResultsBoardSetup({
     border: '0.2vh solid var(--on-slate-muted)',
     color: 'var(--on-slate)',
   } as const;
+
+  const [target, setTarget] = useState<'here' | 'second'>('here');
+  const [opened, setOpened] = useState<SecondScreenResult | null>(null);
+
+  const pick = async (key: SizeKey) => {
+    if (target === 'here') {
+      onPick(key);
+      return;
+    }
+    // The screen time and anything else in the query travel with the board.
+    const q = new URLSearchParams(window.location.search);
+    q.set('size', key);
+    q.set('popout', '1');
+    setOpened(await openOnSecondScreen(`${window.location.pathname}?${q.toString()}`));
+  };
+
+  const openedNote =
+    opened == null
+      ? null
+      : opened.kind === 'blocked'
+        ? 'The browser blocked the board’s window. Allow pop-ups for this site, then pick the size again.'
+        : opened.kind === 'placed'
+          ? `The board is running on ${opened.screen ? `“${opened.screen}”` : 'the second screen'}. Move the mouse onto it and press Fill this screen. This one stays free — close the board’s window to stop it.`
+          : opened.reason === 'no-second-screen'
+            ? 'No second screen was found, so the board opened in a window here. Check the display is set to extend, not mirror, then drag the window across and press Fill this screen.'
+            : 'The board opened in its own window. Drag it onto the second screen and press Fill this screen — this one stays free.';
+
+  const seg = (on: boolean) =>
+    ({
+      fontSize: 'max(14px, 1.9vh)',
+      padding: '0.9vh 1.6vh',
+      backgroundColor: on ? 'var(--accent)' : 'var(--slate-raised)',
+      color: on ? 'var(--accent-foreground)' : 'var(--on-slate-muted)',
+      border: '0.2vh solid var(--on-slate-muted)',
+    }) as const;
 
   return (
     <div className="absolute inset-0 overflow-y-auto">
@@ -1101,6 +1207,41 @@ function ResultsBoardSetup({
             title="Where is this screen?"
             note="A browser is never told how big its screen is, and a lobby TV needs letters several times taller than a desk monitor. Pick one and the board starts."
           />
+          <div className="flex flex-wrap items-center" style={{ gap: '1vh', marginBottom: '2vh' }} role="group" aria-label="Which screen shows the board">
+            <button type="button" onClick={() => setTarget('here')} aria-pressed={target === 'here'} className="rounded-lg font-semibold" style={seg(target === 'here')}>
+              This screen
+            </button>
+            <button
+              type="button"
+              onClick={() => setTarget('second')}
+              aria-pressed={target === 'second'}
+              className="rounded-lg font-semibold"
+              style={seg(target === 'second')}
+              title="A TV or monitor plugged into this laptop or tablet. The board gets its own window there, and this screen stays free."
+            >
+              A second screen
+            </button>
+            {target === 'second' && (
+              <span style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--on-slate-muted)' }}>
+                The one plugged into this laptop or tablet, set to extend the display.
+              </span>
+            )}
+          </div>
+          {openedNote && (
+            <p
+              role="status"
+              className="rounded-lg"
+              style={{
+                fontSize: 'max(14px, 1.9vh)',
+                padding: '1.2vh 1.6vh',
+                marginBottom: '2vh',
+                backgroundColor: 'var(--slate-raised)',
+                color: opened?.kind === 'blocked' ? 'var(--warning)' : 'var(--on-slate)',
+              }}
+            >
+              {openedNote}
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-3" style={{ gap: '2vh' }}>
             {SIZE_ORDER.map((key, i) => {
               const p = PRESETS[key];
@@ -1108,7 +1249,7 @@ function ResultsBoardSetup({
                 <button
                   key={key}
                   type="button"
-                  onClick={() => onPick(key)}
+                  onClick={() => void pick(key)}
                   className="rounded-xl text-left transition hover:brightness-125"
                   style={card}
                 >
@@ -1126,7 +1267,8 @@ function ResultsBoardSetup({
                     {p.blurb}
                   </div>
                   <div style={{ fontSize: 'max(12px, 1.5vh)', marginTop: '1.1vh', color: 'var(--on-slate-muted)' }}>
-                    Press {i + 1}
+                    {/* The number keys start the board here, never on the second screen. */}
+                    {target === 'here' ? `Press ${i + 1}` : 'Opens on the second screen'}
                   </div>
                 </button>
               );
@@ -1171,6 +1313,10 @@ export default function LiveBoard({
   const searchParams = useSearchParams();
   const size = parseSize(searchParams.get('size'));
   const every = parseEvery(searchParams.get('every'));
+  // Opened from the Results Board page onto a second screen, in a window of its
+  // own. Full screen needs a press on that window, so it asks for one.
+  const popout = searchParams.get('popout') === '1';
+  const [keepWindowed, setKeepWindowed] = useState(false);
 
   // Nothing renders until mounted: the board is laid out from the window's
   // height and shows a clock, and neither exists on the server. Rendering
@@ -1467,6 +1613,40 @@ export default function LiveBoard({
             } as React.CSSProperties
           }
         >
+          {popout && !isFullscreen && !keepWindowed && (
+            // A browser only goes full screen on a press in that window, so the
+            // board on the second screen asks for one — big, because it is being
+            // reached for with a mouse dragged over from the laptop.
+            <div
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center"
+              style={{ backgroundColor: 'var(--slate)', gap: '2vh' }}
+            >
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="rounded-2xl font-bold transition hover:brightness-110"
+                style={{
+                  fontSize: 'max(24px, 4.5vh)',
+                  padding: '3vh 6vh',
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-foreground)',
+                }}
+              >
+                ⛶ Fill this screen
+              </button>
+              <p style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>
+                The results board, on its own screen. The laptop or tablet it came from stays free.
+              </p>
+              <button
+                type="button"
+                onClick={() => setKeepWindowed(true)}
+                className="hover:underline"
+                style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--accent-light)' }}
+              >
+                Keep it in a window
+              </button>
+            </div>
+          )}
           <header
             className="flex items-center justify-between flex-none"
             style={{
@@ -1525,7 +1705,9 @@ export default function LiveBoard({
               )}
             </div>
 
-            <div className="flex items-center flex-none" style={{ gap: c(0.5) }}>
+            <div className="flex items-center flex-none" style={{ gap: c(1) }}>
+            <div className="flex flex-col items-end" style={{ gap: c(0.4) }}>
+            <div className="flex items-center" style={{ gap: c(0.5) }}>
               {paused ? (
                 <span className="font-semibold tracking-wider" style={{ fontSize: c(1.1), color: 'var(--warning)' }}>
                   ❙❙ PAUSED
@@ -1563,6 +1745,24 @@ export default function LiveBoard({
                   minute: '2-digit',
                 })}
               </span>
+            </div>
+            <div className="text-right" style={{ fontSize: c(0.9), lineHeight: 1.25, color: 'var(--on-slate-muted)' }}>
+              Scan for results
+              <br />
+              on your phone →
+            </div>
+            </div>
+            {/* The show's public Results page, one scan from anybody watching —
+                no account needed, which is why that page stays public. Built
+                from the address the board itself is on, so it points at the
+                right site in every environment. Sized off the chrome unit like
+                the rest of the header, with a floor below which a phone at
+                arm's length stops finding it. */}
+            <QrCode
+              value={`${window.location.origin}/shows/${showId}/results`}
+              size={`max(88px, ${c(5.6)})`}
+              label="QR code: this show's results"
+            />
             </div>
           </header>
 

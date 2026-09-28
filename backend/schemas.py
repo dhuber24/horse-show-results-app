@@ -773,6 +773,18 @@ class ClassBulkDelete(BaseModel):
 
     class_ids: list[UUID] = Field(min_length=1, max_length=1000)
 
+
+class ClassScoringApply(BaseModel):
+    """One card type, applied to one class or to every class ticked at once
+    (migration 155). `judging_system_id` is the judge's-card sheet: sent (even
+    as null) it is set; left out, a sheet a class already carries is kept where
+    it still fits the new card type and cleared where it does not."""
+
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    card_type: str
+    judging_system_id: Optional[UUID] = None
+
+
 class ClassSanctioningReplace(BaseModel):
     """The classes one club sanctions at this show — the whole set, every time.
 
@@ -849,6 +861,10 @@ class ClassOut(BaseModel):
     # Which card shape this class is judged on (migration 122). Null means the
     # scribe types a total, which is how a rail class still works.
     judging_system_id: Optional[UUID] = None
+    # The card type the office chose (migration 155), or None. What the class is
+    # actually placed by is `effective_card_type` on the class list, which
+    # derives one where this is unset or no longer agrees with `score_type`.
+    card_type: Optional[str] = None
     sort_order: Optional[int] = None
     associations: list[ClassAssociationOut] = []
     created_at: datetime
@@ -2817,6 +2833,8 @@ class JudgingSystemOut(BaseModel):
     unit_count: Optional[int] = None
     score_max: Optional[float] = None
     notes: Optional[str] = None
+    # 'scored' or 'equitation' (migration 155); None is offered to both.
+    card_type: Optional[str] = None
     penalties: list[JudgingPenaltyOut] = []
 
     class Config:

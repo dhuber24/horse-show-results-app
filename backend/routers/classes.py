@@ -22,6 +22,7 @@ from models import (
     Discipline,
     Division,
     FuturityClass,
+    JudgingSystem,
     ShowPattern,
     ShowPatternClass,
     discipline_divisions,
@@ -29,8 +30,15 @@ from models import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from rules.apha import zone_individual_work_note
 from rules.disciplines import classify_class_name, entered_by_qualification
+from card_types import (
+    CARD_TYPES,
+    SCORE_TYPE_FOR,
+    SHEET_CARD_TYPES,
+    effective_card_type,
+    sheet_fits,
+)
 from schemas import (
-    ClassCreate, ClassUpdate, ClassOut, ClassReorder, ClassBulkDelete,
+    ClassCreate, ClassUpdate, ClassOut, ClassReorder, ClassBulkDelete, ClassScoringApply,
     ClassAssociationCreate, ClassAssociationOut,
     ClassSanctioningReplace, ClassSanctioningOut,
     BulkClassCreate,
@@ -252,6 +260,31 @@ def bulk_delete_blocker(classes: list) -> Optional[str]:
         "Nothing was deleted. These classes have entries or placings on them: "
         f"{named}{f', and {more} more' if more > 0 else ''}. Untick them and try "
         "again, or delete one on its own if you do mean to lose its entries."
+    )
+
+
+def scoring_blocker(classes: list, new_score_type: str) -> Optional[str]:
+    """Why a card type cannot be applied to these classes, or None.
+
+    Moving a class between placing, scoring and timing changes what a placing
+    *is* -- a rank the scribe typed, or one derived from a score or a time --
+    so a class with placings already filed keeps its score type: the filed rows
+    would be read the other way. Scored and equitation are both scored, so
+    moving between those two is always allowed. All or nothing and by name, the
+    same as a bulk delete, because the answer is to untick those rows.
+    """
+    blocked = sorted(
+        (cls for cls in classes if cls.results and cls.score_type != new_score_type),
+        key=lambda cls: (cls.class_date, cls.sort_order or 0),
+    )
+    if not blocked:
+        return None
+    named = ", ".join(f"#{cls.class_number} {cls.class_name}" for cls in blocked[:3])
+    more = len(blocked) - 3
+    return (
+        "Nothing was changed. These classes already have placings filed the other way: "
+        f"{named}{f', and {more} more' if more > 0 else ''}. Untick them, or clear "
+        "their placings first."
     )
 
 
@@ -497,8 +530,12 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             # otherwise be the one place its bytes rode along on a class read.
             ShowPattern.id.label("pattern_id"),
             ShowPattern.name.label("pattern_name"),
+            # Which card type the class's sheet belongs to, so a class nobody
+            # has set a card type on can still be derived from it.
+            JudgingSystem.card_type.label("sheet_card_type"),
         )
         .outerjoin(Ring, Ring.id == Class.ring_id)
+        .outerjoin(JudgingSystem, JudgingSystem.id == Class.judging_system_id)
         .outerjoin(Discipline, Discipline.id == Class.discipline_id)
         .outerjoin(Division, Division.id == Class.division_id)
         # Keyed on the class, so this can never turn one class into two rows.
@@ -536,6 +573,12 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             # can each link straight to it without a second request.
             "pattern_id": pattern_id,
             "pattern_name": pattern_name,
+            # How the class is placed (migration 155): the office's choice
+            # where it still agrees with score_type, derived otherwise. Every
+            # screen that names a class's card type reads this, never card_type.
+            "effective_card_type": effective_card_type(
+                cls.card_type, cls.score_type, discipline_name, cls.class_name, sheet_card_type
+            ),
         }
         for (
             cls,
@@ -548,6 +591,7 @@ async def list_classes(show_id: UUID, db: AsyncSession = Depends(get_db)):
             division_name,
             pattern_id,
             pattern_name,
+            sheet_card_type,
         ) in result.all()
     ]
 
@@ -854,6 +898,84 @@ async def bulk_delete_classes(
     await db.commit()
     await _renumber_classes(show_id, db)
     return {"deleted": len(rows)}
+
+
+@router.post("/scoring", dependencies=[Depends(require_admin_or_show_admin)])
+async def apply_class_scoring(
+    show_id: UUID,
+    body: ClassScoringApply,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply one card type -- placing, scored, equitation or timed -- to every
+    class sent, and optionally one judge's-card sheet (migration 155).
+
+    One class or a whole ticked list, the same call: the Scoring step sets them
+    in bulk because a schedule is 150 classes and most of them share an answer.
+    Writes `score_type` in the same breath as `card_type`, so the two cannot
+    disagree -- the ranking and the scribe screens read `score_type`.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await _get_show_or_404(show_id, db)
+
+    card_type = body.card_type
+    if card_type not in CARD_TYPES:
+        raise HTTPException(422, f"'{card_type}' is not a card type. Choose one of: {', '.join(CARD_TYPES)}.")
+    new_score_type = SCORE_TYPE_FOR[card_type]
+
+    sheet = None
+    sheet_sent = "judging_system_id" in body.model_fields_set
+    if sheet_sent and body.judging_system_id is not None:
+        if card_type not in SHEET_CARD_TYPES:
+            raise HTTPException(422, "Only scored and equitation cards are marked on a sheet.")
+        sheet = await db.get(JudgingSystem, body.judging_system_id)
+        if sheet is None or not sheet.is_active:
+            raise HTTPException(422, "That judge's-card sheet does not exist.")
+        if sheet.show_type_id is not None and sheet.show_type_id != show.show_type_id:
+            raise HTTPException(422, f"{sheet.name} is another association's sheet.")
+        if not sheet_fits(card_type, sheet.card_type):
+            raise HTTPException(422, f"{sheet.name} is not a {card_type} card.")
+
+    ids = list(dict.fromkeys(body.class_ids))
+    rows = (
+        await db.execute(
+            select(Class)
+            .options(selectinload(Class.results))
+            .where(Class.show_id == show_id, Class.id.in_(ids))
+        )
+    ).scalars().all()
+    if len(rows) != len(ids):
+        raise HTTPException(404, "One or more of those classes are not in this show")
+
+    refusal = scoring_blocker(list(rows), new_score_type)
+    if refusal:
+        raise HTTPException(409, {"code": "SCORE_TYPE_LOCKED", "message": refusal})
+
+    # A sheet a class already carries survives a change of card type only where
+    # it still fits; the categories of those sheets, read once for the lot.
+    kept_sheet_types: dict = {}
+    if not sheet_sent:
+        current = {cls.judging_system_id for cls in rows if cls.judging_system_id}
+        if current:
+            kept_sheet_types = dict(
+                (
+                    await db.execute(
+                        select(JudgingSystem.id, JudgingSystem.card_type).where(JudgingSystem.id.in_(current))
+                    )
+                ).all()
+            )
+
+    for cls in rows:
+        cls.card_type = card_type
+        cls.score_type = new_score_type
+        if sheet_sent:
+            cls.judging_system_id = sheet.id if sheet else None
+        elif cls.judging_system_id and not sheet_fits(card_type, kept_sheet_types.get(cls.judging_system_id)):
+            cls.judging_system_id = None
+    await db.commit()
+    return {"updated": len(rows)}
 
 
 # ── Bulk Class Import from APHA Standard Classes ────────────────────────────────

@@ -102,7 +102,7 @@ export default function EarlierFees({
         <Heading
           title="Futurity pricing"
           href={`/admin/shows/${showId}/futurities`}
-          linkLabel="Edit in Step 6: Futurities"
+          linkLabel="Edit in Step 6: Futurities & Side Pots"
         />
         {futurities.length === 0 ? (
           <p className="text-sm" style={{ color: COLORS.muted }}>

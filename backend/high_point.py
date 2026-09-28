@@ -42,25 +42,46 @@ from placings import is_placed
 Chart = dict[int, dict[int, Decimal]]
 
 
-def may_use_point_system(role: str, company_id: Optional[UUID], member_of: Iterable[UUID]) -> bool:
-    """Whether a caller may see a points system and choose it (migration 148).
+def may_use_point_system(
+    role: str,
+    company_id: Optional[UUID],
+    member_of: Iterable[UUID],
+    show_id: Optional[UUID] = None,
+) -> bool:
+    """Whether a caller may see a points system in the library and choose it
+    (migration 148).
 
-    A GaitDesk admin may use every one. Anybody else a system one of their own
-    show companies owns -- one club's charts never appear in another club's
-    pickers -- or a **GaitDesk standard** system, which no company owns: the
-    associations' own charts (migration 151), which every show may score by.
+    A GaitDesk admin may use every library system. Anybody else a system one of
+    their own show companies owns -- one club's charts never appear in another
+    club's pickers -- or a **GaitDesk standard** system, which no company owns:
+    the associations' own charts (migration 151), which every show may score by.
     The public leaderboards still print whatever chart a show scores by; this
     is about who may pick one, not who may read it.
+
+    **A show's own chart is not in the library at all** (migration 153), for an
+    admin either. It has no company, so without this it would read as a
+    standard system and turn up in every company's list; it is reached through
+    its show, by whoever works that show, and nothing else may be scored by it.
     """
+    if show_id is not None:
+        return False
     if role == "ADMIN":
         return True
     return company_id is None or company_id in set(member_of)
 
 
-def may_edit_point_system(role: str, company_id: Optional[UUID], member_of: Iterable[UUID]) -> bool:
-    """Whether a caller may change or delete a points system: its own company's
-    people, or an admin. A standard system is every company's to use and only
-    GaitDesk's to change -- a company that scores differently copies it."""
+def may_edit_point_system(
+    role: str,
+    company_id: Optional[UUID],
+    member_of: Iterable[UUID],
+    show_id: Optional[UUID] = None,
+) -> bool:
+    """Whether a caller may change or delete a library points system: its own
+    company's people, or an admin. A standard system is every company's to use
+    and only GaitDesk's to change -- a show that scores differently takes a copy
+    of its own. A show's own chart is changed through its show, never here."""
+    if show_id is not None:
+        return False
     if role == "ADMIN":
         return True
     return company_id is not None and company_id in set(member_of)

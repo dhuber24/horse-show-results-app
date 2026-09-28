@@ -4,9 +4,10 @@ import { loadPots } from './loadPot';
 import SidePotsManager from './SidePotsManager';
 
 /**
- * The show's side pots. Reached from its own tile on the show dashboard — side
- * pots are money the office takes at the desk and standings it reads between
- * classes, not part of the fee schedule the show publishes in advance.
+ * The show's side pots, as they are run on the day — reached from the Side Pots
+ * tile on the show dashboard: buy-ins at the desk, standings between classes,
+ * settling at the end. The pots are also set up in setup Step 6, Futurities &
+ * Side Pots, which renders the same `SidePotsManager`.
  */
 export default async function SidePotsPage({
   params,
@@ -35,8 +36,8 @@ export default async function SidePotsPage({
           Side Pots
         </h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          {show.name} — optional money pools spanning several classes. Buy-ins are collected
-          per pot and stay out of the exhibitor&rsquo;s show bill.
+          {show.name} — optional money pools spanning several classes. Entering a class a pot
+          bundles is the buy-in, and it goes on the exhibitor&rsquo;s show bill.
         </p>
       </div>
 

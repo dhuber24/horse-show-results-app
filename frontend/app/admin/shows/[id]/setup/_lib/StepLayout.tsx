@@ -2,10 +2,20 @@ import Breadcrumbs from '@/components/Breadcrumbs';
 import WizardStepper, { type WizardStepKey } from '../../../_wizard/WizardStepper';
 import {
   buildSteps,
+  neighbourStep,
+  skipKeysFor,
   stepName,
+  stepNumber,
   type WizardStepsInput,
 } from '../../../_wizard/steps';
 import { StepAutosaveProvider, AutosaveNavLink } from './StepAutosave';
+import { SkipStepOffer, SkippedStepNotice } from './SkipStep';
+
+/** What a skipped step greys out on the show dashboard, where it has a tile. */
+const DASHBOARD_TILES: Partial<Record<WizardStepKey, string>> = {
+  futurities: 'the Futurities and Side Pots tiles',
+  judgecards: 'the High Point tile',
+};
 
 const COLORS = {
   text: 'var(--foreground)',
@@ -50,9 +60,14 @@ export type StepSkip = {
  * is not a show, and telling somebody otherwise in a button is worse than
  * silence.
  *
- * The skip goes to the same place the Next link does. What it adds is the
- * manager being told, on the step, that walking past it is an answer rather than
- * an omission they will be chased about.
+ * The skip goes to the same place the Next link does, and since migration 154
+ * it is **recorded**: the step then folds away in the tab bar and the hub, and
+ * Back and Next walk past it. Skipping Futurities & Side Pots declines both, and
+ * greys both of their dashboard tiles out. Standing on a skipped step says so,
+ * and offers it back.
+ *
+ * The title is numbered here, from the step's position, rather than typed into
+ * each page — a hand-typed number drifted the first time a step was inserted.
  */
 export default function StepLayout({
   showId,
@@ -74,10 +89,12 @@ export default function StepLayout({
   children: React.ReactNode;
 }) {
   const steps = buildSteps(stepsInput);
-  const idx = steps.findIndex((s) => s.key === current);
-  const prev = idx > 0 ? steps[idx - 1] : null;
-  const next = idx >= 0 && idx < steps.length - 1 ? steps[idx + 1] : null;
+  const prev = neighbourStep(steps, current, -1);
+  const next = neighbourStep(steps, current, 1);
+  const isSkipped = steps.find((s) => s.key === current)?.skipped ?? false;
   const hubHref = `/admin/shows/${showId}/setup`;
+  const number = stepNumber(steps, current);
+  const heading = number > 0 ? `Step ${number}: ${title.replace(/^Step d+:s*/, '')}` : title;
 
   return (
     // Everything inside the step, the tab bar and the footer nav share one
@@ -92,11 +109,11 @@ export default function StepLayout({
               { label: 'Shows', href: '/admin/shows' },
               { label: showName, href: `/admin/shows/${showId}` },
               { label: 'Setup', href: hubHref },
-              { label: title },
+              { label: heading },
             ]}
           />
           <h1 className="text-2xl font-bold mt-2" style={{ color: COLORS.text }}>
-            {title}
+            {heading}
           </h1>
           <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
             {subtitle}
@@ -105,29 +122,18 @@ export default function StepLayout({
 
         <WizardStepper current={current} steps={steps} hubHref={hubHref} />
 
-        {skip && next?.href && (
-          <div
-            className="rounded-lg border p-3 flex flex-wrap items-center gap-x-3 gap-y-2"
-            style={{
-              borderColor: 'var(--accent-border)',
-              backgroundColor: 'var(--accent-bg)',
-            }}
-          >
-            <AutosaveNavLink
-              href={next.href}
-              className="text-sm font-semibold rounded px-3 py-2 border shrink-0"
-              style={{
-                borderColor: 'var(--accent)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--accent)',
-              }}
-            >
-              {skip.label} →
-            </AutosaveNavLink>
-            <span className="text-sm" style={{ color: COLORS.muted }}>
-              {skip.note}
-            </span>
-          </div>
+        {isSkipped ? (
+          <SkippedStepNotice showId={showId} keys={skipKeysFor(current)} dashboardTiles={DASHBOARD_TILES[current]} />
+        ) : (
+          skip && (
+            <SkipStepOffer
+              showId={showId}
+              keys={skipKeysFor(current)}
+              nextHref={next?.href ?? `/admin/shows/${showId}`}
+              label={skip.label}
+              note={skip.note}
+            />
+          )
         )}
 
         <div>{children}</div>

@@ -85,6 +85,16 @@ class ShowPointSystemIn(BaseModel):
     point_system_id: Optional[UUID] = None
 
 
+class ShowChartIn(BaseModel):
+    """A show's own chart (migration 153): what the office saved after pressing
+    *Use this template*, or built from scratch. No company -- the show owns it."""
+
+    name: str = Field(min_length=1, max_length=200)
+    association_id: Optional[UUID] = None
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    awards: list[AwardIn]
+
+
 class CircuitIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     season: Optional[str] = Field(default=None, max_length=50)
@@ -125,10 +135,10 @@ class Caller:
         return self.role in ALL_FEATURE_ROLES
 
     def may_use(self, system: PointSystem) -> bool:
-        return may_use_point_system(self.role, system.company_id, self.member_of)
+        return may_use_point_system(self.role, system.company_id, self.member_of, system.show_id)
 
     def may_edit(self, system: PointSystem) -> bool:
-        return may_edit_point_system(self.role, system.company_id, self.member_of)
+        return may_edit_point_system(self.role, system.company_id, self.member_of, system.show_id)
 
 
 async def _caller(x_user_id: str, x_user_role: str, db: AsyncSession) -> Caller:
@@ -169,8 +179,10 @@ def _system_payload(system: PointSystem, show_count: int = 0, circuit_count: int
         "name": system.name,
         "company_id": str(system.company_id) if system.company_id else None,
         "company_name": system.company.name if system.company else None,
-        # No company: a GaitDesk standard system every company may use.
-        "standard": system.company_id is None,
+        # Set: this is that show's own chart (migration 153), not a library one.
+        "show_id": str(system.show_id) if system.show_id else None,
+        # No company and no show: a GaitDesk standard system every company may use.
+        "standard": system.company_id is None and system.show_id is None,
         "association_id": str(system.association_id) if system.association_id else None,
         "association_code": system.association.code if system.association else None,
         "notes": system.notes,
@@ -224,13 +236,19 @@ def _validated_awards(awards: list[AwardIn]) -> list[AwardIn]:
 
 
 async def _name_taken(
-    db: AsyncSession, name: str, company_id: Optional[UUID], except_id: Optional[UUID] = None
+    db: AsyncSession,
+    name: str,
+    company_id: Optional[UUID],
+    except_id: Optional[UUID] = None,
+    show_id: Optional[UUID] = None,
 ) -> bool:
-    """Names are unique within their owner (migration 148): two clubs may each
-    keep an "APHA Open Show Points" of their own."""
+    """Names are unique within their owner (migrations 148, 153): two clubs may
+    each keep an "APHA Open Show Points" of their own, and a show's copy of a
+    standard chart may keep the standard chart's name."""
     query = select(PointSystem.id).where(
         func.lower(func.btrim(PointSystem.name)) == name.strip().lower(),
         PointSystem.company_id.is_(None) if company_id is None else PointSystem.company_id == company_id,
+        PointSystem.show_id.is_(None) if show_id is None else PointSystem.show_id == show_id,
     )
     if except_id:
         query = query.where(PointSystem.id != except_id)
@@ -273,14 +291,16 @@ async def _editable_system_or_404(system_id: UUID, caller: Caller, db: AsyncSess
 
 
 async def _apply_system(
-    system: PointSystem, body: PointSystemIn, company_id: Optional[UUID], db: AsyncSession
+    system: PointSystem, body: "PointSystemIn | ShowChartIn", company_id: Optional[UUID], db: AsyncSession
 ) -> None:
+    """Write a name and a chart onto a system. A show's own chart passes no
+    company: its owner is `system.show_id`, which this never changes."""
     name = body.name.strip()
     if not name:
         raise HTTPException(422, "Give the points system a name.")
     if company_id is not None and not await db.get(ShowCompany, company_id):
         raise HTTPException(422, "That show company does not exist.")
-    if await _name_taken(db, name, company_id, system.id):
+    if await _name_taken(db, name, company_id, system.id, system.show_id):
         raise HTTPException(409, f"There is already a points system called {name}.")
     if body.association_id and not await db.get(Association, body.association_id):
         raise HTTPException(422, "That association does not exist.")
@@ -310,7 +330,8 @@ async def list_point_systems(
     GaitDesk standard ones, or every one for an admin -- with how many shows
     and circuits use each."""
     caller = await _caller(x_user_id, x_user_role, db)
-    query = select(PointSystem).order_by(func.lower(PointSystem.name))
+    # A show's own chart is never part of the library, an admin's included.
+    query = select(PointSystem).where(PointSystem.show_id.is_(None)).order_by(func.lower(PointSystem.name))
     if not caller.is_admin:
         query = query.where(
             PointSystem.company_id.is_(None) | PointSystem.company_id.in_(caller.member_of)
@@ -453,6 +474,38 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
     }
 
 
+async def _show_chart(show_id: UUID, db: AsyncSession) -> Optional[PointSystem]:
+    """The show's own chart, if it has one (migration 153 allows at most one)."""
+    return (
+        await db.execute(
+            select(PointSystem)
+            .where(PointSystem.show_id == show_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
+@router.get("/shows/{show_id}/high-point", dependencies=[Depends(require_admin_or_show_admin)])
+async def get_show_point_system(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The chart the show scores by, or none -- without the standings.
+
+    The setup wizard reads this on every step (whether Scoring is done, and
+    whether the High Point tile is greyed out), and the public leaderboard
+    computes every posted class's points to answer the same question.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    choice = await db.get(ShowPointSystem, show_id)
+    system = await _get_system_or_404(choice.point_system_id, db) if choice else None
+    return {"point_system": _system_payload(system) if system else None}
+
+
 @router.put("/shows/{show_id}/high-point", dependencies=[Depends(require_admin_or_show_admin)])
 async def set_show_point_system(
     show_id: UUID,
@@ -462,11 +515,20 @@ async def set_show_point_system(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Choose the points system the show's leaderboard uses, or none."""
+    """Score the show by a library system as it stands, or turn high point off.
+
+    Moving off the show's own chart deletes it: nothing else can use a show's
+    chart, so once its show stops scoring by it, it is unreachable. The screen
+    confirms before it asks for this.
+    """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
 
     row = await db.get(ShowPointSystem, show_id)
+    own = await _show_chart(show_id, db)
+    if own is not None and body.point_system_id == own.id:
+        return {"point_system_id": str(own.id)}
+
     if body.point_system_id is None:
         if row is not None:
             await db.delete(row)
@@ -480,8 +542,56 @@ async def set_show_point_system(
         row.point_system_id = body.point_system_id
         row.chosen_by_user_id = safe_uuid(x_user_id)
         row.chosen_at = datetime.now(timezone.utc)
+    if own is not None:
+        # The choice has to stop pointing at the chart before the chart goes.
+        await db.flush()
+        await db.delete(own)
     await db.commit()
     return {"point_system_id": str(body.point_system_id) if body.point_system_id else None}
+
+
+@router.put("/shows/{show_id}/high-point/chart", dependencies=[Depends(require_admin_or_show_admin)])
+async def save_show_chart(
+    show_id: UUID,
+    body: ShowChartIn,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the show's own chart and score the show by it (migration 153).
+
+    The office presses *Use this template* on a library system -- or on Custom,
+    which is an empty chart -- adjusts the grid, and saves. The first save
+    creates the show's chart; every later one, including starting again from a
+    different template, replaces it in place, so a show has one chart at most.
+    The library system it started from is untouched: the show took a copy.
+
+    Same validation as a library system (`_validated_awards`), because the
+    leaderboard reads both the same way.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+
+    chart = await _show_chart(show_id, db)
+    created = chart is None
+    if created:
+        chart = PointSystem(show_id=show_id, created_by_user_id=safe_uuid(x_user_id), awards=[])
+    await _apply_system(chart, body, None, db)
+    if created:
+        db.add(chart)
+    await db.flush()
+
+    row = await db.get(ShowPointSystem, show_id)
+    if row is None:
+        row = ShowPointSystem(show_id=show_id)
+        db.add(row)
+    if row.point_system_id != chart.id:
+        row.point_system_id = chart.id
+        row.chosen_by_user_id = safe_uuid(x_user_id)
+        row.chosen_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _system_payload(await _get_system_or_404(chart.id, db))
 
 
 # ── Circuits ───────────────────────────────────────────────────────────────────

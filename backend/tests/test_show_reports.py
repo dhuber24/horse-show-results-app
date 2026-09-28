@@ -400,3 +400,24 @@ def test_a_declaration_is_quoted_in_full():
 
 def test_no_declarations_explains_when_they_are_asked_for():
     assert "Novice" in notes("attestations", a_record())
+
+
+# ── The loader's judge names ───────────────────────────────────────────────────
+#
+# Everything above runs against a hand-built dict, so none of it reads the ORM —
+# which is how `_load_record` shipped reading `Judge.name`, a column the registry
+# has never had, and 500'd every report at any show with a judge assigned. These
+# build a real `Judge`, so a renamed column fails here rather than on the page.
+
+
+def test_judge_name_reads_the_registry_columns():
+    from models import Judge
+    from routers.show_reports import judge_name
+
+    assert judge_name(Judge(first_name="Leigh Ann", last_name="Skurupey")) == "Leigh Ann Skurupey"
+
+
+def test_judge_name_without_a_judge_is_none():
+    from routers.show_reports import judge_name
+
+    assert judge_name(None) is None

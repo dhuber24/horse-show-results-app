@@ -67,6 +67,7 @@ from routers.show_desk import router as show_desk_router
 from routers.show_waivers import router as show_waivers_router
 from routers.show_documents import router as show_documents_router
 from routers.show_marquee import router as show_marquee_router
+from routers.show_setup import router as show_setup_router
 from routers.show_patterns import router as show_patterns_router
 from routers.show_bill_imports import router as show_bill_imports_router
 from routers.show_companies import router as show_companies_router
@@ -225,6 +226,7 @@ app.include_router(show_desk_router)
 app.include_router(show_waivers_router)
 app.include_router(show_documents_router)
 app.include_router(show_marquee_router)
+app.include_router(show_setup_router)
 app.include_router(show_patterns_router)
 app.include_router(show_bill_imports_router)
 app.include_router(show_companies_router)

@@ -60,7 +60,7 @@ export default async function EditShowDetailsPage({
       showId={id}
       showName={show.name}
       current="basic"
-      title="Step 1: Basics & Staff"
+      title="Basics & Staff"
       subtitle="Name, dates, venue, show type, and who runs the show."
       stepsInput={stepsInput}
     >

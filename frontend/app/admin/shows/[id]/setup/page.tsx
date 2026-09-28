@@ -43,7 +43,8 @@ export default async function SetupHubPage({
           Setup — {show.name}
         </h1>
         <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
-          Step through to configure this show. You can skip steps and come back to them later.
+          Step through to configure this show. A step that does not apply can be skipped — it
+          folds down here and in the step list, and comes back if you add anything to it.
         </p>
       </div>
 
@@ -57,7 +58,24 @@ export default async function SetupHubPage({
       />
 
       <ul className="space-y-3">
-        {steps.map((step) => (
+        {steps.map((step) => step.skipped ? (
+          // Minimized: one line, set aside, still one press from being opened.
+          // A skipped step is an answer, not work outstanding, so it must not
+          // be drawn the same size as the steps still waiting.
+          <li key={step.key}>
+            <Link
+              href={step.href ?? '#'}
+              className="flex items-center justify-between gap-3 px-4 py-2 rounded-lg border border-dashed text-sm transition-colors hover:bg-amber-50"
+              style={{ borderColor: COLORS.border, color: COLORS.muted }}
+              title="Skipped for this show. Open it to add something, or to bring it back."
+            >
+              <span>
+                <span className="font-medium">{step.label}</span> — skipped, not used at this show
+              </span>
+              <span className="text-xs shrink-0">Open</span>
+            </Link>
+          </li>
+        ) : (
           <li key={step.key}>
             <Link
               href={step.href ?? '#'}
@@ -120,17 +138,32 @@ function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
       return counts.classCount === 0
         ? 'No classes yet — build the schedule from disciplines and divisions.'
         : `${counts.classCount} class${counts.classCount === 1 ? '' : 'es'} on the schedule.`;
-    case 'futurities':
-      return counts.futurityCount === 0
-        ? 'No futurity on this show. Skip unless you run one.'
-        : `${counts.futurityCount} futurit${counts.futurityCount === 1 ? 'y' : 'ies'} set up.`;
-    case 'judgecards':
-      if (counts.classCount === 0) return 'No classes to mark on a card yet.';
-      if (counts.scoredClassCount === 0)
-        return 'Nothing on this schedule is scored — rail classes are placed, not marked.';
-      return counts.cardedClassCount === 0
-        ? `${counts.scoredClassCount} scored class${counts.scoredClassCount === 1 ? '' : 'es'}, none given a card yet.`
-        : `${counts.cardedClassCount} of ${counts.scoredClassCount} scored classes marked on a card.`;
+    case 'futurities': {
+      if (counts.futurityCount === 0 && counts.sidePotCount === 0)
+        return 'No futurity or side pot on this show. Skip unless you run one.';
+      const parts = [
+        counts.futurityCount > 0 &&
+          `${counts.futurityCount} futurit${counts.futurityCount === 1 ? 'y' : 'ies'}`,
+        counts.sidePotCount > 0 &&
+          `${counts.sidePotCount} side pot${counts.sidePotCount === 1 ? '' : 's'}`,
+      ].filter(Boolean);
+      return `${parts.join(' and ')} set up.`;
+    }
+    case 'judgecards': {
+      const t = counts.cardTypeCounts;
+      const cards =
+        counts.classCount === 0
+          ? 'No classes to place yet.'
+          : [
+              t.placing && `${t.placing} placing`,
+              t.scored && `${t.scored} scored`,
+              t.equitation && `${t.equitation} equitation`,
+              t.timed && `${t.timed} timed`,
+            ]
+              .filter(Boolean)
+              .join(' · ') + '.';
+      return `${cards} ${counts.highPointChosen ? 'High point chart set.' : 'No high point chart yet.'}`;
+    }
     case 'paperwork':
       return counts.healthPaperCount === 0
         ? 'No health papers required. Set what a horse must arrive with, and what the rider signs.'

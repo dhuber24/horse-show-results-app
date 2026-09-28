@@ -23,7 +23,7 @@ export default async function SetupJudgesPage({
       showId={id}
       showName={show.name}
       current="judges"
-      title="Step 2: Judges"
+      title="Judges"
       subtitle="Pick the judges officiating this show. Their details come from the judge registry."
       stepsInput={{ ...stepsInput, judgeCount: judgeData.judges.length }}
       skip={

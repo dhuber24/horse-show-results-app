@@ -34,6 +34,7 @@ from models import (
     Entry,
     Exhibitor,
     Horse,
+    Judge,
     JudgeCard,
     Result,
     Show,
@@ -63,6 +64,18 @@ def _number(value) -> Optional[float]:
     return None if value is None else float(value)
 
 
+def judge_name(judge: Optional[Judge]) -> Optional[str]:
+    """The registry stores a judge's name in two parts; there is no `Judge.name`.
+
+    Reading one took every report down with it — `_load_record` builds the
+    judges first, so an AttributeError here 500'd the whole Show Record at any
+    show with a judge assigned.
+    """
+    if judge is None:
+        return None
+    return f"{judge.first_name or ''} {judge.last_name or ''}".strip() or None
+
+
 async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
     """The whole show, in a fixed number of queries.
 
@@ -86,7 +99,7 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
     )
 
     judges = [
-        {"id": sj.id, "name": (sj.judge.name if sj.judge else None), "sort_order": sj.sort_order or 0}
+        {"id": sj.id, "name": judge_name(sj.judge), "sort_order": sj.sort_order or 0}
         for sj in (await db.execute(
             select(ShowJudge)
             .options(selectinload(ShowJudge.judge))
@@ -365,20 +378,24 @@ async def get_retention_archive(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """The set SC-110.J asks management to retain for a year, in one read.
+    """The show's record to keep on file, in one read: the class summary, the
+    results, the entry cards and the judges' cards.
 
-    *"Management must retain copies of the original signed judge's placing cards,
-    the show results and the entry cards for at least one year."*
+    Associations and clubs commonly ask a show's management to keep the signed
+    judge's cards, the results and the entry cards for a period after the show
+    (APHA's SC-110.J is one such rule). The app holds all of those in some form
+    and had no way to get them out together. This is that — one bundle,
+    generated from the show's own data the way the show bill is, rather than an
+    upload that would go stale the moment a placing is corrected.
 
-    The app holds all three ingredients in some form and had no way to get them
-    out together. This is that — one bundle, generated from the show's own data
-    the way the show bill is, rather than an upload that would go stale the
-    moment a placing is corrected.
+    **The wording is generic on purpose.** It is offered at every show, whatever
+    body sanctions it, so it names no association's rule; how long to keep the
+    record, and whether a processed copy comes back, is the sanctioning body's
+    to say.
 
-    **It does not satisfy the rule on its own**, and says so in `caveats` rather
-    than letting a printout imply otherwise: the *signed* judge's cards are paper
-    the judge hands to the office, and nothing the app can generate is that
-    document.
+    **It does not replace the paper**, and says so in `caveats` rather than
+    letting a printout imply otherwise: the *signed* judge's cards are paper the
+    judge hands to the office, and nothing the app can generate is that document.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     record = await _load_record(show_id, db)
@@ -388,16 +405,15 @@ async def get_retention_archive(
         "The original signed judge's placing cards are paper the judge hands to "
         "the office. Nothing here is that document — Judges' Cards is what the "
         "scribe recorded off them. Keep the paper as well.",
-        # SC-125.D asks for something SC-110.J does not, and it is worth naming
-        # separately: a copy of the results **as APHA sent them back**. That is
-        # APHA's document, produced after submission, and the app has no way to
-        # hold it — so a bundle that listed only its own output would look
-        # complete while missing one of the three things the rule names.
-        "SC-125.D also requires a copy of the show results **as received from "
-        "APHA** — their document, returned after the results are processed, not "
-        "this one. Keep that with the bundle.",
-        "Retention runs one year from the date of the show, and corrections may "
-        "be requested for that same year and no longer (SC-125.D, SC-125.E).",
+        # A bundle that listed only its own output would look complete while
+        # missing the one document the app cannot hold: the results as the
+        # sanctioning body sends them back after processing them.
+        "If your association or club sends the results back once it has "
+        "processed them, keep its copy with this bundle — that is its document, "
+        "not this one.",
+        "How long to keep the record, and how late a correction may be asked "
+        "for, are set by the association or club that sanctions the show. "
+        "Check its rules; many ask for at least a year.",
         "Generated from the show's own data, so re-running it after a correction "
         "produces the corrected record. Print or export a copy at the point you "
         "need to retain one.",

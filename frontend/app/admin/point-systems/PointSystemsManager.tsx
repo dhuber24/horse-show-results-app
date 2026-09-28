@@ -3,23 +3,21 @@
 import { useState } from 'react';
 import { errorMessage } from '@/lib/api-error';
 import {
-  bandLabel,
-  chartBands,
-  formatPoints,
-  ordinal,
-  type PointAward,
+  awardsFromChart,
+  blankChart,
+  chartDraftFrom,
+  type ChartDraft,
   type PointSystem,
   type PointSystemOwner,
 } from '@/lib/high-point';
+import { ChartGridEditor, ChartPreview } from '@/components/PointChart';
 
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 const labelStyle = { color: 'var(--text-deep)' } as const;
 const primaryButton = { backgroundColor: 'var(--accent)', color: 'var(--surface)' } as const;
-const quietButton = { borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' } as const;
 
 export type AssociationOption = { id: string; code: string; name: string };
 
-type Band = { minEntries: string; points: string[] };
 type Draft = {
   id: string | null;
   name: string;
@@ -27,153 +25,18 @@ type Draft = {
   companyId: string;
   associationId: string;
   notes: string;
-  places: number;
-  bands: Band[];
+  chart: ChartDraft;
 };
-
-// A new chart starts with the one row every chart has: a class of one horse,
-// which can only place first. "+ Class-size row" builds it out from there.
-const BLANK: Draft = {
-  id: null,
-  name: '',
-  companyId: '',
-  associationId: '',
-  notes: '',
-  places: 1,
-  bands: [{ minEntries: '1', points: [''] }],
-};
-
-// Wider than any printed chart; keeps the grid on a screen.
-const MAX_PLACES = 30;
-
-function wholeNumber(value: string): number | null {
-  const n = Number(value);
-  return value.trim() !== '' && Number.isInteger(n) && n >= 1 ? n : null;
-}
-
-/** The last class size a row covers: one below where the next row starts. A
- *  row stores only its first size, so this is how "3–4" is kept -- the 4 is the
- *  next row's 5, less one. Null for the last row, which covers every bigger
- *  class, and while the next row's start is not a number yet. */
-function rowTop(bands: Band[], index: number): number | null {
-  const next = bands[index + 1];
-  if (!next) return null;
-  const nextFrom = wholeNumber(next.minEntries);
-  return nextFrom === null ? null : nextFrom - 1;
-}
-
-/** How many places a row may award: as many as the largest class in its
- *  range, so a 5–9 row pays down to 9th (migration 152). The last row is
- *  open-ended and has only its first size to go by, so "45 & over" pays at most
- *  45. 0 while the range is not whole numbers in order -- nothing can be typed
- *  until it is. */
-function placeLimit(bands: Band[], index: number): number {
-  const from = wholeNumber(bands[index].minEntries);
-  if (from === null) return 0;
-  if (index === bands.length - 1) return from;
-  const top = rowTop(bands, index);
-  return top !== null && top >= from ? top : 0;
-}
-
-/** "3–4", "2", or "45 or more". */
-function rangeText(bands: Band[], index: number): string {
-  const from = bands[index].minEntries || '?';
-  if (index === bands.length - 1) return `${from} or more`;
-  const top = rowTop(bands, index);
-  return top === null ? `${from}–?` : String(top) === from ? from : `${from}–${top}`;
-}
-
-function widestRow(bands: Band[]): number {
-  return Math.min(MAX_PLACES, Math.max(0, ...bands.map((_, i) => placeLimit(bands, i))));
-}
 
 function draftFrom(system: PointSystem): Draft {
-  const bands = chartBands(system.awards);
-  const places = Math.max(1, ...bands.map((b) => b.points.length));
   return {
     id: system.id,
     name: system.name,
     companyId: system.company_id ?? '',
     associationId: system.association_id ?? '',
     notes: system.notes ?? '',
-    places,
-    bands: bands.map((b) => ({
-      minEntries: String(b.minEntries),
-      points: Array.from({ length: places }, (_, i) => (b.points[i] ? String(b.points[i]) : '')),
-    })),
+    chart: chartDraftFrom(system.awards),
   };
-}
-
-/** The grid as award rows, or the reason it cannot be saved. */
-function awardsFrom(draft: Draft): { awards: PointAward[] } | { error: string } {
-  const awards: PointAward[] = [];
-  const { bands } = draft;
-  for (let b = 0; b < bands.length; b++) {
-    const minEntries = wholeNumber(bands[b].minEntries);
-    if (minEntries === null) {
-      return { error: 'Every row needs a class size that is a whole number of horses, 1 or more.' };
-    }
-    const previous = b > 0 ? wholeNumber(bands[b - 1].minEntries) : null;
-    if (previous !== null && minEntries <= previous) {
-      return { error: `Rows must run from the smallest classes to the largest: row ${b + 1} starts at ${minEntries}, which is not after row ${b}.` };
-    }
-    const range = rangeText(bands, b);
-    // Only the cells on screen: a place past the row's range is shown blank and
-    // greyed out, so it is not what anybody is saving.
-    const limit = placeLimit(bands, b);
-    let paid = 0;
-    for (let i = 0; i < Math.min(draft.places, limit); i++) {
-      const raw = (bands[b].points[i] ?? '').trim();
-      if (!raw) continue;
-      const points = Number(raw);
-      if (!Number.isFinite(points) || points < 0) {
-        return { error: `${ordinal(i + 1)} place in classes of ${range} is not a number of points.` };
-      }
-      if (points > 0) {
-        awards.push({ min_entries: minEntries, place: i + 1, points });
-        paid += 1;
-      }
-    }
-    // A row with nothing in it is not saved, and the row above would then
-    // stretch over its range -- so a class that was meant to earn nothing
-    // would quietly earn the row above's points.
-    if (paid === 0) {
-      return { error: `Classes of ${range} have no points. Give their row some, or remove it.` };
-    }
-  }
-  if (awards.length === 0) return { error: 'Enter the points for at least one place.' };
-  return { awards };
-}
-
-function ChartPreview({ system }: { system: PointSystem }) {
-  const bands = chartBands(system.awards);
-  const places = Math.max(0, ...bands.map((b) => b.points.length));
-  return (
-    <div className="overflow-x-auto">
-      <table className="text-xs border-collapse">
-        <thead>
-          <tr style={{ color: 'var(--accent)' }}>
-            <th className="text-left font-semibold py-1 pr-4">Class size</th>
-            {Array.from({ length: places }, (_, i) => (
-              <th key={i} className="text-right font-semibold py-1 px-2">{ordinal(i + 1)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {bands.map((band, index) => (
-            <tr key={band.minEntries} className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-              <td className="py-1 pr-4 whitespace-nowrap" style={labelStyle}>{bandLabel(bands, index)}</td>
-              {Array.from({ length: places }, (_, i) => (
-                <td key={i} className="py-1 px-2 text-right" style={labelStyle}>
-                  {band.points[i] ? formatPoints(band.points[i]) : '—'}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 /**
@@ -185,6 +48,10 @@ function ChartPreview({ system }: { system: PointSystem }) {
  * column per place. A flat scale is one row starting at 1. The largest row at
  * or below a class's size applies, which is how a printed chart's "11 or more
  * horses" row reads.
+ *
+ * The grid itself is `ChartGridEditor`, shared with a show's own chart on its
+ * High Point page (migration 153), so the two cannot disagree about what a row
+ * means.
  */
 export default function PointSystemsManager({
   initialSystems,
@@ -219,68 +86,6 @@ export default function PointSystemsManager({
     setError(null);
   };
   const update = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
-  const setCell = (bandIndex: number, place: number, value: string) =>
-    setDraft((d) => {
-      if (!d) return d;
-      const bands = d.bands.map((b, i) =>
-        i === bandIndex ? { ...b, points: b.points.map((p, j) => (j === place ? value : p)) } : b,
-      );
-      return { ...d, bands };
-    });
-  // The most places any row may award -- no column past it could ever be filled.
-  const widest = draft ? widestRow(draft.bands) : 0;
-  // Neither edit clears a cell. A cell past a row's range is greyed out and not
-  // saved, but it keeps what was typed: typing "14" goes through "1" on the way,
-  // and that must not wipe the row it briefly narrowed.
-  const setFrom = (bandIndex: number, value: string) =>
-    setDraft((d) =>
-      d ? { ...d, bands: d.bands.map((b, i) => (i === bandIndex ? { ...b, minEntries: value } : b)) } : d,
-    );
-  // Where a row ends is where the next one starts, less one -- so typing the
-  // end of 3–4 starts the next row at 5.
-  const setTo = (bandIndex: number, value: string) =>
-    setDraft((d) => {
-      if (!d || bandIndex + 1 >= d.bands.length) return d;
-      const top = Number(value);
-      const nextFrom = value.trim() === '' || !Number.isFinite(top) ? '' : String(Math.trunc(top) + 1);
-      return {
-        ...d,
-        bands: d.bands.map((b, i) => (i === bandIndex + 1 ? { ...b, minEntries: nextFrom } : b)),
-      };
-    });
-  const setPlaces = (places: number) =>
-    setDraft((d) => {
-      if (!d || places < 1 || places > widestRow(d.bands)) return d;
-      return {
-        ...d,
-        places,
-        bands: d.bands.map((b) => ({
-          ...b,
-          points: Array.from({ length: places }, (_, i) => b.points[i] ?? ''),
-        })),
-      };
-    });
-  // The next class size up, and one more place column -- a printed chart
-  // usually pays one more place per range, so building one row by row keeps
-  // the grid as wide as it needs and no wider.
-  const addBand = () =>
-    setDraft((d) => {
-      if (!d) return d;
-      const highest = Math.max(0, ...d.bands.map((b) => Number(b.minEntries) || 0));
-      const minEntries = highest + 1;
-      const places = Math.min(MAX_PLACES, Math.max(d.places, Math.min(d.places + 1, minEntries)));
-      const widen = (points: string[]) => Array.from({ length: places }, (_, i) => points[i] ?? '');
-      return {
-        ...d,
-        places,
-        bands: [
-          ...d.bands.map((b) => ({ ...b, points: widen(b.points) })),
-          { minEntries: String(minEntries), points: widen([]) },
-        ],
-      };
-    });
-  const removeBand = (index: number) =>
-    setDraft((d) => (d && d.bands.length > 1 ? { ...d, bands: d.bands.filter((_, i) => i !== index) } : d));
 
   const save = async () => {
     if (!draft) return;
@@ -288,7 +93,7 @@ export default function PointSystemsManager({
       setError('Give the points system a name.');
       return;
     }
-    const chart = awardsFrom(draft);
+    const chart = awardsFromChart(draft.chart);
     if ('error' in chart) {
       setError(chart.error);
       return;
@@ -345,7 +150,7 @@ export default function PointSystemsManager({
         <button
           type="button"
           onClick={() =>
-            edit({ ...BLANK, companyId: defaultOwner, bands: BLANK.bands.map((b) => ({ ...b, points: [...b.points] })) })
+            edit({ id: null, name: '', companyId: defaultOwner, associationId: '', notes: '', chart: blankChart() })
           }
           className="px-4 py-2 rounded text-sm font-medium"
           style={primaryButton}
@@ -421,134 +226,7 @@ export default function PointSystemsManager({
             />
           </label>
 
-          <div className="space-y-2">
-            <div className="text-xs font-medium uppercase tracking-wide" style={labelStyle}>Points by place</div>
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              One row per range of class sizes, the way the rules print them &mdash; 3&ndash;4, 5&ndash;9,
-              10&ndash;14. Typing where a row ends starts the next row one higher. A row pays as many
-              places as the largest class in its range, so a 5&ndash;9 row can pay down to 9th; the last
-              row covers every bigger class and pays as many places as its first size. A class
-              smaller than the first row earns nothing. A flat 6-5-4-3-2-1 scale is two rows,
-              1&ndash;6 and 7 &amp; over. Leave a place blank for no points.
-            </p>
-            <div className="overflow-x-auto">
-              <table className="text-sm border-collapse">
-                <thead>
-                  <tr style={{ color: 'var(--accent)' }}>
-                    <th className="text-left text-xs font-semibold py-1 pr-2 whitespace-nowrap">Class size</th>
-                    {Array.from({ length: draft.places }, (_, i) => (
-                      <th key={i} className="text-xs font-semibold py-1 px-1 text-center">{ordinal(i + 1)}</th>
-                    ))}
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.bands.map((band, bandIndex) => (
-                    <tr key={bandIndex}>
-                      <td className="py-1 pr-2">
-                        <div className="flex items-center gap-1 whitespace-nowrap">
-                          <input
-                            type="number"
-                            min={1}
-                            inputMode="numeric"
-                            value={band.minEntries}
-                            onChange={(e) => setFrom(bandIndex, e.target.value)}
-                            aria-label={`Row ${bandIndex + 1}: smallest class size`}
-                            className="border rounded px-2 py-1 w-16 text-sm"
-                            style={inputStyle}
-                          />
-                          <span aria-hidden="true" style={{ color: 'var(--muted)' }}>&ndash;</span>
-                          {bandIndex === draft.bands.length - 1 ? (
-                            <span className="text-xs px-1" style={{ color: 'var(--muted)' }} title="The last row covers every bigger class">
-                              &amp; over
-                            </span>
-                          ) : (
-                            <input
-                              type="number"
-                              min={1}
-                              inputMode="numeric"
-                              value={rowTop(draft.bands, bandIndex) ?? ''}
-                              onChange={(e) => setTo(bandIndex, e.target.value)}
-                              aria-label={`Row ${bandIndex + 1}: largest class size`}
-                              title="Where this row ends. The next row starts one higher."
-                              className="border rounded px-2 py-1 w-16 text-sm"
-                              style={inputStyle}
-                            />
-                          )}
-                        </div>
-                      </td>
-                      {Array.from({ length: draft.places }, (_, place) => {
-                        const limit = placeLimit(draft.bands, bandIndex);
-                        const beyond = place + 1 > limit;
-                        return (
-                          <td key={place} className="py-1 px-1">
-                            <input
-                              inputMode="decimal"
-                              value={beyond ? '' : (band.points[place] ?? '')}
-                              onChange={(e) => setCell(bandIndex, place, e.target.value)}
-                              disabled={beyond}
-                              placeholder={beyond ? '—' : undefined}
-                              title={
-                                beyond
-                                  ? limit
-                                    ? `Classes of ${rangeText(draft.bands, bandIndex)} can pay at most ${limit} ${limit === 1 ? 'place' : 'places'}`
-                                    : 'Enter the class sizes, smallest row first'
-                                  : undefined
-                              }
-                              aria-label={`${ordinal(place + 1)} place, classes of ${rangeText(draft.bands, bandIndex)}`}
-                              className="border rounded px-1 py-1 w-14 text-sm text-center disabled:opacity-40"
-                              style={beyond ? { ...inputStyle, backgroundColor: 'var(--bg-subtle)' } : inputStyle}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="py-1 pl-2">
-                        <button
-                          type="button"
-                          onClick={() => removeBand(bandIndex)}
-                          disabled={draft.bands.length === 1}
-                          title={draft.bands.length === 1 ? 'A chart needs at least one row' : 'Remove this row'}
-                          className="text-xs hover:underline disabled:opacity-40"
-                          style={{ color: 'var(--error)' }}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={addBand} className="px-3 py-1.5 rounded border text-xs font-medium" style={quietButton}>
-                + Class-size row
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlaces(draft.places + 1)}
-                disabled={draft.places >= widest}
-                title={
-                  draft.places >= widest
-                    ? `No row can pay a ${ordinal(draft.places + 1)} place: the widest range tops out at ${widest}. Widen a row's range, or add a row, first`
-                    : 'Add a place column'
-                }
-                className="px-3 py-1.5 rounded border text-xs font-medium disabled:opacity-40"
-                style={quietButton}
-              >
-                + Place
-              </button>
-              <button
-                type="button"
-                onClick={() => setPlaces(draft.places - 1)}
-                disabled={draft.places <= 1}
-                title={draft.places <= 1 ? 'A chart needs at least one place' : 'Remove the last place column'}
-                className="px-3 py-1.5 rounded border text-xs font-medium disabled:opacity-40"
-                style={quietButton}
-              >
-                − Place
-              </button>
-            </div>
-          </div>
+          <ChartGridEditor chart={draft.chart} onChange={(chart) => update({ chart })} />
 
           {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
           <div className="flex items-center gap-3">
@@ -599,7 +277,9 @@ export default function PointSystemsManager({
                   {/* A starting point for a company that scores a little
                       differently: the chart opens as a new system under the
                       company, keeping the template's name -- the template
-                      itself is badged, so the two cannot be confused. */}
+                      itself is badged, so the two cannot be confused. A show
+                      that only wants its own copy takes it on the show's High
+                      Point page instead. */}
                   <button
                     type="button"
                     onClick={() => edit({ ...draftFrom(system), id: null, companyId: defaultOwner })}
@@ -634,7 +314,7 @@ export default function PointSystemsManager({
               {deleteError?.id === system.id && (
                 <p className="text-sm" style={{ color: 'var(--error)' }}>{deleteError.message}</p>
               )}
-              <ChartPreview system={system} />
+              <ChartPreview awards={system.awards} />
             </li>
             );
           })}

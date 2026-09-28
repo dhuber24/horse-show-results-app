@@ -4,7 +4,7 @@ import { fetchStepCounts } from '../_lib/fetchStepCounts';
 import ShowbillClient from './ShowbillClient';
 
 /**
- * Step 9: which show bill this show publishes.
+ * Setup step, Show Bill: which show bill this show publishes.
  *
  * Last in the flow because the show bill is what the eight steps before it add
  * up to — the judges, the clubs, the fees and the class schedule on one sheet.
@@ -28,7 +28,7 @@ export default async function SetupShowbillPage({
       showId={id}
       showName={show.name}
       current="showbill"
-      title="Step 9: Show Bill"
+      title="Show Bill"
       subtitle="Publish the show bill GaitDesk generates, or upload the one your club already has."
       stepsInput={stepsInput}
     >

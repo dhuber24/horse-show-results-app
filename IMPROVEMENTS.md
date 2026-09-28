@@ -2,6 +2,43 @@
 
 ## September 2026
 
+### Show Record, setup skips, points charts per show, and a QR code on the board
+
+- **Every Show Record report works again.** They all 500'd at any show with a
+  judge assigned: the loader read `Judge.name`, and the judge registry has only
+  ever stored `first_name` / `last_name`. Broken since the Show Record shipped.
+- **The Retention Bundle is an ordinary tile**, worded for any sanctioning body
+  rather than for APHA's SC-110.J and SC-125.D.
+- **Side pots are part of setup**: Step 6 is now *Futurities & Side Pots*, and
+  each is declined on its own there.
+- **A skipped setup step is remembered** (migration 154). It folds away in the
+  tab bar and on the hub, Back and Next walk past it, and a declined futurity
+  or side pot greys out its tile on the show dashboard. Step numbers are now
+  worked out from the step's position (the Show Bill had read "Step 9" on a tab
+  labelled 10).
+- **The show dashboard puts Patterns and High Point above Side Pots and
+  Futurities.**
+- **A show keeps its own points chart** (migration 153). The High Point page
+  shows a template's matrix before it is chosen, offers *Custom* to start from
+  nothing, and *Use this template* opens it to be changed for this show; the
+  template itself is untouched. The grid editor is shared with the Points
+  Systems library.
+- **The results board carries a QR code** at the top right, to the show's
+  public Results page.
+- **Setup Step 8 is now *Scoring*: the judge cards and the show's high-point
+  chart together.** Declining the high point there greys out the High Point
+  tile; leaving the step with the chart open saves it.
+- **The results board can run on a second screen.** *A second screen* on the
+  Results Board page opens it in its own window, moved onto the monitor
+  attached to the laptop or tablet where the browser allows it (Chrome, Edge),
+  with a *Fill this screen* press on that screen. The device stays usable.
+- **Every class is placed by one of four card types** (migration 155): Placing,
+  Scored / Numeric, Equitation / Pattern, or Timed — chosen on the Scoring step,
+  **for a whole ticked list at once** (tick a day, a discipline, or a card type,
+  then apply), with a judge's-card sheet for the scored and equitation ones.
+  Each class starts on the card its discipline implies; a class with placings
+  filed keeps how it is placed.
+
 ### My Company Staff
 
 A club's own managers and secretaries had no screen for who works for them —

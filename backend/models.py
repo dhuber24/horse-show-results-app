@@ -353,6 +353,10 @@ class PointSystem(Base):
 
     Owned by a show company (migration 148): only its members see or use it,
     and GaitDesk admins see every one. `company_id` NULL is admins only.
+
+    Or owned by one show (migration 153): `show_id` set is that show's own
+    chart, copied from a template on its High Point page. Never a library
+    system -- no company, never offered elsewhere, deleted with the show.
     """
 
     __tablename__ = "point_systems"
@@ -367,6 +371,7 @@ class PointSystem(Base):
     association_id = Column(
         UUID(as_uuid=True), ForeignKey("associations.id", ondelete="SET NULL"), nullable=True
     )
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=True)
     notes = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -411,9 +416,9 @@ class ShowPointSystem(Base):
     __tablename__ = "show_point_systems"
 
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True)
-    point_system_id = Column(
-        UUID(as_uuid=True), ForeignKey("point_systems.id", ondelete="RESTRICT"), nullable=False
-    )
+    # NO ACTION rather than RESTRICT since migration 153: deleting a show takes
+    # this row and the show's own chart in one statement.
+    point_system_id = Column(UUID(as_uuid=True), ForeignKey("point_systems.id"), nullable=False)
     chosen_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     chosen_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -665,6 +670,11 @@ class Class(Base):
     judging_system_id = Column(
         UUID(as_uuid=True), ForeignKey("judging_systems.id", ondelete="SET NULL"), nullable=True
     )
+    # How the class is placed, as the office chose it (migration 155): placing,
+    # scored, equitation or timed. Written with `score_type` by the Scoring step;
+    # NULL -- or a value that disagrees with `score_type` -- is derived. Read
+    # through `card_types.effective_card_type`, never directly.
+    card_type = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", back_populates="classes")
@@ -1676,6 +1686,9 @@ class JudgingSystem(Base):
     # the judge built.
     unit_count = Column(Integer, nullable=True)
     score_max = Column(Numeric(10, 3), nullable=True)
+    # Which score-based card type this sheet belongs to (migration 155):
+    # 'scored' or 'equitation'. NULL is offered to both.
+    card_type = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, server_default="true", default=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
@@ -2313,6 +2326,20 @@ class ShowRegistrationMembership(Base):
     # expiry rule by the association's type -- and an unloaded relationship in
     # an async request is a MissingGreenlet rather than a slow query.
     association = relationship("Association", lazy="selectin")
+
+
+class ShowSetupSkip(Base):
+    """A setup step the show office said does not apply to this show (migration
+    154). Counted only while the step is still empty -- that is decided on read.
+    See `routers/show_setup.py`."""
+    __tablename__ = "show_setup_skips"
+
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
+    )
+    step = Column(Text, primary_key=True)
+    skipped_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    skipped_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 class ShowMarquee(Base):

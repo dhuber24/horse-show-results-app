@@ -52,28 +52,6 @@ export default async function ShowReportsPage({
         </p>
       </div>
 
-      <Link
-        href={`/admin/shows/${id}/reports/archive`}
-        className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
-        style={{ borderColor: 'var(--accent)', backgroundColor: 'var(--warning-bg)' }}
-      >
-        <div className="flex items-start gap-3">
-          <div className="text-2xl" aria-hidden>
-            🗄️
-          </div>
-          <div>
-            <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
-              Retention Bundle
-            </h2>
-            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-              The set APHA asks management to keep for a year (SC-110.J), on one
-              printable page. Read the caveats on it — the <em>signed</em> judge&rsquo;s
-              cards are paper, and nothing here is that document.
-            </p>
-          </div>
-        </div>
-      </Link>
-
       {!reports ? (
         <div
           className="rounded border p-4 text-sm"
@@ -84,23 +62,42 @@ export default async function ShowReportsPage({
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4">
-          {reports.map((report) => (
+          {[
+            ...reports.map((report) => ({
+              key: report.slug,
+              href: `/admin/shows/${id}/reports/${report.slug}`,
+              icon: reportIcon(report.slug),
+              title: report.title,
+              description: report.description,
+            })),
+            // The bundle is the reports above on one page rather than a report
+            // of its own, so it has its own route — but it is one more thing
+            // to open here, not a notice, and it reads like its neighbours.
+            {
+              key: 'archive',
+              href: `/admin/shows/${id}/reports/archive`,
+              icon: '🗄️',
+              title: 'Retention Bundle',
+              description:
+                'The class summary, results, entry cards and judges’ cards on one printable page — the copy of the show’s record to keep on file.',
+            },
+          ].map((tile) => (
             <Link
-              key={report.slug}
-              href={`/admin/shows/${id}/reports/${report.slug}`}
+              key={tile.key}
+              href={tile.href}
               className="block p-5 rounded-lg border transition-colors hover:bg-amber-50"
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <div className="flex items-start gap-3">
                 <div className="text-2xl" aria-hidden>
-                  {reportIcon(report.slug)}
+                  {tile.icon}
                 </div>
                 <div>
                   <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                    {report.title}
+                    {tile.title}
                   </h2>
                   <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-                    {report.description}
+                    {tile.description}
                   </p>
                 </div>
               </div>

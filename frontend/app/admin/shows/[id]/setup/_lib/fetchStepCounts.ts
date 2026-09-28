@@ -1,7 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
-import type { WizardStepsInput } from '../../../_wizard/steps';
+import type { SkipKey, WizardStepsInput } from '../../../_wizard/steps';
 
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
 // code for the camping line and still counts as lodging that is configured.
@@ -20,6 +20,10 @@ type ClassRow = {
   id: string;
   score_type?: string | null;
   judging_system_id?: string | null;
+  /** What somebody chose on the Scoring step (migration 155), or null. */
+  card_type?: string | null;
+  /** How the class is actually placed, derived where nobody chose. */
+  effective_card_type?: 'placing' | 'scored' | 'equitation' | 'timed' | null;
 };
 
 /** Only the resolved half of `ShowbillOut` is needed here — whether the step is
@@ -36,7 +40,7 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
 }
 
 export async function fetchStepCounts(showId: string): Promise<WizardStepsInput> {
-  const [show, judges, sanctioning, fees, classes, futurities, showbill] = await Promise.all([
+  const [show, judges, sanctioning, fees, classes, futurities, showbill, sidePots, skips, highPoint] = await Promise.all([
     fetchShow(showId),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
     getJson<{ association_id: string }[]>(
@@ -49,6 +53,11 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
     getJson<ShowbillState>(`${API_URL}/shows/${showId}/showbill-document`, {
       effective_source: 'generated',
     }),
+    getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/side-pots/`, []),
+    // What the office said does not apply (migration 154). A failed read is no
+    // skips, which only means nothing is folded away -- never a lost step.
+    getJson<{ steps: SkipKey[] }>(`${API_URL}/shows/${showId}/setup-skips`, { steps: [] }),
+    getJson<{ point_system: unknown | null }>(`${API_URL}/shows/${showId}/high-point`, { point_system: null }),
   ]);
 
   const lodgingFeeCount = fees.filter((f) => LODGING_CODES.has(f.code)).length;
@@ -71,8 +80,20 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
     feesCount: feesDone ? 1 : 0,
     classCount: classes.length,
     futurityCount: futurities.length,
+    sidePotCount: sidePots.length,
+    highPointChosen: highPoint.point_system != null,
+    skippedSteps: skips.steps,
     scoredClassCount: scoredClasses.length,
     cardedClassCount: scoredClasses.filter((c) => c.judging_system_id).length,
+    scoringChosenCount: classes.filter((c) => c.card_type).length,
+    cardTypeCounts: classes.reduce(
+      (acc, c) => {
+        const key = c.effective_card_type ?? 'placing';
+        acc[key] += 1;
+        return acc;
+      },
+      { placing: 0, scored: 0, equitation: 0, timed: 0 },
+    ),
     // Coggins is on unless the show turns it off; a CVI and vaccination records
     // are off unless it turns them on. Counted rather than listed because the
     // hub prints one line per step.

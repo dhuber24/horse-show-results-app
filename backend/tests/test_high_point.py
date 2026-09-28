@@ -222,6 +222,22 @@ def test_a_standard_system_is_only_gaitdesks_to_change():
     assert not may_edit_point_system("SHOW_SECRETARY", OTHER_CLUB, [CLUB])
 
 
+SHOW = uuid4()
+
+
+def test_a_shows_own_chart_is_in_nobodys_library():
+    """Migration 153. It has no company, so without the show check it would read
+    as a GaitDesk standard system and turn up in every company's picker -- and
+    could then score another show or a circuit."""
+    assert not may_use_point_system("SHOW_MANAGER", None, [CLUB], SHOW)
+    assert not may_use_point_system("ADMIN", None, [], SHOW)
+
+
+def test_a_shows_own_chart_is_changed_through_its_show_not_the_library():
+    assert not may_edit_point_system("ADMIN", None, [], SHOW)
+    assert not may_edit_point_system("SHOW_SECRETARY", None, [CLUB], SHOW)
+
+
 def test_somebody_in_one_company_need_not_say_which():
     assert owning_company(Caller(ALICE, "SHOW_MANAGER", [CLUB]), None) == CLUB
 

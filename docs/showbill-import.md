@@ -236,7 +236,7 @@ its state and arithmetic in `frontend/lib/showbill-import.ts` (tested in
   given one of those codes.
 - **The PDF goes on file** as the show's `SHOWBILL` document when the box is
   ticked (it is by default). `showbill_source` stays `generated`: switching the
-  Show Bill button to the upload is the deliberate second press in Step 9 that
+  Show Bill button to the upload is the deliberate second press in Step 10 that
   it always is.
 - The import row records `accepted` (the reviewed payload) and `show_id`.
 

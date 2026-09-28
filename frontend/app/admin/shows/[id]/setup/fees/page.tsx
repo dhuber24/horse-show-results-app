@@ -59,7 +59,7 @@ export default async function SetupFeesPage({
       showId={id}
       showName={show.name}
       current="fees"
-      title="Step 7: Show Fees"
+      title="Show Fees"
       subtitle="The show's own fees, on top of the clubs' and the futurity's — a price per class, an office fee, an assessment — charged per class, exhibitor, horse or judge."
       stepsInput={{ ...stepsInput, feesCount: charges.length > 0 ? 1 : 0 }}
       skip={

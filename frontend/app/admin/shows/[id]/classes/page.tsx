@@ -118,7 +118,7 @@ export default async function ShowClassesPage({
       showId={id}
       showName={show.name}
       current="classes"
-      title="Step 4: Class Builder"
+      title="Class Builder"
       subtitle="Everything the steps after this one ask about — which classes a club approves, which belong to a futurity, which classes a fee applies to, which card each scored class is marked on — is picked from the classes you build here."
       stepsInput={stepsInput}
     >

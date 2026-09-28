@@ -120,6 +120,7 @@ export function AutosaveNavLink({
   children,
   ariaCurrent,
   title,
+  before,
 }: {
   href: string;
   className?: string;
@@ -127,6 +128,9 @@ export function AutosaveNavLink({
   children: React.ReactNode;
   ariaCurrent?: 'step';
   title?: string;
+  /** Runs after the step is saved and before leaving it — recording a skip,
+   *  say. Throwing stays on the step, like a flush that fails. */
+  before?: () => Promise<void>;
 }) {
   const flush = useStepAutosaveFlush();
   const [busy, setBusy] = useState(false);
@@ -143,6 +147,7 @@ export function AutosaveNavLink({
         setBusy(true);
         try {
           await flush();
+          if (before) await before();
         } catch {
           // The step showed its own error. Staying put is the point.
           setBusy(false);

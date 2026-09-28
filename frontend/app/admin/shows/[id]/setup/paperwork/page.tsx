@@ -49,7 +49,7 @@ export default async function SetupPaperworkPage({
       showId={id}
       showName={show.name}
       current="paperwork"
-      title="Step 9: Paperwork Requirements"
+      title="Paperwork Requirements"
       subtitle="Setup any requirements for exhibitor and/or horse documentation."
       stepsInput={stepsInput}
     >

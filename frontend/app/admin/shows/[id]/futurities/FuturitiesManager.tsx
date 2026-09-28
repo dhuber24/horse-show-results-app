@@ -59,8 +59,7 @@ export default function FuturitiesManager({
         </h2>
         {futurities.length === 0 ? (
           <p className="text-sm" style={{ color: COLORS.muted }}>
-            No futurities on this show. Most shows run none — skip this step unless
-            yours does.
+            No futurities on this show yet.
           </p>
         ) : (
           <ul className="space-y-2">

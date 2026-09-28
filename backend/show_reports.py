@@ -278,8 +278,8 @@ def _judge_cards(record: dict) -> dict:
     notes = [
         "This is what the scribe recorded off the judge's card — the maneuver "
         "scores, the penalties called, and the total. It is not the original "
-        "signed card, which is paper the judge hands to the office and which "
-        "SC-110.J asks management to retain separately.",
+        "signed card, which is paper the judge hands to the office — keep it "
+        "separately.",
         "Where Score differs from Computed, somebody overruled the arithmetic. "
         "The reason they gave is in the last column and the change is in the "
         "class's audit history.",

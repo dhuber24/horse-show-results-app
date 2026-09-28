@@ -48,8 +48,12 @@ export default async function NewShowPage() {
     feesCount: 0,
     classCount: 0,
     futurityCount: 0,
+    sidePotCount: 0,
     scoredClassCount: 0,
     cardedClassCount: 0,
+    scoringChosenCount: 0,
+    cardTypeCounts: { placing: 0, scored: 0, equitation: 0, timed: 0 },
+    highPointChosen: false,
     healthPaperCount: 0,
     showbillReady: false,
   }).map((step) => ({ ...step, href: null, done: false }));
