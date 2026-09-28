@@ -75,7 +75,12 @@ from models import (
 from routers.show_financials import _load_financials
 from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
-from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
+from exhibitor_merge import (
+    merge_candidates,
+    merge_exhibitors,
+    merge_summary,
+    records_with_email,
+)
 from rules.apha import division_for_class
 from schemas import (
     ExhibitorMergeCandidate,
@@ -488,6 +493,16 @@ async def create_exhibitor_at_desk(
     typing the same name in twice is two records, because two people at one show
     really can be called Sarah Johnson and the app must never decide otherwise.
     The desk groups them under one roster entry and offers to merge them.
+
+    **An email is different, so it is asked about first.** A name is no evidence
+    that two records are one person; an address is the person, and an office
+    typing in danjhuber@hotmail.com is almost always looking for the Dan Huber
+    whose account signs in with it. So an address already on file is a
+    `409 EMAIL_ON_FILE` naming each record it is on and whether that record is
+    already on this show, and the form offers to add or open that record
+    instead. Asked rather than refused, because a youth is entered under a
+    parent's address all the time: `acknowledge_email_on_file` creates the new
+    record anyway once staff have said this is somebody else.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
@@ -497,9 +512,46 @@ async def create_exhibitor_at_desk(
     if not first or not last:
         raise HTTPException(422, "A first and last name are both needed.")
 
+    email = (body.email or "").strip() or None
+    if email and not body.acknowledge_email_on_file:
+        on_file = await records_with_email(email, db)
+        if on_file:
+            roster = await db.execute(
+                select(ShowEntry).where(
+                    ShowEntry.show_id == show_id,
+                    ShowEntry.exhibitor_id.in_([row.id for row, _ in on_file]),
+                )
+            )
+            here = {entry.exhibitor_id: entry for entry in roster.scalars()}
+            names = " and ".join(sorted({row.full_name for row, _ in on_file}))
+            raise HTTPException(
+                409,
+                {
+                    "code": "EMAIL_ON_FILE",
+                    "message": (
+                        f"{email} is already on file for {names}. Add that record "
+                        "instead, or say this is somebody else."
+                    ),
+                    "matches": [
+                        {
+                            # Strings, not UUIDs: an HTTPException's detail is
+                            # serialised as it stands, without the response model.
+                            "exhibitor_id": str(row.id),
+                            "full_name": row.full_name,
+                            "has_account": row.user_id is not None,
+                            "office_record": row.user_id is None
+                            and row.created_by_user_id is not None,
+                            "on_this_show": row.id in here,
+                            "back_number": here[row.id].back_number if row.id in here else None,
+                        }
+                        for row, _ in on_file
+                    ],
+                },
+            )
+
     exhibitor = Exhibitor(
         full_name=f"{first} {last}",
-        email=(body.email or None),
+        email=email,
         phone=(body.phone or "").strip() or None,
         created_by_user_id=safe_uuid(x_user_id),
     )

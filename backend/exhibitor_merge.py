@@ -190,6 +190,56 @@ async def account_email(exhibitor: Exhibitor, db: AsyncSession) -> Optional[str]
     return normalize_email(exhibitor.email) or None
 
 
+def holds_email(exhibitor, user, email: Optional[str]) -> bool:
+    """Is this address written anywhere on this record?
+
+    Either half counts: the account's address is what the person signs in with,
+    and `exhibitors.email` is what an office wrote down for them -- which a merge
+    can leave on the record beside the account's. Both are the person telling
+    somebody where to reach them. A blank address never matches, so a record
+    with no email is not "on file" under a form's empty box.
+    """
+    key = normalize_email(email)
+    if not key:
+        return False
+    account = normalize_email(user.email) if user is not None else ""
+    return key in (account, normalize_email(exhibitor.email))
+
+
+async def records_with_email(
+    email: Optional[str],
+    db: AsyncSession,
+    *,
+    limit: int = 5,
+) -> list[tuple[Exhibitor, Optional[User]]]:
+    """Every exhibitor record this address is on, oldest first.
+
+    What the desk asks before it types somebody in. A name match is no evidence
+    of anything, but an address is the person themselves, so a walk-up given as
+    danjhuber@hotmail.com is almost always the Dan Huber whose account signs in
+    with it -- and creating a second record for him is exactly the duplicate
+    `merge_exhibitors` exists to clean up afterwards. Almost, not always: a
+    youth is entered under a parent's address all the time, which is why this
+    finds and the caller asks rather than either refusing.
+    """
+    key = normalize_email(email)
+    if not key:
+        return []
+    result = await db.execute(
+        select(Exhibitor, User)
+        .outerjoin(User, User.id == Exhibitor.user_id)
+        .where(
+            or_(
+                func.lower(func.btrim(Exhibitor.email)) == key,
+                func.lower(func.btrim(User.email)) == key,
+            )
+        )
+        .order_by(Exhibitor.created_at)
+        .limit(limit)
+    )
+    return [(row, user) for row, user in result.all() if holds_email(row, user, key)]
+
+
 # ── Suggesting a merge ────────────────────────────────────────────────────────
 
 

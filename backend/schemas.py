@@ -2172,6 +2172,10 @@ class ShowDeskExhibitorCreate(BaseModel):
     last_name: str = Field(min_length=1, max_length=100)
     email: Optional[str] = None
     phone: Optional[str] = None
+    # An email already on file is answered with `409 EMAIL_ON_FILE` naming the
+    # records it belongs to. Set once staff have said this is somebody else --
+    # a youth entered under a parent's address is the ordinary case.
+    acknowledge_email_on_file: bool = False
 
 
 # ── Entries ────────────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from exhibitor_merge import (
     adopt_standing,
     fill_profile_blanks,
+    holds_email,
     is_live,
     merge_reservation,
     normalize_email,
@@ -235,3 +236,44 @@ def test_the_staff_member_who_typed_the_office_record_in_is_kept():
     keep = make_profile(created_by_user_id=None)
     fill_profile_blanks(keep, make_profile(created_by_user_id="staff-uuid"))
     assert keep.created_by_user_id == "staff-uuid"
+
+
+# ── Is this address already on file? ─────────────────────────────────────────
+#
+# What the desk asks before it types a walk-up in, so the office adds the
+# Dan Huber whose account signs in with danjhuber@hotmail.com rather than
+# making a second Dan Huber that a merge then has to clean up.
+
+
+def test_the_account_address_finds_the_record_whatever_the_case_or_spacing():
+    record = SimpleNamespace(email=None)
+    account = SimpleNamespace(email="DanJHuber@hotmail.com")
+    assert holds_email(record, account, "  danjhuber@HOTMAIL.com ")
+
+
+def test_the_address_the_office_wrote_down_finds_an_accountless_record():
+    assert holds_email(SimpleNamespace(email="sarah@example.com"), None, "Sarah@Example.com")
+
+
+def test_an_office_address_left_beside_an_account_still_counts():
+    """A merge fills the survivor's blanks, so a record can carry the address
+    the office took as well as the one the account signs in with. Both are the
+    person saying where to reach them."""
+    record = SimpleNamespace(email="old@example.com")
+    account = SimpleNamespace(email="new@example.com")
+    assert holds_email(record, account, "old@example.com")
+    assert holds_email(record, account, "new@example.com")
+
+
+def test_a_blank_address_is_never_on_file():
+    """Every record with no email would otherwise match a form's empty box."""
+    record = SimpleNamespace(email=None)
+    assert not holds_email(record, None, "")
+    assert not holds_email(record, None, None)
+    assert not holds_email(SimpleNamespace(email=""), SimpleNamespace(email=""), "   ")
+
+
+def test_a_different_address_does_not_match():
+    record = SimpleNamespace(email="kristen@example.com")
+    account = SimpleNamespace(email="kristen.huber17@gmail.com")
+    assert not holds_email(record, account, "danjhuber@hotmail.com")

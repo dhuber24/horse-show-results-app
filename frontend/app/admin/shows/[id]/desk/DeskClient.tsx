@@ -177,8 +177,8 @@ export default function DeskClient({
   // A selection that filters itself out of the list stays open — the desk is
   // mid-conversation with that person, and giving them a back number should not
   // close their panel just because "No back number" was the active filter.
-  const rosterIds = useMemo(
-    () => new Set((desk?.exhibitors ?? []).map((e) => e.exhibitor_id)),
+  const rosterNumbers = useMemo(
+    () => new Map((desk?.exhibitors ?? []).map((e) => [e.exhibitor_id, e.back_number] as const)),
     [desk],
   );
 
@@ -300,7 +300,7 @@ export default function DeskClient({
             {adding ? (
               <AddExhibitorForm
                 showId={showId}
-                onRosterIds={rosterIds}
+                onRoster={rosterNumbers}
                 associations={associations}
                 breeds={breeds}
                 colors={colors}
