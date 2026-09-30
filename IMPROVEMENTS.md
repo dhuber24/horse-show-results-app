@@ -2,6 +2,17 @@
 
 ## September 2026
 
+### The results board can duplicate onto a monitor
+
+- **A *Duplicate screen* option on the Results Board page**, beside *This
+  screen* and *Extend screen* (which was *A second screen*). It is for a tablet
+  mounted on the back of a monitor and mirroring onto it: the board runs on the
+  tablet and goes full screen on the press that starts it, so the monitor shows
+  the board rather than the browser's bars.
+- **A duplicated board asks for *Fill the screen*** whenever it is not full
+  screen (after Esc, say), and **keeps the tablet awake** (Screen Wake Lock) —
+  a tablet that auto-locks takes the mirrored monitor dark with it.
+
 ### A show is run by its show company, and the company's staff work it
 
 - **`shows.company_id`** (migration 156): every manager and secretary in the

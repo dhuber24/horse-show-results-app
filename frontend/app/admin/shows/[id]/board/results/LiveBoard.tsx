@@ -817,29 +817,107 @@ function Ticker({ items, ucPx }: { items: TickerItem[]; ucPx: number }) {
  *  keyboard to find F11 on. */
 function useFullscreen() {
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // An iPhone has no full screen for a page at all, and asking somebody to
+  // press a button that cannot work is worse than not asking.
+  const [canFullscreen, setCanFullscreen] = useState(false);
+  // Between asking and the browser answering. A duplicated board asks on the
+  // very press that starts it, and without this the *Fill the screen* prompt
+  // would flash up for the frame or two before the answer arrives.
+  const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
+    setCanFullscreen(document.fullscreenEnabled === true);
     const onChange = () => setIsFullscreen(document.fullscreenElement != null);
     onChange();
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
-  const toggle = useCallback(() => {
+  const enter = useCallback(() => {
+    const root = document.documentElement;
+    if (document.fullscreenElement || typeof root.requestFullscreen !== 'function') return;
     // A refused request — an iframe with no `allow`, a gesture the browser did
-    // not count, a platform with no full screen at all — rejects rather than
-    // throwing, and the board carries on exactly as it was.
+    // not count — rejects rather than throwing, and the board carries on
+    // exactly as it was.
+    setRequesting(true);
+    void Promise.resolve(root.requestFullscreen())
+      .catch(() => {})
+      .finally(() => setRequesting(false));
+  }, []);
+
+  const toggle = useCallback(() => {
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {});
     } else {
-      void document.documentElement.requestFullscreen().catch(() => {});
+      enter();
     }
-  }, []);
+  }, [enter]);
 
-  return { isFullscreen, toggle };
+  return { isFullscreen, canFullscreen, requesting, enter, toggle };
 }
 
-/* ── A second screen ───────────────────────────────────────────────────────── */
+/** Keeps the display awake while a duplicated board runs.
+ *
+ *  A tablet on the back of a monitor locks itself after a couple of minutes of
+ *  nobody touching it, and the mirrored monitor goes dark with it — the board
+ *  is a page nobody touches, by design. The browser drops the lock whenever
+ *  the page is hidden, so it is taken again each time the page comes back.
+ *  Refused (battery saver, a browser without the API), the board runs exactly
+ *  as before. */
+function useWakeLock(on: boolean) {
+  useEffect(() => {
+    if (!on || !('wakeLock' in navigator)) return;
+    let sentinel: WakeLockSentinel | null = null;
+    let asking = false;
+    let stopped = false;
+
+    const acquire = async () => {
+      if (stopped || asking || document.visibilityState !== 'visible') return;
+      if (sentinel && !sentinel.released) return;
+      asking = true;
+      try {
+        const next = await navigator.wakeLock.request('screen');
+        if (stopped) void next.release().catch(() => {});
+        else sentinel = next;
+      } catch {
+        // Refused. Nothing to do but carry on.
+      } finally {
+        asking = false;
+      }
+    };
+
+    void acquire();
+    document.addEventListener('visibilitychange', acquire);
+    return () => {
+      stopped = true;
+      document.removeEventListener('visibilitychange', acquire);
+      if (sentinel && !sentinel.released) void sentinel.release().catch(() => {});
+    };
+  }, [on]);
+}
+
+/* ── On a monitor ──────────────────────────────────────────────────────────
+   Two ways a monitor plugged into a laptop or tablet can show the board:
+   extended, where the board gets the monitor to itself in a window of its own
+   (`openOnSecondScreen`, `?popout=1`) and this screen stays free; or
+   duplicated, where the monitor mirrors this screen — the only thing a tablet
+   mounted on the back of a TV can do — so the board runs in this tab and fills
+   it (`?duplicate=1`). Either way it is only right full screen, and a browser
+   goes full screen only on a press in that window, so a board that is not
+   asks for one. */
+
+const FILL_PROMPT = {
+  extend: {
+    button: '⛶ Fill this screen',
+    note: 'The results board, on its own screen. The laptop or tablet it came from stays free.',
+    keep: 'Keep it in a window',
+  },
+  duplicate: {
+    button: '⛶ Fill the screen',
+    note: 'The monitor shows this screen, so the board fills both.',
+    keep: 'Keep the browser showing',
+  },
+};
 
 // The Window Management API (Chrome and Edge on desktop), which is what lets a
 // page find a monitor plugged into the laptop and put a window on it. Not in
@@ -1124,20 +1202,24 @@ function HubHeading({ title, note }: { title: string; note?: string }) {
  *  a px floor, because the marquee is as likely to be changed from a phone in
  *  the office while a board runs somewhere else.
  *
- *  **Or on a second screen.** A laptop or tablet with a TV plugged in should
- *  not have to give its own screen up to the board: choosing *A second screen*
- *  opens the board in a window of its own on the attached monitor
+ *  **Or on a monitor plugged in**, duplicated or extended — see the note above
+ *  `FILL_PROMPT`. Extended, a laptop or tablet with a TV plugged in does not
+ *  have to give its own screen up to the board: choosing *Extend screen* opens
+ *  the board in a window of its own on the attached monitor
  *  (`openOnSecondScreen`), and this page stays here, free for the desk. */
 function ResultsBoardSetup({
   showId,
   showName,
   marquee,
+  initialDuplicate,
   onPick,
 }: {
   showId: string;
   showName: string;
   marquee: Marquee;
-  onPick: (k: SizeKey) => void;
+  /** Reached through the Settings of a duplicated board. */
+  initialDuplicate: boolean;
+  onPick: (k: SizeKey, duplicate: boolean) => void;
 }) {
   const card = {
     padding: '2.4vh',
@@ -1146,18 +1228,19 @@ function ResultsBoardSetup({
     color: 'var(--on-slate)',
   } as const;
 
-  const [target, setTarget] = useState<'here' | 'second'>('here');
+  const [target, setTarget] = useState<'here' | 'duplicate' | 'second'>(initialDuplicate ? 'duplicate' : 'here');
   const [opened, setOpened] = useState<SecondScreenResult | null>(null);
 
   const pick = async (key: SizeKey) => {
-    if (target === 'here') {
-      onPick(key);
+    if (target !== 'second') {
+      onPick(key, target === 'duplicate');
       return;
     }
     // The screen time and anything else in the query travel with the board.
     const q = new URLSearchParams(window.location.search);
     q.set('size', key);
     q.set('popout', '1');
+    q.delete('duplicate');
     setOpened(await openOnSecondScreen(`${window.location.pathname}?${q.toString()}`));
   };
 
@@ -1180,6 +1263,22 @@ function ResultsBoardSetup({
       color: on ? 'var(--accent-foreground)' : 'var(--on-slate-muted)',
       border: '0.2vh solid var(--on-slate-muted)',
     }) as const;
+
+  const targets = [
+    { key: 'here', label: 'This screen', title: undefined },
+    {
+      key: 'duplicate',
+      label: 'Duplicate screen',
+      title:
+        'A monitor showing the same picture as this tablet or laptop. The board fills this screen, so it fills the monitor too.',
+    },
+    {
+      key: 'second',
+      label: 'Extend screen',
+      title:
+        'A TV or monitor plugged into this laptop or tablet. The board gets its own window there, and this screen stays free.',
+    },
+  ] as const;
 
   return (
     <div className="absolute inset-0 overflow-y-auto">
@@ -1208,22 +1307,27 @@ function ResultsBoardSetup({
             note="A browser is never told how big its screen is, and a lobby TV needs letters several times taller than a desk monitor. Pick one and the board starts."
           />
           <div className="flex flex-wrap items-center" style={{ gap: '1vh', marginBottom: '2vh' }} role="group" aria-label="Which screen shows the board">
-            <button type="button" onClick={() => setTarget('here')} aria-pressed={target === 'here'} className="rounded-lg font-semibold" style={seg(target === 'here')}>
-              This screen
-            </button>
-            <button
-              type="button"
-              onClick={() => setTarget('second')}
-              aria-pressed={target === 'second'}
-              className="rounded-lg font-semibold"
-              style={seg(target === 'second')}
-              title="A TV or monitor plugged into this laptop or tablet. The board gets its own window there, and this screen stays free."
-            >
-              A second screen
-            </button>
-            {target === 'second' && (
+            {targets.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => {
+                  setTarget(t.key);
+                  setOpened(null);
+                }}
+                aria-pressed={target === t.key}
+                className="rounded-lg font-semibold"
+                style={seg(target === t.key)}
+                title={t.title}
+              >
+                {t.label}
+              </button>
+            ))}
+            {target !== 'here' && (
               <span style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--on-slate-muted)' }}>
-                The one plugged into this laptop or tablet, set to extend the display.
+                {target === 'duplicate'
+                  ? 'The monitor shows the same picture as this tablet or laptop. Pick the monitor’s size below.'
+                  : 'The one plugged into this laptop or tablet, set to extend the display.'}
               </span>
             )}
           </div>
@@ -1267,8 +1371,13 @@ function ResultsBoardSetup({
                     {p.blurb}
                   </div>
                   <div style={{ fontSize: 'max(12px, 1.5vh)', marginTop: '1.1vh', color: 'var(--on-slate-muted)' }}>
-                    {/* The number keys start the board here, never on the second screen. */}
-                    {target === 'here' ? `Press ${i + 1}` : 'Opens on the second screen'}
+                    {/* The number keys start the board on this screen, never
+                        duplicated or on the second screen. */}
+                    {target === 'here'
+                      ? `Press ${i + 1}`
+                      : target === 'duplicate'
+                        ? 'Fills this screen and the monitor'
+                        : 'Opens on the second screen'}
                   </div>
                 </button>
               );
@@ -1313,9 +1422,12 @@ export default function LiveBoard({
   const searchParams = useSearchParams();
   const size = parseSize(searchParams.get('size'));
   const every = parseEvery(searchParams.get('every'));
-  // Opened from the Results Board page onto a second screen, in a window of its
-  // own. Full screen needs a press on that window, so it asks for one.
+  // Started for a monitor from the Results Board page: extended, in a window of
+  // its own on the monitor, or duplicated, in this tab on a tablet or laptop
+  // the monitor mirrors. See the note above FILL_PROMPT.
   const popout = searchParams.get('popout') === '1';
+  const duplicate = searchParams.get('duplicate') === '1';
+  const fillPrompt = popout ? FILL_PROMPT.extend : duplicate ? FILL_PROMPT.duplicate : null;
   const [keepWindowed, setKeepWindowed] = useState(false);
 
   // Nothing renders until mounted: the board is laid out from the window's
@@ -1329,7 +1441,15 @@ export default function LiveBoard({
   const [vh, setVh] = useState(0);
   const [gridRef, gridBox] = useBoxSize();
 
-  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
+  const {
+    isFullscreen,
+    canFullscreen,
+    requesting: fullscreenRequested,
+    enter: enterFullscreen,
+    toggle: toggleFullscreen,
+  } = useFullscreen();
+
+  useWakeLock(size !== null && duplicate);
 
   // Controls and cursor surface on movement and go away again, so the board
   // spends its life as a board rather than a web page with buttons on it.
@@ -1371,6 +1491,21 @@ export default function LiveBoard({
     [setQuery],
   );
 
+  // Starting from the Results Board page. Duplicated, full screen is asked for
+  // on the press that starts the board, while the press still counts as one:
+  // this screen *is* the monitor, and a tab strip and address bar across the
+  // top of a lobby TV is the first thing the room would read.
+  const start = useCallback(
+    (k: SizeKey, dup: boolean) => {
+      if (dup) enterFullscreen();
+      setKeepWindowed(false);
+      setQuery({ size: k, duplicate: dup ? '1' : null }, 'push');
+    },
+    [enterFullscreen, setQuery],
+  );
+
+  // `?duplicate=1` stays in the URL, so the page comes back with Duplicate
+  // screen chosen.
   const toSettings = useCallback(() => setQuery({ size: null }, 'push'), [setQuery]);
 
   const chooseEvery = useCallback(
@@ -1525,7 +1660,10 @@ export default function LiveBoard({
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       wake();
       if (e.key >= '1' && e.key <= '3') {
-        choose(SIZE_ORDER[Number(e.key) - 1], size ? 'replace' : 'push');
+        // From the Results Board page the number keys start the board on this
+        // screen, never duplicated or on the second screen.
+        if (size) choose(SIZE_ORDER[Number(e.key) - 1], 'replace');
+        else start(SIZE_ORDER[Number(e.key) - 1], false);
       } else if (e.key === 'f' || e.key === 'F') {
         toggleFullscreen();
       } else if (!size) {
@@ -1543,7 +1681,7 @@ export default function LiveBoard({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [choose, step, wake, toggleFullscreen, size]);
+  }, [choose, start, step, wake, toggleFullscreen, size]);
 
   const resultLines = useMemo(() => {
     const items: string[] = [];
@@ -1596,7 +1734,8 @@ export default function LiveBoard({
           showId={showId}
           showName={show.name}
           marquee={marquee}
-          onPick={(k) => choose(k, 'push')}
+          initialDuplicate={duplicate}
+          onPick={start}
         />
       ) : (
         <div
@@ -1613,17 +1752,19 @@ export default function LiveBoard({
             } as React.CSSProperties
           }
         >
-          {popout && !isFullscreen && !keepWindowed && (
-            // A browser only goes full screen on a press in that window, so the
-            // board on the second screen asks for one — big, because it is being
-            // reached for with a mouse dragged over from the laptop.
+          {fillPrompt && canFullscreen && !isFullscreen && !fullscreenRequested && !keepWindowed && (
+            // A browser only goes full screen on a press in that window, so a
+            // board for a monitor that is not full screen asks for one — big,
+            // because on an extended screen it is being reached for with a
+            // mouse dragged over from the laptop. Duplicated, it comes up after
+            // Esc or a reload, with whoever did that at the keyboard.
             <div
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center"
-              style={{ backgroundColor: 'var(--slate)', gap: '2vh' }}
+              className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center"
+              style={{ backgroundColor: 'var(--slate)', gap: '2vh', padding: '0 16px' }}
             >
               <button
                 type="button"
-                onClick={toggleFullscreen}
+                onClick={enterFullscreen}
                 className="rounded-2xl font-bold transition hover:brightness-110"
                 style={{
                   fontSize: 'max(24px, 4.5vh)',
@@ -1632,18 +1773,16 @@ export default function LiveBoard({
                   color: 'var(--accent-foreground)',
                 }}
               >
-                ⛶ Fill this screen
+                {fillPrompt.button}
               </button>
-              <p style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>
-                The results board, on its own screen. The laptop or tablet it came from stays free.
-              </p>
+              <p style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>{fillPrompt.note}</p>
               <button
                 type="button"
                 onClick={() => setKeepWindowed(true)}
                 className="hover:underline"
                 style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--accent-light)' }}
               >
-                Keep it in a window
+                {fillPrompt.keep}
               </button>
             </div>
           )}
