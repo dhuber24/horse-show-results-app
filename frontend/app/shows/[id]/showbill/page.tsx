@@ -91,7 +91,7 @@ export default async function ShowbillPage({ params }: { params: Promise<{ id: s
             actions={<ClassListCsvButton showName={show.name} classes={classes} />}
           />
           <h2 className="text-base font-semibold mt-6 mb-2" style={{ color: 'var(--foreground)' }}>
-            Classes, judges and fees as entered in this app
+            Live Show Bill (includes changes to the printed version)
           </h2>
         </>
       ) : (

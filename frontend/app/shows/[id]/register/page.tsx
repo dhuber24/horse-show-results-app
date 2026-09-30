@@ -3,18 +3,9 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import RegisterShowForm from './RegisterShowForm';
-import type { PreviewData } from './types';
+import { loadPreview } from './load-preview';
 import type { SignupData } from '../_components/ReservationFields';
 import type { ExhibitorFuturity } from './FuturityEntry';
-
-async function loadPreview(showId: string): Promise<{ status: number; data: PreviewData | null; error?: string }> {
-  const headers = await getAuthHeaders();
-  if (!headers) return { status: 401, data: null };
-  const res = await fetch(`${API_URL}/shows/${showId}/register/preview`, { headers, cache: 'no-store' });
-  const json = await readJsonBody(res);
-  if (!res.ok || json === null) return { status: res.status, data: null, error: json?.detail || json?.error || 'Unable to load registration form' };
-  return { status: 200, data: json };
-}
 
 /**
  * The fee catalogue with this exhibitor's own rates on it — what the stalls,
@@ -55,16 +46,33 @@ async function loadFuturities(showId: string): Promise<ExhibitorFuturity[]> {
   return (await readJsonBody(res)) ?? [];
 }
 
-export default async function RegisterShowPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function RegisterShowPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ step?: string }>;
+}) {
   const { id } = await params;
+  const { step } = await searchParams;
   const session = await auth();
   if (!session) redirect(`/login?next=/shows/${id}/register`);
+
+  // Classes left the wizard for a page of their own. A link written before
+  // that still asks for the step, and it means the class page.
+  const classesHref = `/shows/${id}/register/classes`;
+  if (step === 'classes') redirect(classesHref);
 
   const [{ data, error }, signupData, futurities] = await Promise.all([
     loadPreview(id),
     loadSignup(id),
     loadFuturities(id),
   ]);
+
+  // Once the show is running only the class doors are open
+  // (`backend/self_entry.py`), and those are the class page. Details, stalls
+  // and futurities are the office's from here on.
+  if (data?.show.status === 'ACTIVE') redirect(classesHref);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">

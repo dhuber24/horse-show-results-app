@@ -64,18 +64,20 @@ export default async function MyShowBillPage({ params }: { params: Promise<{ id:
             <ShowBillBreakdown bill={mine.bill} detailed />
           </div>
 
-          {/* Side pot buy-ins are deliberately absent: they are not part of
-              build_bill, and folding them in here would make this page and the
-              show office's Financials screen disagree. See Claude.md. */}
+          {/* Side pot buy-ins are on the bill above: entering a class a pot
+              bundles is the buy-in, so `build_bill` charges it and the office's
+              Financials reads the same figure. See Claude.md. */}
           <p className="text-xs mt-4" style={{ color: 'var(--muted)' }}>
-            This is what the show office will collect — the app does not take payment, and any side
-            pot buy-ins are settled separately with the office. If a number looks wrong, the show
-            secretary is the one who can change it.
+            This is what the show office will collect — the app does not take payment. If a number
+            looks wrong, the show secretary is the one who can change it.
           </p>
         </>
       )}
 
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
+        <Link href={`/shows/${id}/register/classes`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+          My classes →
+        </Link>
         <Link href={`/shows/${id}/register`} className="hover:underline" style={{ color: 'var(--accent)' }}>
           My registration →
         </Link>

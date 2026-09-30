@@ -2,17 +2,8 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
-import ShowBillBreakdown from '@/components/ShowBillBreakdown';
 import StartedRegistrationCard from './StartedRegistrationCard';
-import {
-  formatDateRange,
-  hasNoClassesYet,
-  isPastShow,
-  ordinal,
-  SHOW_STATUS_BADGE,
-  type MyShow,
-  type MyShowsData,
-} from '@/lib/my-shows';
+import { formatDateRange, isPastShow, type MyShow, type MyShowsData } from '@/lib/my-shows';
 
 async function loadMyShows(): Promise<MyShowsData> {
   const headers = await getAuthHeaders();
@@ -67,12 +58,11 @@ export default async function MyShowsPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* No roll-up across shows here any more. A total spanning four
-              weekends is not a figure anyone is ever asked for — the office
-              collects per show, against a back number — so "Due at this show"
-              moved onto the show itself, where the dates and the venue it is
-              owed for already are. Each card below still totals its own. */}
-          {/* Above the bills, because it is the only thing on this page that
+          {/* No roll-up across shows here. A total spanning four weekends is
+              not a figure anyone is ever asked for — the office collects per
+              show, against a back number — so each show's bill is its What I
+              Owe page, on the show menu behind its button below. */}
+          {/* Above the shows, because it is the only thing on this page that
               is waiting on the exhibitor. Everything below is a record of what
               they have already done; this is the show they meant to finish. */}
           {data.started.length > 0 && (
@@ -99,8 +89,8 @@ export default async function MyShowsPage() {
               >
                 Active &amp; Upcoming
               </h2>
-              <div className="space-y-4">
-                {upcoming.map((show) => <ShowBillCard key={show.show_id} show={show} />)}
+              <div className="space-y-2">
+                {upcoming.map((show) => <ShowButton key={show.show_id} show={show} />)}
               </div>
             </section>
           )}
@@ -113,20 +103,10 @@ export default async function MyShowsPage() {
               >
                 Past Shows
               </h2>
-              <div className="space-y-4">
-                {past.map((show) => <ShowBillCard key={show.show_id} show={show} />)}
+              <div className="space-y-2">
+                {past.map((show) => <ShowButton key={show.show_id} show={show} />)}
               </div>
             </section>
-          )}
-
-          {/* A note about totals, so only where there are totals. A bookmark
-              card carries no money at all, and this sitting under one on its
-              own reads as a bill somebody has to go and find. */}
-          {data.shows.length > 0 && (
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Totals are what the show office will collect — this app does not take payment. If a
-              number looks wrong, the show secretary is the one who can change it.
-            </p>
           )}
         </div>
       )}
@@ -134,129 +114,38 @@ export default async function MyShowsPage() {
   );
 }
 
-function ShowBillCard({ show }: { show: MyShow }) {
-  const badge = SHOW_STATUS_BADGE[show.show_status] ?? SHOW_STATUS_BADGE.DRAFT;
-  const { bill } = show;
-
+/**
+ * One show, as a button: its name, its dates and where it is. It opens the
+ * show's own menu (`/shows/[id]`), which already carries everything the old
+ * card did — the signed-up banner with the back number and class count (and a
+ * prompt when no class is entered yet), Add/Drop Classes, My Registration, What I
+ * Owe, the schedule and the show office. A page of full cards put the second
+ * show a screen and a half down a phone, under the first show's bill.
+ */
+function ShowButton({ show }: { show: MyShow }) {
+  const place = [show.venue, show.location].filter(Boolean).join(' · ');
   return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-      <div
-        className="px-4 py-3 flex items-start justify-between gap-3"
-        style={{ backgroundColor: 'var(--background)' }}
-      >
-        <div className="min-w-0">
-          <Link
-            href={`/shows/${show.show_id}`}
-            className="font-semibold hover:underline leading-snug block"
-            style={{ color: 'var(--foreground)' }}
-          >
-            {show.show_name}
-          </Link>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {formatDateRange(show.start_date, show.end_date)}
-            {show.venue && <> · {show.venue}</>}
-          </p>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {show.back_number != null ? `Back #${show.back_number}` : 'No back # yet'}
-            {' · '}
-            {show.entry_count} class{show.entry_count === 1 ? '' : 'es'}
-            {show.placed_count > 0 && show.best_place != null && (
-              <> · best {ordinal(show.best_place)}</>
-            )}
-          </p>
+    <Link
+      href={`/shows/${show.show_id}`}
+      className="flex items-center gap-3 px-4 py-3 rounded-lg border transition hover:shadow-md"
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold leading-snug" style={{ color: 'var(--foreground)' }}>
+          {show.show_name}
         </div>
-        <span
-          className="text-xs px-2 py-0.5 rounded font-medium shrink-0 mt-0.5"
-          style={{ backgroundColor: badge.bgColor, color: badge.textColor }}
-        >
-          {badge.label}
-        </span>
-      </div>
-
-      <div className="px-4 py-3">
-        {/* The other half of an unfinished registration, and the one that has
-            always been visible without saying anything: signed up for the
-            stalls, not a class entered. A prompt rather than a warning —
-            plenty of people book stalls now and enter at the desk on the
-            day — but a card reading "0 classes" beside a stall bill says the
-            same thing as a finished registration, and it is the last chance
-            somebody gets to notice before the show. */}
-        {hasNoClassesYet(show) && (
-          <div
-            className="mb-3 rounded px-3 py-2 text-xs"
-            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
-          >
-            You are signed up but have not entered any classes.{' '}
-            {show.show_status === 'PUBLISHED'
-              ? 'Add them from Manage registration below.'
-              : show.show_status === 'ACTIVE'
-                ? 'The show is under way — add any class that has not started from My classes below.'
-                : 'Registration has closed — the show office can still add entries at the desk.'}
+        <div className="text-sm mt-0.5" style={{ color: 'var(--text-deep)' }}>
+          {formatDateRange(show.start_date, show.end_date)}
+        </div>
+        {place && (
+          <div className="text-sm" style={{ color: 'var(--muted)' }}>
+            {place}
           </div>
         )}
-        <ShowBillBreakdown bill={bill} />
-
-        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
-          {/* The details page itself, not the show menu — the show name at the
-              top of this card is already the link to the menu, and it is the
-              details page that carries what you owe here. */}
-          <Link
-            href={`/shows/${show.show_id}/details`}
-            className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-          >
-            Show details
-          </Link>
-          <Link
-            href={`/shows/${show.show_id}/schedule`}
-            className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-          >
-            Full class schedule
-          </Link>
-          {/* The show office, reachable from the screen where somebody is
-              looking at a number they want to query. Offered on past shows
-              too — "you charged me for four stalls" is a question that arrives
-              after the weekend, not during it. */}
-          <Link
-            href={`/shows/${show.show_id}/contact`}
-            className="text-xs font-medium px-2.5 py-1 rounded border"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-          >
-            Message the office
-          </Link>
-          {show.show_status === 'PUBLISHED' && (
-            <>
-              <Link
-                href={`/shows/${show.show_id}/signup`}
-                className="text-xs font-medium px-2.5 py-1 rounded border"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-              >
-                Stalls &amp; camping
-              </Link>
-              <Link
-                href={`/shows/${show.show_id}/register`}
-                className="text-xs font-medium px-2.5 py-1 rounded"
-                style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
-              >
-                Manage registration
-              </Link>
-            </>
-          )}
-          {/* A running show keeps the class doors open for somebody signed up
-              (`backend/self_entry.py`): enter what has not started, scratch
-              what has not finished. Sign-up itself has closed. */}
-          {show.show_status === 'ACTIVE' && show.registered_at !== null && show.cancelled_at === null && (
-            <Link
-              href={`/shows/${show.show_id}/register`}
-              className="text-xs font-medium px-2.5 py-1 rounded"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
-            >
-              My classes
-            </Link>
-          )}
-        </div>
       </div>
-    </div>
+      <span aria-hidden="true" className="text-2xl leading-none shrink-0" style={{ color: 'var(--muted)' }}>
+        ›
+      </span>
+    </Link>
   );
 }

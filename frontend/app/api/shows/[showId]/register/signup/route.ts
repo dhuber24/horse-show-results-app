@@ -30,10 +30,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 /**
  * Cancel this show registration.
  *
- * Refused by the backend inside the two-week notice window, with
- * `CANCELLATION_WINDOW_CLOSED` and the deadline on it — the status is passed
- * through untouched so the screen can print the office's answer rather than a
- * generic failure.
+ * Refused by the backend once the show is running, when the office cancels
+ * instead — the status is passed through untouched so the screen can print the
+ * office's answer rather than a generic failure.
  */
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ showId: string }> }) {
   const { showId } = await params;

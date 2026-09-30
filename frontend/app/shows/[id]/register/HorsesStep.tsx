@@ -40,7 +40,10 @@ import { healthWarnings, type PreviewHorse } from './types';
  * **The list is this show's, not the profile's** (migration 145). It opens
  * on the horses on the profile, and removing one, putting one back or
  * answering the relationship changes this registration only. Removing a horse
- * here used to take it off the profile too.
+ * here used to take it off the profile too. The step does not say so in a line
+ * of its own — the Remove control's `title` does, where it costs nobody a line
+ * of a phone screen — and nor does it preface the flags with a sentence that
+ * they stop nothing: each flag says so itself.
  *
  * Adding a *new* horse is still a link, and the one door that reaches the
  * profile: the wizard runs document extraction, a second copy of it here would
@@ -124,7 +127,7 @@ function RemoveHorse({
       <span className="text-xs shrink-0" style={{ color: 'var(--muted)' }}>
         In {enteredCount} class{enteredCount === 1 ? '' : 'es'} —{' '}
         <Link
-          href={`#registration-classes`}
+          href={`/shows/${showId}/register/classes`}
           className="font-medium hover:underline"
           style={{ color: 'var(--accent)' }}
         >
@@ -422,7 +425,6 @@ export default function HorsesStep({
   showId,
   horses,
   otherProfileHorses = [],
-  ownCopy = false,
   needsRelationship,
   showTypeCode,
 }: {
@@ -431,8 +433,6 @@ export default function HorsesStep({
   horses: PreviewHorse[];
   /** On the profile, taken off this registration — offered back. */
   otherProfileHorses?: { id: string; name: string }[];
-  /** True once this show holds its own horse list rather than the profile's. */
-  ownCopy?: boolean;
   needsRelationship: boolean;
   /** Only for the wording — which body's papers this show is asking about. */
   showTypeCode: string | null;
@@ -453,15 +453,6 @@ export default function HorsesStep({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
-        Nothing flagged below stops you entering — sort it before you ship in.
-      </p>
-      <p className="text-xs -mt-2" style={{ color: 'var(--muted)' }}>
-        {ownCopy
-          ? 'Changed for this show — your profile is unchanged.'
-          : 'From your profile. Removing a horse here only takes it off this show.'}
-      </p>
-
       {horses.length === 0 ? (
         <div
           className="rounded-lg border p-3 text-sm"

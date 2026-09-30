@@ -1653,9 +1653,9 @@ export default function ExhibitorPanel({
         <ContactDetails contact={exhibitor.contact} name={exhibitor.exhibitor_name} />
       </Section>
 
-      {/* The office's half of the two-week rule: an exhibitor may cancel their
-          own registration up to a fortnight before the show, and inside that
-          window this is the only door. Distinct from "Remove from this show"
+      {/* The office's half of the rule: an exhibitor may cancel their own
+          registration while registration is open, and once the show is running
+          this is the only door. Distinct from "Remove from this show"
           below, which deletes the registration outright — this one is for a
           registration that was real, and it keeps the row so the payments on
           it survive. */}

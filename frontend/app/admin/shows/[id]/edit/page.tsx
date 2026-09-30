@@ -1,6 +1,7 @@
 import { fetchShow, fetchVenues, fetchShowTypes, fetchShowCategories } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import EditShowForm from '../EditShowForm';
+import ShowCompanyStaff, { type ShowCompanyStaffPayload } from '../ShowCompanyStaff';
 import ShowStaffPanel, { type PendingInvite } from '../ShowStaffPanel';
 import StepLayout from '../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../setup/_lib/fetchStepCounts';
@@ -31,9 +32,8 @@ export default async function EditShowDetailsPage({
     venues,
     showTypes,
     showCategories,
-    managers,
+    companyStaff,
     availableManagers,
-    secretaries,
     availableSecretaries,
     scribes,
     gateStewards,
@@ -44,9 +44,8 @@ export default async function EditShowDetailsPage({
     fetchVenues(),
     fetchShowTypes(),
     fetchShowCategories(),
-    fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/managers`, []),
+    fetchAuthed<ShowCompanyStaffPayload | null>(`${API_URL}/shows/${id}/company-staff`, null),
     fetchAuthed<StaffUser[]>(`${API_URL}/users/by-role?role=SHOW_MANAGER`, []),
-    fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/admins`, []),
     fetchAuthed<StaffUser[]>(`${API_URL}/users/by-role?role=SHOW_SECRETARY`, []),
     fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/scribes`, []),
     fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/gate-stewards`, []),
@@ -72,21 +71,32 @@ export default async function EditShowDetailsPage({
           showCategories={showCategories}
         />
 
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
-            Show Staff
-          </h2>
-          <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            Everyone who works this show. Managers and secretaries run setup and the
-            registration desk; scribes enter placings; gate stewards run the in-gate.
-          </p>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
+              Show Staff
+            </h2>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
+              The company that runs this show staffs it: its managers and secretaries run setup and
+              the registration desk. Scribes, who enter placings, and gate stewards, who run the
+              in-gate, are hired for this show.
+            </p>
+          </div>
+          {companyStaff ? (
+            <ShowCompanyStaff
+              showId={id}
+              initial={companyStaff}
+              availableManagers={availableManagers}
+              availableSecretaries={availableSecretaries}
+              isAdmin={isAdmin}
+            />
+          ) : (
+            <p className="text-sm" role="alert" style={{ color: 'var(--error)' }}>
+              The show&apos;s staff could not be loaded. Reload the page to try again.
+            </p>
+          )}
           <ShowStaffPanel
             showId={id}
-            currentUserRole={role}
-            initialManagers={managers}
-            availableManagers={availableManagers}
-            initialAdmins={secretaries}
-            availableSecretaries={availableSecretaries}
             initialScribes={scribes}
             initialGateStewards={gateStewards}
             allUsers={allUsers}

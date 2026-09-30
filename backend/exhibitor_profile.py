@@ -14,6 +14,12 @@ produce for you.
   with none of it has nothing to work with. The date of birth is on the list
   because the youth divisions are decided by it (YP-075) and a missing one is
   found out at the gate.
+* *Blocking for a minor* is a parent or guardian, name and telephone both --
+  the same both-or-neither rule as the emergency contact. Somebody under 18 on
+  the show's first day cannot sign for themselves, and the office needs an
+  adult to ring who is answerable for them. The row only exists once a date of
+  birth says the exhibitor is a minor: an adult is never asked, and an
+  exhibitor with no date of birth is already stopped on that row.
 * *Advisory* is association memberships. A membership number is a claim the
   desk verifies against a card (`show_verifications`), so requiring one here
   would gate the entry on something the app cannot check and the exhibitor can
@@ -35,6 +41,7 @@ still refusing on -- `missing_blocking` reads the same rows either way.
 corrected for one show is judged as corrected there and nowhere else. The
 function reads attributes only, and cannot tell the two apart.
 """
+from datetime import date, datetime
 from typing import Iterable, Optional
 
 #: The wizard steps these rows are asked across, in order. `details` is the
@@ -44,9 +51,48 @@ from typing import Iterable, Optional
 STEP_DETAILS = "details"
 STEP_HORSES = "horses"
 
+#: Under this age on the show's first day, a parent or guardian is required.
+ADULT_AGE = 18
+
 
 def _blank(value) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _as_date(value) -> Optional[date]:
+    """A date of birth as a `date`, whatever shape the record holds it in."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def age_on(date_of_birth, as_of: date) -> Optional[int]:
+    """Whole years old on `as_of` -- a person's real age, birthday and all.
+
+    Not `youth_age()` (YP-075's age on 1 January) and not a horse's calendar
+    age: whether somebody is a minor is a fact about the day, and a seventeen
+    year old who turns eighteen the week before the show signs for themselves.
+    """
+    born = _as_date(date_of_birth)
+    if born is None:
+        return None
+    years = as_of.year - born.year
+    if (as_of.month, as_of.day) < (born.month, born.day):
+        years -= 1
+    return years
+
+
+def is_minor(date_of_birth, as_of: Optional[date] = None) -> bool:
+    """Under 18 on `as_of` (today when omitted). False when the date is unknown."""
+    age = age_on(date_of_birth, as_of or date.today())
+    return age is not None and age < ADULT_AGE
 
 
 def profile_checklist(
@@ -54,12 +100,17 @@ def profile_checklist(
     horse_count: int,
     associations: Iterable[tuple] = (),
     registered_association_ids: Optional[set] = None,
+    as_of: Optional[date] = None,
 ) -> list[dict]:
     """One row per thing the exhibitor is asked for.
 
     `associations` is `(association_id, code)` pairs for the bodies this show
     runs under -- the breed body it is approved by and any clubs sanctioning it.
     Empty means the membership row is not shown at all.
+
+    `as_of` is the day a minor is judged on: the show's first day on every
+    registration path, since that is when somebody has to be answerable for
+    them. Today when omitted.
     """
     address_missing = [
         label
@@ -135,6 +186,33 @@ def profile_checklist(
                 else "Who the show rings if something happens to you."
             ),
         },
+    ]
+
+    if is_minor(exhibitor.date_of_birth, as_of):
+        guardian_missing = [
+            label
+            for label, value in (
+                ("name", getattr(exhibitor, "parent_guardian_name", None)),
+                ("phone", getattr(exhibitor, "parent_guardian_phone", None)),
+            )
+            if _blank(value)
+        ]
+        items.append(
+            {
+                "key": "parent_guardian",
+                "step": STEP_DETAILS,
+                "label": "Parent / guardian",
+                "complete": not guardian_missing,
+                "blocking": True,
+                "hint": (
+                    "Missing " + ", ".join(guardian_missing)
+                    if guardian_missing
+                    else "The adult answerable for you at the show."
+                ),
+            }
+        )
+
+    items += [
         {
             "key": "horses",
             "step": STEP_HORSES,

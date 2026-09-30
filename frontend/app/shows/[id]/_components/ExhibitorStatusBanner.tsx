@@ -30,6 +30,10 @@ export default function ExhibitorStatusBanner({
 }) {
   const registrationOpen = showStatus === 'PUBLISHED';
   const entryCount = standing?.entry_count ?? 0;
+  // Whether the show sells stalls, shavings or camping. Unknown keeps the
+  // wording that mentions them.
+  const offersLodging = standing?.offers_lodging !== false;
+  const classesHref = `/shows/${showId}/register/classes`;
 
   const classesLabel = `${entryCount} class${entryCount === 1 ? '' : 'es'}`;
   const unsigned = standing?.waivers_outstanding ?? 0;
@@ -44,8 +48,10 @@ export default function ExhibitorStatusBanner({
           Your registration for this show was cancelled
         </p>
         <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
-          Your classes, stalls and camping have been released. Anything you had already paid stays
-          on your account for the show office to refund.
+          {offersLodging
+            ? 'Your classes, stalls and camping have been released.'
+            : 'Your classes have been released.'}{' '}
+          Anything you had already paid stays on your account for the show office to refund.
         </p>
         {registrationOpen && (
           <div className="mt-2">
@@ -92,7 +98,7 @@ export default function ExhibitorStatusBanner({
             <>
               {' '}
               <Link
-                href={`/shows/${showId}/register`}
+                href={classesHref}
                 className="underline"
                 style={{ color: 'var(--success)' }}
               >
@@ -114,16 +120,25 @@ export default function ExhibitorStatusBanner({
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm font-medium">
           {registrationOpen && (
             <>
-              <Link href={`/shows/${showId}/register`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+              <Link href={classesHref} className="hover:underline" style={{ color: 'var(--accent)' }}>
                 {entryCount > 0 ? 'Add or remove classes →' : 'Pick your classes →'}
               </Link>
-              <Link href={`/shows/${showId}/signup`} className="hover:underline" style={{ color: 'var(--accent)' }}>
-                {unsigned > 0 ? 'Sign releases, change stalls →' : 'Change stalls, shavings or camping →'}
-              </Link>
+              {/* `/signup` is where releases are signed as well as where stalls
+                  are changed, so a show selling no stalls still links it while
+                  a release is outstanding — and only then. */}
+              {(offersLodging || unsigned > 0) && (
+                <Link href={`/shows/${showId}/signup`} className="hover:underline" style={{ color: 'var(--accent)' }}>
+                  {!offersLodging
+                    ? 'Sign releases →'
+                    : unsigned > 0
+                      ? 'Sign releases, change stalls →'
+                      : 'Change stalls, shavings or camping →'}
+                </Link>
+              )}
             </>
           )}
           <Link href="/my-shows" className="hover:underline" style={{ color: 'var(--accent)' }}>
-            My shows &amp; bill →
+            All my shows →
           </Link>
         </div>
       </div>
@@ -140,8 +155,9 @@ export default function ExhibitorStatusBanner({
           The show office has entered you in {classesLabel}
         </p>
         <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
-          You haven&rsquo;t completed sign-up, so the office has no stall, shavings or camping
-          numbers for you.
+          {offersLodging
+            ? 'You haven’t completed sign-up, so the office has no stall, shavings or camping numbers for you.'
+            : 'You haven’t completed sign-up for this show yet.'}
         </p>
         {registrationOpen && (
           <div className="mt-2">
@@ -165,8 +181,9 @@ export default function ExhibitorStatusBanner({
         style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
       >
         <div className="text-sm" style={{ color: 'var(--text-deep)' }}>
-          Registration is open. Fill in your profile, reserve stalls, shavings and camping, then
-          pick your classes.
+          {offersLodging
+            ? 'Registration is open. Fill in your profile, reserve stalls, shavings and camping, then pick your classes.'
+            : 'Registration is open. Fill in your profile and add your horses, then pick your classes.'}
         </div>
         {/* `/register` is the single entry point, and it is the whole flow in
             order — profile, then grounds, then classes — each step locked

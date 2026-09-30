@@ -31,7 +31,8 @@ from dependencies import (
     require_api_key,
     safe_uuid,
 )
-from models import Show, ShowGateSteward, ShowManager, ShowScribe, ShowSecretary, User, UserInvite
+from models import Show, ShowGateSteward, ShowScribe, User, UserInvite
+from show_access import works_show
 from schemas import (
     UserInviteAcceptBody,
     UserInviteByTokenOut,
@@ -65,26 +66,9 @@ def _generate_token() -> str:
 async def _assert_show_access(
     show_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession
 ) -> None:
-    if x_user_role == "ADMIN":
+    # A per-show row or the show's company (migration 156).
+    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
         return
-    if x_user_role == "SHOW_SECRETARY":
-        row = await db.execute(
-            select(ShowSecretary).where(
-                ShowSecretary.show_id == show_id,
-                ShowSecretary.user_id == safe_uuid(x_user_id),
-            )
-        )
-        if row.scalar_one_or_none():
-            return
-    if x_user_role == "SHOW_MANAGER":
-        row = await db.execute(
-            select(ShowManager).where(
-                ShowManager.show_id == show_id,
-                ShowManager.user_id == safe_uuid(x_user_id),
-            )
-        )
-        if row.scalar_one_or_none():
-            return
     raise HTTPException(403, "Not authorized for this show")
 
 

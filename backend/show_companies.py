@@ -54,7 +54,7 @@ from typing import Iterable, Sequence
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -63,11 +63,14 @@ from database import get_db
 from dependencies import safe_uuid
 from mailer import public_app_url, send_email
 from models import (
+    Show,
     ShowCompany,
     ShowCompanyFeature,
     ShowCompanyJoinRequest,
     ShowCompanyMember,
     ShowCompanyUpgradeRequest,
+    ShowManager,
+    ShowSecretary,
     User,
 )
 
@@ -287,6 +290,10 @@ async def retire_spare_personal_company(user_id: UUID, joined_company_id: UUID, 
     )
     if not is_spare_personal_company(own.owner_user_id, user_id, feature_count, member_ids):
         return False
+    # The shows they ran on their own stay theirs: they move to no company, and
+    # the owner keeps them through a row each (migration 156). Which company
+    # they belong to now is the owner's to say on Step 1, not a guess made here.
+    await pin_company_shows(own, db)
     await db.delete(own)
     return True
 
@@ -368,8 +375,99 @@ async def remove_company_member(
     removed = member.user
     company.members.remove(member)
     await db.flush()
+    await release_company_shows(company.id, user_id, db)
     if removed is not None and removed.role in SHOW_OFFICE_ROLES:
         await place_in_company(removed, db)
+
+
+async def release_company_shows(company_id: UUID, user_id: UUID, db: AsyncSession) -> None:
+    """Take somebody who has left a company off every show it runs.
+
+    The company is what put them on those shows (migration 156), so leaving it
+    takes them off -- including through a per-show row, which a show created
+    before the column, or one they were also assigned to by hand, may carry.
+    Left in place, that row would keep somebody the company has let go working
+    its shows, with nothing on the company's screens to say so. A show of some
+    other company, or of none, is not this company's to clear."""
+    shows = select(Show.id).where(Show.company_id == company_id)
+    for table in (ShowManager, ShowSecretary):
+        await db.execute(
+            delete(table).where(table.user_id == user_id, table.show_id.in_(shows))
+        )
+
+
+async def pin_company_shows(company: ShowCompany, db: AsyncSession) -> None:
+    """Before a company is deleted, give its staff a per-show row on each of
+    its shows. The show loses its company (`ON DELETE SET NULL`), which would
+    otherwise lose every one of them a show they were working the moment an
+    admin tidied the company list -- a company closing is not its people
+    leaving its shows."""
+    show_ids = (
+        await db.execute(select(Show.id).where(Show.company_id == company.id))
+    ).scalars().all()
+    if not show_ids:
+        return
+    staff = (
+        await db.execute(
+            select(User.id, User.role)
+            .join(ShowCompanyMember, ShowCompanyMember.user_id == User.id)
+            .where(ShowCompanyMember.company_id == company.id, User.role.in_(tuple(SHOW_OFFICE_ROLES)))
+        )
+    ).all()
+    for table, role in ((ShowManager, "SHOW_MANAGER"), (ShowSecretary, "SHOW_SECRETARY")):
+        people = [uid for uid, r in staff if r == role]
+        if not people:
+            continue
+        existing = set(
+            (
+                await db.execute(
+                    select(table.show_id, table.user_id).where(
+                        table.show_id.in_(show_ids), table.user_id.in_(people)
+                    )
+                )
+            ).all()
+        )
+        for show_id in show_ids:
+            for uid in people:
+                if (show_id, uid) not in existing:
+                    db.add(table(show_id=show_id, user_id=uid))
+    await db.flush()
+
+
+def default_show_company(companies: Sequence[tuple[UUID, UUID | None]]) -> UUID | None:
+    """Which company a new show runs under, from the creator's companies as
+    `(id, owner_user_id)` pairs -- or None, and Step 1 asks.
+
+    * **Their only company** -- nearly everybody, since an independent has their
+      own (migration 143) and joining a club retires it.
+    * **Their one organization**, when they also kept a company of their own
+      (it had a feature on, or somebody else in it): the club is who they work
+      for, and their own company is the fallback that made sure they had one.
+    * **Otherwise nothing.** A freelance secretary working for two clubs could
+      be setting up either one's show, and guessing hands it to the wrong
+      club's staff.
+    """
+    if len(companies) == 1:
+        return companies[0][0]
+    organizations = [cid for cid, owner in companies if owner is None]
+    if len(organizations) == 1:
+        return organizations[0]
+    return None
+
+
+async def default_show_company_for(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
+    """`default_show_company` for the account creating a show. An ADMIN is in
+    no company and chooses on Step 1."""
+    if role not in SHOW_OFFICE_ROLES:
+        return None
+    rows = (
+        await db.execute(
+            select(ShowCompany.id, ShowCompany.owner_user_id)
+            .join(ShowCompanyMember, ShowCompanyMember.company_id == ShowCompany.id)
+            .where(ShowCompanyMember.user_id == user_id)
+        )
+    ).all()
+    return default_show_company([(cid, owner) for cid, owner in rows])
 
 
 def vouch_for_member(company: ShowCompany, user: User, voucher_id: UUID) -> bool:

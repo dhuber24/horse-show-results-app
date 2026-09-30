@@ -6,8 +6,9 @@ from pydantic import BaseModel
 
 from database import get_db
 from dependencies import require_admin, safe_uuid, INTERNAL_API_KEY
-from models import Show, User, ShowSecretary, ShowScribe, ShowManager, ShowGateSteward
+from models import Show, User, ShowCompanyMember, ShowSecretary, ShowScribe, ShowManager, ShowGateSteward
 from schemas import UserOut
+from show_access import works_show
 
 router = APIRouter(tags=["Show Staff"])
 
@@ -31,28 +32,22 @@ async def _get_user_or_404(user_id: UUID, db: AsyncSession) -> User:
 
 
 async def _assert_show_admin_access(show_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession):
-    """Raises 403 unless caller is ADMIN, an assigned Show Secretary, or an assigned Show Manager."""
-    if x_user_role == "ADMIN":
+    """Raises 403 unless the caller works the show from the office: ADMIN, an
+    assigned manager or secretary, or a member of the show's company."""
+    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
         return
-    if x_user_role == "SHOW_SECRETARY":
-        row = await db.execute(
-            select(ShowSecretary).where(
-                ShowSecretary.show_id == show_id,
-                ShowSecretary.user_id == safe_uuid(x_user_id),
-            )
-        )
-        if row.scalar_one_or_none():
-            return
-    if x_user_role == "SHOW_MANAGER":
-        row = await db.execute(
-            select(ShowManager).where(
-                ShowManager.show_id == show_id,
-                ShowManager.user_id == safe_uuid(x_user_id),
-            )
-        )
-        if row.scalar_one_or_none():
-            return
     raise HTTPException(status_code=403, detail="Not authorized for this show")
+
+
+async def _company_staffed(show_id: UUID, db: AsyncSession) -> bool:
+    """Whether a company runs this show and has somebody in it to work it."""
+    row = await db.execute(
+        select(ShowCompanyMember.id)
+        .join(Show, Show.company_id == ShowCompanyMember.company_id)
+        .where(Show.id == show_id)
+        .limit(1)
+    )
+    return row.first() is not None
 
 
 # ── Show Secretaries ───────────────────────────────────────────────────────────
@@ -364,10 +359,12 @@ async def remove_show_manager(
     entry = next((r for r in rows if r.user_id == user_id), None)
     if not entry:
         raise HTTPException(404, "Manager assignment not found")
-    # A manager reaches this show through `show_managers` and nothing else, so
-    # removing the last one hides the show from every manager's list and leaves
-    # only ADMIN able to open it — including from the manager who just did it.
-    if len(rows) == 1:
+    # Without a company, a manager reaches this show through `show_managers`
+    # and nothing else, so removing the last one hides the show from every
+    # manager's list and leaves only ADMIN able to open it — including from the
+    # manager who just did it. A show run by a company is still worked by its
+    # staff (migration 156), so the last row is only the last guest.
+    if len(rows) == 1 and not await _company_staffed(show_id, db):
         raise HTTPException(
             409,
             "This is the show's only manager. Add another before removing this one.",

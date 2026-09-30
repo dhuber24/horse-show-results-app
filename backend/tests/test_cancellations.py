@@ -2,10 +2,11 @@
 
 Two rules, both easy to get wrong by one day or one column.
 
-The **window** is inclusive of the deadline itself: "at least two weeks before
-the show" is met by cancelling exactly fourteen days out, and an off-by-one here
-sends somebody to the show office on the last day they were entitled to press
-the button themselves.
+The **window** is the show's status plus the show company's cut-off (migration
+157): an exhibitor cancels their own registration while registration is open
+and until the company's chosen number of days before the show -- 0, the
+default, being until it starts. The cut-off day itself is still theirs: "at
+least fourteen days' notice" is met by cancelling exactly fourteen days out.
 
 The **roster predicate** is two conditions, not one. Every screen used to ask
 whether `registered_at` was set; a cancelled registration still answers yes to
@@ -16,7 +17,6 @@ from datetime import date
 from types import SimpleNamespace
 
 from cancellations import (
-    CANCELLATION_NOTICE_DAYS,
     cancellation_window,
     is_cancelled,
     is_on_roster,
@@ -24,6 +24,7 @@ from cancellations import (
     registration_blocker,
     self_cancel_deadline,
 )
+from routers.my_shows import withdrawn
 
 SHOW_START = date(2026, 6, 20)
 
@@ -36,44 +37,102 @@ def make_show_entry(**overrides) -> SimpleNamespace:
 
 # ── The window ───────────────────────────────────────────────────────────────
 
-def test_the_deadline_is_two_weeks_before_the_first_day():
-    assert self_cancel_deadline(SHOW_START) == date(2026, 6, 6)
-    assert CANCELLATION_NOTICE_DAYS == 14
+def test_the_exhibitor_cancels_themselves_while_registration_is_open():
+    assert may_self_cancel("PUBLISHED") is True
 
 
-def test_a_month_out_the_exhibitor_cancels_themselves():
-    assert may_self_cancel(SHOW_START, as_of=date(2026, 5, 20)) is True
+def test_the_day_before_the_show_is_still_theirs():
+    """No fortnight's notice any more: somebody who could still sign up can
+    still change their mind."""
+    window = cancellation_window("PUBLISHED", SHOW_START, as_of=date(2026, 6, 19))
+
+    assert window["self_service"] is True
+    assert window["days_until_show"] == 1
 
 
-def test_the_deadline_day_itself_still_belongs_to_the_exhibitor():
-    """Fourteen days out *is* two weeks' notice. The boundary is the whole
-    point of the rule, so it is pinned rather than left to a comparison
+def test_once_the_show_is_running_it_is_the_office():
+    assert may_self_cancel("ACTIVE") is False
+    assert may_self_cancel("COMPLETED") is False
+
+
+def test_a_status_nothing_recognises_is_the_office_too():
+    """Refusing is the safe direction: the office can always cancel, and an
+    exhibitor wrongly allowed to has already gone."""
+    assert may_self_cancel(None) is False
+    assert may_self_cancel("DRAFT") is False
+
+
+def test_no_cut_off_has_no_deadline_date():
+    """0 is until the show starts -- a status, not a date."""
+    window = cancellation_window("ACTIVE", SHOW_START, as_of=date(2026, 6, 20))
+
+    assert window == {
+        "self_service": False,
+        "days_until_show": 0,
+        "days_before": 0,
+        "deadline": None,
+    }
+
+
+# ── The company's cut-off ────────────────────────────────────────────────────
+
+def test_a_fourteen_day_cut_off_falls_two_weeks_before_the_first_day():
+    assert self_cancel_deadline(SHOW_START, 14) == date(2026, 6, 6)
+
+
+def test_the_cut_off_day_itself_still_belongs_to_the_exhibitor():
+    """Fourteen days out *is* fourteen days' notice. The boundary is the whole
+    point of the setting, so it is pinned rather than left to a comparison
     operator nobody re-reads."""
-    assert may_self_cancel(SHOW_START, as_of=date(2026, 6, 6)) is True
+    assert may_self_cancel("PUBLISHED", SHOW_START, 14, as_of=date(2026, 6, 6)) is True
 
 
-def test_the_day_after_the_deadline_belongs_to_the_office():
-    assert may_self_cancel(SHOW_START, as_of=date(2026, 6, 7)) is False
+def test_the_day_after_the_cut_off_belongs_to_the_office():
+    assert may_self_cancel("PUBLISHED", SHOW_START, 14, as_of=date(2026, 6, 7)) is False
 
 
-def test_during_the_show_it_is_still_the_office():
-    assert may_self_cancel(SHOW_START, as_of=date(2026, 6, 21)) is False
+def test_a_cut_off_never_opens_a_show_that_is_running():
+    """The cut-off narrows the status window; it cannot widen it."""
+    assert may_self_cancel("ACTIVE", SHOW_START, 14, as_of=date(2026, 5, 1)) is False
 
 
-def test_a_show_with_no_start_date_is_the_office_too():
-    """Nothing to count back from. Refusing is the safe direction: the office
-    can always cancel, and an exhibitor wrongly allowed to has already gone."""
-    assert self_cancel_deadline(None) is None
-    assert may_self_cancel(None, as_of=date(2026, 1, 1)) is False
+def test_a_cut_off_with_no_start_date_is_the_office():
+    """Nothing to count back from, so refuse: the office can always cancel."""
+    assert may_self_cancel("PUBLISHED", None, 14, as_of=date(2026, 5, 1)) is False
 
 
-def test_the_window_payload_says_why_as_well_as_whether():
-    window = cancellation_window(SHOW_START, as_of=date(2026, 6, 10))
+def test_the_window_payload_names_the_cut_off_and_its_day():
+    window = cancellation_window("PUBLISHED", SHOW_START, 14, as_of=date(2026, 6, 10))
 
     assert window["self_service"] is False
+    assert window["days_before"] == 14
     assert window["deadline"] == date(2026, 6, 6)
     assert window["days_until_show"] == 10
-    assert window["notice_days"] == 14
+
+
+# ── My Shows forgets a cancelled registration ────────────────────────────────
+
+def test_a_cancelled_registration_drops_off_my_shows():
+    assert withdrawn(make_show_entry(cancelled_at=date(2026, 5, 1)), []) is True
+
+
+def test_a_live_registration_stays_on_my_shows():
+    assert withdrawn(make_show_entry(), []) is False
+
+
+def test_an_office_entry_only_show_stays_on_my_shows():
+    """No sign-up row at all: a secretary entered them by hand, and that is a
+    show they competed in."""
+    assert withdrawn(None, [object()]) is False
+
+
+def test_a_cancelled_registration_the_office_entered_again_stays():
+    """Cancelling drops every class entry, so an entry here was put back by
+    the show office afterwards -- somebody competing, whose show must not
+    vanish from their list."""
+    entry = make_show_entry(cancelled_at=date(2026, 5, 1))
+
+    assert withdrawn(entry, [object()]) is False
 
 
 # ── The roster predicate ─────────────────────────────────────────────────────

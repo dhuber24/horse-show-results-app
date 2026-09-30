@@ -60,14 +60,15 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
             className="mt-4 mb-4 rounded-lg border p-3 text-sm"
             style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
           >
-            The show office needs your details before it can hold a stall for you. Fill these in
-            and stalls, shavings and camping open up.
+            {data.fee_options.length > 0
+              ? 'The show office needs your details before it can hold a stall for you. Fill these in and stalls, shavings and camping open up.'
+              : 'The show office needs your details before you can sign up. Fill these in and sign-up opens up.'}
           </div>
           <div
             className="rounded-lg border p-4"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
           >
-            <ProfileStep profile={data.profile} showId={id} />
+            <ProfileStep profile={data.profile} showId={id} asOf={data.show.start_date} />
           </div>
           <div className="mt-4 text-sm font-medium">
             <Link

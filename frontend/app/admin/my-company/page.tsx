@@ -33,7 +33,8 @@ export default async function MyCompanyPage() {
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           The show managers and secretaries who work for your company. Everyone here shares the
           company&apos;s paid features, so a GaitDesk admin approves each new member you ask for.
-          Removing somebody who has left takes effect straight away.
+          Removing somebody who has left takes effect straight away. Below the staff, choose how late
+          exhibitors can cancel their own registration at your shows.
         </p>
       </div>
       {loadFailed ? (

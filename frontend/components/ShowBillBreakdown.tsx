@@ -11,6 +11,7 @@ import {
   type BillFuturityLine,
   type BillReservationLine,
   type BillSanctionLine,
+  type BillSidePotLine,
 } from '@/lib/my-shows';
 import { unitLabel } from '@/lib/fee-units';
 
@@ -27,12 +28,17 @@ import { unitLabel } from '@/lib/fee-units';
  * who clicked through to "what do I owe" wants the line that surprised them
  * already in front of them.
  *
- * The sub-lines carry `fee_cents` alone, never `fee_cents + sanction_cents`.
- * As a separate table above the summary the combined figure was merely a
- * different question; as sub-lines *under* the Class fees total they have to
- * add up to it, and a bill whose own rows do not foot is the one thing an
- * exhibitor checking it will not forgive. A class carrying club money says so
- * in its own line and that money is totalled in Club sanction fees below.
+ * **Each class is one line, carrying everything charged on that class**: its
+ * own entry fee, a sanctioning club's per-class fee, and the show's per-class
+ * fees (`per_entry`, `per_judge_per_entry`), which `build_bill` attributes to
+ * the class entries it counted (`class_lines[].charges`). The Class fees total
+ * is the three backend totals together, so the sub-lines foot to it. The
+ * per-class charge lines (`per_class`) and the old "Club sanction fees" roll-up
+ * are therefore **not** listed again below — they were, and a $0 class with a
+ * "+ $5.00" note under it and the same $5.00 as a line of its own read as a
+ * class entered twice. What stays below is money that belongs to no class: a
+ * per-horse office fee, a club charging per horse, stalls, a futurity, a pot.
+ * Same shape as the registration desk's Classes section.
  */
 export default function ShowBillBreakdown({
   bill,
@@ -42,6 +48,16 @@ export default function ShowBillBreakdown({
   detailed?: boolean;
 }) {
   const [classesOpen, setClassesOpen] = useState(detailed);
+
+  // Whether the backend put the per-class charges on the class lines. A
+  // payload from before it did has no `class_charge_total_cents`, and then the
+  // charge lines are the only place that money is shown, so they stay.
+  const attributed = bill.class_charge_total_cents != null;
+  const classTotal =
+    bill.class_fee_total_cents +
+    (bill.class_sanction_total_cents ?? 0) +
+    (bill.class_charge_total_cents ?? 0);
+  const otherCharges = (bill.charge_lines ?? []).filter((line) => !(attributed && line.per_class));
 
   if (bill.total_cents === 0) {
     return (
@@ -70,7 +86,7 @@ export default function ShowBillBreakdown({
                 title={
                   classesOpen
                     ? 'Hide the class-by-class breakdown'
-                    : 'Show every class entered and what each one costs'
+                    : 'Show every class entered and what each one costs, per-class fees included'
                 }
               >
                 <span aria-hidden>{classesOpen ? '▾' : '▸'}</span> Class fees
@@ -79,39 +95,31 @@ export default function ShowBillBreakdown({
                 </span>
               </button>
             </dt>
-            <dd className="text-right">{formatMoney(bill.class_fee_total_cents)}</dd>
+            <dd className="text-right">{formatMoney(classTotal)}</dd>
             {classesOpen &&
               bill.class_lines.map((line) => (
                 <ClassSubLine key={line.entry_id} line={line} />
               ))}
           </>
         )}
-        {/* The per-class clubs, rolled up: their money is already spread
-            across the class lines above, so one figure is the only way to show
-            it without restating every line. A club charging per horse or per
-            exhibitor gets a line of its own below, with its arithmetic — the
-            two together are `sanction_total_cents`. */}
-        {(bill.class_sanction_total_cents ?? bill.sanction_total_cents) > 0 && (
-          <>
-            <dt title="Each sanctioning club's per-class fee, charged only on the classes that club approves.">
-              Club sanction fees
-            </dt>
-            <dd className="text-right">
-              {formatMoney(bill.class_sanction_total_cents ?? bill.sanction_total_cents)}
-            </dd>
-          </>
-        )}
+        {/* A club charging per horse or per exhibitor, with its arithmetic.
+            A club charging per class is already inside the class lines above. */}
         {(bill.sanction_lines ?? []).map((line) => (
           <SanctionLine key={line.association_id} line={line} />
         ))}
         {bill.reservation_lines.map((line) => (
           <ReservationLine key={line.show_fee_id} line={line} />
         ))}
-        {(bill.charge_lines ?? []).map((line) => (
+        {otherCharges.map((line) => (
           <ChargeLine key={line.show_fee_id} line={line} />
         ))}
         {(bill.futurity_lines ?? []).map((line) => (
           <FuturityLine key={line.futurity_entry_id} line={line} />
+        ))}
+        {/* Buy-ins are in `total_cents` (entering a class a pot bundles is the
+            buy-in), so they are listed or the bill would not foot. */}
+        {(bill.side_pot_lines ?? []).map((line) => (
+          <SidePotLine key={line.side_pot_id} line={line} />
         ))}
         <dt
           className="pt-1.5 mt-1 border-t font-semibold"
@@ -139,6 +147,20 @@ export default function ShowBillBreakdown({
  * would lose.
  */
 function ClassSubLine({ line }: { line: BillClassLine }) {
+  const charges = line.charges ?? [];
+  // Everything charged on this class, in one figure — the line's amount.
+  const total = line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0);
+  // What makes it up, only when it is more than the class's own entry fee:
+  // "Entry $0.00 · Standard Class Fee $5.00" is what the amount is checked
+  // against, and a class with nothing on top says nothing extra.
+  const parts =
+    line.sanction_cents > 0 || charges.length > 0
+      ? [
+          `Entry ${formatMoney(line.fee_cents)}`,
+          ...(line.sanction_cents > 0 ? [`club sanction ${formatMoney(line.sanction_cents)}`] : []),
+          ...charges.map((charge) => `${charge.label} ${formatMoney(charge.cents)}`),
+        ]
+      : [];
   return (
     <>
       <dt className="pl-3 ml-1 border-l text-xs" style={{ borderColor: 'var(--bg-subtle)' }}>
@@ -155,32 +177,30 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
             {line.horse_name}
           </span>
         )}
-        {line.sanction_cents > 0 && (
-          <span
-            className="block"
-            style={{ color: 'var(--muted)' }}
-            title="Charged by a club that sanctions this class. Totalled in Club sanction fees below, not in the amount beside this line."
-          >
-            + {formatMoney(line.sanction_cents)} club sanction
+        {parts.length > 0 && (
+          <span className="block" style={{ color: 'var(--muted)' }}>
+            {parts.join(' · ')}
           </span>
         )}
-        {/* A per-class assessment counted on this entry. Same treatment as the
-            club money above: said against the class it is levied on, totalled
-            in its own line below. */}
-        {(line.charges ?? []).map((charge) => (
-          <span
-            key={charge.show_fee_id}
-            className="block"
-            style={{ color: 'var(--muted)' }}
-            title={`Charged on each class entered. Totalled in ${charge.label} below, not in the amount beside this line.`}
-          >
-            + {formatMoney(charge.cents)} {charge.label}
-          </span>
-        ))}
       </dt>
       <dd className="text-right text-xs self-start" style={{ color: 'var(--muted)' }}>
-        {formatMoney(line.fee_cents)}
+        {formatMoney(total)}
       </dd>
+    </>
+  );
+}
+
+/** One side pot buy-in: once per pot however many of its classes were entered. */
+function SidePotLine({ line }: { line: BillSidePotLine }) {
+  return (
+    <>
+      <dt>
+        {line.name} buy-in
+        <span className="text-xs" style={{ color: 'var(--muted)' }}>
+          {' '}(side pot, {line.class_count} {line.class_count === 1 ? 'class' : 'classes'})
+        </span>
+      </dt>
+      <dd className="text-right">{formatMoney(line.line_total_cents)}</dd>
     </>
   );
 }

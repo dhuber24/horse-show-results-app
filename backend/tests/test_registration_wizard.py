@@ -394,6 +394,16 @@ def test_a_finished_profile_with_a_horse_resumes_at_the_stalls():
     assert resume_step(checklist, horse_count=1) == "stalls"
 
 
+def test_a_show_with_no_lodging_resumes_at_the_sign_up():
+    """No stalls, shavings or camping means no stalls step -- the horses step's
+    own button is the sign-up, so a card naming the stalls would point at a
+    step that is not there."""
+    checklist = profile_checklist(_exhibitor(), horse_count=1)
+    assert resume_step(checklist, horse_count=1, lodging=False) == "signup"
+    # Nothing earlier moves: the details and the horses still come first.
+    assert resume_step(checklist, horse_count=0, lodging=False) == "horses"
+
+
 def test_an_outstanding_membership_never_becomes_the_step_to_resume_at():
     """The membership row is advisory, and naming it would make it look required.
 

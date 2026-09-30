@@ -8,10 +8,12 @@ import type { CancellationWindow } from './types';
 /**
  * Getting back out of a show.
  *
- * An exhibitor may call off their own registration up to a fortnight before the
- * show. Inside that window it is the show office's to do — by then the stall
- * chart is drawn, the entries are in the program, and what happens to money
- * already paid is a decision the person leaving does not get to make alone.
+ * An exhibitor may call off their own registration while registration is open,
+ * up to the cut-off the show company chose on My Company (migration 157) — 0
+ * days is until the show starts. Past it, and always once the show is running,
+ * it is the show office's to do, from the desk (`cancellations.may_self_cancel`).
+ * Money already paid is not the leaver's to decide either way, which is why it
+ * stays on the account as a credit for the office.
  *
  * Two states, and the closed one is a **destination, not a disabled button**:
  * it says who to ask and links straight to them. A greyed-out control with a
@@ -20,16 +22,21 @@ import type { CancellationWindow } from './types';
  *
  * Inline confirmation rather than a modal, and the confirm step spells out what
  * goes — this drops every class, stall, camping night, side pot and futurity
- * entry at once, which is a good deal more than the per-class Remove beside it.
+ * entry at once, which is a good deal more than the per-class Remove beside it,
+ * and the show leaves My Shows (`my_shows.withdrawn`).
  */
 export default function CancelRegistration({
   showId,
   window: cancellation,
   entryCount,
+  offersLodging = true,
 }: {
   showId: string;
   window: CancellationWindow;
   entryCount: number;
+  /** Whether the show sells stalls, shavings or camping — the confirm step
+   *  does not mention them at a show that sells none. */
+  offersLodging?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -37,6 +44,7 @@ export default function CancelRegistration({
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const cutOff = cancellation.days_before ?? 0;
   const deadlineText = cancellation.deadline
     ? new Date(`${cancellation.deadline}T00:00:00`).toLocaleDateString('en-US', {
         month: 'long',
@@ -64,8 +72,9 @@ export default function CancelRegistration({
         setWorking(false);
         return;
       }
-      // Straight to the show menu: staying here would re-render the
-      // registration screen for a show they are no longer in.
+      // Straight to the show menu, whose banner says the registration was
+      // cancelled: staying here would re-render the registration screen for a
+      // show they are no longer in, and My Shows no longer lists it at all.
       router.push(`/shows/${showId}`);
       router.refresh();
     } catch {
@@ -84,13 +93,10 @@ export default function CancelRegistration({
           Need to withdraw from this show?
         </h2>
         <p style={{ color: 'var(--text-deep)' }}>
-          {typeof cancellation.days_until_show === 'number' && cancellation.days_until_show >= 0
-            ? `The show starts in ${cancellation.days_until_show} ${
-                cancellation.days_until_show === 1 ? 'day' : 'days'
-              }. `
-            : ''}
-          Inside {cancellation.notice_days} days the show office cancels a registration for you —
-          message them and they will take you off.
+          {cutOff > 0 && (cancellation.days_until_show ?? 0) > 0
+            ? `Within ${cutOff} ${cutOff === 1 ? 'day' : 'days'} of the show, the show office cancels a registration for you`
+            : 'The show is under way, so the show office cancels a registration now'}{' '}
+          — message them and they will take you off.
         </p>
         <Link
           href={`/shows/${showId}/contact`}
@@ -112,9 +118,9 @@ export default function CancelRegistration({
         Cancel my registration
       </h2>
       <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
-        {deadlineText
-          ? `You can cancel yourself until ${deadlineText}. After that the show office has to do it.`
-          : 'You can cancel yourself while the show is more than two weeks away.'}
+        {cutOff > 0 && deadlineText
+          ? `You can cancel yourself until ${deadlineText}, ${cutOff} ${cutOff === 1 ? 'day' : 'days'} before the show. After that the show office does it.`
+          : 'You can cancel yourself until the show starts. Once it’s under way, the show office does it.'}
       </p>
 
       {error && (
@@ -136,8 +142,9 @@ export default function CancelRegistration({
             {entryCount > 0
               ? `all ${entryCount} class ${entryCount === 1 ? 'entry' : 'entries'}, `
               : ''}
-            your stalls, shavings and camping, and any side pot or futurity entries at this show.
-            Anything you have already paid stays on your account for the office to refund.
+            {offersLodging ? 'your stalls, shavings and camping, and ' : ''}any side pot or
+            futurity entries at this show, and takes the show off My Shows. Anything you have already paid stays on your account
+            for the office to refund.
           </div>
           <div>
             <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>

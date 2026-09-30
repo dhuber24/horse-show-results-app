@@ -96,6 +96,9 @@ export interface ShowCompany {
   created_at: string | null;
   /** Set when the company is one independent person's own (migration 143). */
   owner_user_id: string | null;
+  /** Days before a show's first day that exhibitors stop cancelling their own
+   *  registration; 0 is until the show starts (migration 157). */
+  self_cancel_days_before: number;
   members: CompanyMember[];
   features: CompanyFeature[];
   join_requests: CompanyJoinRequest[];

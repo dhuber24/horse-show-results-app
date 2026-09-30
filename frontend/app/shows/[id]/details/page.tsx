@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { fetchShow } from '@/lib/api';
+import { fetchShow, fetchShowFeesPublic } from '@/lib/api';
 import { unitLabel } from '@/lib/fee-units';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
@@ -49,8 +49,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = await fetchShow(id);
+  const [show, fees] = await Promise.all([fetchShow(id), fetchShowFeesPublic(id)]);
   const back = showHubBack(id);
+  // The shavings policy only where the show sells bedding — the same rule as
+  // the show bill's Rules & paperwork. A show whose Lodging step was skipped
+  // has no bags to order, and saying it does is a promise nobody keeps.
+  const sellsBedding = (fees as { unit: string }[]).some((fee) => fee.unit === 'per_bag');
 
   const clubs: {
     association_id: string;
@@ -118,11 +122,13 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
             </ul>
           </Row>
         )}
-        <Row label="Shavings">
-          {show.shavings_ban_outside
-            ? 'Outside shavings are not allowed — bedding must be bought from the show.'
-            : 'Outside shavings are allowed. Bags can also be ordered from the show.'}
-        </Row>
+        {sellsBedding && (
+          <Row label="Shavings">
+            {show.shavings_ban_outside
+              ? 'Outside shavings are not allowed — bedding must be bought from the show.'
+              : 'Outside shavings are allowed. Bags can also be ordered from the show.'}
+          </Row>
+        )}
         {show.apha_show_number && <Row label="APHA show #">{show.apha_show_number}</Row>}
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>

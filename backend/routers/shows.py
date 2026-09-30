@@ -52,6 +52,8 @@ from rules.apha import (
     show_minimums,
 )
 import standard_classes
+from show_access import SHOW_OFFICE_TABLES, show_office_users, worked_show_ids, works_show
+from show_companies import default_show_company_for
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
@@ -174,22 +176,13 @@ async def list_shows(
     if is_authenticated and x_user_role == "ADMIN":
         # Admins see all shows including DRAFTs
         query = select(Show).options(selectinload(Show.show_type), selectinload(Show.venue_rel)).order_by(Show.start_date)
-    elif is_authenticated and x_user_role == "SHOW_SECRETARY" and x_user_id:
-        # Secretaries see their own assigned shows (including DRAFTs)
+    elif is_authenticated and x_user_role in SHOW_OFFICE_TABLES and x_user_id:
+        # Show managers and secretaries see the shows they work, DRAFTs
+        # included: their company's, and any they are assigned to by hand.
         query = (
             select(Show)
             .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
-            .join(ShowSecretary, ShowSecretary.show_id == Show.id)
-            .where(ShowSecretary.user_id == safe_uuid(x_user_id))
-            .order_by(Show.start_date)
-        )
-    elif is_authenticated and x_user_role == "SHOW_MANAGER" and x_user_id:
-        # Show Managers see shows they are assigned to manage (including DRAFTs)
-        query = (
-            select(Show)
-            .options(selectinload(Show.show_type), selectinload(Show.venue_rel))
-            .join(ShowManager, ShowManager.show_id == Show.id)
-            .where(ShowManager.user_id == safe_uuid(x_user_id))
+            .where(Show.id.in_(worked_show_ids(safe_uuid(x_user_id), x_user_role)))
             .order_by(Show.start_date)
         )
     elif is_authenticated and x_user_role == "SCRIBE" and x_user_id:
@@ -236,16 +229,23 @@ async def create_show(
     if x_user_role not in ("ADMIN", "SHOW_SECRETARY", "SHOW_MANAGER"):
         raise HTTPException(403, "Admin, Show Secretary, or Show Manager access required")
 
-    show = Show(**body.model_dump(), created_by_user_id=safe_uuid(x_user_id))
+    creator = safe_uuid(x_user_id)
+    # The creator's company runs it, and its staff work it from here on
+    # (migration 156). Somebody in several companies is asked on Step 1.
+    company_id = await default_show_company_for(db, creator, x_user_role)
+    show = Show(**body.model_dump(), created_by_user_id=creator, company_id=company_id)
     db.add(show)
     await db.commit()
 
-    if x_user_role == "SHOW_SECRETARY":
-        db.add(ShowSecretary(show_id=show.id, user_id=safe_uuid(x_user_id)))
-        await db.commit()
-    elif x_user_role == "SHOW_MANAGER":
-        db.add(ShowManager(show_id=show.id, user_id=safe_uuid(x_user_id)))
-        await db.commit()
+    # The creator reaches the show through the company when it has one; a
+    # per-show row as well would keep them on it after they left the company.
+    if company_id is None:
+        if x_user_role == "SHOW_SECRETARY":
+            db.add(ShowSecretary(show_id=show.id, user_id=creator))
+            await db.commit()
+        elif x_user_role == "SHOW_MANAGER":
+            db.add(ShowManager(show_id=show.id, user_id=creator))
+            await db.commit()
 
     show = await _get_show_with_type(db, show.id)
     return _serialize(show)
@@ -438,20 +438,9 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
 async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_user_role: str, db: AsyncSession):
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
-    if x_user_role == "ADMIN":
+    # A per-show row or the show's company (migration 156): `show_access.py`.
+    if await works_show(db, show_id, safe_uuid(x_user_id) if x_user_id else None, x_user_role):
         return
-    if x_user_role == "SHOW_SECRETARY":
-        row = await db.execute(
-            select(ShowSecretary).where(ShowSecretary.show_id == show_id, ShowSecretary.user_id == safe_uuid(x_user_id))
-        )
-        if row.scalar_one_or_none():
-            return
-    if x_user_role == "SHOW_MANAGER":
-        row = await db.execute(
-            select(ShowManager).where(ShowManager.show_id == show_id, ShowManager.user_id == safe_uuid(x_user_id))
-        )
-        if row.scalar_one_or_none():
-            return
     raise HTTPException(403, "Not authorized for this show")
 
 
@@ -594,28 +583,15 @@ def _aqha_workshop_cutoff(show_date: date) -> date:
 
 
 async def _qualified_aqha_management_workshop_staff(db: AsyncSession, show: Show) -> list[User]:
+    # The show's office is its company's staff as well as anybody assigned by
+    # hand (migration 156), and any one of them may be the qualified person.
     cutoff = _aqha_workshop_cutoff(show.start_date)
-    secretary_result = await db.execute(
-        select(User)
-        .join(ShowSecretary, ShowSecretary.user_id == User.id)
-        .where(
-            ShowSecretary.show_id == show.id,
-            User.aqha_management_workshop_completed_at.is_not(None),
-            User.aqha_management_workshop_completed_at >= cutoff,
-        )
-    )
-    manager_result = await db.execute(
-        select(User)
-        .join(ShowManager, ShowManager.user_id == User.id)
-        .where(
-            ShowManager.show_id == show.id,
-            User.aqha_management_workshop_completed_at.is_not(None),
-            User.aqha_management_workshop_completed_at >= cutoff,
-        )
-    )
-    users_by_id = {user.id: user for user in secretary_result.scalars().all()}
-    users_by_id.update({user.id: user for user in manager_result.scalars().all()})
-    return list(users_by_id.values())
+    return [
+        user
+        for user in await show_office_users(db, show)
+        if user.aqha_management_workshop_completed_at is not None
+        and user.aqha_management_workshop_completed_at >= cutoff
+    ]
 
 
 @router.get("/{show_id}/aqha-validation", response_model=AssociationValidationOut)

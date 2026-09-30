@@ -329,6 +329,11 @@ export default function ShowbillDocument({
   // the truck, and "upload it" and "bring it" are different instructions.
   const healthPapersInPerson =
     healthPapers.length > 0 && show.requires_physical_document_check !== false;
+  // The shavings policy only where the show sells bedding. A show whose Lodging
+  // step was skipped sells none, and "Bags may also be ordered from the show"
+  // would be a promise nobody is keeping — the registration screen has no
+  // shavings to order there either.
+  const sellsBedding = fees.some((fee) => fee.unit === 'per_bag');
 
   return (
     <article
@@ -656,13 +661,16 @@ export default function ShowbillDocument({
         </Section>
       )}
 
+      {(sellsBedding || healthPapers.length > 0) && (
       <Section title="Rules & paperwork">
         <div className="divide-y" style={{ borderColor: 'var(--bg-subtle)' }}>
-          <Fact label="Shavings">
-            {show.shavings_ban_outside
-              ? 'Outside shavings are not allowed. Bedding must be bought from the show.'
-              : 'Outside shavings are allowed. Bags may also be ordered from the show.'}
-          </Fact>
+          {sellsBedding && (
+            <Fact label="Shavings">
+              {show.shavings_ban_outside
+                ? 'Outside shavings are not allowed. Bedding must be bought from the show.'
+                : 'Outside shavings are allowed. Bags may also be ordered from the show.'}
+            </Fact>
+          )}
           {healthPapers.length > 0 && (
             <Fact label="Health papers">
               <ul className="space-y-0.5">
@@ -675,6 +683,7 @@ export default function ShowbillDocument({
           )}
         </div>
       </Section>
+      )}
 
       <footer className="mt-8 pt-3 border-t text-xs" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
         <p>

@@ -273,6 +273,12 @@ export default function ReservationFields({
   children?: React.ReactNode;
 }) {
   const { show, fee_options, signup } = data;
+  // Nothing to book: the show's Lodging step was skipped or left empty. The
+  // registration wizard has no stalls step at all then; this form is only
+  // reached from `/signup`, the door releases are signed at, and there it is a
+  // sign-up with a note to the office and nothing about stalls or shavings.
+  const hasLodging = fee_options.length > 0;
+  const sellsBedding = fee_options.some((f) => BEDDING_UNITS.includes(f.unit));
 
   const [rawQuantities, setRawQuantities] = useState<Record<string, number>>(() => {
     const seed: Record<string, number> = {};
@@ -415,33 +421,28 @@ export default function ReservationFields({
           case saying nothing at all, and "nothing" is not an answer to "do I
           need to load six bags into the trailer or not?" — the exhibitor is
           packing either way, and silence just moves the question to a phone
-          call to the show office. */}
-      {show.shavings_ban_outside ? (
-        <div
-          className="rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
-        >
-          <strong>Outside shavings aren&apos;t allowed here.</strong> Order your bedding below.
-        </div>
-      ) : (
-        <div
-          className="rounded-lg border p-3 text-sm"
-          style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success-border)', color: 'var(--success-strong)' }}
-        >
-          <strong>You may bring your own shavings.</strong> Ordering below is optional — bags are
-          waiting at your stall.
-        </div>
-      )}
+          call to the show office. Only at a show that sells bedding: one
+          that sells none has nothing to say about it, and "bags are waiting
+          at your stall" would be a promise nobody is keeping. */}
+      {sellsBedding &&
+        (show.shavings_ban_outside ? (
+          <div
+            className="rounded-lg border p-3 text-sm"
+            style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+          >
+            <strong>Outside shavings aren&apos;t allowed here.</strong> Order your bedding below.
+          </div>
+        ) : (
+          <div
+            className="rounded-lg border p-3 text-sm"
+            style={{ backgroundColor: 'var(--success-bg)', borderColor: 'var(--success-border)', color: 'var(--success-strong)' }}
+          >
+            <strong>You may bring your own shavings.</strong> Ordering below is optional — bags are
+            waiting at your stall.
+          </div>
+        ))}
 
-      {groups.length === 0 ? (
-        <div
-          className="mt-4 rounded-lg border p-4 text-sm"
-          style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
-        >
-          No stall, shavings or camping options published. Save to tell the office
-          you&apos;re coming.
-        </div>
-      ) : (
+      {hasLodging && (
         <div className="mt-4 space-y-4">
           {groups.map((group) => (
             <section
@@ -603,7 +604,8 @@ export default function ReservationFields({
           and they are read at different moments by different people: whoever
           draws the stall chart wants every request together and nothing else,
           and reading them out of a column of arrival plans is how a request
-          gets missed. */}
+          gets missed. Not asked where the show has no stalls to draw. */}
+      {hasLodging && (
       <section
         className="mt-4 rounded-lg border p-4"
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
@@ -626,15 +628,23 @@ export default function ReservationFields({
           />
         </label>
       </section>
+      )}
 
+      {/* Arrival dates plan the stall chart, so a show with no stalls, shavings
+          or camping asks only for the note. */}
       <section
-        className="mt-4 rounded-lg border p-4"
+        className={`${hasLodging ? 'mt-4' : ''} rounded-lg border p-4`}
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
       >
-        <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>Arrival &amp; notes</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>
+          {hasLodging ? <>Arrival &amp; notes</> : 'Notes for the show office'}
+        </h3>
         <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
-          Optional — helps the office plan stall assignments.
+          {hasLodging
+            ? 'Optional — helps the office plan stall assignments.'
+            : 'Optional — anything the office should know before the show.'}
         </p>
+        {hasLodging && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-xs" style={{ color: 'var(--muted)' }}>
             Arriving
@@ -657,8 +667,9 @@ export default function ReservationFields({
             />
           </label>
         </div>
-        <label className="text-xs block mt-3" style={{ color: 'var(--muted)' }}>
-          Notes for the show office
+        )}
+        <label className={`text-xs block ${hasLodging ? 'mt-3' : ''}`} style={{ color: 'var(--muted)' }}>
+          {hasLodging ? 'Notes for the show office' : <span className="sr-only">Notes for the show office</span>}
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -676,15 +687,21 @@ export default function ReservationFields({
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
       >
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
-              Stalls, shavings &amp; camping
+          {/* A $0.00 "Stalls, shavings & camping" total at a show selling
+              none of them would read as something booked for nothing. */}
+          {hasLodging ? (
+            <div>
+              <div className="text-xs uppercase tracking-wider" style={{ color: 'var(--muted)' }}>
+                Stalls, shavings &amp; camping
+              </div>
+              <div className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
+                {formatMoney(reservationTotal)}
+              </div>
+              <div className="text-xs" style={{ color: 'var(--muted)' }}>{totalHint}</div>
             </div>
-            <div className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
-              {formatMoney(reservationTotal)}
-            </div>
+          ) : (
             <div className="text-xs" style={{ color: 'var(--muted)' }}>{totalHint}</div>
-          </div>
+          )}
           <button
             type="submit"
             disabled={saving}

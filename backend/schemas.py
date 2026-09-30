@@ -1352,6 +1352,9 @@ class ShowCompanyCreate(BaseModel):
 class ShowCompanyUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     notes: Optional[str] = Field(default=None, max_length=5000)
+    # Migration 157: days before a show's first day that exhibitors stop being
+    # able to cancel their own registration. 0 is until the show starts.
+    self_cancel_days_before: Optional[int] = Field(default=None, ge=0, le=90)
 
 
 class ShowCompanyMemberAdd(BaseModel):
@@ -1407,6 +1410,9 @@ class ShowCompanyOut(BaseModel):
     created_at: Optional[datetime] = None
     # Set when the company is one independent person's own (migration 143).
     owner_user_id: Optional[UUID] = None
+    # Migration 157: when exhibitors stop cancelling themselves. 0 is until the
+    # show starts.
+    self_cancel_days_before: int = 0
     members: list[ShowCompanyMemberOut] = Field(default_factory=list)
     features: list[ShowCompanyFeatureOut] = Field(default_factory=list)
     join_requests: list[ShowCompanyJoinRequestOut] = Field(default_factory=list)
@@ -4268,7 +4274,7 @@ class ShowDeskExhibitorOut(BaseModel):
     preferred_back_number: Optional[int] = None
     signed_up: bool = False
     # Set means the registration was called off (migration 126) — by the
-    # exhibitor outside the two-week notice window, or by the office inside it.
+    # exhibitor while registration was open, or by the office at any time.
     # They stay on the desk because their payments do, and a cancelled
     # exhibitor nobody can find is a cancelled exhibitor nobody can refund.
     cancelled_at: Optional[datetime] = None

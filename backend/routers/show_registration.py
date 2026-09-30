@@ -22,10 +22,11 @@ Registration is three steps, in order:
    than silently having a shell row created for them. That ordering is the
    point — the office wants stall counts *before* it has a ring full of horses.
 
-**Cancelling** (`DELETE /signup`) undoes the lot, and only up to a fortnight
-before the show — inside that window `cancellations.may_self_cancel` is False
-and the exhibitor is sent to the show office, which cancels from the desk. The
-row is marked, not deleted; see migration 126.
+**Cancelling** (`DELETE /signup`) undoes the lot, while registration is open and
+up to the cut-off the show company chose (migration 157) — past it
+`cancellations.may_self_cancel` is False and the exhibitor is sent to the show
+office, which cancels from the desk. The row is marked, not deleted; see
+migration 126. A cancelled registration no longer appears on My Shows.
 
 Each class entry creates one `entries` row per (class, horse) pair and runs the
 same association validation as the secretary entry path.
@@ -64,6 +65,7 @@ from cancellations import (
     cancellation_window,
     is_on_roster,
     may_self_cancel,
+    self_cancel_days_before,
 )
 from exhibitor_profile import missing_blocking, profile_checklist
 from horse_eligibility import (
@@ -97,6 +99,8 @@ from billing import (
     early_rate_is_open,
     fee_rate_cents,
     class_sanction_cents,
+    offers_lodging,
+    per_class_charges,
     reservable_fees,
     sanction_charge_lines,
     sanction_rates,
@@ -417,6 +421,10 @@ async def _profile_status(
         horse_count=len(links),
         associations=await _show_associations(show, db),
         registered_association_ids={r.association_id for r in (view.registrations or [])},
+        # A minor is judged on the show's first day: that is when somebody has
+        # to be answerable for them, and a birthday the week before the show
+        # means they sign for themselves.
+        as_of=show.start_date,
     )
     missing = missing_blocking(checklist)
     return {
@@ -557,7 +565,9 @@ async def get_signup(
         # press. Always sent, even before sign-up, because it costs nothing and
         # a screen that only learns the rule after signing up cannot warn
         # anybody about the deadline in advance.
-        "cancellation": cancellation_window(show.start_date),
+        "cancellation": cancellation_window(
+            show.status, show.start_date, await self_cancel_days_before(show, db)
+        ),
     }
 
 
@@ -740,14 +750,14 @@ async def cancel_signup(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel your own registration, up to a fortnight before the show.
+    """Cancel your own registration, up to the cut-off the show company chose.
 
-    Inside the notice window this returns `CANCELLATION_WINDOW_CLOSED` and the
-    exhibitor telephones the office, which cancels from the desk. The cut-off
-    is not caution about mis-clicks — it is that by two weeks out the stall
-    chart is drawn, the entries are in the program and somebody has to decide
-    what happens to the money, and none of those are decisions the person
-    leaving gets to make on their own.
+    While registration is open and, where the company set one, until its
+    cut-off (`show_companies.self_cancel_days_before`, migration 157; 0 is until
+    the show starts). Past it this returns `CANCELLATION_WINDOW_CLOSED` and the
+    exhibitor asks the office, which cancels from the desk. Nothing about the
+    money is decided here either way -- payments stay on the row as a credit
+    for the office to refund.
 
     Not a DELETE of the row. See `cancellations.cancel_registration` for what
     goes and what stays, and migration 126 for why the row survives.
@@ -771,25 +781,24 @@ async def cancel_signup(
     if not is_on_roster(show_entry):
         raise HTTPException(404, "You are not registered for this show")
 
-    if not may_self_cancel(show.start_date):
-        window = cancellation_window(show.start_date)
+    # The status half is also the loader's, above; asked again through the
+    # rule's own home so widening the loader for some other door cannot quietly
+    # widen who may cancel. The date half is the company's cut-off.
+    days_before = await self_cancel_days_before(show, db)
+    if not may_self_cancel(show.status, show.start_date, days_before):
         raise HTTPException(
             409,
             {
                 "code": "CANCELLATION_WINDOW_CLOSED",
                 "message": (
-                    f"This show starts in {window['days_until_show']} days. "
-                    f"Inside {window['notice_days']} days the show office has "
-                    "to cancel a registration — message them and they will "
-                    "take it off."
+                    f"Within {days_before} days of the show the show office "
+                    "cancels a registration — message them and they will take "
+                    "it off."
+                    if days_before and show.status == "PUBLISHED"
+                    else "This show is under way, so the show office cancels a "
+                    "registration now — message them and they will take it off."
                 ),
-                "cancellation": {
-                    "notice_days": window["notice_days"],
-                    "deadline": window["deadline"].isoformat()
-                    if window["deadline"]
-                    else None,
-                    "days_until_show": window["days_until_show"],
-                },
+                "cancellation": cancellation_window(show.status, show.start_date, days_before),
             },
         )
 
@@ -1519,6 +1528,9 @@ async def preview_registration(
     joined_pot_ids_for_exhibitor = side_pot_joined_ids(
         preview_pots, show_entry.id if show_entry else None
     )
+    # What a per-judge, per-class fee multiplies by -- the same count the bill
+    # uses (`build_bill` via `breed_judge_count`).
+    breed_judges, _breed_code = breed_judge_count(show)
 
     return {
         # Null until show sign-up is done. The screen reads this to send the
@@ -1535,7 +1547,9 @@ async def preview_registration(
         # membership row on the checklist above is built from these same rows.
         "registrations": [_exhibitor_reg_out(r) for r in (view.registrations or [])],
         # Whether cancelling is still the exhibitor's to do, and by when.
-        "cancellation": cancellation_window(show.start_date),
+        "cancellation": cancellation_window(
+            show.status, show.start_date, await self_cancel_days_before(show, db)
+        ),
         "show": {
             "id": str(show.id),
             "name": show.name,
@@ -1543,6 +1557,10 @@ async def preview_registration(
             "start_date": show.start_date,
             "end_date": show.end_date,
             "show_type_code": show.show_type.code if show.show_type else None,
+            # Whether there is a stalls, shavings & camping step at all. A show
+            # that sells none of them (its Lodging step skipped or left empty)
+            # registers without one: finishing the horses step is the sign-up.
+            "offers_lodging": offers_lodging(show.fees or []),
         },
         "exhibitor": {
             "id": str(exhibitor.id),
@@ -1592,6 +1610,15 @@ async def preview_registration(
                     if row.association is not None
                 ],
                 "sanction_cents": _class_sanction_cents(show, c),
+                # The show's own per-class fees one entry here would be charged
+                # -- a "$5 per judge, per class" assessment on a $0 class. The
+                # picker quotes them before the press, from the same rule the
+                # bill charges by (`billing.per_class_charges`), rather than
+                # saying "No entry fee" over a class that costs $5.
+                "per_class_charges": [
+                    {"label": charge["label"], "cents": charge["cents"]}
+                    for charge in per_class_charges(show.fees or [], c, breed_judges)
+                ],
                 # The open side pots this class is bundled into, and what each
                 # costs. Entering the class means buying into one of them, so
                 # the picker has to show the choice and its price before the
@@ -1796,8 +1823,11 @@ async def register_for_show(
             )
 
     # Sign-up comes first. A missing (or unfinished) show_entries row means the
-    # office has no stall/shavings/camping numbers for this exhibitor, so we
-    # refuse rather than quietly creating the shell row this used to create.
+    # office does not have this exhibitor on its roster -- no back number, and
+    # at a show that sells them, no stall/shavings/camping numbers -- so we
+    # refuse rather than quietly creating the shell row this used to create. At
+    # a show selling none of those, the registration screen signs up as the
+    # horses step is finished, so this is still one press away.
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     if not is_on_roster(show_entry):
         raise HTTPException(
@@ -1805,8 +1835,7 @@ async def register_for_show(
             {
                 "code": "SHOW_SIGNUP_REQUIRED",
                 "message": (
-                    "Sign up for this show before entering classes — the office "
-                    "needs your stall, shavings, and camping numbers first."
+                    "Finish signing up for this show before entering classes."
                 ),
             },
         )

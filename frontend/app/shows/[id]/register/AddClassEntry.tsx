@@ -87,6 +87,14 @@ function formatDay(dateStr: string): string {
   });
 }
 
+/** What one entry in this class adds to the bill: its entry fee, a club's
+ *  per-class fee, and the show's per-class fees — the figure the class then
+ *  shows on the bill. Side pot buy-ins are quoted apart. */
+function classCostCents(cls: PreviewClass): number {
+  const perClass = (cls.per_class_charges ?? []).reduce((sum, charge) => sum + charge.cents, 0);
+  return cls.entry_fee_cents + cls.sanction_cents + perClass;
+}
+
 export default function AddClassEntry({
   showId,
   showTypeCode,
@@ -303,7 +311,7 @@ export default function AddClassEntry({
                 return (
                   <option key={c.id} value={c.id}>
                     {c.class_number} — {c.class_name}
-                    {c.entry_fee_cents > 0 ? ` (${formatMoney(c.entry_fee_cents)})` : ''}
+                    {classCostCents(c) > 0 ? ` (${formatMoney(classCostCents(c))})` : ''}
                     {c.sanctioning_codes.length > 0 ? ` · ${c.sanctioning_codes.join(', ')}` : ''}
                     {ridingAlready ? ' · another horse' : ''}
                   </option>
@@ -495,10 +503,11 @@ export default function AddClassEntry({
             {/* The pot buy-in is named apart from the class fee rather than
                 folded into one number: it is a different thing being bought,
                 it covers more than this class, and it settles separately. */}
-            {activeClass.entry_fee_cents > 0
-              ? `${formatMoney(
-                  activeClass.entry_fee_cents + activeClass.sanction_cents,
-                )} added to your bill`
+            {/* Everything this entry adds, per-class fees included: a $0 class
+                carrying a $5 per-class fee used to read "No entry fee" here
+                and then bill $5. */}
+            {classCostCents(activeClass) > 0
+              ? `${formatMoney(classCostCents(activeClass))} added to your bill`
               : 'No entry fee'}
             {potTotalCents > 0 ? ` · ${formatMoney(potTotalCents)} side pot buy-in` : ''}
           </span>

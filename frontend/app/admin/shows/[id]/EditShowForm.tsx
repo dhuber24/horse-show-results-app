@@ -61,9 +61,10 @@ const COLORS = {
   warnSoft: 'var(--warning-bg)',
 } as const;
 
-// Who runs the show is not a detail of the show record — it is the staff roster,
-// and it lives in `ShowStaffPanel` alongside the managers, scribes, and gate
-// stewards. Step 1 renders both.
+// Who runs the show is not a detail of the show record — it is the staff roster:
+// the company that runs it and its managers and secretaries in
+// `ShowCompanyStaff`, the scribes and gate stewards hired for it in
+// `ShowStaffPanel`. Step 1 renders all three.
 export default function EditShowForm({
   show,
   venues,

@@ -981,6 +981,42 @@ def test_a_per_class_charge_lands_only_where_it_was_counted():
     assert bill["class_charge_total_cents"] == bill["charge_total_cents"] == 600
 
 
+def test_the_class_picker_quotes_what_the_bill_then_charges():
+    """The picker said "No entry fee" over a $0 class that a $5 per-judge,
+    per-class fee then billed. `per_class_charges` quotes a class before it is
+    entered by the same rule `build_bill` attributes to it afterwards, so for
+    every class the quote and the bill's class line agree -- including the
+    classes the fee does not reach (scoped out, club-sanctioned)."""
+    wsca = make_sanctioning("WSCA", fee_amount_cents=0)
+    youth = make_class(class_number=1, class_name="Youth Showmanship")
+    amateur = make_class(class_number=2, class_name="Amateur Showmanship")
+    all_breed = make_class(class_number=3, class_name="All Breed Showmanship",
+                           sanctioning=[make_class_sanction(wsca)])
+    assessment = make_fee(
+        code="youth", label="Youth assessment", unit="per_judge_per_entry", amount_cents=300,
+        scoped_classes=make_fee_scope([youth.id, all_breed.id]),
+    )
+    flat_rate = make_fee(code="class", label="Class fee", unit="per_entry", amount_cents=500)
+    drug = make_fee(code="drug", label="Drug fee", unit="per_horse", amount_cents=800)
+    fees = [assessment, flat_rate, drug]
+    classes = [youth, amateur, all_breed]
+
+    bill = billing.build_bill(
+        make_show(fees=fees, judges=make_judges(2)), [make_entry(cls=c) for c in classes], []
+    )
+    billed = {line["class_number"]: line["charge_cents"] for line in bill["class_lines"]}
+    quoted = {
+        c.class_number: sum(q["cents"] for q in billing.per_class_charges(fees, c, 2))
+        for c in classes
+    }
+
+    assert quoted == billed == {1: 600 + 500, 2: 500, 3: 0}
+    # A per-horse fee belongs to no class, so it is never quoted against one.
+    assert all(
+        q["label"] != "Drug fee" for c in classes for q in billing.per_class_charges(fees, c, 2)
+    )
+
+
 def test_a_charge_about_the_horse_is_not_put_against_a_class():
     """A per-horse fee belongs to no class in particular; splitting it across
     whichever classes the horse happened to enter would be arithmetic the show

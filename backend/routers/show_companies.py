@@ -59,6 +59,7 @@ from show_companies import (
     add_company_member,
     decline_join_request as decline_request,
     normalize_company_name,
+    pin_company_shows,
     place_in_company,
     remove_company_member,
 )
@@ -95,6 +96,7 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         notes=company.notes,
         created_at=company.created_at,
         owner_user_id=company.owner_user_id,
+        self_cancel_days_before=company.self_cancel_days_before or 0,
         join_requests=[
             ShowCompanyJoinRequestOut(
                 user_id=r.user.id,
@@ -267,6 +269,11 @@ async def update_company(
         company.name = name
     if "notes" in fields:
         company.notes = _clean_notes(body.notes)
+    if "self_cancel_days_before" in fields:
+        # A number, never a blank: 0 is how "until the show starts" is said.
+        if body.self_cancel_days_before is None:
+            raise HTTPException(422, "Say how many days before the show, or 0 for until it starts.")
+        company.self_cancel_days_before = body.self_cancel_days_before
     try:
         await db.commit()
     except IntegrityError:
@@ -336,6 +343,8 @@ async def delete_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
     staff = [m.user for m in company.members if m.user is not None and m.user.role in SHOW_OFFICE_ROLES]
     for system in systems:
         await db.delete(system)
+    # Its shows lose their company (SET NULL); its staff keep them, per show.
+    await pin_company_shows(company, db)
     await db.delete(company)
     await db.flush()
     for user in staff:

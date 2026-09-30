@@ -10,7 +10,13 @@ from datetime import date
 from types import SimpleNamespace
 from uuid import uuid4
 
-from exhibitor_profile import missing_blocking, profile_checklist, profile_complete
+from exhibitor_profile import (
+    age_on,
+    is_minor,
+    missing_blocking,
+    profile_checklist,
+    profile_complete,
+)
 
 
 def make_exhibitor(**overrides) -> SimpleNamespace:
@@ -140,3 +146,79 @@ def test_a_show_with_no_affiliation_is_not_asked_about_memberships():
     checklist = profile_checklist(make_exhibitor(), horse_count=1)
 
     assert not any(i["key"] == "memberships" for i in checklist)
+
+
+# ── A minor needs a parent or guardian ───────────────────────────────────────
+
+SHOW_DAY = date(2026, 6, 13)
+
+
+def test_a_minor_without_a_guardian_is_blocked():
+    checklist = profile_checklist(
+        make_exhibitor(date_of_birth=date(2012, 1, 5)), horse_count=1, as_of=SHOW_DAY
+    )
+
+    guardian = item(checklist, "parent_guardian")
+    assert guardian["blocking"] is True
+    assert guardian["complete"] is False
+    assert guardian["step"] == "details"
+    assert missing_blocking(checklist) == ["Parent / guardian"]
+
+
+def test_a_guardian_needs_both_halves():
+    """Both or neither, like the emergency contact: a name the office cannot
+    ring is not somebody answerable for the child."""
+    checklist = profile_checklist(
+        make_exhibitor(
+            date_of_birth=date(2012, 1, 5), parent_guardian_name="Pat Miller"
+        ),
+        horse_count=1,
+        as_of=SHOW_DAY,
+    )
+
+    guardian = item(checklist, "parent_guardian")
+    assert guardian["complete"] is False
+    assert guardian["hint"] == "Missing phone"
+
+
+def test_a_minor_with_a_guardian_on_file_is_complete():
+    checklist = profile_checklist(
+        make_exhibitor(
+            date_of_birth=date(2012, 1, 5),
+            parent_guardian_name="Pat Miller",
+            parent_guardian_phone="555-0143",
+        ),
+        horse_count=1,
+        as_of=SHOW_DAY,
+    )
+
+    assert item(checklist, "parent_guardian")["complete"] is True
+    assert profile_complete(checklist)
+
+
+def test_an_adult_is_never_asked_about_a_guardian():
+    checklist = profile_checklist(make_exhibitor(), horse_count=1, as_of=SHOW_DAY)
+
+    assert not any(i["key"] == "parent_guardian" for i in checklist)
+
+
+def test_no_date_of_birth_means_no_guardian_row():
+    """The date of birth row is already blocking, and asking for a guardian of
+    somebody whose age nobody knows would be a guess."""
+    checklist = profile_checklist(
+        make_exhibitor(date_of_birth=None), horse_count=1, as_of=SHOW_DAY
+    )
+
+    assert not any(i["key"] == "parent_guardian" for i in checklist)
+
+
+def test_eighteen_on_the_show_day_signs_for_themselves():
+    """Judged on the day, birthday included -- not YP-075's 1 January age."""
+    assert not is_minor(date(2008, 6, 13), SHOW_DAY)
+    assert is_minor(date(2008, 6, 14), SHOW_DAY)
+    assert age_on(date(2008, 6, 14), SHOW_DAY) == 17
+
+
+def test_a_date_of_birth_held_as_text_is_still_read():
+    assert age_on("2008-06-13", SHOW_DAY) == 18
+    assert age_on("not a date", SHOW_DAY) is None

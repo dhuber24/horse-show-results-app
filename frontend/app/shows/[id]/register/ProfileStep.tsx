@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { isMinorOn, todayIso } from '@/lib/minor';
 import type { ProfileStatus } from './types';
 
 /**
@@ -46,7 +47,7 @@ import type { ProfileStatus } from './types';
  *  `exhibitor_profile.py` marks `step: 'details'` — the backend is what
  *  enforces this; the copy here only decides which boxes get an asterisk and
  *  an outline. `full_name` is absent because it is set at sign-up and has no
- *  box on this form. */
+ *  box on this form; the guardian pair is below, required only of a minor. */
 const REQUIRED_FIELDS = [
   'date_of_birth',
   'phone',
@@ -58,10 +59,12 @@ const REQUIRED_FIELDS = [
   'emergency_contact_phone',
 ] as const;
 
-type FieldName =
-  | (typeof REQUIRED_FIELDS)[number]
-  | 'parent_guardian_name'
-  | 'parent_guardian_phone';
+/** Required as well while the exhibitor is under 18 — the backend's
+ *  `parent_guardian` row, which only exists for a minor. Both halves, like the
+ *  emergency contact: a name the office cannot ring is nobody to call. */
+const GUARDIAN_FIELDS = ['parent_guardian_name', 'parent_guardian_phone'] as const;
+
+type FieldName = (typeof REQUIRED_FIELDS)[number] | (typeof GUARDIAN_FIELDS)[number];
 
 function Field({
   label,
@@ -143,6 +146,7 @@ function Field({
 export default function ProfileStep({
   profile,
   showId,
+  asOf,
   hasMembershipsStep = false,
   onSaved,
 }: {
@@ -151,6 +155,9 @@ export default function ProfileStep({
    *  never to the profile. Absent on `/welcome`, where the profile is what is
    *  being filled in. */
   showId?: string;
+  /** The day a minor is judged on, `YYYY-MM-DD` — the show's first day, as the
+   *  backend judges it. Today when absent (`/welcome`, which has no show). */
+  asOf?: string;
   /** True when the caller renders a memberships step of its own — the
    *  registration wizard does, between this step and the horses. The prompt
    *  below is then a second, worse copy of that step: a line of hint text
@@ -189,7 +196,19 @@ export default function ProfileStep({
   const [saved, setSaved] = useState(false);
   // Empty until somebody actually tries to move on. Outlining a form somebody
   // has not filled in yet is scolding them for not having typed fast enough.
-  const [invalid, setInvalid] = useState<Set<string>>(new Set());
+  const [rawInvalid, setInvalid] = useState<Set<string>>(new Set());
+
+  // Read off the box as it is typed, so the guardian fields turn required the
+  // moment a date of birth makes somebody a minor — not after a save the
+  // backend would refuse.
+  const minor = isMinorOn(form.date_of_birth, asOf ?? todayIso());
+  const required: readonly FieldName[] = minor
+    ? [...REQUIRED_FIELDS, ...GUARDIAN_FIELDS]
+    : REQUIRED_FIELDS;
+  // Only what is still required. A guardian box outlined while the exhibitor
+  // was a minor stops being red when the date of birth is corrected to an
+  // adult's, rather than scolding them for a box nobody wants any more.
+  const invalid = new Set([...rawInvalid].filter((f) => required.includes(f as FieldName)));
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -206,7 +225,7 @@ export default function ProfileStep({
   };
 
   const handleSave = async () => {
-    const missing = REQUIRED_FIELDS.filter((f) => !form[f].trim());
+    const missing = required.filter((f) => !form[f].trim());
     if (missing.length > 0) {
       setInvalid(new Set(missing));
       setError(null);
@@ -376,15 +395,18 @@ export default function ProfileStep({
             required
             invalid={invalid.has('emergency_contact_phone')}
           />
-          {/* Not on the blocking list — plenty of exhibitors are adults. Asked
-              for here because a youth entry without one is chased at the desk,
-              and this is the screen where somebody is actually filling this in. */}
+          {/* Required of a minor and only of a minor — plenty of exhibitors are
+              adults, and asking them would be a box they learn to skip. The
+              backend's `parent_guardian` row is the enforcement; this only
+              decides the asterisks and the outline. */}
           <Field
             label="Parent / guardian name"
             name="parent_guardian_name"
             value={form.parent_guardian_name}
             onChange={handleChange}
-            hint="If under 18."
+            required={minor}
+            invalid={invalid.has('parent_guardian_name')}
+            hint={minor ? 'Required — you’re under 18.' : 'If under 18.'}
           />
           <Field
             label="Parent / guardian phone"
@@ -392,6 +414,8 @@ export default function ProfileStep({
             type="tel"
             value={form.parent_guardian_phone}
             onChange={handleChange}
+            required={minor}
+            invalid={invalid.has('parent_guardian_phone')}
           />
         </div>
 

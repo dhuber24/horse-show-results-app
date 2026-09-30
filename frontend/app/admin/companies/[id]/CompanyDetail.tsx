@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
 import type { ShowCompany } from '@/lib/show-companies';
+import SelfCancelPolicy from '@/components/SelfCancelPolicy';
 import FeatureToggle from '../FeatureToggle';
 
 export interface StaffAccount {
@@ -323,8 +324,8 @@ export default function CompanyDetail({
             Accounts ({company.members.length})
           </h2>
           <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-            The staff who work for this company. An account can be in more than one company, and gets
-            every feature any of them has.
+            The staff who work for this company, and so every show it runs. An account can be in more
+            than one company, and gets every feature any of them has.
           </p>
         </div>
         {company.members.length === 0 ? (
@@ -451,6 +452,29 @@ export default function CompanyDetail({
         >
           {busy === 'details' ? 'Saving…' : 'Save'}
         </button>
+      </section>
+
+      {/* The company's own policy, which its managers and secretaries set on
+          My Company. Here too so a GaitDesk admin can set it up for a club, or
+          answer "why can't my exhibitors cancel?" without asking. */}
+      <section className="p-5 rounded-lg border" style={sectionStyle}>
+        <SelfCancelPolicy
+          value={company.self_cancel_days_before ?? 0}
+          onSave={async (daysBefore) => {
+            const saved = await send(
+              'policy',
+              base,
+              {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ self_cancel_days_before: daysBefore }),
+              },
+              'The cancellation policy could not be saved.',
+            );
+            // `send` has already put the refusal on the page.
+            return saved ? null : 'Not saved.';
+          }}
+        />
       </section>
 
       <section className="p-5 rounded-lg border space-y-3" style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)' }}>

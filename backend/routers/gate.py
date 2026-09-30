@@ -27,9 +27,8 @@ from models import (
     Entry,
     Show,
     ShowGateSteward,
-    ShowManager,
-    ShowSecretary,
 )
+from show_access import works_show
 from schemas import (
     ClassPatternPost,
     ClassPatternStatus,
@@ -48,19 +47,15 @@ async def _assert_gate_access(
 ) -> None:
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
-    if x_user_role == "ADMIN":
+    # The show office -- including its company's staff (migration 156) -- or
+    # a gate steward assigned to this show.
+    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
         return
-    role_tables = {
-        "GATE_STEWARD": ShowGateSteward,
-        "SHOW_SECRETARY": ShowSecretary,
-        "SHOW_MANAGER": ShowManager,
-    }
-    table = role_tables.get(x_user_role)
-    if table is not None:
+    if x_user_role == "GATE_STEWARD":
         row = await db.execute(
-            select(table).where(
-                table.show_id == show_id,
-                table.user_id == safe_uuid(x_user_id),
+            select(ShowGateSteward).where(
+                ShowGateSteward.show_id == show_id,
+                ShowGateSteward.user_id == safe_uuid(x_user_id),
             )
         )
         if row.scalar_one_or_none():

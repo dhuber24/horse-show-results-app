@@ -196,6 +196,11 @@ class Show(Base):
     # show that accepts the file as sufficient sets it false, and the health
     # rows stay visible and signable but stop being counted as outstanding.
     requires_physical_document_check = Column(Boolean, nullable=False, server_default="true")
+    # The show company that runs this show (migration 156). Its managers and
+    # secretaries work the show with no per-show row -- see `show_access.py`.
+    # NULL: staffed by `show_managers` / `show_secretaries` alone, which is every
+    # show created before the column, until its office chooses a company.
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="SET NULL"), nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -1386,6 +1391,10 @@ class ShowCompany(Base):
     # after them and made with their account. NULL on an organization, and only
     # organizations need a unique name.
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    # Migration 157: how many days before a show's first day exhibitors stop
+    # being able to cancel their own registration. 0 is until the show starts.
+    # Read through `cancellations.self_cancel_days_before`.
+    self_cancel_days_before = Column(Integer, nullable=False, server_default="0")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     members = relationship("ShowCompanyMember", back_populates="company", cascade="all, delete-orphan")

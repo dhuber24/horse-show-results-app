@@ -29,6 +29,10 @@ people half is handed to the company itself:
   * **Never the features or the notes**, which are not in the payload at all.
     The features are named, read-only, because they are what membership hands
     out.
+  * **The company's own policies are set here** -- so far one: how late an
+    exhibitor may cancel their own registration (migration 157). A club's
+    policy is the club's to choose, so this door writes it outright; a GaitDesk
+    admin can set it too, on the company's admin page.
 
 Removing and declining run through the same functions as the admin's buttons
 (`show_companies.remove_company_member` and `decline_join_request`), with one
@@ -44,6 +48,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cancellations import MAX_SELF_CANCEL_DAYS_BEFORE
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import ShowCompany, ShowCompanyMember, User
@@ -109,10 +114,17 @@ class MyCompanyOut(BaseModel):
     join_requests: list[StaffRequestOut] = Field(default_factory=list)
     # Switched on for this company, and so for everybody in it. Read-only.
     features: list[CompanyFeatureLabel] = Field(default_factory=list)
+    # Migration 157: days before a show's first day that exhibitors stop being
+    # able to cancel their own registration. 0 is until the show starts.
+    self_cancel_days_before: int = 0
 
 
 class StaffAdd(BaseModel):
     email: str = Field(min_length=3, max_length=320)
+
+
+class CompanySettingsUpdate(BaseModel):
+    self_cancel_days_before: int = Field(ge=0, le=MAX_SELF_CANCEL_DAYS_BEFORE)
 
 
 def _out(company: ShowCompany, caller: UUID) -> MyCompanyOut:
@@ -160,6 +172,7 @@ def _out(company: ShowCompany, caller: UUID) -> MyCompanyOut:
             for f in FEATURES.values()
             if f.key in switched_on
         ],
+        self_cancel_days_before=company.self_cancel_days_before or 0,
     )
 
 
@@ -238,6 +251,29 @@ async def list_my_companies(
     # colleagues in it, and so the one this screen is mostly for.
     companies.sort(key=lambda c: (c.owner_user_id == caller, c.name.lower()))
     return [_out(c, caller) for c in companies]
+
+
+@router.put("/{company_id}/settings", response_model=MyCompanyOut)
+async def update_settings(
+    company_id: UUID,
+    body: CompanySettingsUpdate,
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The company's own policies for the shows it runs. So far: how many days
+    before a show exhibitors stop cancelling themselves (0: until it starts).
+
+    Written outright rather than requested, unlike a new member: it hands
+    nobody a paid feature, and it is the club's policy to set. It reaches every
+    show the company runs (`shows.company_id`) from the next read -- the rule
+    is looked up each time, never copied onto the show.
+    """
+    caller = _caller(x_user_id, x_user_role)
+    company = await _my_company(company_id, caller, db)
+    company.self_cancel_days_before = body.self_cancel_days_before
+    await db.commit()
+    return _out(await _load(db, company_id), caller)
 
 
 @router.post("/{company_id}/members", response_model=MyCompanyOut, status_code=202)

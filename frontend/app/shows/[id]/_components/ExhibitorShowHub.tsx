@@ -58,6 +58,9 @@ export default function ExhibitorShowHub({
 }) {
   const registrationOpen = show.status === 'PUBLISHED';
   const signedUp = standing?.signed_up ?? false;
+  // Whether the show sells stalls, shavings or camping. Unknown keeps the
+  // wording that mentions them — the older copy, and never wrong for long.
+  const offersLodging = standing?.offers_lodging !== false;
   // Signed up, or entered by the office without signing up — either way there
   // is an account at this show to read. Somebody with neither has no bill, and
   // a tile promising one would open on "nothing here".
@@ -68,39 +71,54 @@ export default function ExhibitorShowHub({
 
   // Sign-up first and styled as the primary action while it is the thing to
   // do. Once they are in, the same slot becomes the way back to what they
-  // entered — same position, so it doesn't move under them mid-show.
+  // entered — same position, so it doesn't move under them mid-show — and
+  // white like every other tile: the banner above already prompts when no
+  // class is entered, and a filled tile over a finished registration read as
+  // something still owed.
   if (canSelfRegister && registrationOpen) {
-    tiles.push(
-      signedUp
-        ? {
-            href: `/shows/${showId}/register`,
-            icon: '📝',
-            title: 'My Registration',
-            description: 'Add or drop classes, change the horse you entered.',
-            primary: true,
-          }
-        : {
-            // The whole flow in order, on one screen — profile, then stalls,
-            // then classes. `/signup` is still a real page and still where
-            // releases are signed, but sending a first-time exhibitor there
-            // starts them at step two.
-            href: `/shows/${showId}/register`,
-            icon: '✍️',
-            title: 'Sign Up',
-            description:
-              'Fill in your profile, reserve stalls, shavings and camping, then pick your classes.',
-            primary: true,
-          },
-    );
+    if (signedUp) {
+      // Classes first: they are what somebody signed up comes back for, and
+      // they have a page of their own now rather than being the last step of
+      // the registration.
+      tiles.push(
+        {
+          href: `/shows/${showId}/register/classes`,
+          icon: '📝',
+          title: 'Add/Drop Classes',
+          description: 'Enter or drop classes, and ask for your back number.',
+        },
+        {
+          href: `/shows/${showId}/register`,
+          icon: '🗂️',
+          title: 'My Registration',
+          description: offersLodging
+            ? 'Your details, horses, stalls, shavings and camping.'
+            : 'Your details and the horses you are bringing.',
+        },
+      );
+    } else {
+      tiles.push({
+        // The whole flow in order, on one screen — profile, horses, then any
+        // stalls — and it hands off to the classes. `/signup` is still a real
+        // page and still where releases are signed, but sending a first-time
+        // exhibitor there starts them at step two.
+        href: `/shows/${showId}/register`,
+        icon: '✍️',
+        title: 'Sign Up',
+        description: offersLodging
+          ? 'Fill in your profile, reserve stalls, shavings and camping, then pick your classes.'
+          : 'Fill in your profile and add your horses, then pick your classes.',
+        primary: true,
+      });
+    }
   } else if (canSelfRegister && show.status === 'ACTIVE' && signedUp) {
     // Under way and signed up: the class doors stay open (`backend/self_entry.py`),
     // so the same slot keeps leading back to what they entered.
     tiles.push({
-      href: `/shows/${showId}/register`,
+      href: `/shows/${showId}/register/classes`,
       icon: '📝',
-      title: 'My Classes',
+      title: 'Add/Drop Classes',
       description: 'Enter a class that hasn’t started, or scratch from one that hasn’t finished.',
-      primary: true,
     });
   } else if (canSelfRegister && show.status === 'ACTIVE' && !hasStanding) {
     // Under way and not entered: online sign-up has closed, but the office may
@@ -130,7 +148,9 @@ export default function ExhibitorShowHub({
       href: `/shows/${showId}/my-bill`,
       icon: '🧾',
       title: 'What I Owe',
-      description: 'Class fees, stalls, shavings and the office charge, itemised.',
+      description: offersLodging
+        ? 'Class fees, stalls, shavings and the office charge, itemised.'
+        : 'Class fees and the office charge, itemised.',
     });
   }
 

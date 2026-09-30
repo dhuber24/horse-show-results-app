@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import SelfCancelPolicy from '@/components/SelfCancelPolicy';
 import { errorMessage } from '@/lib/api-error';
 
 /** One company the caller works for, as `GET /my-company` returns it. No
@@ -37,6 +38,9 @@ export type MyCompany = {
   members: StaffMember[];
   join_requests: StaffRequest[];
   features: { key: string; label: string; plan: string }[];
+  /** Days before a show's first day that exhibitors stop cancelling their own
+   *  registration; 0 is until the show starts (migration 157). */
+  self_cancel_days_before: number;
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -131,6 +135,19 @@ function CompanySection({
             : `Declined ${request.full_name}.`,
       );
     }
+  };
+
+  // The company's own policy, written outright — it hands nobody a feature.
+  const savePolicy = async (daysBefore: number): Promise<string | null> => {
+    const res = await fetch(`/api/my-company/${company.id}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ self_cancel_days_before: daysBefore }),
+    }).catch(() => null);
+    const body = await res?.json().catch(() => null);
+    if (!res?.ok) return errorMessage(body, 'The cancellation policy could not be saved.');
+    onChange(body as MyCompany);
+    return null;
   };
 
   // Waiting on the company: somebody asked at sign-up and nobody here has
@@ -274,8 +291,8 @@ function CompanySection({
         {confirmRemove && (
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
             {company.members.find((m) => m.user_id === confirmRemove)?.is_me
-              ? 'You will lose this company’s paid features. Your shows are not affected.'
-              : 'They lose this company’s paid features. Their account and their shows are not affected.'}
+              ? 'You will lose this company’s paid features and stop working the shows it runs.'
+              : 'They lose this company’s paid features and stop working the shows it runs. Their account is not affected.'}
           </p>
         )}
       </div>
@@ -309,6 +326,12 @@ function CompanySection({
 
       {error && <p className="text-sm" role="alert" style={{ color: 'var(--error)' }}>{error}</p>}
       {notice && <p className="text-sm" style={{ color: 'var(--success-strong)' }}>{notice}</p>}
+
+      {/* Below the people, since that is what this screen is mostly for; a
+          policy is set once and left. */}
+      <div className="pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+        <SelfCancelPolicy value={company.self_cancel_days_before ?? 0} onSave={savePolicy} />
+      </div>
     </section>
   );
 }

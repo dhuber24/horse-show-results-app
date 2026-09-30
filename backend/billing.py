@@ -492,6 +492,47 @@ def charge_multiplier(
     return 0
 
 
+def fee_counts_class(fee, cls) -> bool:
+    """Whether one of the show's automatic fees counts an entry in this class.
+
+    The scoping `charge_lines` applies, for one class, so a screen quoting a
+    class before it is entered (`per_class_charges`) and the bill charging it
+    afterwards cannot disagree: never a club-sanctioned class, only the fee's
+    own classes where it names some (migration 137), and a per-class fee never
+    a futurity class, which the futurity prices.
+    """
+    if cls is None or is_club_sanctioned_class(cls):
+        return False
+    scoped = scoped_class_ids(fee)
+    if scoped is not None and cls.id not in scoped:
+        return False
+    if fee.unit in PER_ENTRY_CHARGE_UNITS and is_futurity_class(cls):
+        return False
+    return True
+
+
+def per_class_charges(fees: Iterable, cls, judge_count: int) -> list[dict]:
+    """The show's per-class fees one entry in this class would be charged.
+
+    For quoting a class before it is entered -- the class picker used to say
+    "No entry fee" over a $0 class that a "$5 per judge, per class" fee then
+    billed. Same rule and same per-entry arithmetic as `build_bill`'s
+    attribution to class lines, so the quote is what the bill will say.
+    """
+    out = []
+    for fee in fees:
+        if (
+            fee.unit not in PER_ENTRY_CHARGE_UNITS
+            or fee.amount_cents <= 0
+            or not fee_counts_class(fee, cls)
+        ):
+            continue
+        cents = charge_cents_per_entry(fee.unit, fee.amount_cents, judge_count)
+        if cents > 0:
+            out.append({"show_fee_id": fee.id, "label": fee.label, "cents": cents})
+    return out
+
+
 def charge_lines(
     fees: Iterable,
     entries: Iterable,
@@ -544,29 +585,20 @@ def charge_lines(
     entry_list = list(entries)
     if not entry_list:
         return [], 0
-    breed_entries = [
-        e for e in entry_list if e.class_ is not None and not is_club_sanctioned_class(e.class_)
-    ]
 
     lines: list[dict] = []
     total = 0
     for fee in fees:
         if fee.unit not in AUTOMATIC_FEE_UNITS or fee.amount_cents <= 0:
             continue
-        # A fee that names its own classes counts only those (migration 137).
-        # No rows means the whole schedule, which is what every fee at almost
-        # every show wants -- so this narrows an unscoped charge not at all,
-        # and the club-sanctioned exclusion above still applies on top.
         scoped = scoped_class_ids(fee)
-        if scoped is None:
-            fee_entries = breed_entries
-        else:
-            fee_entries = [e for e in breed_entries if e.class_.id in scoped]
-        # A per-class fee never reaches a futurity class: the futurity prices
-        # it, and the fees step does not offer one to tick. So "every class"
-        # means every class that list could show.
-        if fee.unit in PER_ENTRY_CHARGE_UNITS:
-            fee_entries = [e for e in fee_entries if not is_futurity_class(e.class_)]
+        # Which entries this fee counts: `fee_counts_class`, the one statement
+        # of the rule, shared with the class picker's quote. Never a
+        # club-sanctioned class; only the fee's own classes where it names some
+        # (migration 137 -- no rows is the whole schedule, so this narrows an
+        # unscoped charge not at all); and a per-class fee never a futurity
+        # class, which the futurity prices and the fees step does not offer.
+        fee_entries = [e for e in entry_list if fee_counts_class(fee, e.class_)]
         fee_horses = len({e.horse_id for e in fee_entries if e.horse_id})
         fee_count = len(fee_entries)
         if fee.unit == "per_entry":
@@ -1133,6 +1165,18 @@ def reservable_fees(fees: Iterable) -> list:
     """The show's fee rows an exhibitor picks quantities of, in the secretary's
     configured order."""
     return [f for f in fees if f.unit in RESERVABLE_FEE_UNITS]
+
+
+def offers_lodging(fees: Iterable) -> bool:
+    """Whether the show sells anything to book at sign-up -- stalls, shavings,
+    camping.
+
+    False is a show whose Lodging & Boarding step was skipped or left empty, and
+    registration then has no stalls step at all: finishing the horses step is
+    the sign-up. Read off the fee rows rather than the setup skip, because a
+    skip only counts while the step is empty -- this is that emptiness.
+    """
+    return any(f.unit in RESERVABLE_FEE_UNITS for f in fees)
 
 
 def automatic_fees(fees: Iterable) -> list:

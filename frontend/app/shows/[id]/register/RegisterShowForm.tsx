@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import BackNumberRequest from './BackNumberRequest';
-import AddClassEntry from './AddClassEntry';
 import ProfileStep from './ProfileStep';
 import MembershipsStep from './MembershipsStep';
 import HorsesStep from './HorsesStep';
@@ -17,20 +15,22 @@ import ReservationFields, {
   reservationSummary,
   type SignupData,
 } from '../_components/ReservationFields';
-import { formatMoney, healthWarnings, type PreviewData } from './types';
-import type { BillClassLine } from '@/lib/my-shows';
+import { errorMessage } from '@/lib/api-error';
+import { formatMoney, type PreviewData } from './types';
 
 /**
- * Everything an exhibitor signs up for at one show, as a wizard.
+ * Signing up for one show, as a wizard.
  *
- * Up to six steps, in order, each one a collapsible box with a stepper across
+ * Up to five steps, in order, each one a collapsible box with a stepper across
  * the top — the exhibitor's answer to the wizard a show manager gets while
- * setting a show up. Two of them are conditional, so the stepper is built from
- * data rather than from a fixed list:
+ * setting a show up. Three of them are conditional, so the stepper is built
+ * from data rather than from a fixed list:
  *
- * 1. **Your details.** Contact details, date of birth, an emergency contact.
- *    The office used to reach a stall chart before it had somebody's telephone
- *    number, and nobody goes back afterwards to fill that in.
+ * 1. **Your details.** Contact details, date of birth, an emergency contact —
+ *    and a parent or guardian when the exhibitor is under 18 on the show's
+ *    first day. The office used to reach a stall chart before it had
+ *    somebody's telephone number, and nobody goes back afterwards to fill that
+ *    in.
  *
  *    Steps one to three open on the exhibitor's profile and **never write it**
  *    (migration 145): a detail, a membership or a horse changed here is
@@ -40,141 +40,40 @@ import type { BillClassLine } from '@/lib/my-shows';
  *    show with a breed or club affiliation to hold one against, and it blocks
  *    nothing — see `MembershipsStep`.
  * 3. **Your horses.** What you are bringing, whether its papers suit the body
- *    running this show, and how you are entitled to show it. All three are
- *    questions about the horse, and none of them belongs on a form about the
- *    person.
- * 4. **Stalls, shavings & camping.** The show needs its grounds counts before
- *    it has a ring full of horses.
+ *    running this show, and how you are entitled to show it.
+ * 4. **Stalls, shavings & camping.** Only at a show that sells any of them. At
+ *    a show whose Lodging step was skipped or left empty there is nothing to
+ *    book, so the step is not offered at all and the horses step's own button
+ *    is the sign-up.
  * 5. **Futurities.** Only at a show that runs one.
- * 6. **Classes & back number.** What you are entered in and the number you
- *    want to ride under.
  *
- * **Futurities come before the classes**, which is not where they started. A
- * futurity enrollment adds a line to the bill (`billing.futurity_lines`) and
- * its classes are ordinary classes entered in the step below it — so asking
- * afterwards meant somebody read a running total under the class picker that
- * was about to change. In this order the total under the last step is the whole
- * of what the show will collect.
+ * **Classes are not a step any more.** They are the page this wizard hands off
+ * to once sign-up is done (`ClassEntryScreen`, `/shows/[id]/register/classes`),
+ * and My Shows has a button of its own for them: signing up is done once, while
+ * classes are added and dropped for weeks, and coming back to add the Saturday
+ * used to mean walking through every box above to reach the last one. The
+ * stepper still ends in **Classes**, as a link, so the journey reads whole.
  *
- * **One screen rather than six routes**, which is where this departs from the
+ * **Futurities come after the grounds**, because a futurity enrollment adds a
+ * line to the bill (`billing.futurity_lines`) and books its own classes — so
+ * the total under the class page is the whole of what the show will collect.
+ *
+ * **One screen rather than five routes**, which is where this departs from the
  * setup wizard it otherwise mirrors. A show manager builds a show over a
- * fortnight from a desk; an exhibitor enters one in a sitting, on a phone,
- * watching a bill. Separate routes would put a page load between every answer
- * and hide the running total behind all of them — so every box stays on the
- * page and the bill sits under all of it.
+ * fortnight from a desk; an exhibitor signs up in a sitting, on a phone,
+ * watching a bill.
  *
  * **Every lock is a rule the backend enforces, not a rule this screen invents.**
  * `PUT /signup` refuses on the same profile checklist steps one and two render,
- * and class entries and back numbers both 409 without a completed sign-up. The
- * lock exists so nobody fills in a form that is going to be turned away, never
- * as the thing doing the turning away.
+ * and class entries, back numbers and futurity nominations all 409 without a
+ * completed sign-up. The lock exists so nobody fills in a form that is going to
+ * be turned away, never as the thing doing the turning away.
  *
- * Every figure comes from `billing.build_bill` on the backend — including the
- * futurity lines, which is why entering a futurity adds a line to the total
- * below rather than a number this screen worked out. Nothing here is summed in
- * the browser; see the money Sharp Edge in Claude.md.
+ * Every figure comes from `billing.build_bill` on the backend. Nothing here is
+ * summed in the browser; see the money Sharp Edge in Claude.md.
  */
 
-type StepKey = 'details' | 'memberships' | 'horses' | 'stalls' | 'classes' | 'futurities';
-
-function formatDay(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-/**
- * One class already entered, with the control to get back out of it.
- *
- * The desk removes an entry outright — a secretary is standing in front of the
- * person asking for it. This one confirms inline first: it is the exhibitor's
- * own money, usually on a phone, and an accidental tap that quietly drops them
- * from a class is not something they would notice until the gate.
- */
-function EnteredRow({
-  line,
-  isConfirming,
-  isRemoving,
-  onAsk,
-  onCancel,
-  onConfirm,
-  lockedReason,
-  live,
-}: {
-  line: BillClassLine;
-  isConfirming: boolean;
-  isRemoving: boolean;
-  onAsk: () => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-  /** Why this entry is the show office's to scratch now — its class is
-   *  finished, or the horse has a result — or null. */
-  lockedReason: string | null;
-  /** The show is running, where the word at the gate is "scratch". */
-  live: boolean;
-}) {
-  const verb = live ? 'Scratch' : 'Remove';
-  return (
-    <tr className="border-t" style={{ borderColor: 'var(--bg-subtle)' }}>
-      <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
-        <span className="font-mono" style={{ color: 'var(--accent)' }}>{line.class_number}</span>{' '}
-        {line.class_name}
-      </td>
-      <td className="py-1.5 pr-3" style={{ color: 'var(--foreground)' }}>
-        {line.horse_name ?? '(horse removed)'}
-      </td>
-      <td className="py-1.5 pr-3 whitespace-nowrap" style={{ color: 'var(--muted)' }}>
-        {line.class_date ? formatDay(line.class_date) : '—'}
-      </td>
-      <td className="py-1.5 pr-3 text-right whitespace-nowrap" style={{ color: 'var(--muted)' }}>
-        {formatMoney(line.fee_cents + line.sanction_cents)}
-      </td>
-      <td className="py-1.5 text-right whitespace-nowrap">
-        {lockedReason ? (
-          // Not a disabled button: there is nothing to press, and the line
-          // under the table says who to ask. `title` carries the exact reason.
-          <span className="text-xs whitespace-nowrap" style={{ color: 'var(--muted)' }} title={lockedReason}>
-            Office only
-          </span>
-        ) : isConfirming ? (
-          <span className="inline-flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onConfirm}
-              disabled={isRemoving}
-              className="text-xs font-medium px-2 py-1 rounded text-white disabled:opacity-50"
-              style={{ backgroundColor: 'var(--error)' }}
-            >
-              {isRemoving ? `${verb === 'Scratch' ? 'Scratching' : 'Removing'}…` : `Yes, ${verb.toLowerCase()}`}
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isRemoving}
-              className="text-xs hover:underline disabled:opacity-50"
-              style={{ color: 'var(--muted)' }}
-            >
-              Keep
-            </button>
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={onAsk}
-            className="text-xs hover:underline"
-            style={{ color: 'var(--error)' }}
-            title={`${verb} ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
-            aria-label={`${verb} ${line.horse_name ?? 'this horse'} from ${line.class_name}`}
-          >
-            {verb}
-          </button>
-        )}
-      </td>
-    </tr>
-  );
-}
+type StepKey = 'details' | 'memberships' | 'horses' | 'stalls' | 'futurities' | 'classes';
 
 export default function RegisterShowForm({
   showId,
@@ -195,17 +94,9 @@ export default function RegisterShowForm({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { show, exhibitor, classes, horses, existing_entries, bill, profile } = preview;
+  const { show, exhibitor, horses, bill, profile } = preview;
   const signedUp = preview.signup !== null;
-  // The show is running. Only the class doors stay open (`backend/self_entry.py`)
-  // — entering a class that has not started and scratching from one that has
-  // not finished — so the screen is the classes and the bill, and nothing else.
-  const live = show.status === 'ACTIVE';
-
-  const scratchLocks = useMemo(
-    () => new Map(existing_entries.map((e) => [e.id, e.scratch_locked ?? null])),
-    [existing_entries],
-  );
+  const classesHref = `/shows/${showId}/register/classes`;
 
   // The two halves of the profile, kept apart because they are two steps. Both
   // answers are the backend's — `exhibitor_profile.py` tags every row with the
@@ -218,12 +109,18 @@ export default function RegisterShowForm({
   const horsesDone = horses.length > 0;
   const profileComplete = profile.complete;
   const hasFuturities = futurities.length > 0;
-  // The exhibitor's own association cards, now a step of their own rather than
-  // a link out of step one. Absent entirely when the show has no breed or club
-  // affiliation to hold a membership against — `exhibitor_profile.py` omits the
-  // row, and an Open show with no clubs is not waiting on anybody's card — in
-  // which case the step is not rendered, the same rule futurities follow.
+  // Whether there is a stalls step. The backend's answer where it sent one;
+  // otherwise the fee catalogue's, and a catalogue that failed to load keeps
+  // the step, which then says so — a show that sells stalls must never lose
+  // the only place they are booked over a failed request.
+  const hasLodging =
+    show.offers_lodging ?? (signupData ? signupData.fee_options.length > 0 : true);
+  // The exhibitor's own association cards, a step of their own. Absent
+  // entirely when the show has no breed or club affiliation to hold a
+  // membership against — `exhibitor_profile.py` omits the row, and an Open
+  // show with no clubs is not waiting on anybody's card.
   const membershipItem = profile.checklist.find((i) => i.key === 'memberships');
+  const entered = bill.class_lines;
 
   // Bookmark this show as one they started (migration 136). The first three
   // steps read the profile and write nothing against the show until something
@@ -231,70 +128,58 @@ export default function RegisterShowForm({
   // sign-up leaves no trace at all and My Shows has nothing to remind them with.
   //
   // Fire and forget, and silent on failure by design: it is a beacon on a page
-  // load rather than something the exhibitor asked for, and a red box about a
-  // failed bookmark would be the screen complaining about its own bookkeeping.
-  // The endpoint is idempotent and no-ops for anyone already signed up; the
-  // guard here only saves the round trip.
+  // load rather than something the exhibitor asked for. The endpoint is
+  // idempotent and no-ops for anyone already signed up; the guard here only
+  // saves the round trip.
   useEffect(() => {
-    if (signedUp || live) return;
+    if (signedUp) return;
     fetch(`/api/shows/${showId}/register/draft`, { method: 'POST' }).catch(() => {});
-  }, [showId, signedUp, live]);
+  }, [showId, signedUp]);
 
-  const [confirmWithdrawEntryId, setConfirmWithdrawEntryId] = useState<string | null>(null);
-  const [withdrawingEntryId, setWithdrawingEntryId] = useState<string | null>(null);
-  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  // Signing up from the horses step, at a show with no stalls step. The same
+  // `PUT /signup` the stalls form sends, with nothing booked — which is all a
+  // sign-up at such a show can be.
+  const [signingUp, setSigningUp] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
 
-  const horsesNeedingRecords = useMemo(
-    () => horses.filter((h) => healthWarnings(h).length > 0),
-    [horses],
-  );
-
-  const handleWithdraw = async (entryId: string) => {
-    setWithdrawError(null);
-    setWithdrawingEntryId(entryId);
-    try {
-      const res = await fetch(`/api/shows/${showId}/register/entries/${entryId}`, {
-        method: 'DELETE',
-      });
-      if (res.status !== 204 && !res.ok) {
-        const json = await res.json().catch(() => ({}));
-        const detail = typeof json?.detail === 'string'
-          ? json.detail
-          : json?.detail?.message || json?.error || 'Withdraw failed';
-        setWithdrawError(detail);
-        setWithdrawingEntryId(null);
-        return;
-      }
-      setConfirmWithdrawEntryId(null);
-      setWithdrawingEntryId(null);
+  // Where the wizard goes once sign-up is behind it: the futurity step where
+  // the show runs one, the class page otherwise.
+  const afterSignup = () => {
+    if (hasFuturities) {
+      go('futurities');
       router.refresh();
-    } catch {
-      setWithdrawError('Network error — please try again.');
-      setWithdrawingEntryId(null);
+    } else {
+      router.push(classesHref);
     }
   };
 
-  const entered = bill.class_lines;
-
-  // Folded, these lines are the only thing on screen saying what you have.
-  const classesSummary = (() => {
-    const parts: string[] = [
-      entered.length === 0
-        ? 'No classes entered'
-        : `${entered.length} class${entered.length === 1 ? '' : 'es'}`,
-      preview.signup?.back_number != null
-        ? `Back #${preview.signup.back_number}`
-        : 'No back # yet',
-    ];
-    if (horsesNeedingRecords.length > 0) {
-      parts.push(
-        horsesNeedingRecords.length === 1
-          ? '1 horse needs records'
-          : `${horsesNeedingRecords.length} horses need records`,
-      );
+  const signUpWithoutLodging = async () => {
+    setSigningUp(true);
+    setSignupError(null);
+    try {
+      const res = await fetch(`/api/shows/${showId}/register/signup`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservations: [] }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const detail = (json as { detail?: { message?: unknown } } | null)?.detail;
+        setSignupError(
+          typeof detail?.message === 'string'
+            ? detail.message
+            : errorMessage(json, 'Could not sign you up for this show.'),
+        );
+        setSigningUp(false);
+        return;
+      }
+      setSigningUp(false);
+      afterSignup();
+    } catch {
+      setSignupError('Network error — please try again.');
+      setSigningUp(false);
     }
-    return parts.join(' · ');
-  })();
+  };
 
   const detailsSummary = detailsDone
     ? 'On file'
@@ -327,6 +212,16 @@ export default function RegisterShowForm({
     return `${parts.join(' · ')} — ${formatMoney(total_cents)}`;
   })();
 
+  const classesSummary = [
+    entered.length === 0
+      ? 'No classes entered'
+      : `${entered.length} class${entered.length === 1 ? '' : 'es'} entered`,
+    preview.signup?.back_number != null ? `Back #${preview.signup.back_number}` : 'No back # yet',
+  ].join(' · ');
+
+  // Why the steps after sign-up are shut, said the same way wherever it shows.
+  const signupLockReason = hasLodging ? 'Sign up for stalls first' : 'Sign up on the horses step first';
+
   const steps: (RegistrationStep & { key: StepKey })[] = [
     { key: 'details', label: 'Your details', done: detailsDone, available: true },
     // Between the person and their horses, because it is the person's own
@@ -348,23 +243,24 @@ export default function RegisterShowForm({
     {
       key: 'horses',
       label: 'Your horses',
-      done: horsesDone,
+      // At a show with no stalls step, pressing on from here is the sign-up,
+      // so the tick waits for it — a green step with the sign-up still to do
+      // reads as a registration that is finished.
+      done: horsesDone && (hasLodging || signedUp),
       available: detailsDone,
       lockedReason: 'Finish your details first',
     },
-    {
-      key: 'stalls',
-      label: 'Stalls',
-      done: signedUp,
-      available: profileComplete,
-      lockedReason: 'Add a horse first',
-    },
-    // Before the classes, not after them. A futurity enrollment adds a line to
-    // the bill (`billing.futurity_lines`) and its classes are ordinary classes
-    // entered in the step below — so somebody who entered their classes first
-    // and only then found the futurity had already read a total that was about
-    // to change. Asking in this order means the running total under the classes
-    // step is the whole of what the show will collect.
+    ...(hasLodging
+      ? [
+          {
+            key: 'stalls' as StepKey,
+            label: 'Stalls',
+            done: signedUp,
+            available: profileComplete,
+            lockedReason: 'Add a horse first',
+          },
+        ]
+      : []),
     ...(hasFuturities
       ? [
           {
@@ -372,48 +268,52 @@ export default function RegisterShowForm({
             label: 'Futurities',
             done: futurities.some((f) => f.my_entries.length > 0),
             available: signedUp,
-            lockedReason: 'Sign up for stalls first',
+            lockedReason: signupLockReason,
           },
         ]
       : []),
+    // Not a section on this screen: the class page. On the stepper so the
+    // journey reads whole and so it can be reached from here.
     {
       key: 'classes',
       label: 'Classes',
       done: entered.length > 0,
       available: signedUp,
-      lockedReason: 'Sign up for stalls first',
+      lockedReason: signupLockReason,
     },
   ];
 
   // Whichever step still needs doing is the one that opens. A first-time
-  // registrant lands on their details; somebody coming back lands on their
-  // classes, which is what they returned for.
+  // registrant lands on their details; somebody coming back signed up lands on
+  // nothing open, with the class page one press away below.
   //
   // Memberships is deliberately not in this chain even when it is outstanding.
   // It blocks nothing, and a wizard that opens on an optional step is telling
   // somebody they have to do it.
-  const derivedStep: StepKey = !detailsDone
+  const derivedStep: StepKey | null = !detailsDone
     ? 'details'
     : !horsesDone
       ? 'horses'
       : !signedUp
-        ? 'stalls'
-        : 'classes';
+        ? hasLodging
+          ? 'stalls'
+          : 'horses'
+        : null;
   // `?step=` wins, because it means somebody was sent away from this screen and
   // is being brought back to the box they left — the add-a-horse wizard is six
-  // steps on another route, and returning them to whatever the checklist thinks
-  // is outstanding would land them somewhere they did not leave. Validated
-  // against the steps actually on offer, so a hand-typed or stale value falls
-  // back to the derived answer rather than opening nothing at all.
+  // steps on another route. Validated against the sections actually on this
+  // screen, so a hand-typed or stale value falls back to the derived answer.
   const requestedStep = searchParams.get('step');
-  const initialStep: StepKey =
-    requestedStep && steps.some((s) => s.key === requestedStep)
+  const initialStep: StepKey | null =
+    requestedStep &&
+    requestedStep !== 'classes' &&
+    steps.some((s) => s.key === requestedStep)
       ? (requestedStep as StepKey)
       : derivedStep;
   const [openStep, setOpenStep] = useState<StepKey | null>(initialStep);
 
   const stepNumber = (key: StepKey) => steps.findIndex((s) => s.key === key) + 1;
-  const go = (key: StepKey | null) => {
+  function go(key: StepKey | null) {
     setOpenStep(key);
     if (key) {
       // The header of the step being opened, not the top of the page: on a
@@ -424,203 +324,38 @@ export default function RegisterShowForm({
           ?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       });
     }
-  };
+  }
   const toggle = (key: StepKey) => setOpenStep((current) => (current === key ? null : key));
 
-  // The classes step's contents, shared by the wizard and a running show's
-  // screen — one copy of the table, the picker and the scratch rule.
-  const classesBody = (
-    <>
-      {/* First inside on purpose: people who ride the same number every year
-          come here to claim it, and burying it under the class table would
-          mean they only remember at the desk. */}
-      {live ? (
-        // Asking for a number closes when the show opens — the numbers are on
-        // backs by then — so a running show states the one they have.
-        <p className="text-sm" style={{ color: 'var(--foreground)' }}>
-          {preview.signup?.back_number != null ? (
-            <>
-              Your back number is{' '}
-              <span className="font-semibold">#{preview.signup.back_number}</span>.
-            </>
-          ) : (
-            'No back number yet — the show office gives you one at the desk.'
-          )}
-        </p>
-      ) : (
-        <BackNumberRequest
-          showId={showId}
-          backNumber={preview.signup?.back_number ?? null}
-          preferredBackNumber={preview.signup?.preferred_back_number ?? null}
-        />
-      )}
-
-      <div className="mt-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-            {entered.length === 0
-              ? 'Your classes'
-              : `You're entered in ${entered.length} class${entered.length === 1 ? '' : 'es'}`}
-          </h3>
-          {entered.length > 0 && (
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>
-              {/* The per-class sanction money only — it is part of what
-                  each class below costs. A club charging per horse or per
-                  exhibitor (migration 133) is not a class fee and is in
-                  the bill further down, with its arithmetic. */}
-              {formatMoney(
-                bill.class_fee_total_cents + bill.class_sanction_total_cents,
-              )}{' '}
-              in class fees
-            </span>
-          )}
-        </div>
-
-        {horses.length === 0 ? (
-          <div
-            className="rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
-          >
-            {live
-              ? 'No horses on this registration — the show office can add one at the desk.'
-              : 'No horses on this registration yet — add one on the horses step above.'}
-          </div>
-        ) : (
-          <>
-            {entered.length === 0 ? (
-              <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-                Nothing entered yet — pick a class below.
-              </p>
-            ) : (
-              <div className="overflow-x-auto mb-3">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="text-xs uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
-                      <th className="text-left font-semibold pb-1 pr-3">Class</th>
-                      <th className="text-left font-semibold pb-1 pr-3">Horse</th>
-                      <th className="text-left font-semibold pb-1 pr-3 whitespace-nowrap">Day</th>
-                      <th className="text-right font-semibold pb-1 pr-3 whitespace-nowrap">Fee</th>
-                      <th className="pb-1"><span className="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {entered.map((line) => (
-                      <EnteredRow
-                        key={line.entry_id}
-                        line={line}
-                        isConfirming={confirmWithdrawEntryId === line.entry_id}
-                        isRemoving={withdrawingEntryId === line.entry_id}
-                        onAsk={() => {
-                          setConfirmWithdrawEntryId(line.entry_id);
-                          setWithdrawError(null);
-                        }}
-                        onCancel={() => {
-                          setConfirmWithdrawEntryId(null);
-                          setWithdrawError(null);
-                        }}
-                        onConfirm={() => handleWithdraw(line.entry_id)}
-                        lockedReason={scratchLocks.get(line.entry_id) ?? null}
-                        live={live}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-                {/* Said once under the table rather than per row, because a
-                    tooltip is no help on a phone. */}
-                {entered.some((line) => scratchLocks.get(line.entry_id)) && (
-                  <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
-                    <span className="font-medium">Office only</span>: that class is finished, or
-                    your horse already has a result in it — only the show office can take you
-                    out of it now.
-                  </p>
-                )}
-              </div>
-            )}
-
-            <AddClassEntry
-              showId={showId}
-              showTypeCode={show.show_type_code}
-              classes={classes}
-              horses={horses}
-              existingEntries={existing_entries}
-              onAdded={() => router.refresh()}
-            />
-          </>
-        )}
-
-        {withdrawError && (
-          <div
-            className="mt-3 rounded-lg border p-3 text-sm"
-            style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
-          >
-            {withdrawError}
-          </div>
-        )}
-      </div>
-
-      {/* Advisory, never a gate — the entry goes in either way and the office
-          gets the same list with time to chase it. In here rather than at the
-          top of the page because it is about the horses in the table above
-          it. */}
-      {horsesNeedingRecords.length > 0 && (
-        <div
-          className="mt-4 rounded-lg border p-3 space-y-2"
-          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
-        >
-          <p className="text-sm font-medium" style={{ color: 'var(--warning)' }}>
-            {horsesNeedingRecords.length === 1
-              ? '1 horse needs'
-              : `${horsesNeedingRecords.length} horses need`}{' '}
-            health records updated before the show
-          </p>
-          <p className="text-xs" style={{ color: 'var(--warning)' }}>
-            You can still enter — the office expects current paperwork when you ship in.
-          </p>
-          <ul className="space-y-1.5">
-            {horsesNeedingRecords.map((h) => {
-              const warnings = healthWarnings(h);
-              return (
-                <li
-                  key={h.id}
-                  className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm"
-                >
-                  <span style={{ color: 'var(--warning-strong)' }}>
-                    <span className="font-medium">{h.name}</span>
-                    {' — '}
-                    {warnings[0] ?? 'documents needed'}
-                  </span>
-                  <Link
-                    href={`/profile/horses/${h.id}`}
-                    className="shrink-0 text-xs font-medium hover:underline"
-                    style={{ color: 'var(--accent)' }}
-                  >
-                    Upload documents →
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </>
-  );
+  // The horses step's Next. With a stalls step it simply moves on; without one
+  // it is the sign-up, and after sign-up it carries on to whatever is left.
+  const horsesNext = (() => {
+    if (hasLodging) return { label: 'Next', onNext: () => go('stalls') };
+    if (!signedUp) {
+      return {
+        label: signingUp ? 'Signing up…' : 'Sign up & continue',
+        onNext: signUpWithoutLodging,
+      };
+    }
+    return hasFuturities
+      ? { label: 'Next', onNext: () => go('futurities') }
+      : { label: 'Enter classes', onNext: () => router.push(classesHref) };
+  })();
 
   return (
     <div className="mt-6">
       <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
       <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-        {live ? 'My classes' : 'My registration'} — {exhibitor.full_name}
+        My registration — {exhibitor.full_name}
       </p>
 
-      {!live && (
-        <div className="mt-4">
-          <RegistrationStepper
-            steps={steps}
-            current={openStep ?? 'details'}
-            onSelect={(key) => go(key as StepKey)}
-          />
-        </div>
-      )}
+      <div className="mt-4">
+        <RegistrationStepper
+          steps={steps}
+          current={openStep ?? (signedUp ? 'classes' : 'details')}
+          onSelect={(key) => (key === 'classes' ? router.push(classesHref) : go(key as StepKey))}
+        />
+      </div>
 
       <div
         className="mt-4 rounded-lg border p-3 text-sm"
@@ -628,22 +363,18 @@ export default function RegisterShowForm({
       >
         {/* Says what to do next rather than describing the screen. Somebody
             halfway through needs to be told which step they are on, not read a
-            paragraph about all five. */}
-        {live
-          ? signedUp
-            ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
-            : 'The show is under way and online sign-up has closed.'
-          : !detailsDone
+            paragraph about all of them. */}
+        {!detailsDone
           ? 'Start with your details — the rest opens up once they’re in.'
           : !horsesDone
             ? 'Next: the horses you’re bringing.'
             : !signedUp
-              ? 'Next: stalls, shavings and camping — that opens up class entries.'
-              : 'Open any step to change it, up until the show starts. Fees shown here are what the office will collect at the show.'}
+              ? hasLodging
+                ? 'Next: stalls, shavings and camping — that signs you up and opens class entry.'
+                : 'Next: Sign up & continue, under your horses — that opens class entry.'
+              : 'You’re signed up. Enter your classes below, and open any step here to change it up until the show starts.'}
       </div>
 
-      {!live && (
-      <>
       <div id="registration-details">
         <RegistrationSection
           step={stepNumber('details')}
@@ -661,6 +392,8 @@ export default function RegisterShowForm({
             profile={profile}
             // Saved to this show's registration, never to the profile.
             showId={showId}
+            // A minor is judged on the show's first day, as the backend does.
+            asOf={show.start_date}
             // The memberships step carries this now, so step one no longer
             // ends in a link out to /profile for it.
             hasMembershipsStep={membershipItem !== undefined}
@@ -701,71 +434,85 @@ export default function RegisterShowForm({
           title="Your horses"
           icon="🐴"
           summary={horsesSummary}
-          done={horsesDone}
+          done={horsesDone && (hasLodging || signedUp)}
           isOpen={openStep === 'horses'}
           onToggle={() => toggle('horses')}
           locked={!detailsDone}
           lockedReason="Finish your details first"
           onBack={() => go(membershipItem ? 'memberships' : 'details')}
-          onNext={() => go('stalls')}
+          onNext={horsesNext.onNext}
+          nextLabel={horsesNext.label}
+          nextBusy={signingUp}
           nextDisabledReason={horsesDone ? null : 'Add a horse to carry on.'}
         >
           <HorsesStep
             showId={showId}
             horses={horses}
             otherProfileHorses={preview.other_profile_horses ?? []}
-            ownCopy={profile.own_copy?.horses ?? false}
             // Only a show whose association asks. Elsewhere it is a field with
             // no reader, and a form that asks for what nothing consumes is how
             // people learn to skim past the questions that matter.
             needsRelationship={show.show_type_code === 'APHA'}
             showTypeCode={show.show_type_code}
           />
-        </RegistrationSection>
-      </div>
-
-      <div id="registration-stalls">
-        <RegistrationSection
-          step={stepNumber('stalls')}
-          title="Stalls, shavings & camping"
-          icon="🏠"
-          summary={stallsSummary}
-          done={signedUp}
-          isOpen={openStep === 'stalls'}
-          onToggle={() => toggle('stalls')}
-          locked={!profileComplete}
-          lockedReason={!detailsDone ? 'Finish your details first' : 'Add a horse first'}
-          onBack={() => go('horses')}
-        >
-          {signupData ? (
-            <ReservationFields
-              showId={showId}
-              data={signupData}
-              submitLabel={signedUp ? 'Save changes' : 'Sign up & continue'}
-              totalHint="Class fees are counted separately, in the total below."
-              // Saving is what unlocks the two steps below it, so it is also
-              // what advances into the first of them. A show that runs a
-              // futurity asks about it before the classes, so the bill under
-              // the class picker is the whole of what the show will collect.
-              onSaved={() => {
-                go(hasFuturities ? 'futurities' : 'classes');
-                router.refresh();
-              }}
-            />
-          ) : (
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Stall, shavings and camping options could not be loaded for this show.{' '}
-              <Link
-                href={`/shows/${showId}/signup`}
-                className="font-medium hover:underline"
-                style={{ color: 'var(--accent)' }}
-              >
-                Try the sign-up page →
-              </Link>
-            </p>
+          {signupError && (
+            <div
+              className="mt-3 rounded-lg border p-3 text-sm"
+              style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
+            >
+              {signupError}
+            </div>
           )}
         </RegistrationSection>
       </div>
+
+      {hasLodging && (
+        <div id="registration-stalls">
+          <RegistrationSection
+            step={stepNumber('stalls')}
+            title="Stalls, shavings & camping"
+            icon="🏠"
+            summary={stallsSummary}
+            done={signedUp}
+            isOpen={openStep === 'stalls'}
+            onToggle={() => toggle('stalls')}
+            locked={!profileComplete}
+            lockedReason={!detailsDone ? 'Finish your details first' : 'Add a horse first'}
+            onBack={() => go('horses')}
+          >
+            {signupData ? (
+              <ReservationFields
+                showId={showId}
+                data={signupData}
+                submitLabel={signedUp ? 'Save changes' : 'Sign up & continue'}
+                totalHint="Class fees are counted separately, in the total below."
+                // Saving the first time is the sign-up, and carries on to the
+                // futurities or the classes. A later save is somebody changing
+                // a stall count, who is not asking to be sent anywhere.
+                onSaved={() => {
+                  if (!signedUp) {
+                    afterSignup();
+                  } else {
+                    go(null);
+                    router.refresh();
+                  }
+                }}
+              />
+            ) : (
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                Stall, shavings and camping options could not be loaded for this show.{' '}
+                <Link
+                  href={`/shows/${showId}/signup`}
+                  className="font-medium hover:underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  Try the sign-up page →
+                </Link>
+              </p>
+            )}
+          </RegistrationSection>
+        </div>
+      )}
 
       {/* A step of its own rather than a card hanging below the wizard, because
           a futurity is a separate programme with its own deadline and its own
@@ -782,9 +529,10 @@ export default function RegisterShowForm({
             isOpen={openStep === 'futurities'}
             onToggle={() => toggle('futurities')}
             locked={!signedUp}
-            lockedReason="Sign up for stalls first"
-            onBack={() => go('stalls')}
-            onNext={() => go('classes')}
+            lockedReason={signupLockReason}
+            onBack={() => go(hasLodging ? 'stalls' : 'horses')}
+            onNext={() => router.push(classesHref)}
+            nextLabel="Enter classes"
           >
             <FuturityEntry
               showId={showId}
@@ -795,68 +543,42 @@ export default function RegisterShowForm({
           </RegistrationSection>
         </div>
       )}
-      </>
-      )}
 
-
-      {live ? (
-        signedUp ? (
-          <section
-            id="registration-classes"
-            className="mt-4 rounded-lg border p-4"
-            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+      {/* The hand-off to the class page, where the wizard used to have its last
+          step. Shut until sign-up, with the reason, the same as a locked step —
+          class entries 409 without one (`SHOW_SIGNUP_REQUIRED`). */}
+      <section
+        id="registration-classes"
+        className="mt-4 rounded-lg border px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+        style={{
+          borderColor: signedUp ? 'var(--accent)' : 'var(--border)',
+          backgroundColor: 'var(--surface)',
+        }}
+      >
+        <span className="min-w-0">
+          <span
+            className="block font-semibold"
+            style={{ color: signedUp ? 'var(--foreground)' : 'var(--text-dimmed)' }}
           >
-            {classesBody}
-          </section>
-        ) : (
-          // Not signed up: the class door needs a sign-up behind it
-          // (`SHOW_SIGNUP_REQUIRED`), and sign-up closed with the show's
-          // opening. The office still often takes a late entry at the counter.
-          <div
-            className="mt-4 rounded-lg border p-4 text-sm"
-            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}
-          >
-            Ask the show office whether they are still taking entries.{' '}
-            <Link
-              href={`/shows/${showId}/contact?about=entering`}
-              className="font-medium hover:underline"
-              style={{ color: 'var(--accent)' }}
-            >
-              Message the show office →
-            </Link>
-          </div>
-        )
-      ) : (
-      <div id="registration-classes">
-        <RegistrationSection
-          step={stepNumber('classes')}
-          title="Classes & back number"
-          icon="📝"
-          summary={classesSummary}
-          done={entered.length > 0}
-          isOpen={openStep === 'classes'}
-          onToggle={() => toggle('classes')}
-          locked={!signedUp}
-          lockedReason="Sign up for stalls first"
-          onBack={() => go(hasFuturities ? 'futurities' : 'stalls')}
-          footerNote={
-            // Classes are the one step somebody legitimately leaves half done:
-            // the schedule is not always out, and people come back a week
-            // later to add the Saturday. Everything already entered is saved
-            // as it goes, so leaving costs nothing — this just says so, and
-            // gives them the door.
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>
-              Entries save as you add them.{' '}
-              <Link href="/my-shows" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
-                Finish later from My Shows →
-              </Link>
+            <span aria-hidden="true" className="mr-1.5">
+              📝
             </span>
-          }
-        >
-          {classesBody}
-        </RegistrationSection>
-      </div>
-      )}
+            Classes &amp; back number
+          </span>
+          <span className="block text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+            {signedUp ? classesSummary : signupLockReason}
+          </span>
+        </span>
+        {signedUp && (
+          <Link
+            href={classesHref}
+            className="text-sm font-medium px-4 py-2 rounded text-white shrink-0"
+            style={{ backgroundColor: 'var(--accent)' }}
+          >
+            {entered.length === 0 ? 'Enter classes →' : 'Add or drop classes →'}
+          </Link>
+        )}
+      </section>
 
       <section
         className="mt-4 rounded-lg border p-4"
@@ -867,7 +589,7 @@ export default function RegisterShowForm({
         </h2>
         {/* Every step lands in here — classes, the grounds, the office charge
             and any futurity — from the same `build_bill` the office reads and
-            the same one on My Shows, so the three cannot disagree. */}
+            the same one on What I Owe, so the three cannot disagree. */}
         <ShowBillBreakdown bill={bill} />
         {/* Everywhere else this screen sends you, in one place under the bill. */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-3 border-t text-sm font-medium"
@@ -887,7 +609,7 @@ export default function RegisterShowForm({
             Browse the full class schedule →
           </Link>
           <Link href="/my-shows" className="hover:underline" style={{ color: 'var(--accent)' }}>
-            My shows &amp; bill →
+            All my shows →
           </Link>
         </div>
       </section>
@@ -896,11 +618,12 @@ export default function RegisterShowForm({
           the bill on purpose: the figure somebody is looking at when they
           decide to withdraw is what they would owe, and the confirm step says
           what happens to anything already paid. */}
-      {signedUp && !live && (
+      {signedUp && (
         <CancelRegistration
           showId={showId}
           window={preview.cancellation}
           entryCount={entered.length}
+          offersLodging={hasLodging}
         />
       )}
     </div>

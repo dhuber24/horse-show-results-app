@@ -19,18 +19,19 @@ export type MyShowStanding = {
    *  entry by hand — the office has no stall numbers, so it does not count. */
   signed_up: boolean;
   registered_at: string | null;
-  /** Set when the registration was called off — by the exhibitor outside the
-   *  two-week notice window, or by the show office inside it. `signed_up` is
+  /** Set when the registration was called off — by the exhibitor while
+   *  registration was open, or by the show office at any time. `signed_up` is
    *  already false for one of these; this is what lets a screen say so rather
    *  than reading as never having registered. */
   cancelled_at: string | null;
-  /** Whether cancelling is still the exhibitor's own to do, and by when. Null
-   *  for a caller with no standing at the show. */
+  /** Whether cancelling is still the exhibitor's own to do — while
+   *  registration is open, up to the show company's cut-off. Null for a caller
+   *  with no standing at the show. */
   cancellation: {
-    notice_days: number;
-    deadline: string | null;
     self_service: boolean;
     days_until_show: number | null;
+    days_before: number;
+    deadline: string | null;
   } | null;
   back_number: number | null;
   entry_count: number;
@@ -40,6 +41,12 @@ export type MyShowStanding = {
    *  excluded — a permanent nag about something nobody has to sign teaches
    *  people to ignore the banner. */
   waivers_outstanding: number;
+  /** Whether the show sells stalls, shavings or camping at all — the banner
+   *  only offers to change them where there is something to change. Null when
+   *  the caller has no exhibitor record, since that answer is given before the
+   *  show is read; optional for a frontend ahead of its backend. Read it as
+   *  `!== false`. */
+  offers_lodging?: boolean | null;
 };
 
 export type BillClassLine = {
@@ -256,15 +263,21 @@ export type MyShow = {
   start_date: string;
   end_date: string;
   venue: string | null;
+  /** The venue's town, "Rochester, MN" — printed under its name. Optional for
+   *  a frontend deployed ahead of the backend that sends it. */
+  location?: string | null;
   back_number: number | null;
   registered_at: string | null;
-  /** Set when the registration was called off. A cancelled show with no
-   *  classes entered is not an unfinished registration -- they finished and
-   *  then withdrew, which is a different thing to tell somebody. */
+  /** Set when the registration was called off. The backend leaves a cancelled
+   *  registration off this list altogether (`my_shows.withdrawn`), so this is
+   *  only ever set on a show the office has entered them in again since. */
   cancelled_at: string | null;
   arrival_date: string | null;
   departure_date: string | null;
   notes: string | null;
+  /** Whether the show sells stalls, shavings or camping at all. Optional for a
+   *  frontend deployed ahead of the backend that sends it. */
+  offers_lodging?: boolean;
   entry_count: number;
   placed_count: number;
   best_place: number | null;
@@ -291,14 +304,18 @@ export type StartedRegistration = {
   start_date: string;
   end_date: string;
   venue: string | null;
+  /** The venue's town, "Rochester, MN" — printed under its name. Optional for
+   *  a frontend deployed ahead of the backend that sends it. */
+  location?: string | null;
   started_at: string;
   /** What the list is ordered by — the show they were looking at yesterday is
    *  the one they meant to come back to. */
   last_opened_at: string;
   /** Where the wizard picks up. Never `memberships`: that step blocks nothing,
    *  so naming it as the one to resume at would send somebody back for
-   *  something optional. */
-  next_step: 'details' | 'horses' | 'stalls';
+   *  something optional. `signup` is a show selling no stalls, shavings or
+   *  camping, where the horses step's own button is what is left to press. */
+  next_step: 'details' | 'horses' | 'stalls' | 'signup';
   next_step_label: string;
   /** Blocking profile rows still outstanding, by name. Named rather than
    *  counted so the card itself says what to go and type. */

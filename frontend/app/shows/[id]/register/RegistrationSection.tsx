@@ -3,8 +3,10 @@
 /**
  * One step of the registration wizard, as a collapsible box.
  *
- * Registration is five things — your details, your horses, the grounds, your
- * classes, and any futurity — and it is one screen rather than five routes.
+ * Registration is up to five things — your details, your memberships, your
+ * horses, the grounds, and any futurity — and it is one screen rather than five
+ * routes. (Classes were the sixth, and have a page of their own now: see
+ * `ClassEntryScreen`.)
  * That is a deliberate departure from the show-setup wizard it otherwise
  * mirrors: a show manager builds a show over a fortnight from a desk, while an
  * exhibitor enters one in a single sitting on a phone, usually with a bill
@@ -36,6 +38,7 @@ export default function RegistrationSection({
   onNext,
   nextLabel,
   nextDisabledReason,
+  nextBusy = false,
   footerNote,
   children,
 }: {
@@ -60,8 +63,11 @@ export default function RegistrationSection({
    *  as a line under it, because a disabled button with only a tooltip is
    *  unreadable on the phone most of this is filled in on. */
   nextDisabledReason?: string | null;
-  /** Anything to sit beside the navigation — the classes step's way out to My
-   *  Shows, for somebody coming back to enter classes another day. */
+  /** Next is doing work — the horses step signing somebody up at a show with no
+   *  stalls step. Disables the button without a reason line, since nothing is
+   *  wrong. */
+  nextBusy?: boolean;
+  /** Anything to sit beside the navigation. */
   footerNote?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -144,12 +150,13 @@ export default function RegistrationSection({
                   <button
                     type="button"
                     onClick={onNext}
-                    disabled={Boolean(nextDisabledReason)}
+                    disabled={Boolean(nextDisabledReason) || nextBusy}
                     title={nextDisabledReason ?? undefined}
                     className="text-sm rounded px-4 py-2 font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ backgroundColor: 'var(--text-deep)' }}
                   >
-                    {nextLabel ?? 'Next'} →
+                    {nextLabel ?? 'Next'}
+                    {nextBusy ? '' : ' →'}
                   </button>
                   {nextDisabledReason && (
                     <span className="text-xs text-right" style={{ color: 'var(--warning)' }}>

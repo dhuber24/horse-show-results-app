@@ -63,6 +63,7 @@ from models import (
     Venue,
 )
 from rules.disciplines import DISCIPLINE_KEYWORDS, classify_class_name, entered_by_qualification
+from show_companies import default_show_company_for
 
 logger = logging.getLogger(__name__)
 
@@ -609,8 +610,9 @@ async def apply_import(
         await db.flush()
         venue_id = venue.id
 
-    # --- The show, and the caller's staff row (as `POST /shows` does) ---
+    # --- The show, its company, and the caller's staff row (as `POST /shows` does) ---
     s = body.show
+    company_id = await default_show_company_for(db, user_id, user_role)
     show = Show(
         name=s.name.strip(),
         venue_id=venue_id,
@@ -628,13 +630,17 @@ async def apply_import(
         health_certificate_valid_days=s.health_certificate_valid_days,
         requires_vaccination=s.requires_vaccination,
         created_by_user_id=user_id,
+        company_id=company_id,
     )
     db.add(show)
     await db.flush()
-    if user_role == "SHOW_SECRETARY":
-        db.add(ShowSecretary(show_id=show.id, user_id=user_id))
-    elif user_role == "SHOW_MANAGER":
-        db.add(ShowManager(show_id=show.id, user_id=user_id))
+    # Through the company when there is one (migration 156): a per-show row as
+    # well would keep the caller on the show after they had left the company.
+    if company_id is None:
+        if user_role == "SHOW_SECRETARY":
+            db.add(ShowSecretary(show_id=show.id, user_id=user_id))
+        elif user_role == "SHOW_MANAGER":
+            db.add(ShowManager(show_id=show.id, user_id=user_id))
 
     # --- Judges: registry picks as they are, new ones created with their cards ---
     for order, pick in enumerate(body.judges, start=1):

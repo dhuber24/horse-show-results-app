@@ -696,8 +696,8 @@ async def cancel_registration_from_desk(
     """Take an exhibitor out of the show when they cannot do it themselves.
 
     The other half of `DELETE /shows/{id}/register/signup`. An exhibitor may
-    cancel their own registration up to a fortnight before the show; inside
-    that window the office does it here, and the office is not on a clock —
+    cancel their own registration while registration is open; once the show
+    is running the office does it here, and the office is not on a clock —
     someone whose truck breaks down on the Friday still has to come off the
     stall chart.
 

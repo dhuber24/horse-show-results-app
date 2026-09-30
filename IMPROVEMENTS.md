@@ -2,6 +2,119 @@
 
 ## September 2026
 
+### A show is run by its show company, and the company's staff work it
+
+- **`shows.company_id`** (migration 156): every manager and secretary in the
+  show's company works the show, with no per-show assignment. Per-show rows
+  stay for a guest from outside the company and for a show with no company.
+  Every office access check now reads `backend/show_access.py`.
+- **Setup Step 1's Staff section is the company's staff list**
+  (`routers/show_company_staff.py`, `ShowCompanyStaff.tsx`): the show's company
+  is chosen there, adding a colleague is a request a GaitDesk admin approves,
+  and removing somebody takes them off every show the company runs.
+- **Existing shows are not backfilled** — they stay reachable exactly as before
+  until their office picks a company. A new show takes its creator's company.
+
+### My Shows is a list of show buttons
+
+- **Each show the exhibitor is registered for is one button**: its name, its
+  dates and where it is — the venue and its town ("Double F Arena · Hinckley,
+  MN"). A page of full cards, each with its bill, a class section and a row of
+  buttons, put the second show a screen and a half down a phone.
+- **The button opens the show menu** (`/shows/[id]`), which already carries
+  what the card did: the signed-up banner (back number, class count, and *No
+  classes entered yet — Pick your classes*), My Classes, My Registration, What
+  I Owe (the itemised bill), the schedule and the show office. A per-show page
+  between the button and the menu was tried and removed — one more tap to the
+  same doors.
+- The "My shows & bill →" links on the class page, the registration wizard and
+  the signed-up banner now read "All my shows →", since the bill is on What I
+  Owe rather than on My Shows.
+- **`GET /my-shows/` carries `location`** (`venue_location`, "City, ST") beside
+  the venue's name on shows and started registrations. Additive; no migration.
+- *Started — not finished* registrations stay as cards above the buttons: they
+  are waiting on the exhibitor, not shows they are registered for.
+- **The show menu's class tile reads *Add/Drop Classes*** (it was *My
+  Classes*) and is white like every other tile rather than filled; the
+  signed-up banner above it already prompts when no class is entered.
+- **The Patterns page's headings read *Patterns for your registered classes*
+  and *All show patterns*,** at `text-lg` with a rule under each rather than
+  small capitals, so it is clear which list a pattern is in.
+- **A whole pattern card opens the pattern**, not just its name. The name's
+  link is stretched over the card (`after:absolute after:inset-0`) rather than
+  the card wrapped in a link, since View and Download are links themselves and
+  cannot nest; they sit above the stretch and keep working on their own.
+- **A pattern's class list is folded by default** behind *▸ Used in N
+  classes*, so each card is its name, View and Download — a pattern run across
+  a dozen classes was a dozen chips. A native `<details>`, so the page stays a
+  server component; the toggle sits above the card's link, so tapping it
+  unfolds the list rather than opening the pattern.
+
+### One line per class on the exhibitor's bill
+
+- **A class entered is one line, carrying everything charged on it.** The My
+  Shows card and the What I Owe page showed a $0 class with a "+ $5.00 Standard
+  Class Fee" note under it *and* the same $5.00 as a line of its own below —
+  counted once in the total, listed twice. `ShowBillBreakdown` now prints each
+  class at entry fee + club per-class fee + the show's per-class fees (what
+  `build_bill` already attributes to it), with the make-up beneath ("Entry
+  $0.00 · Standard Class Fee $5.00"), and no longer repeats the per-class
+  charge lines or the "Club sanction fees" roll-up. Money that belongs to no
+  class (a per-horse office fee, a club charging per horse, stalls, futurities)
+  keeps its own line. The desk already worked this way.
+- **Side pot buy-ins are listed on that bill.** They were in its total but not
+  among its lines, so a bill with a pot did not add up.
+- **The class page and the class picker quote the same figure.** The entered
+  table read $0.00 for that class, and the picker said "No entry fee" before
+  billing $5. The preview now carries each class's `per_class_charges`, from
+  `billing.per_class_charges` — the same rule `charge_lines` counts by, now one
+  function (`fee_counts_class`).
+
+### Exhibitors cancel up to a cut-off their show company chooses, and a cancelled show leaves My Shows
+
+- **How late an exhibitor may cancel themselves is a show company setting**
+  (migration 157, `show_companies.self_cancel_days_before`): *until the show
+  starts* (the default) or *until N days before its first day* (1–90, the
+  deadline day included). The company's managers and secretaries set it on My
+  Company, under the staff list; a GaitDesk admin can set it on the company's
+  page. Every show the company runs reads it on each request, so a change
+  applies at once; a show with no company reads *until the show starts*. The
+  Cancel my registration box says which applies ("until August 7, 2027, 14
+  days before the show"). Past the cut-off, and once the show is running, the
+  office cancels from the desk, as before. Payments still stay on the row as a
+  credit to refund.
+- **A cancelled registration is left off My Shows altogether** — and off My
+  Show Entries and Show History, which read the same endpoint
+  (`my_shows.withdrawn`). It used to stay as a card with a $0.00 bill. The one
+  exception is a show where the office has since entered them in a class again.
+  Signing up again brings it back.
+
+### Exhibitor registration: class entry on its own page, no stalls step where nothing is sold
+
+- **Class registration is its own page** (`/shows/[id]/register/classes`,
+  `ClassEntryScreen`) and has its own section and button on each My Shows card
+  and its own *My Classes* tile on the show menu. It was the registration
+  wizard's last step, so adding the Saturday a week later meant walking back
+  through the details, horses and stall picker. The wizard now ends at sign-up
+  and hands off to it; a running show's *My classes* opens the same page, and
+  `/register` redirects there once a show is ACTIVE.
+- **A show that sells no stalls, shavings or camping has no stalls step.** Its
+  Lodging step was skipped or left empty, so the horses step's *Sign up &
+  continue* is the sign-up and class entry opens straight after. Shows that do
+  sell them keep the stalls step before classes. `offers_lodging` rides on the
+  registration preview, My Shows and the standing payload; the *Stalls &
+  camping* button and the banner's stall link only appear where it is true.
+- **A minor needs a parent or guardian** (name and phone) before signing up —
+  judged on the show's first day, birthday included. `exhibitor_profile.py`
+  adds a blocking `parent_guardian` row only once a date of birth says the
+  exhibitor is under 18, and the details form marks the two boxes required as
+  the date is typed.
+- **The show bill's generated half is headed "Live Show Bill (includes changes
+  to the printed version)"**, and the Shavings line under Rules & paperwork
+  (and on Show Details) only prints where the show sells bedding.
+- The horses step lost its two lines of preamble ("Nothing flagged below stops
+  you entering…", "From your profile. Removing a horse here…").
+
 ### Show Record, setup skips, points charts per show, and a QR code on the board
 
 - **Every Show Record report works again.** They all 500'd at any show with a

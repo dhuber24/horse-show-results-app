@@ -167,7 +167,7 @@ export interface DeskExhibitor {
   preferred_back_number: number | null;
   signed_up: boolean;
   /** Set when the registration was called off (migration 126) — by the
-   *  exhibitor outside the two-week notice window, or by staff inside it. They
+   *  exhibitor while registration was open, or by staff at any time. They
    *  stay on the roster because their payments do, and a cancelled exhibitor
    *  nobody can find on the desk is one nobody can refund. */
   cancelled_at: string | null;

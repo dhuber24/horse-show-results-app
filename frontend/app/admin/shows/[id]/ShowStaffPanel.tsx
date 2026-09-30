@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useState } from 'react';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -17,13 +16,6 @@ export type PendingInvite = {
 
 type Props = {
   showId: string;
-  currentUserRole: string;
-  initialManagers?: User[];
-  /** Approved SHOW_MANAGER accounts, from `/users/by-role`. Not filtered out of
-   *  `allUsers` because that list is ADMIN-only and includes unapproved people. */
-  availableManagers?: User[];
-  initialAdmins: User[];
-  availableSecretaries?: User[];
   initialScribes: User[];
   initialGateStewards?: User[];
   allUsers: User[];
@@ -32,39 +24,30 @@ type Props = {
 };
 
 const emptyInviteForm = { first_name: '', last_name: '', email: '' };
-const emptySecretaryForm = { first_name: '', last_name: '', email: '', password: '' };
 
+/**
+ * The staff hired for one show: scribes and gate stewards. Managers and
+ * secretaries come from the company that runs the show (`ShowCompanyStaff`,
+ * migration 156); these two roles are staffed show by show and are not
+ * company members.
+ */
 export default function ShowStaffPanel({
   showId,
-  initialManagers = [],
-  availableManagers = [],
-  initialAdmins,
-  availableSecretaries = [],
   initialScribes,
   initialGateStewards = [],
   allUsers,
   isAdmin,
   initialPendingInvites = [],
 }: Props) {
-  const [managers, setManagers] = useState<User[]>(initialManagers);
-  const [admins, setAdmins] = useState<User[]>(initialAdmins);
   const [scribes, setScribes] = useState<User[]>(initialScribes);
   const [gateStewards, setGateStewards] = useState<User[]>(initialGateStewards);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(initialPendingInvites);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const [confirmRemoveManagerId, setConfirmRemoveManagerId] = useState<string | null>(null);
-  const [confirmRemoveAdminId, setConfirmRemoveAdminId] = useState<string | null>(null);
   const [confirmRemoveScribeId, setConfirmRemoveScribeId] = useState<string | null>(null);
   const [confirmRemoveStewardId, setConfirmRemoveStewardId] = useState<string | null>(null);
 
-  const [showAddManagerForm, setShowAddManagerForm] = useState(false);
-  const [selectedManagerId, setSelectedManagerId] = useState('');
-  const [showAddAdminForm, setShowAddAdminForm] = useState(false);
-  const [adminMode, setAdminMode] = useState<'pick' | 'create'>('pick');
-  const [newSecretary, setNewSecretary] = useState(emptySecretaryForm);
-  const [secretaryCreateError, setSecretaryCreateError] = useState('');
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [showAssignStewardForm, setShowAssignStewardForm] = useState(false);
@@ -77,19 +60,8 @@ export default function ShowStaffPanel({
   const [lastInviteUrl, setLastInviteUrl] = useState<{ name: string; url: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const [selectedAdminId, setSelectedAdminId] = useState('');
   const [selectedScribeId, setSelectedScribeId] = useState('');
 
-  // `allUsers` is only fetched for ADMIN. The by-role lists are readable by a
-  // Show Manager too, so prefer them and fall back to the full list.
-  const secretaryPool =
-    availableSecretaries.length > 0
-      ? availableSecretaries
-      : allUsers.filter(u => u.role === 'SHOW_SECRETARY');
-  const availableShowAdmins = secretaryPool.filter(u => !admins.find(a => a.id === u.id));
-  const availableShowManagers = availableManagers.filter(
-    u => !managers.find(m => m.id === u.id)
-  );
   const availableScribes = allUsers.filter(
     u => u.role === 'SCRIBE' && !scribes.find(s => s.id === u.id)
   );
@@ -98,116 +70,6 @@ export default function ShowStaffPanel({
   );
   const scribeInvites = pendingInvites.filter(i => i.role === 'SCRIBE');
   const stewardInvites = pendingInvites.filter(i => i.role === 'GATE_STEWARD');
-
-  async function addManager(userId: string) {
-    setError('');
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/shows/${showId}/managers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setError(json.detail || 'Failed to add manager'); return; }
-      setManagers(prev => [...prev, json]);
-    } finally { setBusy(false); }
-  }
-
-  async function removeManager(userId: string) {
-    setError('');
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/shows/${showId}/managers/${userId}`, { method: 'DELETE' });
-      if (!res.ok && res.status !== 204) {
-        const j = await res.json().catch(() => null);
-        // 409 is the last-manager guard, and its message is the useful one.
-        setError(j?.detail || 'Failed to remove manager');
-        return;
-      }
-      setManagers(prev => prev.filter(m => m.id !== userId));
-    } finally { setBusy(false); }
-  }
-
-  async function addAdmin(userId: string) {
-    setError('');
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/shows/${showId}/admins`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setError(json.detail || 'Failed to add admin'); return; }
-      setAdmins(prev => [...prev, json]);
-    } finally { setBusy(false); }
-  }
-
-  async function removeAdmin(userId: string) {
-    setError('');
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/shows/${showId}/admins/${userId}`, { method: 'DELETE' });
-      if (!res.ok) { const j = await res.json(); setError(j.detail || 'Failed'); return; }
-      setAdmins(prev => prev.filter(a => a.id !== userId));
-    } finally { setBusy(false); }
-  }
-
-  /** Create the account and assign it in one go. A show secretary is hired for
-   *  the show, so the person setting up the show is usually the one who has to
-   *  make them an account — sending them to User Management and back loses the
-   *  thread. Invites are the scribe/steward equivalent; a secretary needs a
-   *  working login before the show, so this one hands over a password. */
-  async function createAndAssignSecretary(e: React.FormEvent) {
-    e.preventDefault();
-    setSecretaryCreateError('');
-    if (newSecretary.password.length < 8) {
-      setSecretaryCreateError('Password must be at least 8 characters.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const userRes = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          first_name: newSecretary.first_name.trim(),
-          last_name: newSecretary.last_name.trim(),
-          email: newSecretary.email.trim(),
-          password: newSecretary.password,
-          role: 'SHOW_SECRETARY',
-        }),
-      });
-      const userJson = await userRes.json().catch(() => null);
-      if (!userRes.ok) {
-        setSecretaryCreateError(userJson?.detail || 'Failed to create secretary account.');
-        return;
-      }
-      const assignRes = await fetch(`/api/shows/${showId}/admins`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userJson.id }),
-      });
-      if (!assignRes.ok && assignRes.status !== 409) {
-        const j = await assignRes.json().catch(() => null);
-        setSecretaryCreateError(j?.detail || 'Secretary created, but assigning to this show failed.');
-        return;
-      }
-      setAdmins(prev => [
-        ...prev,
-        {
-          id: userJson.id,
-          full_name: `${newSecretary.first_name.trim()} ${newSecretary.last_name.trim()}`,
-          email: newSecretary.email.trim(),
-          role: 'SHOW_SECRETARY',
-        },
-      ]);
-      setNewSecretary(emptySecretaryForm);
-      setAdminMode('pick');
-      setShowAddAdminForm(false);
-    } finally { setBusy(false); }
-  }
 
   async function addScribe(userId: string) {
     setError('');
@@ -411,239 +273,6 @@ export default function ShowStaffPanel({
           </div>
         </div>
       )}
-
-      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
-        <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Show Managers</h2>
-        <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
-          Whoever created this show manages it. Add a co-manager here — they get the
-          same access to setup, staff, and the desk.
-        </p>
-
-        {managers.length === 0 && (
-          <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-            No manager assigned — this show was created by an admin.
-          </p>
-        )}
-        <ul className="space-y-1 mb-4">
-          {managers.map(m => (
-            <li key={m.id} className="flex items-center justify-between text-sm py-1 gap-2">
-              <span style={{ color: 'var(--foreground)' }}>{m.full_name} <span style={{ color: 'var(--muted)' }}>({m.email})</span></span>
-              <button
-                disabled={busy || managers.length === 1}
-                title={managers.length === 1 ? 'A show cannot be left without a manager — add another first.' : undefined}
-                onClick={() => setConfirmRemoveManagerId(m.id)}
-                className="text-xs text-red-600 hover:underline disabled:opacity-30 shrink-0">
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        {confirmRemoveManagerId && (
-          <ConfirmDialog
-            title="Remove Show Manager"
-            message={`Remove ${managers.find(m => m.id === confirmRemoveManagerId)?.full_name} as a manager of this show? They will no longer see it in their shows.`}
-            confirmLabel="Yes, remove"
-            destructive
-            confirming={busy}
-            onConfirm={async () => {
-              await removeManager(confirmRemoveManagerId);
-              setConfirmRemoveManagerId(null);
-            }}
-            onCancel={() => setConfirmRemoveManagerId(null)}
-          />
-        )}
-
-        {!showAddManagerForm ? (
-          <button onClick={() => setShowAddManagerForm(true)}
-            className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-            + Add Show Manager
-          </button>
-        ) : availableShowManagers.length > 0 ? (
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedManagerId}
-              onChange={(e) => setSelectedManagerId(e.target.value)}
-              aria-label="Show Manager"
-              className={`${inputClass} flex-1`}
-              style={inputStyle}
-            >
-              <option value="" disabled>Select a Show Manager…</option>
-              {availableShowManagers.map(u => (
-                <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
-              ))}
-            </select>
-            <button disabled={busy || !selectedManagerId}
-              onClick={() => { if (selectedManagerId) { addManager(selectedManagerId); setSelectedManagerId(''); setShowAddManagerForm(false); } }}
-              className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-              style={{ backgroundColor: 'var(--accent)' }}>
-              {busy ? 'Adding…' : 'Add'}
-            </button>
-            <button type="button" onClick={() => { setShowAddManagerForm(false); setSelectedManagerId(''); }}
-              className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              No other Show Manager accounts available. Create one in{' '}
-              <Link href="/admin/users" className="underline">User Management</Link>.
-            </p>
-            <button type="button" onClick={() => setShowAddManagerForm(false)}
-              className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
-              Cancel
-            </button>
-          </div>
-        )}
-      </section>
-
-      <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
-          <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Show Secretaries</h2>
-
-          {admins.length === 0 && (
-            <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>No secretary assigned yet.</p>
-          )}
-          <ul className="space-y-1 mb-4">
-            {admins.map(a => (
-              <li key={a.id} className="flex items-center justify-between text-sm py-1 gap-2">
-                <span style={{ color: 'var(--foreground)' }}>{a.full_name} <span style={{ color: 'var(--muted)' }}>({a.email})</span></span>
-                <button disabled={busy} onClick={() => setConfirmRemoveAdminId(a.id)}
-                  className="text-xs text-red-600 hover:underline disabled:opacity-50 shrink-0">
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-
-          {confirmRemoveAdminId && (
-            <ConfirmDialog
-              title="Remove Show Secretary"
-              message={`Remove ${admins.find(a => a.id === confirmRemoveAdminId)?.full_name} as a show secretary? This cannot be undone.`}
-              confirmLabel="Yes, remove"
-              destructive
-              confirming={busy}
-              onConfirm={async () => {
-                await removeAdmin(confirmRemoveAdminId);
-                setConfirmRemoveAdminId(null);
-              }}
-              onCancel={() => setConfirmRemoveAdminId(null)}
-            />
-          )}
-
-          {!showAddAdminForm ? (
-            <button onClick={() => setShowAddAdminForm(true)}
-              className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-              + Add Show Secretary
-            </button>
-          ) : (
-            <div className="space-y-3">
-              {isAdmin && (
-                <div className="flex gap-2 flex-wrap">
-                  {(['pick', 'create'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => { setAdminMode(m); setSecretaryCreateError(''); }}
-                      aria-pressed={adminMode === m}
-                      className="text-sm rounded px-3 py-1.5 border"
-                      style={{
-                        borderColor: adminMode === m ? 'var(--text-deep)' : 'var(--border)',
-                        backgroundColor: adminMode === m ? 'var(--warning-bg)' : 'var(--surface)',
-                        color: adminMode === m ? 'var(--text-deep)' : 'var(--foreground)',
-                        fontWeight: adminMode === m ? 600 : 400,
-                      }}
-                    >
-                      {m === 'pick' ? 'Pick existing' : 'Create new'}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {adminMode === 'pick' && (
-                availableShowAdmins.length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedAdminId}
-                      onChange={(e) => setSelectedAdminId(e.target.value)}
-                      aria-label="Show Secretary"
-                      className={`${inputClass} flex-1`}
-                      style={inputStyle}
-                    >
-                      <option value="" disabled>Select a Show Secretary…</option>
-                      {availableShowAdmins.map(u => (
-                        <option key={u.id} value={u.id}>{u.full_name} ({u.email})</option>
-                      ))}
-                    </select>
-                    <button disabled={busy || !selectedAdminId}
-                      onClick={() => { if (selectedAdminId) { addAdmin(selectedAdminId); setSelectedAdminId(''); setShowAddAdminForm(false); } }}
-                      className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--accent)' }}>
-                      {busy ? 'Adding…' : 'Add'}
-                    </button>
-                    <button type="button" onClick={() => { setShowAddAdminForm(false); setSelectedAdminId(''); }}
-                      className="px-3 py-1 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                      {isAdmin
-                        ? 'Every Show Secretary account is already on this show — use "Create new" for someone else.'
-                        : <>No additional Show Secretaries available. Create one in{' '}
-                          <Link href="/admin/users" className="underline">User Management</Link>.</>}
-                    </p>
-                    <button type="button" onClick={() => setShowAddAdminForm(false)}
-                      className="text-xs hover:underline" style={{ color: 'var(--muted)' }}>
-                      Cancel
-                    </button>
-                  </div>
-                )
-              )}
-
-              {isAdmin && adminMode === 'create' && (
-                <form onSubmit={createAndAssignSecretary} className="space-y-3">
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <input required placeholder="First name" className={`${inputClass} w-full`} style={inputStyle}
-                      value={newSecretary.first_name}
-                      onChange={e => setNewSecretary(f => ({ ...f, first_name: e.target.value }))} />
-                    <input required placeholder="Last name" className={`${inputClass} w-full`} style={inputStyle}
-                      value={newSecretary.last_name}
-                      onChange={e => setNewSecretary(f => ({ ...f, last_name: e.target.value }))} />
-                  </div>
-                  <input required type="email" placeholder="Email" autoComplete="off"
-                    className={`${inputClass} w-full`} style={inputStyle}
-                    value={newSecretary.email}
-                    onChange={e => setNewSecretary(f => ({ ...f, email: e.target.value }))} />
-                  <input required type="password" placeholder="Initial password (≥ 8 characters)"
-                    autoComplete="new-password"
-                    className={`${inputClass} w-full font-mono`} style={inputStyle}
-                    value={newSecretary.password}
-                    onChange={e => setNewSecretary(f => ({ ...f, password: e.target.value }))} />
-                  {secretaryCreateError && <p className="text-xs text-red-600">{secretaryCreateError}</p>}
-                  <div className="flex gap-2">
-                    <button type="submit" disabled={busy}
-                      className="px-3 py-1 rounded text-sm text-white disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--accent)' }}>
-                      {busy ? 'Creating…' : 'Create & assign'}
-                    </button>
-                    <button type="button"
-                      onClick={() => {
-                        setShowAddAdminForm(false);
-                        setNewSecretary(emptySecretaryForm);
-                        setSecretaryCreateError('');
-                      }}
-                      className="px-3 py-1 rounded text-sm border"
-                      style={{ borderColor: 'var(--border)', color: 'var(--text-deep)' }}>
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          )}
-        </section>
 
       <section className="p-5 rounded-lg border" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Scribes</h2>

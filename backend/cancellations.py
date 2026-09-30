@@ -1,10 +1,17 @@
 """Cancelling a show registration, and who is allowed to.
 
-An exhibitor may call off their own registration while the show is still a
-fortnight away. Inside that window the answer is the show office, because by
-then the entries are in the program, the stall chart is drawn and the class
-sheets may already be printed -- somebody has to decide what happens to the
-stall and the money, and that somebody is not the person leaving.
+An exhibitor may call off their own registration while registration is open --
+the show is PUBLISHED -- **up to a cut-off the show company chooses**
+(`show_companies.self_cancel_days_before`, migration 157). 0, the default, is
+until the show starts; 14 is the fortnight this app used to impose on everybody.
+From the cut-off on, and always once the show is running, the answer is the
+show office, from the desk -- which is never on a clock.
+
+Why the company and not the app: a club that draws its stall chart a fortnight
+out needs the fortnight, and a small open show taking day-haul entries does not.
+Either way nothing about the money is decided by the person leaving -- a
+cancellation keeps every payment on the row as a credit for the office to
+refund, and the desk sees the cancellation on the roster.
 
 Two things live here so that the router, the desk and the screens cannot
 disagree about either:
@@ -13,20 +20,25 @@ disagree about either:
   Cancelling marks the row rather than deleting it (migration 126), so every
   reader that used to ask "is `registered_at` set?" is now asking half a
   question -- a cancelled registration would still answer yes.
-* **The window.** Measured against *today*, unlike health paperwork, which is
-  judged as of the show's last day. The two are asking opposite questions: a
-  Coggins has to be good on the day the horse is on the grounds, while a
-  cancellation is about how much notice the office is getting right now.
+* **The window.** The show's status -- the same door the rest of registration
+  goes through (`_load_published_show_or_403`) -- and the company's cut-off,
+  measured against *today*, unlike health paperwork, which is judged as of the
+  show's last day: a cancellation is about how much notice the office is
+  getting right now.
 """
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 
 
-#: How much notice an exhibitor has to give to cancel without the office.
-#: Two weeks, counted back from the show's first day.
-CANCELLATION_NOTICE_DAYS = 14
+#: The show statuses in which an exhibitor cancels their own registration:
+#: registration open. From ACTIVE on, the show office does it at the desk.
+SELF_CANCEL_STATUSES = frozenset({"PUBLISHED"})
+
+#: The furthest out a company may set its cut-off (the column's CHECK). Further
+#: than this is a policy of taking no online cancellations at all.
+MAX_SELF_CANCEL_DAYS_BEFORE = 90
 
 
 def is_on_roster(show_entry) -> bool:
@@ -45,45 +57,85 @@ def is_cancelled(show_entry) -> bool:
     return show_entry is not None and show_entry.cancelled_at is not None
 
 
-def self_cancel_deadline(start_date: Optional[date]) -> Optional[date]:
-    """The last day an exhibitor may cancel their own registration.
+def self_cancel_deadline(start_date: Optional[date], days_before: int) -> Optional[date]:
+    """The last day an exhibitor may cancel themselves, under a company cut-off.
 
-    None when the show has no start date, which is not a date anything can be
-    counted back from -- callers treat that as "ask the office".
+    None when there is no cut-off (`days_before` 0: until the show starts,
+    which is a status rather than a date) or no start date to count back from.
     """
-    if start_date is None:
+    if not days_before or start_date is None:
         return None
-    return start_date - timedelta(days=CANCELLATION_NOTICE_DAYS)
+    return start_date - timedelta(days=days_before)
 
 
-def may_self_cancel(start_date: Optional[date], as_of: Optional[date] = None) -> bool:
-    """Whether the exhibitor is still outside the notice window.
+def may_self_cancel(
+    show_status: Optional[str],
+    start_date: Optional[date] = None,
+    days_before: int = 0,
+    as_of: Optional[date] = None,
+) -> bool:
+    """Whether the exhibitor may still cancel their own registration.
 
-    Inclusive of the deadline day itself: "at least two weeks before the show"
-    is met by cancelling exactly fourteen days out, and an off-by-one here is
-    somebody being told to telephone the show office on the last day they were
-    entitled to press the button.
+    Registration has to be open, and -- where the company set a cut-off -- the
+    deadline not passed. **Inclusive of the deadline day**: "at least fourteen
+    days' notice" is met by cancelling exactly fourteen days out, and an
+    off-by-one sends somebody to the telephone on the last day the button was
+    theirs.
+
+    Refusing is the safe direction everywhere else: a status nothing
+    recognises, or a cut-off with no start date to count back from, is the
+    office's -- the office can always cancel, and an exhibitor wrongly allowed
+    to has already gone.
     """
-    deadline = self_cancel_deadline(start_date)
+    if show_status not in SELF_CANCEL_STATUSES:
+        return False
+    if not days_before:
+        return True
+    deadline = self_cancel_deadline(start_date, days_before)
     if deadline is None:
         return False
     return (as_of or date.today()) <= deadline
 
 
-def cancellation_window(start_date: Optional[date], as_of: Optional[date] = None) -> dict:
+def cancellation_window(
+    show_status: Optional[str],
+    start_date: Optional[date],
+    days_before: int = 0,
+    as_of: Optional[date] = None,
+) -> dict:
     """What the screens print beside the cancel control.
 
     `self_service` is the only field that decides anything; the rest is so a
     screen can say *why* without recomputing the rule and drifting from it.
     """
     today = as_of or date.today()
-    deadline = self_cancel_deadline(start_date)
     return {
-        "notice_days": CANCELLATION_NOTICE_DAYS,
-        "deadline": deadline,
-        "self_service": may_self_cancel(start_date, today),
+        "self_service": may_self_cancel(show_status, start_date, days_before, today),
         "days_until_show": (start_date - today).days if start_date else None,
+        # The company's cut-off, and the day it falls on; 0 and None mean
+        # until the show starts.
+        "days_before": days_before,
+        "deadline": self_cancel_deadline(start_date, days_before),
     }
+
+
+async def self_cancel_days_before(show, db) -> int:
+    """The cut-off of the company running this show (migration 157).
+
+    0 for a show with no company -- every show created before migration 156
+    until its office picks one -- which is until the show starts, what every
+    show did before companies chose. One scalar query rather than a
+    relationship on `Show`, so no loader has to remember to eager-load it.
+    """
+    company_id = getattr(show, "company_id", None)
+    if company_id is None:
+        return 0
+    from models import ShowCompany  # local, as in `_drop_bookings`
+
+    days = await db.scalar(
+        select(ShowCompany.self_cancel_days_before).where(ShowCompany.id == company_id)
+    )
+    return days or 0
 
 
 class CancellationBlocked(Exception):
@@ -228,8 +280,8 @@ async def cancel_registration(show_entry, show_id, cancelled_by_user_id, reason,
     """Call off a registration: drop what it booked, keep the record of it.
 
     One implementation for both doors — the exhibitor cancelling their own
-    outside the notice window, and the show office cancelling from the desk
-    inside it. The *permission* differs between the two and is decided by the
+    while registration is open, and the show office cancelling from the desk
+    at any time. The *permission* differs between the two and is decided by the
     callers; what a cancellation actually does must not.
 
     What stays: the `show_entries` row, its back number, and every

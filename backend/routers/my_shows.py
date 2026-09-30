@@ -10,7 +10,7 @@ Backs three surfaces from one query so they cannot drift:
 A show appears here if the exhibitor signed up for it *or* has an entry in it.
 Those are usually the same set, but a secretary adding a late entry by hand
 creates the second without the first, and that show is still one the exhibitor
-competed in.
+competed in. A registration they cancelled does not appear at all (`withdrawn`).
 
 Money is computed by `billing.build_bill`, shared with the registration screens,
 so the total quoted at sign-up is the total shown here. The app never collects
@@ -25,9 +25,14 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from billing import build_bill
+from billing import build_bill, offers_lodging
 from side_pot_membership import billed_pots, load_show_pots
-from cancellations import cancellation_window, is_on_roster
+from cancellations import (
+    cancellation_window,
+    is_cancelled,
+    is_on_roster,
+    self_cancel_days_before,
+)
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
 from models import (
@@ -69,10 +74,45 @@ _RESUME_LABELS = {
     "details": "Your details",
     "horses": "Your horses",
     "stalls": "Stalls, shavings & camping",
+    # A show selling no stalls, shavings or camping has no stalls step: the
+    # horses step's own button is the sign-up, so that press is what is left.
+    "signup": "Signing up",
 }
 
 
-def resume_step(checklist, horse_count: int) -> str:
+def withdrawn(signup, entries) -> bool:
+    """A registration the exhibitor called off, with nothing left entered.
+
+    Left off every list this router serves -- My Shows, My Show Entries and
+    Show History. Cancelling is somebody saying they are not going, and a card
+    for the show kept reading as a registration they had to scroll past (with a
+    $0.00 bill, since the cancellation drops every booking). The row itself
+    stays, cancelled, for the desk and for any refund.
+
+    Only while nothing is entered: a cancellation drops every class entry, so
+    an entry here was put back afterwards by the show office -- somebody who is
+    competing, whose show has to stay on the list. Signing up again clears the
+    cancellation and brings the show back.
+    """
+    return is_cancelled(signup) and not entries
+
+
+def venue_location(venue) -> str | None:
+    """Where the show is, as a town -- "Rochester, MN" -- or None.
+
+    Beside the venue's name rather than instead of it: My Shows lists each show
+    as one button carrying its name, dates and location, and a fairground's
+    name says which barns to drive to but not which state they are in. Either
+    half may be missing on a venue typed in by hand, and a lone half still
+    reads.
+    """
+    if venue is None:
+        return None
+    parts = [p.strip() for p in (venue.city, venue.state) if p and p.strip()]
+    return ", ".join(parts) or None
+
+
+def resume_step(checklist, horse_count: int, lodging: bool = True) -> str:
     """Which step an unfinished registration picks up at.
 
     Mirrors `initialStep` in `RegisterShowForm` deliberately, and the mirror is
@@ -85,15 +125,16 @@ def resume_step(checklist, horse_count: int) -> str:
     number typed in is a claim the desk verifies against a card -- and naming an
     optional step as the one to resume at tells somebody it is required.
 
-    Only ever the three, because this is only called for a draft, and a draft
-    by definition has no `show_entries` row: sign-up is the furthest anybody
-    with one of these has got.
+    Only ever these, because this is only called for a draft, and a draft by
+    definition has no `show_entries` row: sign-up is the furthest anybody with
+    one of these has got. `lodging` False is a show with no stalls step, where
+    what is left once the horses are in is the sign-up itself.
     """
     if missing_blocking(checklist, step="details"):
         return "details"
     if horse_count == 0:
         return "horses"
-    return "stalls"
+    return "stalls" if lodging else "signup"
 
 
 async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list[dict]:
@@ -126,6 +167,9 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
         select(ShowRegistrationDraft)
         .options(
             selectinload(ShowRegistrationDraft.show).selectinload(Show.venue_rel),
+            # Whether the show has a stalls step, which decides where the draft
+            # picks up once the horses are in.
+            selectinload(ShowRegistrationDraft.show).selectinload(Show.fees),
         )
         .join(Show, Show.id == ShowRegistrationDraft.show_id)
         .where(
@@ -167,8 +211,9 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
             # omitted at a show with no affiliation at all.
             associations=await _show_associations(show, db),
             registered_association_ids=held,
+            as_of=show.start_date,
         )
-        next_step = resume_step(checklist, horse_count)
+        next_step = resume_step(checklist, horse_count, offers_lodging(show.fees or []))
         out.append(
             {
                 "show_id": str(show.id),
@@ -177,6 +222,7 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
                 "start_date": show.start_date,
                 "end_date": show.end_date,
                 "venue": show.venue_rel.name if show.venue_rel else None,
+                "location": venue_location(show.venue_rel),
                 "started_at": draft.started_at,
                 "last_opened_at": draft.last_opened_at,
                 "next_step": next_step,
@@ -284,6 +330,8 @@ async def list_my_shows(
     for show_id, show in shows_by_id.items():
         show_entries = entries_by_show.get(show_id, [])
         signup = signup_by_show.get(show_id)
+        if withdrawn(signup, show_entries):
+            continue
         reservations = list(signup.reservations) if signup else []
         futurities = await load_billable_futurities(
             show_id, [signup.id] if signup else [], db
@@ -310,12 +358,17 @@ async def list_my_shows(
                 "start_date": show.start_date,
                 "end_date": show.end_date,
                 "venue": show.venue_rel.name if show.venue_rel else None,
+                "location": venue_location(show.venue_rel),
                 "back_number": signup.back_number if signup else None,
                 "registered_at": signup.registered_at if signup else None,
                 "cancelled_at": signup.cancelled_at if signup else None,
                 "arrival_date": signup.arrival_date if signup else None,
                 "departure_date": signup.departure_date if signup else None,
                 "notes": signup.registration_notes if signup else None,
+                # Whether there is anything to book on the stalls screen. A show
+                # that sells no stalls, shavings or camping gets no button for
+                # them on the card.
+                "offers_lodging": offers_lodging(show.fees or []),
                 "entry_count": len(show_entries),
                 "placed_count": len(placed),
                 "best_place": min((r.place for r in placed), default=None),
@@ -424,6 +477,8 @@ async def my_standing_at_show(
         "arrival_date": None,
         "departure_date": None,
         "waivers_outstanding": 0,
+        # Unknown: this answer is given before the show is read.
+        "offers_lodging": None,
     }
 
     exhibitor_result = await db.execute(
@@ -444,7 +499,12 @@ async def my_standing_at_show(
     # first day, and a banner that cannot name the deadline can only say
     # "contact the office", which is the message this feature exists to stop
     # being the only one available.
-    show_result = await db.execute(select(Show).where(Show.id == show_id))
+    # And the fees, for whether the show sells stalls, shavings or camping at
+    # all -- the banner offers to change them only where there is something to
+    # change.
+    show_result = await db.execute(
+        select(Show).options(selectinload(Show.fees)).where(Show.id == show_id)
+    )
     show = show_result.scalar_one_or_none()
 
     count_result = await db.execute(
@@ -467,7 +527,13 @@ async def my_standing_at_show(
         "cancelled_at": show_entry.cancelled_at if show_entry else None,
         # So the status banner can name the deadline rather than only saying
         # "contact the office" once it has passed.
-        "cancellation": cancellation_window(show.start_date) if show else None,
+        "cancellation": (
+            cancellation_window(
+                show.status, show.start_date, await self_cancel_days_before(show, db)
+            )
+            if show
+            else None
+        ),
         "back_number": show_entry.back_number if show_entry else None,
         "entry_count": count_result.scalar_one(),
         # Required waivers with no signature by either route. Counted here
@@ -476,4 +542,5 @@ async def my_standing_at_show(
         "waivers_outstanding": await _unsigned_waiver_count(show_id, exhibitor.id, db),
         "arrival_date": show_entry.arrival_date if show_entry else None,
         "departure_date": show_entry.departure_date if show_entry else None,
+        "offers_lodging": offers_lodging(show.fees or []) if show else None,
     }

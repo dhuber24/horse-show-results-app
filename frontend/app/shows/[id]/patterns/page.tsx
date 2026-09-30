@@ -25,6 +25,13 @@ import { showHubBack } from '../_components/showHubBack';
  * download it. Viewing opens the browser's own viewer, which zooms a PDF or a
  * photo far better than anything drawn here.
  */
+
+/** The two section headings — the exhibitor's own classes, then the whole show.
+ *  Sized to read as headings rather than small print, because the same pattern
+ *  appears under both and which list you are in is the whole distinction. */
+const SECTION_HEADING = 'text-lg font-semibold pb-1.5 mb-3 border-b';
+const SECTION_HEADING_STYLE = { color: 'var(--accent)', borderColor: 'var(--border)' } as const;
+
 export default async function ShowPatternsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await auth();
@@ -56,16 +63,16 @@ export default async function ShowPatternsPage({ params }: { params: Promise<{ i
         <div className="space-y-6">
           {mine.length > 0 && (
             <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--accent)' }}>
-                For your classes
+              <h3 className={SECTION_HEADING} style={SECTION_HEADING_STYLE}>
+                Patterns for your registered classes
               </h3>
               <PatternList showId={id} patterns={mine} />
             </section>
           )}
           <section>
             {mine.length > 0 && (
-              <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--accent)' }}>
-                All patterns
+              <h3 className={SECTION_HEADING} style={SECTION_HEADING_STYLE}>
+                All show patterns
               </h3>
             )}
             <PatternList showId={id} patterns={patterns} />
@@ -85,22 +92,27 @@ function PatternList({ showId, patterns }: { showId: string; patterns: ShowPatte
         return (
           <li
             key={pattern.id}
-            className="p-4 rounded-lg border"
+            className="relative p-4 rounded-lg border transition hover:shadow-md"
             style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
           >
             <div className="flex items-start justify-between gap-3">
-              {/* The name opens it too: on a phone the biggest target on the
-                  card should be the one that does the thing people came for. */}
+              {/* The whole card opens the pattern, not just its name: on a phone
+                  the biggest target should be the one that does the thing
+                  people came for. The name's link is stretched over the card
+                  (`after:inset-0`) rather than the card being wrapped in one,
+                  because View and Download are links too, and a link inside a
+                  link is not valid HTML — they sit above the stretch (`z-10`)
+                  and keep working on their own. */}
               <a
                 href={patternFileHref(showId, pattern.id, { version })}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-semibold hover:underline"
+                className="font-semibold hover:underline after:absolute after:inset-0 after:rounded-lg"
                 style={{ color: 'var(--foreground)' }}
               >
                 {pattern.name}
               </a>
-              <span className="flex gap-3 shrink-0 text-sm">
+              <span className="relative z-10 flex gap-3 shrink-0 text-sm">
                 <a
                   href={patternFileHref(showId, pattern.id, { version })}
                   target="_blank"
@@ -121,11 +133,25 @@ function PatternList({ showId, patterns }: { showId: string; patterns: ShowPatte
             </div>
 
             {pattern.classes.length > 0 ? (
-              <div className="mt-2">
-                <p className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+              // Folded by default, so a card is its name and its two links: a
+              // pattern run across a dozen classes was a dozen chips, and the
+              // second pattern sat a screen down a phone. <details> rather than
+              // a client component, like the finished classes on the show page —
+              // it needs no JS. The summary sits above the card's stretched link
+              // (`relative z-10`) so tapping it unfolds the list instead of
+              // opening the pattern, and is only as wide as its text so the rest
+              // of that row still opens it; the list itself stays under the
+              // stretch, so tapping a class opens the pattern like the card does.
+              <details className="group mt-1">
+                <summary
+                  className="relative z-10 w-fit cursor-pointer select-none list-none py-1 text-xs font-medium [&::-webkit-details-marker]:hidden"
+                  style={{ color: 'var(--muted)' }}
+                >
+                  <span aria-hidden="true" className="inline-block w-3 group-open:hidden">▸</span>
+                  <span aria-hidden="true" className="hidden w-3 group-open:inline-block">▾</span>
                   Used in {pattern.classes.length} {pattern.classes.length === 1 ? 'class' : 'classes'}
-                </p>
-                <ul className="flex flex-wrap gap-1.5 mt-1">
+                </summary>
+                <ul className="flex flex-wrap gap-1.5 mt-1.5">
                   {pattern.classes.map((cls) => (
                     <li
                       key={cls.id}
@@ -136,7 +162,7 @@ function PatternList({ showId, patterns }: { showId: string; patterns: ShowPatte
                     </li>
                   ))}
                 </ul>
-              </div>
+              </details>
             ) : (
               <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
                 Not attached to a class

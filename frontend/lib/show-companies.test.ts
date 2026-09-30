@@ -101,6 +101,7 @@ describe('foldedOwnCompanies', () => {
       notes: null,
       created_at: null,
       owner_user_id: ownerUserId,
+      self_cancel_days_before: 0,
       members: memberIds.map(member),
       features: [],
       join_requests: [],

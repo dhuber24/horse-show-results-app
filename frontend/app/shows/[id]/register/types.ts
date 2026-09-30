@@ -37,6 +37,11 @@ export type PreviewClass = {
   apha_divisions: string[] | null;
   sanctioning_codes: string[];
   sanction_cents: number;
+  /** The show's own per-class fees one entry here would be charged — a "$5
+   *  per judge, per class" fee on a $0 class — by the same rule the bill
+   *  charges (`billing.per_class_charges`). Optional for a frontend deployed
+   *  ahead of the backend that sends it. */
+  per_class_charges?: { label: string; cents: number }[];
   /** The open side pots this class is bundled into. Entering the class means
    *  buying into one of them — `POST /shows/{id}/register` refuses it
    *  otherwise — so the form shows the buy-in and its price before the press.
@@ -195,18 +200,21 @@ export type ProfileStatus = {
 };
 
 /**
- * Whether cancelling is still the exhibitor's own to do.
+ * Whether cancelling is still the exhibitor's own to do
+ * (`cancellations.may_self_cancel`): while registration is open, up to the
+ * cut-off the show company chose (migration 157).
  *
  * `self_service` is the only field that decides anything; the rest is so the
- * screen can say *why* without recomputing the two-week rule and drifting from
- * `cancellations.py`.
+ * screen can say *why* without recomputing the rule.
  */
 export type CancellationWindow = {
-  notice_days: number;
-  /** The last day the exhibitor may cancel themselves, `YYYY-MM-DD`. */
-  deadline: string | null;
   self_service: boolean;
   days_until_show: number | null;
+  /** The company's cut-off in days before the show; 0 is until it starts. */
+  days_before: number;
+  /** The last day the exhibitor may cancel themselves, `YYYY-MM-DD`; null when
+   *  there is no cut-off (until the show starts). */
+  deadline: string | null;
 };
 
 export type PreviewData = {
@@ -229,6 +237,11 @@ export type PreviewData = {
     start_date: string;
     end_date: string;
     show_type_code: string | null;
+    /** Whether the show sells stalls, shavings or camping at all. False is a
+     *  show whose Lodging step was skipped or left empty: registration then has
+     *  no stalls step, and finishing the horses step is the sign-up. Optional
+     *  for a frontend deployed ahead of the backend that sends it. */
+    offers_lodging?: boolean;
   };
   exhibitor: { id: string; full_name: string };
   classes: PreviewClass[];

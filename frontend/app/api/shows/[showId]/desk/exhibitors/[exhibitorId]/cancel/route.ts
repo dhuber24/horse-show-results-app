@@ -4,8 +4,8 @@ import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 /**
  * Cancel a registration from the desk.
  *
- * The office's half of the two-week rule: an exhibitor may cancel their own up
- * to a fortnight out, and inside that window this is the only door. Not the
+ * The office's half of the rule: an exhibitor may cancel their own while
+ * registration is open, and once the show is running this is the only door. Not the
  * same call as `DELETE /desk/exhibitors/{id}`, which is the undo for adding
  * the wrong person to the roster.
  */
