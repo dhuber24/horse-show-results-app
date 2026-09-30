@@ -43,9 +43,20 @@ export type Standing = {
   points: number;
   class_count: number;
   show_count: number;
+  /** The exhibitor's number at this show — on a show's leaderboard only. A
+   *  circuit spans several shows, where one exhibitor has several numbers. */
+  back_number?: number | null;
 };
 
-export type DivisionStandings = { name: string; standings: Standing[] };
+/** One standings table: a division within a discipline — Amateur Western
+ *  Pleasure and Amateur Halter are two. `name` is the two together,
+ *  "Amateur · Western Pleasure", ready to print. */
+export type DivisionStandings = {
+  name: string;
+  division: string;
+  discipline: string;
+  standings: Standing[];
+};
 
 export type CircuitSummary = { id: string; name: string; season: string | null };
 
@@ -116,6 +127,41 @@ export function bandLabel(bands: { minEntries: number }[], index: number): strin
   const max = next - 1;
   if (max === min) return `Classes of ${min}`;
   return `Classes of ${min}–${max}`;
+}
+
+/** A line of a shortened standings list: a pair, or a tie too long to list. */
+export type StandingLine =
+  | { kind: 'pair'; standing: Standing }
+  | { kind: 'tied'; rank: number; count: number; points: number };
+
+/**
+ * The top `places` ranks of a division, in at most `maxRows` lines — what a
+ * results board has room for.
+ *
+ * By rank, not by row, and a tie is never split: showing one of two pairs on
+ * the same points is choosing between them. What a board cannot do is list
+ * every pair in a long tie — early in a show whole runs of pairs sit on the
+ * same points — so a tie that would run past `maxRows` becomes one line,
+ * "4 tied for 5th", with their points. It is always the last line: the rank
+ * after it is past `places` by then. `standings` arrive ranked 1, 2, 2, 4
+ * (`backend/high_point.py`).
+ */
+export function topStandings(standings: Standing[], places: number, maxRows: number): StandingLine[] {
+  const top = standings.filter((s) => s.rank <= places);
+  const lines: StandingLine[] = [];
+  for (let i = 0; i < top.length; ) {
+    const rank = top[i].rank;
+    let j = i;
+    while (j < top.length && top[j].rank === rank) j++;
+    const tied = top.slice(i, j);
+    if (lines.length + tied.length > maxRows) {
+      lines.push({ kind: 'tied', rank, count: tied.length, points: tied[0].points });
+      break;
+    }
+    for (const standing of tied) lines.push({ kind: 'pair', standing });
+    i = j;
+  }
+  return lines;
 }
 
 // ── Editing a chart ────────────────────────────────────────────────────────────

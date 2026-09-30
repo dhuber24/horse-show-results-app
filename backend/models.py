@@ -2367,7 +2367,8 @@ class ShowMarquee(Base):
     show_id = Column(
         UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
     )
-    # results | message | both. Checked by ck_show_marquees_mode in the migration.
+    # results | message | both | high_point (migration 158). Checked by
+    # ck_show_marquees_mode in the migrations.
     mode = Column(Text, nullable=False, server_default="results")
     # Kept when the mode goes back to 'results', so an announcement can be put
     # back up without retyping it.

@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { fetchShow, fetchClasses, fetchResultsIndex, fetchMarquee } from '@/lib/api';
+import { fetchShow, fetchClasses, fetchResultsIndex, fetchMarquee, fetchShowLeaderboard } from '@/lib/api';
 import AutoRefresh from '@/components/AutoRefresh';
 import LiveBoard from './LiveBoard';
 
@@ -33,6 +33,10 @@ export default async function ResultsBoardPage({ params }: { params: Promise<{ i
     fetchResultsIndex(id),
     fetchMarquee(id),
   ]);
+  // The standings, for a marquee set to High Point — one setting for the show,
+  // so this board scrolls it too. Only then: scoring every posted class on
+  // each 12-second poll is work a board scrolling the results never reads.
+  const leaderboard = marquee.effective_mode === 'high_point' ? await fetchShowLeaderboard(id) : null;
 
   return (
     <>
@@ -49,6 +53,7 @@ export default async function ResultsBoardPage({ params }: { params: Promise<{ i
           classes={classes}
           resultsIndex={resultsIndex}
           marquee={marquee}
+          leaderboard={leaderboard}
         />
       </Suspense>
     </>

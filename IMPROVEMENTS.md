@@ -2,6 +2,83 @@
 
 ## September 2026
 
+### The marquee can scroll the high point standings
+
+- **A fourth marquee choice, *High Point***, beside Results, Message and Both
+  (migration 158 widens `ck_show_marquees_mode`): a line per standings table,
+  "High Point · Amateur · Halter: 1st #21 Jolene Hasselquist · Too Hot To
+  Handle HQ (6 pts) · …", the same top five the split board's right half
+  shows.
+- **On both boards' pages.** The marquee is one setting for the show, so
+  whichever board is up scrolls it; the Results Board fetches the standings
+  only while High Point is chosen.
+- **Greyed out at a show with no points chart**, with a tooltip saying where
+  to choose one; the backend refuses it there too, and a board falls back to
+  the results if the chart is taken away afterwards. A chart with nothing
+  posted yet scrolls the results until there are standings.
+
+### High point standings are per division and discipline
+
+- **A standings table is a division within a discipline** (`tally` in
+  `backend/high_point.py`): Amateur Western Pleasure and Amateur Halter are
+  two tables, where they were one Amateur all-around. Points earned in one
+  discipline never count toward another.
+- **Everywhere standings are read**: the public Leaderboard, a season
+  circuit's standings (matched by both names across its shows), the show's
+  High Point page and the Results & High Point board. Each table is named
+  "Amateur · Western Pleasure" — division first, the order the board's class
+  header reads — and carries `division` and `discipline` separately.
+- **Ordered by division, then discipline**, each by the show's own sort order,
+  so a division's tables sit together.
+
+### A Results & High Point board
+
+- **A third card on Live Screens, *Results & High Point***
+  (`/admin/shows/[id]/board/results-high-point`): the screen split down the
+  middle, the class's placings on the left and the show's high point
+  standings on the right. It is the Results Board with `layout="split"`, so
+  the sizes, full screen, duplicate and extend, the marquee and the QR code
+  are the same, and its own page in front of it asks the same questions.
+- **The left half shows two judges' cards at a time.** A four-judge panel
+  takes two turns, and the header says which ("Judges 1–2 of 4"); a
+  single-judge class, or the third judge of three, gets the whole half.
+- **The right half shows two standings tables at a time** — each a division
+  within a discipline, "Amateur · Western Pleasure" — each the top five ranks
+  with its points, from the same standings the public Leaderboard reads. A
+  tie is never split; a tie too long to list becomes one line, "4 tied for
+  5th" (`topStandings` in `lib/high-point.ts`).
+- **A standing reads like a placing**: the same rosette for its rank, and the
+  back number beside the name (or on the horse's line in a narrow box), so a
+  room finds its colour and its number in the same place on both halves.
+  The show leaderboard payload now carries `back_number` on each standing;
+  a circuit's does not, since one exhibitor has a number per show.
+- **Four quarter-width boxes across**, the width of a four-judge class's cards
+  on the Results Board, so five places fit at the Desk and Room sizes and the
+  Lobby size draws both halves at about three-quarters — **one scale for
+  both halves**, so a placing and a standing are the same size and line up.
+- **Each half's header is centred over its half and is its heading alone**
+  — the class name, and "High Point" — so the screen reads as two sections.
+  The grey line over each (ring, division and discipline; the points system
+  and posted-class count) only restated the heading and is gone; "Judges 1–2
+  of 4" moved beside the Top 5 badge. The single-class Results Board keeps
+  its header left, with its context line.
+- **A clear divider between the halves**: an accent-coloured rule in a
+  gutter wider than the gap between two cards. The first one was a hair-wide
+  line in the boxes' own grey, and the halves read as one row of four.
+- **Each standings table's title is larger and centred in its box**, since
+  it titles a table where a judge's name labels a card.
+- **Dot leaders run from each exhibitor's name to their points**, so a room
+  can see which figure belongs to which line — round, mid-height dots that
+  cannot be mistaken for the ellipsis on a truncated name, and never fewer
+  than one, so a narrow box keeps as much of the name as it can.
+- **The points are the largest figure on a standings row**, with *PTS* under
+  them in the same colour, so the number reads as points rather than as a
+  back number or a place.
+- **Both halves turn on the board's one clock**, each through its own list, so
+  the dwell bar still means "about to change" and pause holds both.
+- **The board's page warns when the show has no points chart**, with a link
+  to the High Point page; the board itself says high point is not being kept.
+
 ### The results board shows one class to a screen, top five per judge
 
 - **One class per screen, every judge's card of it together.** A screen

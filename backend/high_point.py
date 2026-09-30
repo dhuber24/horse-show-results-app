@@ -22,8 +22,10 @@ The decisions, settled once so the two cannot disagree:
   second; nothing is split, because the chart gives no rule for splitting.
 * **Only a placed card earns points** (`placings.is_placed`). A judge who
   disqualified an entry did not rank it, so it earns nothing from that card.
-* **Standings are per division, per horse and rider.** Divisions are matched by
-  name across a circuit's shows, since each show has its own division rows.
+* **Standings are per division and discipline, per horse and rider** --
+  Amateur Western Pleasure and Amateur Halter are two standings, not one
+  Amateur all-around. Both are matched by name across a circuit's shows, since
+  each show has its own division and discipline rows.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Class, Division, Entry, Exhibitor, Horse, Result
+from models import Class, Discipline, Division, Entry, Exhibitor, Horse, Result
 from placings import is_placed
 
 Chart = dict[int, dict[int, Decimal]]
@@ -141,6 +143,8 @@ class Card:
     class_id: UUID
     division_name: str
     division_sort: int
+    discipline_name: str
+    discipline_sort: int
     exhibitor_id: UUID
     exhibitor_name: str
     horse_id: Optional[UUID]
@@ -161,8 +165,14 @@ class _Pair:
     show_ids: set = field(default_factory=set)
 
 
-def _division_key(name: str) -> str:
+def _name_key(name: str) -> str:
     return " ".join((name or "").split()).lower()
+
+
+def standing_name(division: str, discipline: str) -> str:
+    """"Amateur · Western Pleasure" -- division first, the order the board's
+    class header already reads ring, division, discipline in."""
+    return " · ".join(part for part in (division.strip(), discipline.strip()) if part)
 
 
 def rank(points: list[Decimal]) -> list[int]:
@@ -175,19 +185,29 @@ def rank(points: list[Decimal]) -> list[int]:
 
 
 def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
-    """Standings per division, each ranked by points, highest first."""
-    divisions: dict[str, dict] = {}
+    """Standings per division and discipline, each ranked by points, highest
+    first. Ordered by the division, then the discipline within it -- each by
+    the show's own sort order -- so a division's standings sit together."""
+    divisions: dict[tuple[str, str], dict] = {}
     for card in cards:
         if not is_placed(card):
             continue
         earned = points_for(chart, card.place, card.class_size)
         if earned <= 0:
             continue
-        key = _division_key(card.division_name)
+        key = (_name_key(card.division_name), _name_key(card.discipline_name))
         division = divisions.setdefault(
-            key, {"name": card.division_name, "sort": card.division_sort, "pairs": {}}
+            key,
+            {
+                "division": card.division_name,
+                "discipline": card.discipline_name,
+                "sort": card.division_sort,
+                "discipline_sort": card.discipline_sort,
+                "pairs": {},
+            },
         )
         division["sort"] = min(division["sort"], card.division_sort)
+        division["discipline_sort"] = min(division["discipline_sort"], card.discipline_sort)
         pair = division["pairs"].setdefault(
             (card.exhibitor_id, card.horse_id),
             _Pair(card.exhibitor_id, card.exhibitor_name, card.horse_id, card.horse_name),
@@ -197,14 +217,22 @@ def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
         pair.show_ids.add(card.show_id)
 
     out = []
-    for division in sorted(divisions.values(), key=lambda d: (d["sort"], d["name"].lower())):
+    ordered = sorted(
+        divisions.values(),
+        key=lambda d: (
+            d["sort"], d["division"].lower(), d["discipline_sort"], d["discipline"].lower(),
+        ),
+    )
+    for division in ordered:
         pairs = sorted(
             division["pairs"].values(),
             key=lambda p: (-p.points, p.exhibitor_name.lower(), (p.horse_name or "").lower()),
         )
         ranks = rank([p.points for p in pairs])
         out.append({
-            "name": division["name"],
+            "name": standing_name(division["division"], division["discipline"]),
+            "division": division["division"],
+            "discipline": division["discipline"],
             "standings": [
                 {
                     "rank": r,
@@ -252,6 +280,8 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             Class.id,
             Division.name,
             Division.sort_order,
+            Discipline.name,
+            Discipline.sort_order,
             Entry.exhibitor_id,
             Exhibitor.full_name,
             Entry.horse_id,
@@ -263,6 +293,7 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         .join(Entry, Entry.id == Result.entry_id)
         .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
         .join(Division, Division.id == Class.division_id)
+        .join(Discipline, Discipline.id == Class.discipline_id)
         .outerjoin(Horse, Horse.id == Entry.horse_id)
         .where(*posted, Entry.status != "WITHDRAWN")
     )
@@ -272,6 +303,8 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             class_id=class_id,
             division_name=division_name,
             division_sort=_UNSORTED if division_sort is None else division_sort,
+            discipline_name=discipline_name or "",
+            discipline_sort=_UNSORTED if discipline_sort is None else discipline_sort,
             exhibitor_id=exhibitor_id,
             exhibitor_name=exhibitor_name or "",
             horse_id=horse_id,
@@ -281,8 +314,8 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
             class_size=sizes.get(class_id, 0),
         )
         for (
-            show_id, class_id, division_name, division_sort, exhibitor_id,
-            exhibitor_name, horse_id, horse_name, place, outcome,
+            show_id, class_id, division_name, division_sort, discipline_name,
+            discipline_sort, exhibitor_id, exhibitor_name, horse_id, horse_name, place, outcome,
         ) in rows.all()
     ]
     return cards, len(sizes)

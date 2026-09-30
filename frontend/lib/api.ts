@@ -131,22 +131,31 @@ export async function fetchResultsIndex(showId: string) {
   return res.json();
 }
 
-export type MarqueeMode = 'results' | 'message' | 'both';
+export type MarqueeMode = 'results' | 'message' | 'both' | 'high_point';
 
 export interface Marquee {
   mode: MarqueeMode;
   /** What the board actually runs — `results` whenever a message mode has
-   *  nothing to say, so a board never scrolls a blank band. */
+   *  nothing to say, or the high point has no points chart behind it, so a
+   *  board never scrolls a blank band. */
   effective_mode: MarqueeMode;
   message: string | null;
   updated_at: string | null;
+  /** Whether the show keeps high point, so the page can offer that mode. */
+  high_point_available?: boolean;
 }
 
 /** What the live screens' marquee carries. Falls back to the results on any
  *  failure, which is exactly what the marquee did before it could carry
  *  anything else — a board must keep running whether or not this answers. */
 export async function fetchMarquee(showId: string): Promise<Marquee> {
-  const fallback: Marquee = { mode: 'results', effective_mode: 'results', message: null, updated_at: null };
+  const fallback: Marquee = {
+    mode: 'results',
+    effective_mode: 'results',
+    message: null,
+    updated_at: null,
+    high_point_available: false,
+  };
   try {
     const res = await fetch(`${API_URL}/shows/${showId}/marquee`, { cache: 'no-store' });
     if (!res.ok) return fallback;

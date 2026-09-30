@@ -8,6 +8,7 @@ import QrCode from '@/components/QrCode';
 import Ribbon from '@/components/Ribbon';
 import { errorMessage } from '@/lib/api-error';
 import type { Marquee, MarqueeMode } from '@/lib/api';
+import { formatPoints, topStandings, type ShowLeaderboard, type StandingLine } from '@/lib/high-point';
 
 /* ───────────────────────────────────────────────────────────────────────────
    Sizing this for anything from 24" to 75".
@@ -265,6 +266,9 @@ type Card = {
 type Block = {
   cls: ClassItem;
   cards: Card[];
+  /** Which of the class's cards these are, when the split board shows a panel
+   *  two at a time (`buildSplitBlocks`). Absent: every card of the class. */
+  part?: { from: number; to: number; of: number };
 };
 
 /** One block per class, newest-posted first — the order `postedToday`
@@ -439,18 +443,18 @@ function PlacingRow({ r, compact }: { r: Placing; compact: boolean }) {
   );
 }
 
+/** A box on the stage — a judge's card, or a division's standings. */
+const PANE_STYLE = {
+  backgroundColor: 'var(--slate-raised)',
+  borderRadius: u(0.8),
+  padding: `${u(0.7)} ${u(1)}`,
+} as const;
+
 /** One judge's card: the judge's name when there is a panel, and the
  *  placings. Nothing about the class — that is in the header above it, once. */
 function JudgeBox({ card, named, compact }: { card: Card; named: boolean; compact: boolean }) {
   return (
-    <div
-      className="flex flex-col min-h-0 min-w-0 overflow-hidden"
-      style={{
-        backgroundColor: 'var(--slate-raised)',
-        borderRadius: u(0.8),
-        padding: `${u(0.7)} ${u(1)}`,
-      }}
-    >
+    <div className="flex flex-col min-h-0 min-w-0 overflow-hidden" style={PANE_STYLE}>
       {named && (
         <div
           className="font-semibold truncate flex-none flex items-center"
@@ -489,31 +493,47 @@ function JudgeBox({ card, named, compact }: { card: Card; named: boolean; compac
  *  once for all of its judges, with the **Top 5** badge just after the name.
  *  Pinned height, so the arithmetic that decided how many rows fit below is
  *  exact rather than a guess at what two lines of class name measure out to. */
-function ClassHeader({ block }: { block: Block }) {
-  const { cls } = block;
-  const context = [cls.ring_name, cls.division_name, cls.discipline_name].filter(Boolean).join(' · ');
+function ClassHeader({ block, split = false }: { block: Block; split?: boolean }) {
+  const { cls, part } = block;
+  // On the split board a panel of more than two takes turns, and this says
+  // which turn it is, so nobody takes half a panel for the whole of it.
+  const turn = part
+    ? part.to > part.from
+      ? `Judges ${part.from}–${part.to} of ${part.of}`
+      : `Judge ${part.from} of ${part.of}`
+    : null;
+  const context = [cls.ring_name, cls.division_name, cls.discipline_name, turn].filter(Boolean).join(' · ');
   const placed = block.cards.some((card) => card.rows.length > 0);
 
   return (
     <header
-      className="flex-none min-w-0 flex flex-col justify-center"
+      className={`flex-none min-w-0 flex flex-col justify-center${split ? ' items-center text-center' : ''}`}
       style={{
         height: c(CLASS_HEAD_UC),
         marginBottom: c(CLASS_HEAD_GAP_UC),
         paddingInline: u(0.3),
       }}
     >
-      <div
-        className="font-medium tracking-wide truncate"
-        style={{
-          fontSize: c(0.95),
-          color: 'var(--on-slate-muted)',
-        }}
-      >
-        {context || 'Class results'}
-      </div>
+      {/* Not on the split board, where the half is headed by the class name
+          alone: ring, division and discipline over it repeated what the name
+          already says. The header keeps its pinned height either way, which
+          the fit arithmetic in `scaleFor` counts on. */}
+      {!split && (
+        <div
+          className="font-medium tracking-wide truncate max-w-full"
+          style={{
+            fontSize: c(0.95),
+            color: 'var(--on-slate-muted)',
+          }}
+        >
+          {context || 'Class results'}
+        </div>
+      )}
 
-      <div className="flex items-center min-w-0" style={{ gap: c(0.8) }}>
+      <div
+        className={`flex items-center min-w-0 max-w-full${split ? ' justify-center' : ''}`}
+        style={{ gap: c(0.8) }}
+      >
         <h2
           className="font-bold min-w-0"
           style={{
@@ -536,21 +556,36 @@ function ClassHeader({ block }: { block: Block }) {
             board's rule rather than as their placing having gone missing —
             and beside the name, so it reads as part of what this class is
             showing. The QR code's "Scan for full results" is the rest. */}
-        {placed && (
+        {placed && <TopBadge />}
+
+        {/* On the split board the context line is gone, and which judges of
+            the panel this is is the one thing on it the name does not say. */}
+        {split && turn && (
           <span
-            className="flex-none rounded-full font-bold whitespace-nowrap"
-            style={{
-              fontSize: c(1.25),
-              padding: `${c(0.25)} ${c(0.9)}`,
-              backgroundColor: 'var(--accent-light)',
-              color: 'var(--brand-slate)',
-            }}
+            className="flex-none font-medium whitespace-nowrap"
+            style={{ fontSize: c(1.05), color: 'var(--on-slate-muted)' }}
           >
-            Top {TOP_PLACES}
+            {turn}
           </span>
         )}
       </div>
     </header>
+  );
+}
+
+function TopBadge() {
+  return (
+    <span
+      className="flex-none rounded-full font-bold whitespace-nowrap"
+      style={{
+        fontSize: c(1.25),
+        padding: `${c(0.25)} ${c(0.9)}`,
+        backgroundColor: 'var(--accent-light)',
+        color: 'var(--brand-slate)',
+      }}
+    >
+      Top {TOP_PLACES}
+    </span>
   );
 }
 
@@ -566,20 +601,29 @@ function ClassBlock({
   stageU,
   unitVh,
   scale,
+  split = false,
 }: {
   block: Block;
   stageU: number;
   unitVh: number;
   scale: number;
+  /** On the split board: the header is centred over its half, so the two
+   *  read as two sections of one screen, and carries the class name alone
+   *  (see ClassHeader). The Results Board keeps it left, with its context. */
+  split?: boolean;
 }) {
   const judges = block.cards.length;
   const grid = screenGrid(judges);
   const cardU = (stageU / scale - GRID_GAP_U * (grid.cols - 1)) / grid.cols;
   const compact = stageU > 0 && cardU < COMPACT_CARD_U;
+  // Named whenever the class has a panel, not whenever this screen shows more
+  // than one card: the third judge of three, on a split-board turn of its own,
+  // is one card and still somebody's.
+  const named = block.cards.some((card) => card.judge != null);
 
   return (
     <section className="w-full h-full flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]">
-      <ClassHeader block={block} />
+      <ClassHeader block={block} split={split} />
       <div
         className="flex-1 min-h-0 grid"
         style={
@@ -592,10 +636,401 @@ function ClassBlock({
         }
       >
         {block.cards.map((card, i) => (
-          <JudgeBox key={card.judge ?? i} card={card} named={judges > 1} compact={compact} />
+          <JudgeBox key={card.judge ?? i} card={card} named={named} compact={compact} />
         ))}
       </div>
     </section>
+  );
+}
+
+/** Where the stage has nothing to show yet: no class posted, no points. */
+function BoardNotice({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex-1 min-w-0 flex flex-col items-center justify-center text-center">
+      <div className="font-semibold" style={{ fontSize: u(3), color: 'var(--on-slate)' }}>
+        {title}
+      </div>
+      <p
+        style={{
+          fontSize: u(1.6),
+          marginTop: u(0.8),
+          maxWidth: u(34),
+          color: 'var(--on-slate-muted)',
+        }}
+      >
+        {children}
+      </p>
+    </div>
+  );
+}
+
+/* ── The split board: results beside high point ─────────────────────────────
+   The same board halved (`layout="split"`, at `/board/results-high-point`):
+   the class on the left, two of its judges' cards at a time, and the show's
+   high point standings on the right, two at a time — each a division
+   within a discipline, "Amateur · Western Pleasure". Four
+   quarter-width boxes across the screen — the width a four-judge class's cards
+   already are on the Results Board, so every size, the compact row and the
+   top five all carry over unchanged.
+
+   **A panel of more than two takes turns**: judges one and two, then three
+   and four, with the header saying which ("Judges 1–2 of 4"). A class with a
+   single card, or the third judge of three, gets the whole half. A standings
+   table left over on its own gets the whole half the same way.
+
+   **A standing reads like a placing**: the same rosette for its rank and the
+   back number in the same place, so a room finds its number and its colour
+   on either half without learning a second layout.
+
+   **Both halves turn together**, each through its own list, on the board's
+   one clock — so the dwell bar still means "this screen is about to change",
+   and a pause holds both. */
+
+const SPLIT_CARDS = 2;
+const SPLIT_DIVISIONS = 2;
+/** Either side of the rule between the halves, and the rule, in --u. The
+ *  rule is in the accent colour and the gutter wider than the gap between
+ *  two cards: drawn in the boxes' own grey, a hair wide, it vanished between
+ *  them and the two halves read as one row of four. */
+const SPLIT_GAP_U = 2.4;
+const SPLIT_RULE_U = 0.3;
+
+function chunk<T>(list: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** A class's cards two at a time, one turn per pair. */
+function buildSplitBlocks(blocks: Block[]): Block[] {
+  return blocks.flatMap((block) => {
+    const of = block.cards.length;
+    if (of <= SPLIT_CARDS) return [block];
+    return chunk(block.cards, SPLIT_CARDS).map((cards, i) => ({
+      cls: block.cls,
+      cards,
+      part: { from: i * SPLIT_CARDS + 1, to: i * SPLIT_CARDS + cards.length, of },
+    }));
+  });
+}
+
+/* A division's standings go as deep as a class card: the top five **ranks**,
+   never splitting a tie (`topStandings`). A class card can show every horse in
+   a tie for fifth because there are rarely more than two; a division early in
+   a show has whole runs of pairs on the same points. So standings stop at the
+   rows a card with a tie for fifth takes, and a longer tie is one line, "4
+   tied for 5th" — still nobody chosen, still no more than five places. */
+const STANDING_ROWS = TOP_PLACES + 1;
+
+/* A standing's points and the word under them, in --u. Larger than the
+   exhibitor's name: the points are what the high point half is showing. */
+const POINTS_U = 2.35;
+const POINTS_UNIT_U = 1.1;
+/** A standings box's title, "Amateur · Western Pleasure" — a judge's name is 1.15. */
+const DIVISION_TITLE_U = 1.4;
+/** One dot of a leader and the space after it; a leader is never narrower. */
+const LEADER_DOT_U = 0.6;
+
+type DivisionPane = { name: string; lines: StandingLine[] };
+
+/** The marquee's High Point mode: a line per standings table, the same top
+ *  five the board's right half shows (`topStandings`), so the band and the
+ *  boxes never disagree about how deep the standings go. Each line says
+ *  "High Point" first, so a room reading a placings line and then this one
+ *  can tell a class from a standings table. */
+function highPointLines(leaderboard: ShowLeaderboard | null): string[] {
+  if (!leaderboard?.point_system) return [];
+  const pts = (points: number) => `${formatPoints(points)} ${points === 1 ? 'pt' : 'pts'}`;
+  return leaderboard.divisions.map((division) => {
+    const summary = topStandings(division.standings, TOP_PLACES, STANDING_ROWS)
+      .map((line) => {
+        if (line.kind === 'tied') return `${line.count} tied for ${placeOrdinal(line.rank)} (${pts(line.points)})`;
+        const s = line.standing;
+        const who = [s.exhibitor_name, s.horse_name].filter(Boolean).join(' · ');
+        const back = s.back_number != null ? `#${s.back_number} ` : '';
+        return `${placeOrdinal(s.rank)} ${back}${who} (${pts(s.points)})`;
+      })
+      .join('  ·  ');
+    return `High Point · ${division.name}: ${summary}`;
+  });
+}
+
+function StandingRow({ line, compact }: { line: StandingLine; compact: boolean }) {
+  const rank = line.kind === 'pair' ? line.standing.rank : line.rank;
+  const points = line.kind === 'pair' ? line.standing.points : line.points;
+  const pair = line.kind === 'pair' ? line.standing : null;
+  const back = pair?.back_number != null ? `#${pair.back_number}` : null;
+  const backBelow = compact && back;
+  return (
+    <li className="flex items-center" style={{ gap: u(0.8), height: u(ROW_U) }}>
+      {/* The same rosette as the placings beside it, so the two halves read
+          alike across a room: first in the standings is a blue, as first in
+          the class is. */}
+      <Ribbon
+        place={rank}
+        numberSize={14}
+        style={{
+          flex: 'none',
+          width: u(RIBBON_U),
+          height: u((RIBBON_U * 44) / 32),
+        }}
+      />
+
+      {/* Laid out as a placing row is — the back number beside the name on a
+          wide box and down on the horse's line on a narrow one
+          (COMPACT_CARD_U) — so a room finds its number in the same place on
+          both halves. No "(tie)" as a class card has: the rank says it — 1, 1
+          on the same points — and on a quarter-width box the word cost the
+          exhibitor all but three letters of their name. */}
+      <span className="min-w-0 flex-1">
+        {/* No gap on the line itself: it would stand between the name and the
+            leader as well, and a narrow box needs every letter. The leader's
+            first dot sits half a tile in, which is the space it needs. */}
+        <span className="flex items-baseline">
+          {back && !compact && (
+            <span
+              className="flex-none font-semibold tabular-nums"
+              style={{
+                fontSize: u(BACK_NUMBER_U),
+                lineHeight: 1.05,
+                marginRight: u(0.45),
+                color: 'var(--on-slate-muted)',
+              }}
+            >
+              {back}
+            </span>
+          )}
+          <span
+            className="truncate font-semibold"
+            style={{ fontSize: u(1.85), lineHeight: 1.05, color: 'var(--on-slate)' }}
+          >
+            {line.kind === 'pair' ? line.standing.exhibitor_name : `${line.count} tied for ${placeOrdinal(rank)}`}
+          </span>
+          {/* Dot leaders to the points, as a printed standings sheet runs
+              them: in a wide box the name and its points sit a quarter of a
+              screen apart, and across a room the eye loses which figure
+              belongs to which line. Round dots at mid-height, spaced, drawn
+              whole (\`space\`): on the baseline they read as an ellipsis after
+              a truncated name — "Ca... ....". At least one dot on every row,
+              and no more than that taken from a name a narrow box has already
+              cut short. */}
+          <span
+            aria-hidden="true"
+            className="flex-1"
+            style={{
+              minWidth: u(LEADER_DOT_U),
+              height: u(LEADER_DOT_U),
+              // Off the last letter: `space` puts the first dot against the
+              // leader's edge, and the name's last glyph has no side bearing.
+              marginLeft: u(0.3),
+              alignSelf: 'center',
+              backgroundImage: `radial-gradient(circle, var(--on-slate-muted) ${u(0.13)}, transparent ${u(0.15)})`,
+              backgroundSize: `${u(LEADER_DOT_U)} ${u(LEADER_DOT_U)}`,
+              backgroundRepeat: 'space no-repeat',
+              backgroundPosition: 'left center',
+            }}
+          />
+        </span>
+        {(backBelow || pair?.horse_name) && (
+          <span
+            className="block truncate"
+            style={{ fontSize: u(1.2), lineHeight: 1.15, color: 'var(--on-slate-muted)' }}
+          >
+            {backBelow && (
+              <span className="tabular-nums" style={{ fontSize: u(BACK_NUMBER_COMPACT_U) }}>
+                {back}
+                {pair?.horse_name ? ' · ' : ''}
+              </span>
+            )}
+            {pair?.horse_name}
+          </span>
+        )}
+      </span>
+
+      {/* The figure the half is about, so it is the largest thing on the row,
+          with its unit set in the same colour under it: a bare number beside
+          a name read from across a room as a back number or a place. Both
+          lines together stay inside ROW_U. */}
+      <span className="flex-none text-right">
+        <span
+          className="block font-bold tabular-nums"
+          style={{ fontSize: u(POINTS_U), lineHeight: 1.0, color: 'var(--accent-light)' }}
+        >
+          {formatPoints(points)}
+        </span>
+        <span
+          className="block font-semibold uppercase tracking-wide"
+          style={{ fontSize: u(POINTS_UNIT_U), lineHeight: 1.1, color: 'var(--accent-light)' }}
+        >
+          {points === 1 ? 'pt' : 'pts'}
+        </span>
+      </span>
+    </li>
+  );
+}
+
+/** One division-and-discipline's standings, shaped like a judge's card beside
+ *  it: "Amateur · Western Pleasure" where the judge's name goes, and the rows
+ *  at the same height. */
+function DivisionBox({ pane, compact }: { pane: DivisionPane; compact: boolean }) {
+  return (
+    <div className="flex flex-col min-h-0 min-w-0 overflow-hidden" style={PANE_STYLE}>
+      {/* Larger than a judge's name and centred in the box: it is the title of
+          the table under it, where a judge's name is a label on a card. Still
+          one line inside JUDGE_HEAD_U, which the fit arithmetic counts. The
+          ellipsis is on the inner span — on the flex box itself it would
+          never show, the text being an anonymous flex item. */}
+      <div
+        className="font-semibold flex-none flex items-center justify-center min-w-0"
+        style={{ fontSize: u(DIVISION_TITLE_U), height: u(JUDGE_HEAD_U), color: 'var(--accent-light)' }}
+      >
+        <span className="truncate min-w-0">{pane.name}</span>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col" style={{ justifyContent: 'safe center' }}>
+        <ul className="min-w-0">
+          {pane.lines.map((line, i) => (
+            <StandingRow key={i} line={line} compact={compact} />
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/** The high point half's header, the same pinned height as a class's so the
+ *  boxes under both start on one line, and centred over its half as the
+ *  class's is over the other. "High Point" and the badge alone: the points
+ *  system and the posted-class count over it only restated the heading. */
+function HighPointHeader() {
+  return (
+    <header
+      className="flex-none min-w-0 flex flex-col justify-center items-center text-center"
+      style={{
+        height: c(CLASS_HEAD_UC),
+        marginBottom: c(CLASS_HEAD_GAP_UC),
+        paddingInline: u(0.3),
+      }}
+    >
+      <div className="flex items-center justify-center min-w-0 max-w-full" style={{ gap: c(0.8) }}>
+        <h2 className="font-bold truncate min-w-0" style={{ fontSize: c(1.5), lineHeight: 1.05, color: 'var(--on-slate)' }}>
+          High Point
+        </h2>
+        <TopBadge />
+      </div>
+    </header>
+  );
+}
+
+/** The right half: two standings tables, or why there are none — said
+ *  without the header, so it sits level with "Waiting on results" beside it. */
+function HighPointBlock({
+  leaderboard,
+  panes,
+  stageU,
+  unitVh,
+  scale,
+}: {
+  leaderboard: ShowLeaderboard | null;
+  panes: DivisionPane[];
+  /** The half's width in the board's --u, which decides the compact row
+   *  exactly as it does for the judges' cards beside it. */
+  stageU: number;
+  unitVh: number;
+  scale: number;
+}) {
+  const cols = Math.max(panes.length, 1);
+  const boxU = (stageU / scale - GRID_GAP_U * (cols - 1)) / cols;
+  const compact = stageU > 0 && boxU < COMPACT_CARD_U;
+  return (
+    <section className="w-full h-full flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]">
+      {panes.length > 0 && leaderboard?.point_system ? (
+        <>
+          <HighPointHeader />
+          <div
+            className="flex-1 min-h-0 grid"
+            style={
+              {
+                '--u': `${(unitVh * scale).toFixed(3)}vh`,
+                gap: u(GRID_GAP_U),
+                gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))`,
+              } as React.CSSProperties
+            }
+          >
+            {panes.map((pane) => (
+              <DivisionBox key={pane.name} pane={pane} compact={compact} />
+            ))}
+          </div>
+        </>
+      ) : !leaderboard ? (
+        // The poll brings it back; nothing for the room to do about it.
+        <BoardNotice title="High Point">The standings will be back in a moment.</BoardNotice>
+      ) : !leaderboard.point_system ? (
+        <BoardNotice title="No high point">High point is not being kept at this show.</BoardNotice>
+      ) : (
+        <BoardNotice title="High Point">
+          Standings start as soon as the first class is judged and its placings are posted.
+        </BoardNotice>
+      )}
+    </section>
+  );
+}
+
+/** The split board's stage: the class on the left, the standings on the
+ *  right, an accent rule in a wide gutter between (SPLIT_GAP_U, SPLIT_RULE_U). Each half is keyed on its own turn, so a half
+ *  whose list has only one entry stays put while the other turns over. */
+function SplitStage({
+  active,
+  activeKey,
+  panes,
+  panesKey,
+  leaderboard,
+  stageU,
+  unitVh,
+  scale,
+}: {
+  active: Block | null;
+  activeKey: number;
+  panes: DivisionPane[];
+  panesKey: number;
+  leaderboard: ShowLeaderboard | null;
+  stageU: number;
+  unitVh: number;
+  scale: number;
+}) {
+  const halfU = stageU > 0 ? (stageU - 2 * SPLIT_GAP_U - SPLIT_RULE_U) / 2 : 0;
+  return (
+    <div className="w-full h-full min-h-0 min-w-0 flex">
+      <div className="flex-1 min-w-0 min-h-0 flex">
+        {active ? (
+          <ClassBlock key={activeKey} block={active} stageU={halfU} unitVh={unitVh} scale={scale} split />
+        ) : (
+          <BoardNotice title="Waiting on results">
+            Posted placings will show here as soon as the first class of the day goes up.
+          </BoardNotice>
+        )}
+      </div>
+      <div
+        aria-hidden="true"
+        className="flex-none"
+        style={{
+          width: u(SPLIT_RULE_U),
+          marginInline: u(SPLIT_GAP_U),
+          borderRadius: u(SPLIT_RULE_U),
+          backgroundColor: 'var(--accent-light)',
+          opacity: 0.55,
+        }}
+      />
+      <div className="flex-1 min-w-0 min-h-0 flex">
+        <HighPointBlock
+          key={panesKey}
+          leaderboard={leaderboard}
+          panes={panes}
+          stageU={halfU}
+          unitVh={unitVh}
+          scale={scale}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -609,8 +1044,20 @@ const MESSAGE_EVERY = 3;
 
 /** What the marquee carries, from the show office's setting and the day's
  *  results. Reads `effective_mode`, which the backend has already dropped back
- *  to the results if a message mode has nothing to say. */
-function marqueeItems(mode: MarqueeMode, message: string | null, results: string[]): TickerItem[] {
+ *  to the results if a message mode has nothing to say or the high point has
+ *  no points chart. */
+function marqueeItems(
+  mode: MarqueeMode,
+  message: string | null,
+  results: string[],
+  highPoint: string[],
+): TickerItem[] {
+  if (mode === 'high_point') {
+    // A chart with nothing posted against it yet has no standings to scroll:
+    // the results carry on until the first class goes up, rather than the
+    // band going blank.
+    return (highPoint.length ? highPoint : results).map((text): TickerItem => ({ text, kind: 'result' }));
+  }
   const lines = results.map((text): TickerItem => ({ text, kind: 'result' }));
   if (mode === 'results' || !message) return lines;
   const msg: TickerItem = { text: message, kind: 'message' };
@@ -879,7 +1326,16 @@ const MARQUEE_MODES: { key: MarqueeMode; label: string; hint: string }[] = [
   },
   { key: 'message', label: 'Message', hint: 'Your message, and nothing else' },
   { key: 'both', label: 'Both', hint: 'Your message, between the results' },
+  // Offered on both boards' pages, because the marquee is one setting for the
+  // show: whichever board is up scrolls it.
+  { key: 'high_point', label: 'High Point', hint: 'The standings, a line per division' },
 ];
+
+/** The modes that scroll the message, and so need one typed. */
+const MESSAGE_MODES: MarqueeMode[] = ['message', 'both'];
+
+/** Why High Point cannot be chosen, when it cannot. */
+const NO_HIGH_POINT = 'This show has no points chart — choose one on its High Point page';
 
 // Matches MAX_MESSAGE_CHARS in backend/routers/show_marquee.py.
 const MESSAGE_MAX = 500;
@@ -901,7 +1357,9 @@ function MarqueeEditor({ showId, marquee }: { showId: string; marquee: Marquee }
 
   const text = oneLine(message);
   const dirty = mode !== marquee.mode || text !== (marquee.message ?? '');
-  const needsMessage = mode !== 'results' && !text;
+  const needsMessage = MESSAGE_MODES.includes(mode) && !text;
+  const highPointAvailable = marquee.high_point_available === true;
+  const needsChart = mode === 'high_point' && !highPointAvailable;
 
   // The page polls every 12 seconds and hands this a fresh `marquee` each
   // time. Adopt it only while nothing here is being edited — somebody else may
@@ -943,7 +1401,9 @@ function MarqueeEditor({ showId, marquee }: { showId: string; marquee: Marquee }
     ? 'Saving…'
     : needsMessage
       ? 'Type the message to scroll, or choose Results'
-      : !dirty
+      : needsChart
+        ? NO_HIGH_POINT
+        : !dirty
         ? 'Nothing has changed'
         : null;
 
@@ -961,22 +1421,27 @@ function MarqueeEditor({ showId, marquee }: { showId: string; marquee: Marquee }
       <div
         role="radiogroup"
         aria-label="What the marquee scrolls"
-        className="grid grid-cols-3"
+        className="grid grid-cols-2 sm:grid-cols-4"
         style={{ gap: '1vh' }}
       >
         {MARQUEE_MODES.map((m) => {
           const on = mode === m.key;
+          // Offered, and says why it cannot be chosen, rather than missing:
+          // a show that adds a chart later should know where the option is.
+          const unavailable = m.key === 'high_point' && !highPointAvailable;
           return (
             <button
               key={m.key}
               type="button"
               role="radio"
               aria-checked={on}
+              disabled={unavailable}
+              title={unavailable ? NO_HIGH_POINT : undefined}
               onClick={() => {
                 setMode(m.key);
                 setSaved(false);
               }}
-              className="rounded-lg text-left transition"
+              className="rounded-lg text-left transition disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 padding: '1.1vh 1.4vh',
                 backgroundColor: on ? 'var(--accent-light)' : 'var(--slate)',
@@ -996,7 +1461,9 @@ function MarqueeEditor({ showId, marquee }: { showId: string; marquee: Marquee }
         <span className="flex items-baseline justify-between" style={{ fontSize: 'max(13px, 1.7vh)' }}>
           <span style={{ color: 'var(--on-slate-muted)' }}>
             Message
-            {mode === 'results' && text ? ' — kept, but not scrolling while Results is chosen' : ''}
+            {!MESSAGE_MODES.includes(mode) && text
+              ? ` — kept, but not scrolling while ${mode === 'high_point' ? 'High Point' : 'Results'} is chosen`
+              : ''}
           </span>
           <span className="tabular-nums" style={{ color: 'var(--on-slate-muted)' }}>
             {message.length} / {MESSAGE_MAX}
@@ -1099,12 +1566,18 @@ function HubHeading({ title, note }: { title: string; note?: string }) {
 function ResultsBoardSetup({
   showId,
   showName,
+  title,
+  notice,
   marquee,
   initialDuplicate,
   onPick,
 }: {
   showId: string;
   showName: string;
+  /** Which board this page starts: the Results Board, or Results & High Point. */
+  title: string;
+  /** Something the office should know before putting this board up. */
+  notice?: React.ReactNode;
   marquee: Marquee;
   /** Reached through the Settings of a duplicated board. */
   initialDuplicate: boolean;
@@ -1175,7 +1648,7 @@ function ResultsBoardSetup({
         <header className="flex items-end justify-between flex-wrap" style={{ gap: '1.4vh' }}>
           <div className="min-w-0">
             <h1 className="font-bold" style={{ fontSize: 'max(24px, 4.2vh)', color: 'var(--on-slate)' }}>
-              Results Board
+              {title}
             </h1>
             <p className="truncate" style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>
               {showName}
@@ -1189,6 +1662,22 @@ function ResultsBoardSetup({
             ← Live Screens
           </Link>
         </header>
+
+        {notice && (
+          <p
+            role="status"
+            className="rounded-lg"
+            style={{
+              fontSize: 'max(14px, 1.9vh)',
+              padding: '1.4vh 1.8vh',
+              backgroundColor: 'var(--slate-raised)',
+              border: '0.2vh solid var(--warning)',
+              color: 'var(--on-slate)',
+            }}
+          >
+            {notice}
+          </p>
+        )}
 
         <section>
           <HubHeading
@@ -1285,21 +1774,38 @@ function ResultsBoardSetup({
 
 /* ── The board ──────────────────────────────────────────────────────────── */
 
+/** `i` wrapped into 0..n-1, negatives included — the rotation's clock only
+ *  counts up (or down, stepping back), and each list takes its own turn off it. */
+const wrap = (i: number, n: number) => ((i % n) + n) % n;
+
 export default function LiveBoard({
   showId,
   show,
   classes,
   resultsIndex,
   marquee,
+  layout = 'results',
+  leaderboard = null,
 }: {
   showId: string;
   show: ShowInfo;
   classes: ClassItem[];
   resultsIndex: Record<string, Placing[]>;
   marquee: Marquee;
+  /** `split`: results on the left, high point on the right. See the note
+   *  above `SPLIT_CARDS`. */
+  layout?: 'results' | 'split';
+  /** The show's standings, for the split board. Null when they could not be
+   *  loaded, which the high point half says. */
+  leaderboard?: ShowLeaderboard | null;
 }) {
+  const split = layout === 'split';
+  const boardName = split ? 'Results & High Point' : 'Results Board';
   const [now, setNow] = useState(() => new Date());
-  const [slideIndex, setSlideIndex] = useState(0);
+  // Counts turns and never wraps: the split board's two halves each take their
+  // own position off it (`wrap`), since they run through lists of different
+  // lengths.
+  const [tick, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
 
   // The size is the URL's `?size=` and nothing else — no size, and this is the
@@ -1467,32 +1973,47 @@ export default function LiveBoard({
     };
   }, [uPx, ucPx, gridBox.h]);
 
-  const slides = useMemo(() => buildBlocks(postedToday, groups), [postedToday, groups]);
+  const slides = useMemo(() => {
+    const blocks = buildBlocks(postedToday, groups);
+    return split ? buildSplitBlocks(blocks) : blocks;
+  }, [postedToday, groups, split]);
 
-  const active = slides.length ? slides[slideIndex % slides.length] : null;
+  // The high point half's turns, two standings tables each. The whole show's
+  // standings, not the day's: points add up across every posted class.
+  const divisionSlides = useMemo(() => {
+    if (!split || !leaderboard?.point_system) return [];
+    const panes = leaderboard.divisions.map(
+      (d): DivisionPane => ({ name: d.name, lines: topStandings(d.standings, TOP_PLACES, STANDING_ROWS) }),
+    );
+    return chunk(panes, SPLIT_DIVISIONS);
+  }, [split, leaderboard]);
+
+  const turns = Math.max(slides.length, divisionSlides.length);
+  const active = slides.length ? slides[wrap(tick, slides.length)] : null;
+  const panes = divisionSlides.length ? divisionSlides[wrap(tick, divisionSlides.length)] : [];
+  const paneRows = panes.reduce((n, pane) => n + pane.lines.length, 0);
   // A screen time the office chose is taken exactly, with no pricing and no
   // preset factor on top: somebody who picked "30 sec" is timing it.
-  const dwellMs = !active ? 0 : every != null ? every * 1000 : slideMs(blockPlacings(active), preset.dwell);
+  const dwellMs =
+    turns === 0
+      ? 0
+      : every != null
+        ? every * 1000
+        : slideMs((active ? blockPlacings(active) : 0) + paneRows, preset.dwell);
 
   useEffect(() => {
-    if (paused || slides.length < 2) return;
-    const t = setTimeout(() => setSlideIndex((i) => (i + 1) % slides.length), dwellMs);
+    if (paused || turns < 2) return;
+    const t = setTimeout(() => setTick((i) => i + 1), dwellMs);
     return () => clearTimeout(t);
     // Keyed on the numbers rather than on the slide object: a poll that changes
     // nothing rebuilds `slides` but leaves these equal, so the rotation carries
     // on from where it was instead of snapping back to the first class.
-  }, [slideIndex, slides.length, dwellMs, paused]);
+  }, [tick, turns, dwellMs, paused]);
 
-  const step = useCallback(
-    (delta: number) => {
-      setPaused(true); // stepping by hand means you want to look at it
-      setSlideIndex((i) => {
-        const n = Math.max(slides.length, 1);
-        return (i + delta + n) % n;
-      });
-    },
-    [slides.length],
-  );
+  const step = useCallback((delta: number) => {
+    setPaused(true); // stepping by hand means you want to look at it
+    setTick((i) => i + delta);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1553,9 +2074,14 @@ export default function LiveBoard({
     return items;
   }, [postedToday, groups]);
 
+  // Both boards can scroll the standings: the marquee is one setting for the
+  // show, so the Results Board's page fetches the leaderboard for it whenever
+  // High Point is chosen, and the split board always has it.
+  const standingLines = useMemo(() => highPointLines(leaderboard), [leaderboard]);
+
   const tickerItems = useMemo(
-    () => marqueeItems(marquee.effective_mode, marquee.message, resultLines),
-    [marquee.effective_mode, marquee.message, resultLines],
+    () => marqueeItems(marquee.effective_mode, marquee.message, resultLines, standingLines),
+    [marquee.effective_mode, marquee.message, resultLines, standingLines],
   );
 
   const btn = {
@@ -1579,6 +2105,22 @@ export default function LiveBoard({
         <ResultsBoardSetup
           showId={showId}
           showName={show.name}
+          title={boardName}
+          notice={
+            split && leaderboard && !leaderboard.point_system ? (
+              <>
+                This show has no points chart, so the high point half of the board will say high point is not
+                being kept.{' '}
+                <Link
+                  href={`/admin/shows/${showId}/high-point`}
+                  className="underline"
+                  style={{ color: 'var(--accent-light)' }}
+                >
+                  Choose a chart on the High Point page →
+                </Link>
+              </>
+            ) : undefined
+          }
           marquee={marquee}
           initialDuplicate={duplicate}
           onPick={start}
@@ -1762,15 +2304,15 @@ export default function LiveBoard({
               height: c(0.16),
               marginInline: c(1.8),
               backgroundColor: 'var(--slate-raised)',
-              opacity: active && !paused && slides.length > 1 ? 1 : 0,
+              opacity: !paused && turns > 1 ? 1 : 0,
             }}
           >
-            {active && !paused && slides.length > 1 && (
+            {!paused && turns > 1 && (
               <div
                 // Keyed on the time as well as the screen: changing the screen
                 // time restarts the countdown, and the bar has to restart with
                 // it rather than carry on at the old speed.
-                key={`${slideIndex}:${dwellMs}`}
+                key={`${tick}:${dwellMs}`}
                 className="h-full"
                 style={{
                   backgroundColor: 'var(--accent-light)',
@@ -1795,31 +2337,34 @@ export default function LiveBoard({
                 Estimating it from font sizes was off by most of a row, and the
                 row it was off by fell behind the ticker. */}
             <div ref={gridRef} className="w-full h-full min-h-0 flex items-center justify-center">
-              {active ? (
+              {split ? (
+                <SplitStage
+                  active={active}
+                  activeKey={slides.length ? wrap(tick, slides.length) : 0}
+                  panes={panes}
+                  panesKey={divisionSlides.length ? wrap(tick, divisionSlides.length) : 0}
+                  leaderboard={leaderboard}
+                  stageU={uPx ? gridBox.w / uPx : 0}
+                  unitVh={preset.scale * U_VH}
+                  // One scale for both halves, so a placing and a standing are
+                  // the same size and their rows run across on one line.
+                  scale={scaleFor(
+                    SPLIT_CARDS,
+                    Math.max(active ? blockDepth(active) : 0, ...panes.map((pane) => pane.lines.length)),
+                  )}
+                />
+              ) : active ? (
                 <ClassBlock
-                  key={slideIndex}
+                  key={tick}
                   block={active}
                   stageU={uPx ? gridBox.w / uPx : 0}
                   unitVh={preset.scale * U_VH}
                   scale={scaleFor(active.cards.length, blockDepth(active))}
                 />
               ) : (
-                <div className="flex flex-col items-center justify-center text-center">
-                  <div className="font-semibold" style={{ fontSize: u(3), color: 'var(--on-slate)' }}>
-                    Waiting on results
-                  </div>
-                  <p
-                    style={{
-                      fontSize: u(1.6),
-                      marginTop: u(0.8),
-                      maxWidth: u(34),
-                      color: 'var(--on-slate-muted)',
-                    }}
-                  >
-                    Posted placings will start rotating through here as soon as the first class of the day
-                    goes up.
-                  </p>
-                </div>
+                <BoardNotice title="Waiting on results">
+                  Posted placings will start rotating through here as soon as the first class of the day goes up.
+                </BoardNotice>
               )}
             </div>
           </main>
@@ -1850,7 +2395,7 @@ export default function LiveBoard({
             <button
               type="button"
               onClick={toSettings}
-              title="Results Board page — screen size and the marquee message"
+              title={`${boardName} page — screen size and the marquee message`}
               className="rounded whitespace-nowrap"
               style={btn}
             >

@@ -6,10 +6,12 @@ import { fetchShow } from '@/lib/api';
 // Screens tile lands, every time — it carries no size and remembers none, so
 // nothing skips it.
 //
-// Two screens, each its own page behind it: the Results Board
-// (`/board/results`, sizes and the marquee, then the board) and the Gate Board,
-// which is not built yet. Each owns its own settings, so this page stays a
-// choice between screens rather than a form that grows a section per board.
+// Three screens, each its own page behind it: the Results Board
+// (`/board/results`, sizes and the marquee, then the board), Results & High
+// Point (`/board/results-high-point`, the same board split with the high point
+// standings) and the Gate Board, which is not built yet. Each owns its own
+// settings, so this page stays a choice between screens rather than a form
+// that grows a section per board.
 //
 // Same full-screen dark panel as the boards, because it is usually opened on
 // the TV's own browser, in the tab the board will run in.
@@ -68,7 +70,7 @@ export default async function LiveScreensPage({
           </Link>
         </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2" style={{ gap: '2.4vh' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" style={{ gap: '2.4vh' }}>
           <Link
             href={`/admin/shows/${id}/board/results`}
             className="rounded-xl text-left transition hover:brightness-125 block"
@@ -83,6 +85,23 @@ export default async function LiveScreensPage({
             <div style={{ fontSize: 'max(14px, 1.9vh)', marginTop: '1vh', color: 'var(--on-slate-muted)' }}>
               Posted placings, one class to a screen with every judge’s top five, for a lobby or ring-side TV — and the message
               that scrolls along the bottom.
+            </div>
+          </Link>
+
+          <Link
+            href={`/admin/shows/${id}/board/results-high-point`}
+            className="rounded-xl text-left transition hover:brightness-125 block"
+            style={card}
+          >
+            <div style={{ fontSize: 'max(32px, 5vh)' }} aria-hidden>
+              ⭐
+            </div>
+            <div className="font-bold" style={{ fontSize: 'max(20px, 3vh)', marginTop: '1vh' }}>
+              Results &amp; High Point
+            </div>
+            <div style={{ fontSize: 'max(14px, 1.9vh)', marginTop: '1vh', color: 'var(--on-slate-muted)' }}>
+              The screen split in two: each class’s top five on the left, two judges’ cards at a time, and the high point
+              standings on the right — each division within its discipline, two at a time.
             </div>
           </Link>
 

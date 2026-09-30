@@ -8,7 +8,9 @@ import {
   placeLimit,
   setChartCell,
   setChartTo,
+  topStandings,
   type PointAward,
+  type Standing,
 } from './high-point';
 
 // The grid editor is shared by the Points Systems library and a show's own
@@ -54,5 +56,48 @@ describe('ranges', () => {
     const chart = setChartTo(chartDraftFrom(APHA_START), 0, '9');
     // Row 1 is now 2–9, so it may pay down to 9th.
     expect(placeLimit(chart.bands, 0)).toBe(9);
+  });
+});
+
+describe('topStandings', () => {
+  // Standings as the backend ranks them: points high to low, 1, 2, 2, 4.
+  const ranked = (...points: number[]): Standing[] =>
+    points.map((p, i) => ({
+      rank: points.indexOf(p) + 1,
+      exhibitor_id: `e${i}`,
+      exhibitor_name: `Exhibitor ${i}`,
+      horse_id: `h${i}`,
+      horse_name: `Horse ${i}`,
+      points: p,
+      class_count: 1,
+      show_count: 1,
+    }));
+  const shape = (lines: ReturnType<typeof topStandings>) =>
+    lines.map((l) => (l.kind === 'pair' ? l.standing.rank : `${l.count} tied for ${l.rank}`));
+
+  it('stops at the fifth rank', () => {
+    expect(shape(topStandings(ranked(9, 8, 7, 6, 5, 4, 3), 5, 6))).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('shows both pairs in a tie for fifth, as a class card does', () => {
+    expect(shape(topStandings(ranked(9, 8, 7, 6, 5, 5, 3), 5, 6))).toEqual([1, 2, 3, 4, 5, 5]);
+  });
+
+  it('never splits a tie that runs past the rows: it becomes one line', () => {
+    const lines = topStandings(ranked(9, 8, 7, 6, 2, 2, 2, 1), 5, 6);
+    expect(shape(lines)).toEqual([1, 2, 3, 4, '3 tied for 5']);
+    expect(lines[4]).toMatchObject({ kind: 'tied', points: 2 });
+  });
+
+  it('collapses a long tie at the top the same way', () => {
+    expect(shape(topStandings(ranked(6, 6, 6, 6, 6, 6, 6, 1), 5, 6))).toEqual(['7 tied for 1']);
+  });
+
+  it('lists a tie that fits, and ranks after it still stop at fifth', () => {
+    expect(shape(topStandings(ranked(7, 6, 6, 6, 2, 1), 5, 6))).toEqual([1, 2, 2, 2, 5]);
+  });
+
+  it('is empty for a division with no standings', () => {
+    expect(topStandings([], 5, 6)).toEqual([]);
   });
 });

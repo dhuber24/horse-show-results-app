@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import INTERNAL_API_KEY, require_admin_or_show_admin, safe_uuid
 from high_point import (
@@ -464,6 +465,13 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
     cards, posted = await load_cards(db, [show_id])
     if system is not None:
         divisions = tally(cards, build_chart(system.awards))
+        # The number the exhibitor wears at this show, for the results board.
+        # Here rather than in `tally`, which a circuit shares: across several
+        # shows one exhibitor has several numbers, and none of them is theirs.
+        numbers = {str(k): v for k, v in (await back_numbers_for_show(show_id, db)).items()}
+        for division in divisions:
+            for row in division["standings"]:
+                row["back_number"] = numbers.get(row["exhibitor_id"])
 
     return {
         "show_id": str(show_id),

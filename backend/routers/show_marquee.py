@@ -7,8 +7,9 @@ app" -- and the only way to say them was to walk over to the TV.
 
 One row per show (`show_marquees`, migration 139), written from the Results Board
 page and read by the board on the same 12-second poll that keeps its placings
-current. Three modes: the results, the message alone, or the message repeated
-between the results.
+current. Four modes: the results, the message alone, the message repeated
+between the results, or the high point standings (migration 158) -- a line per
+division within a discipline, which a room watches move as classes are posted.
 
 Two rules:
 
@@ -16,8 +17,10 @@ Two rules:
     single space on the way in, because there is no second line to break onto
     and a stored newline would render as nothing at all.
   * **It never scrolls a blank band.** Choosing the message with nothing typed
-    is refused here, and `marquee_payload` falls back to the results if such a
-    row ever exists anyway -- `effective_mode` is what the board reads.
+    is refused here, and so is the high point at a show with no points chart;
+    `marquee_payload` falls back to the results if such a row ever exists
+    anyway -- the chart taken away afterwards, say -- and `effective_mode` is
+    what the board reads.
 
 The request and response models live here rather than in `schemas.py`, the way
 `routers/auth.py` keeps its own: nothing else in the app reads a marquee.
@@ -35,12 +38,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
-from models import Show, ShowMarquee
+from models import Show, ShowMarquee, ShowPointSystem
 from routers.shows import _assert_show_access
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Live Screens"])
 
-MarqueeMode = Literal["results", "message", "both"]
+MarqueeMode = Literal["results", "message", "both", "high_point"]
+
+# The modes that scroll the message, and so need one typed.
+MESSAGE_MODES = ("message", "both")
 
 # Matches ck_show_marquees_message_length. Long enough for a sponsor list or a
 # schedule change with its reason; short enough that it still reads as a
@@ -56,10 +62,14 @@ class MarqueeUpdate(BaseModel):
 class MarqueeOut(BaseModel):
     mode: MarqueeMode
     # What the board actually shows. Differs from `mode` only when a message
-    # mode has no message behind it, which the PUT refuses to create.
+    # mode has no message behind it, or the high point has no points chart --
+    # both of which the PUT refuses to create.
     effective_mode: MarqueeMode
     message: Optional[str] = None
     updated_at: Optional[datetime] = None
+    # Whether the show keeps high point at all, so the Results Board page can
+    # offer the mode or say why it cannot.
+    high_point_available: bool = False
 
 
 def normalize_message(raw: Optional[str]) -> Optional[str]:
@@ -70,7 +80,7 @@ def normalize_message(raw: Optional[str]) -> Optional[str]:
     return text or None
 
 
-def marquee_payload(row: Optional[ShowMarquee]) -> dict:
+def marquee_payload(row: Optional[ShowMarquee], high_point_available: bool = False) -> dict:
     """The marquee a board should run. No row is the results, as before 139."""
     if row is None:
         return {
@@ -78,17 +88,24 @@ def marquee_payload(row: Optional[ShowMarquee]) -> dict:
             "effective_mode": "results",
             "message": None,
             "updated_at": None,
+            "high_point_available": high_point_available,
         }
-    effective = row.mode if (row.mode == "results" or row.message) else "results"
+    if row.mode in MESSAGE_MODES:
+        runs = bool(row.message)
+    elif row.mode == "high_point":
+        runs = high_point_available
+    else:
+        runs = True
     return {
         "mode": row.mode,
-        "effective_mode": effective,
+        "effective_mode": row.mode if runs else "results",
         "message": row.message,
         "updated_at": row.updated_at,
+        "high_point_available": high_point_available,
     }
 
 
-def validate_update(mode: str, message: Optional[str]) -> None:
+def validate_update(mode: str, message: Optional[str], high_point_available: bool = False) -> None:
     """Refusals, in words the Results Board page prints as they stand."""
     if message is not None and len(message) > MAX_MESSAGE_CHARS:
         raise HTTPException(
@@ -96,10 +113,16 @@ def validate_update(mode: str, message: Optional[str]) -> None:
             f"Keep the message to {MAX_MESSAGE_CHARS} characters -- this one is "
             f"{len(message)}. A marquee is read in passing.",
         )
-    if mode != "results" and message is None:
+    if mode in MESSAGE_MODES and message is None:
         raise HTTPException(
             422,
             "Type the message to scroll, or set the marquee back to the results.",
+        )
+    if mode == "high_point" and not high_point_available:
+        raise HTTPException(
+            422,
+            "This show has no points chart, so there are no standings to scroll. "
+            "Choose a chart on its High Point page first.",
         )
 
 
@@ -108,6 +131,12 @@ async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
     if not show:
         raise HTTPException(404, "Show not found")
     return show
+
+
+async def _keeps_high_point(show_id: UUID, db: AsyncSession) -> bool:
+    """Whether the show scores by a points chart -- the leaderboard's own test:
+    no `show_point_systems` row, no standings."""
+    return await db.get(ShowPointSystem, show_id) is not None
 
 
 @router.get("/marquee", response_model=MarqueeOut)
@@ -119,7 +148,9 @@ async def get_marquee(show_id: UUID, db: AsyncSession = Depends(get_db)):
     and the results it scrolls beside come from the public `results-index`.
     """
     await _get_show_or_404(show_id, db)
-    return marquee_payload(await db.get(ShowMarquee, show_id))
+    return marquee_payload(
+        await db.get(ShowMarquee, show_id), await _keeps_high_point(show_id, db)
+    )
 
 
 @router.put(
@@ -144,7 +175,8 @@ async def set_marquee(
     await _get_show_or_404(show_id, db)
 
     message = normalize_message(body.message)
-    validate_update(body.mode, message)
+    high_point_available = await _keeps_high_point(show_id, db)
+    validate_update(body.mode, message, high_point_available)
 
     row = await db.get(ShowMarquee, show_id)
     if row is None:
@@ -157,4 +189,4 @@ async def set_marquee(
 
     await db.commit()
     await db.refresh(row)
-    return marquee_payload(row)
+    return marquee_payload(row, high_point_available)

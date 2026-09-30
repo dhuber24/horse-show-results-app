@@ -8,7 +8,8 @@ import {
 } from '@/lib/high-point';
 
 /**
- * High-point standings, one table per division, and the chart that produced
+ * High-point standings, one table per division within a discipline — Amateur
+ * Western Pleasure and Amateur Halter are two — and the chart that produced
  * them. Shared by a show's leaderboard and a season circuit's, which are the
  * same computation over a different set of shows (`backend/high_point.py`).
  *
