@@ -2,6 +2,32 @@
 
 ## September 2026
 
+### The results board shows one class to a screen, top five per judge
+
+- **One class per screen, every judge's card of it together.** A screen
+  carried up to four classes in quarters; a panel-judged class is four cards
+  already, and a room reads one class across its judges more easily.
+- **Up to four judges' cards sit side by side in one row**, which is what
+  fits all five places at the Desk and Room sizes (a 2×2 grid fit four and
+  two).
+- **The top five places** on each card, where it was four — sixth place never
+  makes the board; ties for fifth show every tied horse.
+- **A class never pages.** Its top five are always on its one screen: where
+  the letters are too big for them (four judges at the Lobby size), that
+  class's cards are drawn smaller until they fit (`scaleFor`), about
+  three-quarters size, instead of turning to a "2 / 2" screen.
+- **The QR code's caption reads "Scan for full results →"** (it was "Scan
+  for results on your phone →").
+- **A "Top 5" badge just after the class name on every screen**, so somebody
+  who placed sixth reads the board's rule rather than a placing gone missing. It replaces the small grey "top 5 of 12" in the context line.
+- **In a narrow card the back number moves onto the horse's line**
+  (`COMPACT_CARD_U`), so the exhibitor's name gets the whole top line — four
+  cards across at the Room size had left "#263 Me…".
+- **The back number is set a step smaller** than the text beside it
+  (`BACK_NUMBER_U`, `BACK_NUMBER_COMPACT_U`), and **the rosette a little
+  larger** (`RIBBON_U` 2.5 → 2.75, the row 3.7 → 3.9 to hold it) — five places
+  still fit at the Desk and Room sizes.
+
 ### The results board can duplicate onto a monitor
 
 - **A *Duplicate screen* option on the Results Board page**, beside *This

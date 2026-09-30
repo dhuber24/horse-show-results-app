@@ -35,7 +35,7 @@ import type { Marquee, MarqueeMode } from '@/lib/api';
      --uc   the same unit compressed for chrome. See `chrome` below.
 
    Every measurement is a multiple of one of those two: type, badges, gutters,
-   ticker speed, and how many placings fit on a page. One answer re-proportions
+   ticker speed, and how large the placings are drawn. One answer re-proportions
    the whole board together, instead of a dozen font sizes drifting apart.
    ─────────────────────────────────────────────────────────────────────────── */
 
@@ -110,8 +110,12 @@ function parseSize(value: string | null): SizeKey | null {
 /* Layout constants. ROW_U, JUDGE_HEAD_U and CLASS_HEAD_UC are pinned as
    explicit heights on the elements themselves, so the arithmetic deciding what
    fits is exact rather than a guess at what the type will measure out to. */
-const ROW_U = 3.7; // a placing row: ribbon, name, horse, and the gap under it
-const RIBBON_U = 2.5; // the rosette's width; its height is 44/32 of that, inside ROW_U
+const ROW_U = 3.9; // a placing row: ribbon, name, horse, and the gap under it
+const RIBBON_U = 2.75; // the rosette's width; its height is 44/32 of that, inside ROW_U
+/* The back number, a step below the text beside it: on the name's line
+   (a wide card) and on the horse's line (a narrow one, see COMPACT_CARD_U). */
+const BACK_NUMBER_U = 1.55;
+const BACK_NUMBER_COMPACT_U = 1.0;
 const JUDGE_HEAD_U = 2.4; // "Judge Delgado" and its margin
 /* A class's header — context line plus up to two lines of class name — in
    units of **--uc**, not --u. Which class this is, is context a room reads
@@ -130,44 +134,41 @@ const GRID_GAP_U = 1.6; // between boxes and between classes, both ways
 const TICKER_U_PER_SEC = 4.5; // ticker travel per second, in units, so the
 // crawl reads at one speed to the eye at every scale
 
-/* How a screen divides between classes that share it: two rows of two. The
-   board carried one class at a time, which answers "what won class 14" and not
-   the question people actually walk up with — "has mine gone up yet?" — because
-   finding out meant waiting out every other class of the day.
+/* **One class to a screen**, every judge's card of it together on that screen.
+   Four classes shared a screen for a while, in quarters, and the show office
+   asked for one: a panel-judged class is four cards already, and a room reads
+   one class's placings across its judges more easily than four classes' at a
+   glance. The header names the class once, above its cards.
 
-   A class takes as much of that as it has judges: a single-judge class takes a
-   quarter, a two-judge class a row, and a panel of three or more the whole
-   screen, with its header once across the top. Four quarters at every preset is
-   a deliberate choice with a cost — the sign-maker's rule behind PRESETS wants
-   fewer, larger items the further away the reader is — so a class that cannot
-   fit one whole placing in its share at this size is given the screen instead,
-   and deeper cards page. The fit is measured, so a box shows whole rows and
-   never a row sliced through the middle. */
-const SCREEN_COLS = 2;
-const SCREEN_ROWS = 2;
-const CELLS_PER_SCREEN = SCREEN_COLS * SCREEN_ROWS;
+   The cards sit **side by side in one row** up to four judges — the full
+   height of the screen for each, which is what lets all five places fit at
+   the desk and room sizes (a 2 x 2 grid halves that height and fits two to
+   four). Past four, three to a row.
 
-/* How deep into a card the board goes: places one to four, and no further.
-   Everybody on the grounds has the whole card on their phone, so the wall is
-   not the record — it is the answer to "has mine gone up, and who won", and a
-   room reads four placings at a glance where it has to wait out twelve.
+   **A class never pages.** Its top five are on the one screen, always — where
+   the preset's letters are too big for all of them (a four-judge class at the
+   lobby size), that class's cards are drawn smaller until they fit
+   (`scaleFor`), rather than turning to a "2 / 2" screen nobody waits for. */
+function screenGrid(judges: number) {
+  const cols = judges <= 4 ? Math.max(judges, 1) : 3;
+  return { cols, rows: Math.ceil(Math.max(judges, 1) / cols) };
+}
 
-   **Places, not rows.** A tie for fourth shows both horses, because showing
+/* How deep into a card the board goes: places one to five, and no further —
+   sixth place never makes the board. Everybody on the grounds has the whole
+   card on their phone (the QR code in the header), so the wall is not the
+   record — it is the answer to "has mine gone up, and who won", and a room
+   reads five placings at a glance where it has to wait out twelve.
+
+   **Places, not rows.** A tie for fifth shows both horses, because showing
    one of two tied horses is choosing between them, and the board has no
    business doing that. And only placed rows: a disqualification or a no-score
-   is on the card on the phone, not in anybody's top four. */
-const TOP_PLACES = 4;
+   is on the card on the phone, not in anybody's top five. */
+const TOP_PLACES = 5;
 
 function topPlacings(rows: Placing[]): Placing[] {
   return rows.filter((r) => r.place != null && r.place <= TOP_PLACES);
 }
-
-/* Roughly two minutes of rotation. A morning with three classes posted can
-   afford to page all the way down each one; an evening with thirty cannot, or
-   somebody waiting on their class waits a quarter of an hour for it to come
-   round again. This is the budget of screens divided between the posted
-   classes, counted in quarters of a screen. */
-const CYCLE_SLIDES = 14;
 
 /** Results sizes: u(2.6) -> calc(var(--u) * 2.6) */
 const u = (n: number) => `calc(var(--u) * ${n})`;
@@ -244,19 +245,14 @@ function judgeSurname(rows: Placing[]): string | null {
   return rows.find((r) => r.judge_last_name)?.judge_last_name ?? null;
 }
 
-/* ── Blocks and slides ─────────────────────────────────────────────────────
-   A **block** is one class: its header, once, and a box per judge's card
-   under it — "the placing by judge", with the class named a single time. A
-   **slide** is a screenful: either up to four quarters' worth of blocks in two
-   rows, or one block with the screen to itself.
+/* ── Screens ────────────────────────────────────────────────────────────────
+   A **block** is one screenful, and one class: its header, once, and a box
+   per judge's card under it — "the placing by judge", with the class named a
+   single time.
 
-   A box carries a card's top four places (TOP_PLACES), and the header says
-   "top 4 of 12" whenever a card holds more, so nobody reads a short list as
-   the whole class. Where even four rows are more than a box fits — the room
-   and lobby presets — all of a class's cards page together, "1 / 2" in its
-   header, so a screen never stands one judge's first page beside another's
-   second. And no class owns the rotation: each gets a share of the screens,
-   and a card whose pages would outrun its share shows fewer and says so.
+   A box carries a card's top five places (TOP_PLACES), all of them, and the
+   header carries a **Top 5** badge on every screen, so nobody reads a short
+   list as the whole class — or a sixth place as a placing gone missing.
    ────────────────────────────────────────────────────────────────────────── */
 
 type Card = {
@@ -266,156 +262,44 @@ type Card = {
   rows: Placing[];
 };
 
-/** How much of a screen a block takes: a quarter, a row, or all of it. */
-type Span = 1 | 2 | 'screen';
-
 type Block = {
   cls: ClassItem;
   cards: Card[];
-  span: Span;
-  page: number;
-  pages: number;
-  /** Set when a card holds more than the block shows. */
-  shownOf: { shown: number; total: number } | null;
 };
 
-type Slide = { kind: 'rows'; rows: Block[][] } | { kind: 'screen'; block: Block };
-
-/** How the boxes of a block with the screen to itself are arranged: up to
- *  three across in one row, four two by two, and beyond that three to a row. */
-function screenGrid(judges: number) {
-  const cols = judges <= 3 ? Math.max(judges, 1) : judges === 4 ? 2 : 3;
-  return { cols, rows: Math.ceil(judges / cols) };
-}
-
-/** Whole placings a judge box holds at this size, for each kind of block —
- *  worked out from the measured stage, never from a breakpoint. */
-type Fit = {
-  /** How the shared screens divide: one row when everything posted fits in one. */
-  rowsTemplate: { cols: number; rows: number };
-  /** A box in a quarter or a row, without and with a judge's name over it. */
-  inRowPlain: number;
-  inRowJudged: number;
-  /** A box in a block that has the screen to itself, by number of judges. */
-  onScreen: (judges: number) => number;
-};
-
-function spanFor(judges: number, fit: Fit): Span {
-  if (judges >= 3) return 'screen';
-  // A class that cannot show one whole placing in its share would have it
-  // sliced through the middle, so it gets the screen instead. This is what
-  // happens to a two-judge class at the lobby preset.
-  const fits = judges === 1 ? fit.inRowPlain : fit.inRowJudged;
-  return fits < 1 ? 'screen' : (judges as 1 | 2);
-}
-
-function buildBlocks(classes: ClassItem[], groups: JudgeGroup[][], fit: Fit): Block[] {
-  const spans = groups.map((g) => spanFor(g.length, fit));
-  const cells = spans.reduce<number>((n, s) => n + (s === 'screen' ? CELLS_PER_SCREEN : s), 0);
-  const budget = clamp(Math.round((CYCLE_SLIDES * CELLS_PER_SCREEN) / Math.max(cells, 1)), 1, 4);
-
-  // Built per class first, then interleaved below.
-  const byClass: Block[][] = classes.map((cls, ci) => {
-    const cardsFor = groups[ci];
-    const span = spans[ci];
-    const named = cardsFor.length > 1;
-    const perBox = Math.max(
-      1,
-      span === 'screen' ? fit.onScreen(cardsFor.length) : named ? fit.inRowJudged : fit.inRowPlain,
-    );
-    const tops = cardsFor.map((g) => topPlacings(g.rows));
-    const deepest = tops.reduce((m, t) => Math.max(m, t.length), 0);
-    // Counted against the whole card, not against the top four: "top 4 of 12"
-    // is what tells somebody whose horse placed seventh that the rest is on
-    // their phone rather than missing.
-    const total = cardsFor.reduce((m, g) => Math.max(m, g.rows.length), 0);
-    const pages = clamp(Math.ceil(deepest / perBox), 1, budget);
-    const shown = Math.min(deepest, pages * perBox);
-    // "Top N" names the last *place* shown, not a count of rows: a tie for
-    // fourth is five horses and still the top four.
-    const lastPlace = tops.reduce((m, t) => Math.max(m, t[Math.min(shown, t.length) - 1]?.place ?? 0), 0);
-    const own: Block[] = [];
-    for (let p = 0; p < pages; p++) {
-      own.push({
-        cls,
-        span,
-        page: p + 1,
-        pages,
-        cards: cardsFor.map((g, gi) => ({
-          judge: g.judge,
-          surname: judgeSurname(g.rows),
-          rows: tops[gi].slice(p * perBox, (p + 1) * perBox),
-        })),
-        shownOf: shown > 0 && shown < total ? { shown: lastPlace, total } : null,
-      });
-    }
-    return own;
-  });
-
-  // **Every class's first page before any class's second.** Laid out class by
-  // class instead, a screen of quarters was two classes shown twice, which is
-  // the opposite of the point: somebody walks up to find out whether *their*
-  // class is up, and the first screen should carry as many different classes
-  // as it holds.
-  const blocks: Block[] = [];
-  const most = byClass.reduce((m, own) => Math.max(m, own.length), 0);
-  for (let p = 0; p < most; p++) {
-    for (const own of byClass) {
-      if (own[p]) blocks.push(own[p]);
-    }
-  }
-  return blocks;
-}
-
-/** Packs blocks into screenfuls, greedily and **in order** — newest-posted
- *  first, the order `postedToday` already put them in. A quarter that fits in
- *  a row already started goes there rather than leaving a hole; a block that
- *  needs the whole screen closes the one being filled first, so the rotation
- *  keeps its order. */
-function buildSlides(blocks: Block[], template: { cols: number; rows: number }): Slide[] {
-  const slides: Slide[] = [];
-  let rows: { blocks: Block[]; used: number }[] = [];
-  const close = () => {
-    if (rows.length) slides.push({ kind: 'rows', rows: rows.map((r) => r.blocks) });
-    rows = [];
-  };
-  for (const b of blocks) {
-    if (b.span === 'screen') {
-      close();
-      slides.push({ kind: 'screen', block: b });
-      continue;
-    }
-    const need = Math.min(b.span, template.cols);
-    let row = rows.find((r) => template.cols - r.used >= need);
-    if (!row) {
-      if (rows.length >= template.rows) close();
-      row = { blocks: [], used: 0 };
-      rows.push(row);
-    }
-    row.blocks.push(b);
-    row.used += need;
-  }
-  close();
-  return slides;
+/** One block per class, newest-posted first — the order `postedToday`
+ *  already put them in. */
+function buildBlocks(classes: ClassItem[], groups: JudgeGroup[][]): Block[] {
+  return classes.map((cls, ci) => ({
+    cls,
+    cards: groups[ci].map((g) => ({
+      judge: g.judge,
+      surname: judgeSurname(g.rows),
+      rows: topPlacings(g.rows),
+    })),
+  }));
 }
 
 /** Placings on a screen, which is what its dwell is priced from. */
-function slidePlacings(slide: Slide) {
-  const blocks = slide.kind === 'screen' ? [slide.block] : slide.rows.flat();
-  return blocks.reduce((n, b) => n + b.cards.reduce((m, card) => m + card.rows.length, 0), 0);
+function blockPlacings(block: Block) {
+  return block.cards.reduce((n, card) => n + card.rows.length, 0);
+}
+
+/** Rows on the deepest card of a block — what its boxes have to hold. */
+function blockDepth(block: Block) {
+  return block.cards.reduce((m, card) => Math.max(m, card.rows.length), 0);
 }
 
 /** How long a screen is held: longer when it carries more, and longer again
  *  the further away it is being read from.
  *
- *  A screen is up to four classes rather than one, so both the floor and the
- *  ceiling are higher than they were — there is four times as much to get
- *  through, and a board that turns over before anyone has found their class
- *  is one people stop looking at. Priced off every placing on the screen, not
- *  the tallest pane.
+ *  A screen is one class across every judge — twenty placings on a four-judge
+ *  panel — so the floor and the ceiling are generous: a board that turns over
+ *  before anyone has found their horse is one people stop looking at. Priced
+ *  off every placing on the screen, not the tallest pane.
  *
  *  Then a flat EXTRA_DWELL_MS on top, after the clamp: the priced figure
- *  turned the screens over before a room had read four classes. Flat rather
+ *  turned the screens over before a room had read them. Flat rather
  *  than scaled by `dwell`, so it is the same five seconds on every screen at
  *  every preset — and after the clamp, so it lengthens the longest screens
  *  too instead of being swallowed by the ceiling. */
@@ -470,7 +354,15 @@ function useBoxSize() {
 
 /* ── Pieces ─────────────────────────────────────────────────────────────── */
 
-function PlacingRow({ r }: { r: Placing }) {
+/** How narrow a judge's card is, in --u, before the back number moves down
+ *  onto the horse's line. Four cards across at the room and lobby sizes left
+ *  the exhibitor about five letters beside "#263" — "#263 Me…" — and the
+ *  name is the part a room cannot work out from anything else on the line. */
+const COMPACT_CARD_U = 26;
+
+function PlacingRow({ r, compact }: { r: Placing; compact: boolean }) {
+  const back = r.back_number != null ? `#${r.back_number}` : null;
+  const backBelow = compact && back;
   return (
     <li className="flex items-center" style={{ gap: u(0.8), height: u(ROW_U) }}>
       {/* The rosette from the class results page, in the colours a horse show
@@ -496,16 +388,16 @@ function PlacingRow({ r }: { r: Placing }) {
           set larger than the horse, which is the order a room reads them in. */}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline" style={{ gap: u(0.45) }}>
-          {r.back_number != null && (
+          {back && !compact && (
             <span
               className="flex-none font-semibold tabular-nums"
               style={{
-                fontSize: u(1.85),
+                fontSize: u(BACK_NUMBER_U),
                 lineHeight: 1.05,
                 color: 'var(--on-slate-muted)',
               }}
             >
-              #{r.back_number}
+              {back}
             </span>
           )}
           <span
@@ -524,7 +416,7 @@ function PlacingRow({ r }: { r: Placing }) {
             </span>
           )}
         </span>
-        {r.horse_name && (
+        {(backBelow || r.horse_name) && (
           <span
             className="block truncate"
             style={{
@@ -533,6 +425,12 @@ function PlacingRow({ r }: { r: Placing }) {
               color: 'var(--on-slate-muted)',
             }}
           >
+            {backBelow && (
+              <span className="tabular-nums" style={{ fontSize: u(BACK_NUMBER_COMPACT_U) }}>
+                {back}
+                {r.horse_name ? ' · ' : ''}
+              </span>
+            )}
             {r.horse_name}
           </span>
         )}
@@ -543,7 +441,7 @@ function PlacingRow({ r }: { r: Placing }) {
 
 /** One judge's card: the judge's name when there is a panel, and the
  *  placings. Nothing about the class — that is in the header above it, once. */
-function JudgeBox({ card, named, page }: { card: Card; named: boolean; page: number }) {
+function JudgeBox({ card, named, compact }: { card: Card; named: boolean; compact: boolean }) {
   return (
     <div
       className="flex flex-col min-h-0 min-w-0 overflow-hidden"
@@ -562,7 +460,7 @@ function JudgeBox({ card, named, page }: { card: Card; named: boolean; page: num
             color: 'var(--accent-light)',
           }}
         >
-          {/* The surname, as on the marquee. A quarter-width box is mostly
+          {/* The surname, as on the marquee. A quarter-width card is mostly
               ellipsis if it is given "Judge Leigh Ann Skurupey". */}
           Judge {card.surname ?? card.judge}
         </div>
@@ -576,24 +474,25 @@ function JudgeBox({ card, named, page }: { card: Card; named: boolean; page: num
         {card.rows.length > 0 ? (
           <ul className="min-w-0">
             {card.rows.map((r, i) => (
-              <PlacingRow key={i} r={r} />
+              <PlacingRow key={i} r={r} compact={compact} />
             ))}
           </ul>
-        ) : page === 1 ? (
+        ) : (
           <p style={{ fontSize: u(1.2), color: 'var(--on-slate-muted)' }}>No placings recorded.</p>
-        ) : null}
+        )}
       </div>
     </div>
   );
 }
 
 /** Which class this is — ring, division, discipline, number and name — said
- *  once for all of its judges. Pinned height, so the arithmetic that decided
- *  how many rows fit below is exact rather than a guess at what two lines of
- *  class name measure out to. */
+ *  once for all of its judges, with the **Top 5** badge just after the name.
+ *  Pinned height, so the arithmetic that decided how many rows fit below is
+ *  exact rather than a guess at what two lines of class name measure out to. */
 function ClassHeader({ block }: { block: Block }) {
-  const { cls, page, pages, shownOf } = block;
+  const { cls } = block;
   const context = [cls.ring_name, cls.division_name, cls.discipline_name].filter(Boolean).join(' · ');
+  const placed = block.cards.some((card) => card.rows.length > 0);
 
   return (
     <header
@@ -605,108 +504,98 @@ function ClassHeader({ block }: { block: Block }) {
       }}
     >
       <div
-        className="font-medium tracking-wide flex items-center min-w-0"
+        className="font-medium tracking-wide truncate"
         style={{
           fontSize: c(0.95),
           color: 'var(--on-slate-muted)',
-          gap: c(0.5),
         }}
       >
-        <span className="truncate">{context || 'Class results'}</span>
-        {pages > 1 && (
+        {context || 'Class results'}
+      </div>
+
+      <div className="flex items-center min-w-0" style={{ gap: c(0.8) }}>
+        <h2
+          className="font-bold min-w-0"
+          style={{
+            fontSize: c(1.5),
+            lineHeight: 1.05,
+            color: 'var(--on-slate)',
+            // Two lines, then ellipsis. The name is the one thing here allowed
+            // to wrap: a clipped one leaves the room guessing which class it is
+            // looking at.
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          #{cls.class_number} · {cls.class_name}
+        </h2>
+
+        {/* Said on every screen, so somebody who placed sixth reads it as the
+            board's rule rather than as their placing having gone missing —
+            and beside the name, so it reads as part of what this class is
+            showing. The QR code's "Scan for full results" is the rest. */}
+        {placed && (
           <span
-            className="flex-none rounded-full tabular-nums"
+            className="flex-none rounded-full font-bold whitespace-nowrap"
             style={{
-              fontSize: c(0.8),
-              padding: `0 ${c(0.45)}`,
-              backgroundColor: 'var(--slate-raised)',
-              color: 'var(--on-slate-muted)',
+              fontSize: c(1.25),
+              padding: `${c(0.25)} ${c(0.9)}`,
+              backgroundColor: 'var(--accent-light)',
+              color: 'var(--brand-slate)',
             }}
           >
-            {page} / {pages}
-          </span>
-        )}
-        {shownOf && (
-          <span className="flex-none whitespace-nowrap" style={{ fontSize: c(0.8) }}>
-            top {shownOf.shown} of {shownOf.total}
+            Top {TOP_PLACES}
           </span>
         )}
       </div>
-
-      <h2
-        className="font-bold"
-        style={{
-          fontSize: c(1.5),
-          lineHeight: 1.05,
-          color: 'var(--on-slate)',
-          // Two lines, then ellipsis. The name is the one thing here allowed
-          // to wrap: a clipped one leaves the room guessing which class it is
-          // looking at.
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
-        #{cls.class_number} · {cls.class_name}
-      </h2>
     </header>
   );
 }
 
-function ClassBlock({ block, place }: { block: Block; place?: React.CSSProperties }) {
+/** One screenful: the class, and its judges' cards side by side under it.
+ *
+ *  `unitVh` is the preset's --u and `scale` how far this class's cards are
+ *  drawn below it so every one of its top five fits (1 almost always; see
+ *  `scaleFor`). The cards get their own --u, the header keeps the board's.
+ *  `stageU` is the stage's measured width in the board's --u, which is what
+ *  says whether a card is narrow enough to need the compact row. */
+function ClassBlock({
+  block,
+  stageU,
+  unitVh,
+  scale,
+}: {
+  block: Block;
+  stageU: number;
+  unitVh: number;
+  scale: number;
+}) {
   const judges = block.cards.length;
-  const grid = block.span === 'screen' ? screenGrid(judges) : { cols: judges, rows: 1 };
+  const grid = screenGrid(judges);
+  const cardU = (stageU / scale - GRID_GAP_U * (grid.cols - 1)) / grid.cols;
+  const compact = stageU > 0 && cardU < COMPACT_CARD_U;
 
   return (
-    <section className="flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]" style={place}>
+    <section className="w-full h-full flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]">
       <ClassHeader block={block} />
       <div
         className="flex-1 min-h-0 grid"
-        style={{
-          gap: u(GRID_GAP_U),
-          gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-          gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
-        }}
+        style={
+          {
+            '--u': `${(unitVh * scale).toFixed(3)}vh`,
+            gap: u(GRID_GAP_U),
+            gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
+          } as React.CSSProperties
+        }
       >
         {block.cards.map((card, i) => (
-          <JudgeBox key={card.judge ?? i} card={card} named={judges > 1} page={block.page} />
+          <JudgeBox key={card.judge ?? i} card={card} named={judges > 1} compact={compact} />
         ))}
       </div>
     </section>
-  );
-}
-
-function SlideView({ slide, template }: { slide: Slide; template: { cols: number; rows: number } }) {
-  if (slide.kind === 'screen') {
-    return <ClassBlock block={slide.block} place={{ width: '100%', height: '100%' }} />;
-  }
-  return (
-    <div
-      className="w-full h-full grid min-h-0"
-      style={{
-        gap: u(GRID_GAP_U),
-        gridTemplateColumns: `repeat(${template.cols}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${template.rows}, minmax(0, 1fr))`,
-      }}
-    >
-      {/* Placed explicitly rather than left to auto-flow: the packer may have
-          dropped a quarter into a hole in an earlier row. No filler for an
-          under-full screen — an empty cell is the honest shape of "that is
-          everything posted today". */}
-      {slide.rows.flatMap((row, ri) => {
-        let col = 0;
-        return row.map((b) => {
-          const need = Math.min(b.span === 'screen' ? template.cols : b.span, template.cols);
-          const place = {
-            gridRow: ri + 1,
-            gridColumn: `${col + 1} / span ${need}`,
-          };
-          col += need;
-          return <ClassBlock key={`${b.cls.id}:${b.page}`} block={b} place={place} />;
-        });
-      })}
-    </div>
   );
 }
 
@@ -1548,85 +1437,42 @@ export default function LiveBoard({
       .sort((a, b) => (b.results_published_at! > a.results_published_at! ? 1 : -1));
   }, [classes]);
 
-  // A class's placings split by judge, computed once: how much of a screen
-  // each class takes is decided by how many cards it has, and the blocks are
-  // built from the same list.
+  // A class's placings split by judge, computed once: how its cards are laid
+  // out is decided by how many there are, and the blocks are built from the
+  // same list.
   const groups = useMemo(
     () => postedToday.map((cls) => groupByJudge(resultsIndex[cls.id] ?? [])),
     [postedToday, resultsIndex],
   );
 
-  // What fits in a judge box, for every kind of block, taken from the stage
-  // the browser actually handed us rather than from a breakpoint or a guess at
-  // type metrics. The same arithmetic covers every panel in the range, the 4K
-  // ones and the odd 21:9 included.
+  // How far a class's cards are drawn below the preset's size so that every
+  // row of its deepest card fits — 1, unless the letters are too big for the
+  // stage (a four-judge class at the lobby size). Taken from the stage the
+  // browser actually handed us rather than from a breakpoint or a guess at
+  // type metrics, so the same arithmetic covers every panel in the range, the
+  // 4K ones and the odd 21:9 included.
   //
-  // Several things come off a box before the placings do, and they are not all
-  // in the same unit: its padding and the judge's name scale with the results,
-  // the class header over it with the chrome. Leaving the padding out was half
-  // a row of overcount, and half a row is exactly what gets sliced through the
-  // middle at the bottom.
-  const fit = useMemo<Fit>(() => {
-    if (!uPx || !gridBox.h) {
-      return {
-        rowsTemplate: { cols: SCREEN_COLS, rows: SCREEN_ROWS },
-        inRowPlain: 3,
-        inRowJudged: 3,
-        onScreen: () => 3,
-      };
-    }
-    const H = gridBox.h;
-    const rowPx = ROW_U * uPx;
-    const gapPx = GRID_GAP_U * uPx;
-    const headPx = (CLASS_HEAD_UC + CLASS_HEAD_GAP_UC) * ucPx;
-    // Unclamped, so a result under one says "not even one row" rather than
-    // being rounded up into a row that is then clipped.
-    const inBox = (boxH: number, named: boolean) =>
-      Math.floor((boxH - PANE_PAD_U * uPx - (named ? JUDGE_HEAD_U * uPx : 0)) / rowPx);
-    // A box in a shared screen: its row's share of the height, less the class
-    // header above it. The gaps between rows come out before dividing.
-    const inRow = (rows: number, named: boolean) => inBox((H - gapPx * (rows - 1)) / rows - headPx, named);
-    const onScreen = (judges: number) => {
+  // Everything in a box scales with its --u — padding, the judge's name, the
+  // rows, and the gaps between boxes — so the whole card is one sum in units.
+  // The class header over it is in the chrome's unit and does not scale. A
+  // couple of pixels are held back so rounding never slices the last row.
+  const scaleFor = useMemo(() => {
+    if (!uPx || !gridBox.h) return () => 1;
+    const available = gridBox.h - (CLASS_HEAD_UC + CLASS_HEAD_GAP_UC) * ucPx - 2;
+    return (judges: number, rows: number) => {
       const g = screenGrid(judges);
-      return inBox((H - headPx - gapPx * (g.rows - 1)) / g.rows, judges > 1);
+      const box = PANE_PAD_U + (judges > 1 ? JUDGE_HEAD_U : 0) + Math.max(rows, 1) * ROW_U;
+      const needU = box * g.rows + GRID_GAP_U * (g.rows - 1);
+      return Math.min(1, available / (needU * uPx));
     };
+  }, [uPx, ucPx, gridBox.h]);
 
-    // Decided at two rows first, which is what says which classes share a
-    // screen at all. If everything that shares fits in one row, that row gets
-    // the full height — which only makes boxes taller, so the decision holds.
-    const twoRows: Fit = {
-      rowsTemplate: { cols: SCREEN_COLS, rows: SCREEN_ROWS },
-      inRowPlain: inRow(SCREEN_ROWS, false),
-      inRowJudged: inRow(SCREEN_ROWS, true),
-      onScreen,
-    };
-    const sharedCells = groups.reduce((n, g) => {
-      const span = spanFor(g.length, twoRows);
-      return span === 'screen' ? n : n + span;
-    }, 0);
-    if (sharedCells > SCREEN_COLS) return twoRows;
-    return {
-      // A day with one single-judge class posted gets the whole width, as the
-      // one-class board always did.
-      rowsTemplate: { cols: sharedCells <= 1 ? 1 : SCREEN_COLS, rows: 1 },
-      inRowPlain: inRow(1, false),
-      inRowJudged: inRow(1, true),
-      onScreen,
-    };
-  }, [uPx, ucPx, gridBox.h, groups]);
-
-  // Fixed for the whole rotation, for a given set of results and a given
-  // screen: a layout that reshaped itself between screens would move a class
-  // somebody was halfway through reading.
-  const slides = useMemo(
-    () => buildSlides(buildBlocks(postedToday, groups, fit), fit.rowsTemplate),
-    [postedToday, groups, fit],
-  );
+  const slides = useMemo(() => buildBlocks(postedToday, groups), [postedToday, groups]);
 
   const active = slides.length ? slides[slideIndex % slides.length] : null;
   // A screen time the office chose is taken exactly, with no pricing and no
   // preset factor on top: somebody who picked "30 sec" is timing it.
-  const dwellMs = !active ? 0 : every != null ? every * 1000 : slideMs(slidePlacings(active), preset.dwell);
+  const dwellMs = !active ? 0 : every != null ? every * 1000 : slideMs(blockPlacings(active), preset.dwell);
 
   useEffect(() => {
     if (paused || slides.length < 2) return;
@@ -1696,7 +1542,7 @@ export default function LiveBoard({
       // combine cards into an official result, and a marquee crawling past a
       // room is the last place to start.
       for (const g of cardsFor) {
-        // The same top four the panes carry, so the marquee and the grid
+        // The same top five the panes carry, so the marquee and the grid
         // never disagree about how deep the board goes.
         const placed = topPlacings(g.rows);
         const summary = placed.map((r) => `${placeOrdinal(r.place!)} ${rowLabel(r)}`).join('  ·  ');
@@ -1885,10 +1731,11 @@ export default function LiveBoard({
                 })}
               </span>
             </div>
-            <div className="text-right" style={{ fontSize: c(0.9), lineHeight: 1.25, color: 'var(--on-slate-muted)' }}>
-              Scan for results
-              <br />
-              on your phone →
+            <div
+              className="text-right whitespace-nowrap"
+              style={{ fontSize: c(0.9), lineHeight: 1.25, color: 'var(--on-slate-muted)' }}
+            >
+              Scan for full results →
             </div>
             </div>
             {/* The show's public Results page, one scan from anybody watching —
@@ -1949,7 +1796,13 @@ export default function LiveBoard({
                 row it was off by fell behind the ticker. */}
             <div ref={gridRef} className="w-full h-full min-h-0 flex items-center justify-center">
               {active ? (
-                <SlideView key={slideIndex} slide={active} template={fit.rowsTemplate} />
+                <ClassBlock
+                  key={slideIndex}
+                  block={active}
+                  stageU={uPx ? gridBox.w / uPx : 0}
+                  unitVh={preset.scale * U_VH}
+                  scale={scaleFor(active.cards.length, blockDepth(active))}
+                />
               ) : (
                 <div className="flex flex-col items-center justify-center text-center">
                   <div className="font-semibold" style={{ fontSize: u(3), color: 'var(--on-slate)' }}>

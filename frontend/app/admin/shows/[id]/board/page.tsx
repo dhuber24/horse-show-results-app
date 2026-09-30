@@ -81,7 +81,7 @@ export default async function LiveScreensPage({
               Results Board
             </div>
             <div style={{ fontSize: 'max(14px, 1.9vh)', marginTop: '1vh', color: 'var(--on-slate-muted)' }}>
-              Posted placings, four classes to a screen, for a lobby or ring-side TV — and the message
+              Posted placings, one class to a screen with every judge’s top five, for a lobby or ring-side TV — and the message
               that scrolls along the bottom.
             </div>
           </Link>
