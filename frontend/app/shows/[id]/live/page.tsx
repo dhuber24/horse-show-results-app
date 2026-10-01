@@ -53,7 +53,7 @@ export default async function ShowLiveHubPage({ params }: { params: Promise<{ id
   const show = await fetchShow(id);
   // Somebody at the rail who decides they want in: the registration flow while
   // it is open, the show office once the show is under way.
-  const signUp = signUpLink(id, show.status);
+  const signUp = signUpLink(id, show.status, show.signup_open);
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">

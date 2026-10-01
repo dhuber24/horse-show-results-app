@@ -2,6 +2,32 @@
 
 ## September 2026
 
+### Every show answers two registration questions
+
+- **Setup Step 1 asks, for every show** (and the new-show form, which will not
+  create a show without them): *What is the last day exhibitors can sign up for
+  the show online?* and *Until when can exhibitors enter and scratch their own
+  classes?* — until each class starts, or until the show starts. A show cannot
+  be published until both are answered (migration 159), and Step 1 does not
+  tick until they are.
+- **After the last day, new sign-ups go through the show office.** The
+  registration screens, the show menu, the show lists and the status badge
+  send a latecomer to the office's contact form with the question framed;
+  `PUT /signup` refuses with `SIGNUP_CLOSED`. Somebody already signed up can
+  still amend their registration until the show starts.
+- **"Until the show starts" shuts the class doors on the first day.** The
+  class page lists what the exhibitor is entered in, marked *Office only*, and
+  the office makes every change from the desk. "Until each class starts" is
+  what every show did before.
+- **The entry deadline is that first answer.** `shows.entry_deadline` was
+  records only; it now closes online sign-up, still counts APHA's approval
+  deadline, and still bills nothing. It may be no later than the show's first
+  day.
+- **The show bill prints both** under *Online entries*, beside the dates.
+- **Shows already taking entries are unchanged** until somebody answers:
+  unanswered means sign-up until the show starts and classes until each class
+  starts.
+
 ### The marquee can scroll the high point standings
 
 - **A fourth marquee choice, *High Point***, beside Results, Message and Both

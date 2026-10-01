@@ -51,6 +51,7 @@ from models import (
 )
 from exhibitor_profile import missing_blocking, profile_checklist
 from placings import is_placed, place_key
+from self_entry import signup_open
 from routers.futurities import load_billable_futurities
 from registration_profile import (
     ShowExhibitorView,
@@ -148,9 +149,10 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
     closed the tab had nothing anywhere telling them which show it was.
 
     Two filters, and both are about the bookmark still pointing at something.
-    **PUBLISHED only**, because that is the status self-registration is open in
-    -- a draft on a show that has started points at a screen that 403s, and the
-    exhibitor's route in is the show office now. **No `show_entries` row**,
+    **Sign-up still open**, which is PUBLISHED and on or before the show's last
+    day to sign up online (migration 159) -- a draft on a show whose sign-up has
+    closed points at a screen that turns them away, and the exhibitor's route in
+    is the show office now. **No `show_entries` row**,
     because any such row already puts the show in the list above with a record
     of its own; a bookmark beside it would be the same show listed twice. The
     sign-up path deletes the draft, so this second filter is the belt to that
@@ -197,7 +199,12 @@ async def _started_registrations(exhibitor: Exhibitor, db: AsyncSession) -> list
     out = []
     for draft in drafts:
         show = draft.show
-        if show is None:
+        # Past the show's last day to sign up online (migration 159) the form
+        # turns them away, so the bookmark points at nothing -- the same reason
+        # the query keeps to PUBLISHED. In Python rather than the query because
+        # the deadline counts the day itself, and `signup_open` is the one place
+        # that is written down.
+        if show is None or not signup_open(show.status, show.entry_deadline):
             continue
         copy = copies.get(show.id)
         view = ShowExhibitorView(exhibitor, copy)

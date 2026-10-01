@@ -33,6 +33,7 @@ from models import (
     User,
 )
 from schemas import (
+    SIGNUP_DEADLINE_AFTER_START,
     APHAValidationOut,
     AssociationValidationOut,
     ShowCreate,
@@ -52,6 +53,7 @@ from rules.apha import (
     show_minimums,
 )
 import standard_classes
+from self_entry import signup_open
 from show_access import SHOW_OFFICE_TABLES, show_office_users, worked_show_ids, works_show
 from show_companies import default_show_company_for
 
@@ -69,10 +71,13 @@ def _serialize(show: Show) -> dict:
         "show_type_name": show.show_type.name if show.show_type else None,
         "start_date": show.start_date,
         "end_date": show.end_date,
-        # The day entries close (migration 123). Records only -- it gates nothing
-        # and bills nothing; APHA SC-090.C counts the approval deadline back from
-        # it, or from start_date when it is unset.
+        # The day entries close (migration 123): since migration 159 the last day
+        # to sign up online. It bills nothing; APHA SC-090.C counts the approval
+        # deadline back from it, or from start_date when it is unset.
         "entry_deadline": show.entry_deadline,
+        # How late exhibitors enter and scratch their own classes (migration 159).
+        "self_entry_closes": show.self_entry_closes,
+        "signup_open": signup_open(show.status, show.entry_deadline),
         "status": show.status,
         "apha_show_number": show.apha_show_number,
         # Serialized here because this function builds the payload by hand and
@@ -486,6 +491,54 @@ async def update_show(
 
     updates = body.model_dump(exclude_unset=True)
     new_status = updates.get("status")
+    effective_status = new_status or show.status
+
+    # The last day to sign up online, against the show's first day. Checked only
+    # when one of the three moves, so a show carrying an older bad pair can still
+    # save its paperwork or its lodging without being asked about it.
+    if {"entry_deadline", "start_date"} & updates.keys():
+        effective_deadline = updates.get("entry_deadline", show.entry_deadline)
+        effective_start = updates.get("start_date", show.start_date)
+        if effective_deadline and effective_start and effective_deadline > effective_start:
+            raise HTTPException(422, SIGNUP_DEADLINE_AFTER_START)
+
+    # The two registration questions (migration 159) are the show office's to
+    # answer for every show, and they start to mean something the moment
+    # exhibitors can see it -- so publishing asks for both, and so does opening
+    # a draft straight to In Progress, which skips publishing. A show already
+    # taking entries is not refused anything on the day: an unanswered one keeps
+    # behaving as before, and Step 1 asks.
+    answers_needed = new_status == "PUBLISHED" or (
+        new_status == "ACTIVE" and show.status == "DRAFT"
+    )
+    if answers_needed:
+        missing = [
+            label
+            for key, label in (
+                ("entry_deadline", "the last day to sign up online"),
+                ("self_entry_closes", "how late exhibitors can enter and scratch their own classes"),
+            )
+            if not updates.get(key, getattr(show, key))
+        ]
+        if missing:
+            action = "publish" if new_status == "PUBLISHED" else "set to In Progress"
+            raise HTTPException(
+                400,
+                f"Cannot {action}: answer "
+                + " and ".join(missing)
+                + ", under Exhibitor registration in Step 1 (Basics & Staff).",
+            )
+    # And once answered, a show exhibitors can see keeps its answers: blanking
+    # one would quietly put the show back on the defaults under people who read
+    # the rule on the show bill.
+    elif effective_status in ("PUBLISHED", "ACTIVE"):
+        for key in ("entry_deadline", "self_entry_closes"):
+            if key in updates and updates[key] is None and getattr(show, key) is not None:
+                raise HTTPException(
+                    400,
+                    "A published show keeps its answers under Exhibitor registration: "
+                    "change them, but they cannot be left blank.",
+                )
 
     # Publishing gates (data integrity)
     if new_status == "PUBLISHED":

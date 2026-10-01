@@ -11,6 +11,8 @@ interface Show {
   start_date: string;
   end_date: string;
   status: string;
+  /** Online sign-up still open today (`self_entry.signup_open`). */
+  signup_open?: boolean;
   show_type_id?: string | null;
   show_type_code?: string | null;
   show_type_name?: string | null;
@@ -27,6 +29,15 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> 
   ACTIVE: { label: 'In Progress', bg: 'var(--success-bg)', text: 'var(--success-strong)' },
   COMPLETED: { label: 'Completed', bg: 'var(--bg-subtle)', text: 'var(--muted)' },
 };
+
+/** Published and past its last day to sign up online (migration 159): still
+ *  taking entries, through the office, so not "Open for Registration". */
+function badgeFor(show: Show): { label: string; bg: string; text: string } | undefined {
+  if (show.status === 'PUBLISHED' && show.signup_open === false) {
+    return { label: 'Online Sign-Up Closed', bg: 'var(--warning-bg)', text: 'var(--warning)' };
+  }
+  return STATUS_BADGE[show.status];
+}
 
 export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; showTypes?: ShowType[] }) {
   const [query, setQuery] = useState('');
@@ -139,7 +150,8 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
       ) : (
         <ul className="space-y-3">
           {filtered.map((show) => {
-            const signUp = signUpLink(show.id, show.status);
+            const signUp = signUpLink(show.id, show.status, show.signup_open);
+            const badge = badgeFor(show);
             return (
             <li key={show.id} className="rounded-lg border overflow-hidden transition hover:shadow-md"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
@@ -151,12 +163,12 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
                       {show.show_type_code}
                     </span>
                   )}
-                  {STATUS_BADGE[show.status] && (
+                  {badge && (
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{
-                      backgroundColor: STATUS_BADGE[show.status].bg,
-                      color: STATUS_BADGE[show.status].text,
+                      backgroundColor: badge.bg,
+                      color: badge.text,
                     }}>
-                      {STATUS_BADGE[show.status].label}
+                      {badge.label}
                     </span>
                   )}
                 </div>

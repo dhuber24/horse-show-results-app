@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { signUpLink } from '@/lib/show-signup';
+import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 
 /**
  * What a visitor with no account sees when they open a show.
@@ -55,8 +56,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 export default function VisitorShowView({ showId, show }: { showId: string; show: any }) {
-  const registrationOpen = show.status === 'PUBLISHED';
-  const signUp = signUpLink(showId, show.status);
+  // Published and on or before the last day to sign up online (migration 159).
+  // Past it the show is still taking entries, through the office.
+  const registrationOpen = show.status === 'PUBLISHED' && show.signup_open !== false;
+  const signUp = signUpLink(showId, show.status, show.signup_open);
   const resultsWorthShowing = show.status === 'ACTIVE' || show.status === 'COMPLETED';
   const sections = [
     { href: `/shows/${showId}/schedule`, label: 'Class schedule' },
@@ -113,8 +116,19 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
         {show.venue && <Row label="Venue">📍 {show.venue}</Row>}
         <Row label="Dates">{formatDate(show.start_date)} – {formatDate(show.end_date)}</Row>
         <Row label="Status">
-          {registrationOpen ? 'Open for registration' : show.status === 'ACTIVE' ? 'In progress' : show.status}
+          {registrationOpen
+            ? 'Open for registration'
+            : show.status === 'PUBLISHED'
+              ? 'Online sign-up closed — entries through the show office'
+              : show.status === 'ACTIVE'
+                ? 'In progress'
+                : show.status}
         </Row>
+        {show.status === 'PUBLISHED' && show.entry_deadline && (
+          <Row label="Online entries">
+            {signupDeadlineText(show.entry_deadline)} {classEntryText(show.self_entry_closes)}
+          </Row>
+        )}
         {show.show_type_code && (
           <Row label="Show type">
             {show.show_type_name ? `${show.show_type_name} (${show.show_type_code})` : show.show_type_code}
@@ -153,8 +167,9 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
             </div>
           </Link>
         ) : signUp ? (
-          // Under way: online sign-up has closed, but the office may still
-          // take a late entry, so this goes to them rather than nowhere.
+          // Under way, or past the last day to sign up online: online sign-up
+          // has closed, but the office may still take a late entry, so this
+          // goes to them rather than nowhere.
           <Link
             href={signUp.href}
             className="rounded-lg border p-4 text-center transition hover:opacity-90"
@@ -162,7 +177,9 @@ export default function VisitorShowView({ showId, show }: { showId: string; show
           >
             <div className="font-semibold">Sign up</div>
             <div className="text-xs mt-0.5" style={{ color: 'var(--bg-subtle)' }}>
-              Show in progress — ask the office about entering
+              {show.status === 'ACTIVE'
+                ? 'Show in progress — ask the office about entering'
+                : 'Online sign-up has closed — ask the office about entering'}
             </div>
           </Link>
         ) : (

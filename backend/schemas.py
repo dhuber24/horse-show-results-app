@@ -95,14 +95,24 @@ class VenueOut(BaseModel):
 
 # ── Shows ──────────────────────────────────────────────────────────────────────
 
+# Sign-up closes when the show opens whatever the date says (`self_entry.py`), so
+# a later day would print a deadline the app never keeps. Checked here on create,
+# and against the stored dates on an update in `routers/shows.update_show`.
+SIGNUP_DEADLINE_AFTER_START = (
+    "The last day to sign up online can be no later than the show's first day."
+)
+
 class ShowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     venue_id: Optional[UUID] = None
     show_type_id: UUID
     start_date: date
     end_date: date
-    # The day entries close (migration 123). Records only -- see the model.
+    # The last day to sign up online (migration 123; closes sign-up since 159).
     entry_deadline: Optional[date] = None
+    # How late exhibitors enter and scratch their own classes (migration 159).
+    # Both are asked when a show is created and required to publish it.
+    self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -120,6 +130,8 @@ class ShowCreate(BaseModel):
     def validate_date_range(self):
         if self.end_date < self.start_date:
             raise ValueError("The end date must be on or after the start date.")
+        if self.entry_deadline and self.entry_deadline > self.start_date:
+            raise ValueError(SIGNUP_DEADLINE_AFTER_START)
         return self
 
 class ShowUpdate(BaseModel):
@@ -129,6 +141,7 @@ class ShowUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     entry_deadline: Optional[date] = None
+    self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -219,6 +232,13 @@ class ShowOut(BaseModel):
     start_date: date
     end_date: date
     entry_deadline: Optional[date] = None
+    # Migration 159. Serialized in `routers/shows._serialize` as well -- see the
+    # note on `showbill_source` below.
+    self_entry_closes: Optional[str] = None
+    # Whether somebody not yet signed up may sign up online today
+    # (`self_entry.signup_open`). Derived, so every show list can send a Sign Up
+    # link to the right place without opening the show.
+    signup_open: bool = False
     status: str
     apha_show_number: Optional[str] = None
     apha_zone: Optional[int] = None

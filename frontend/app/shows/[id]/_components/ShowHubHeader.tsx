@@ -6,6 +6,10 @@ const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> 
   COMPLETED: { label: 'Completed', bg: 'var(--bg-subtle)', text: 'var(--muted)' },
 };
 
+/** Published and past its last day to sign up online (migration 159): still
+ *  taking entries, through the office, so not "Open for Registration". */
+const SIGNUP_CLOSED_BADGE = { label: 'Online Sign-Up Closed', bg: 'var(--warning-bg)', text: 'var(--warning)' };
+
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day).toLocaleDateString('en-US', {
@@ -25,6 +29,7 @@ interface Show {
   start_date: string;
   end_date: string;
   status: string;
+  signup_open?: boolean;
   affiliations?: Affiliation[];
 }
 
@@ -37,7 +42,10 @@ export default function ShowHubHeader({
   backHref: string;
   backLabel: string;
 }) {
-  const badge = STATUS_BADGE[show.status];
+  const badge =
+    show.status === 'PUBLISHED' && show.signup_open === false
+      ? SIGNUP_CLOSED_BADGE
+      : STATUS_BADGE[show.status];
   return (
     <div className="mb-6">
       <Link href={backHref} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>

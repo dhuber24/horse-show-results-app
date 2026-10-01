@@ -3,6 +3,7 @@ import { auth } from '@/auth';
 import { fetchShow, fetchClasses } from '@/lib/api';
 import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
+import { registrationAnswered } from '@/lib/registration-window';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import ValidationIssues, { ValidationResult } from '@/components/ValidationIssues';
 import AphaMinimums from './AphaMinimums';
@@ -351,6 +352,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
             startDate={show.start_date}
             endDate={show.end_date}
             venueId={show.venue_id ?? null}
+            registrationAnswered={registrationAnswered(show)}
           />
         </div>
         {(isAdmin || isShowAdmin) && (

@@ -21,6 +21,7 @@
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
+import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 
 export type ShowbillClassRow = {
   /** Optional so a caller building rows by hand still type-checks; without it
@@ -365,6 +366,17 @@ export default function ShowbillDocument({
             {formatDate(show.start_date)}
             {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
           </Fact>
+          {/* The show office's two registration answers (migration 159). Printed
+              beside the dates because they are dates of a kind — when somebody
+              reading the bill has to have acted by. */}
+          {(show.entry_deadline || show.self_entry_closes) && (
+            <Fact label="Online entries">
+              {show.entry_deadline && (
+                <>{signupDeadlineText(show.entry_deadline)} After that, the show office signs exhibitors up. </>
+              )}
+              {show.self_entry_closes && classEntryText(show.self_entry_closes)}
+            </Fact>
+          )}
           {show.venue && <Fact label="Location">{show.venue}</Fact>}
           <Fact label="Show type">
             {show.show_type_name

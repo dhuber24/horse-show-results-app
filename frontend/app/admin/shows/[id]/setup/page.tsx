@@ -117,7 +117,9 @@ export default async function SetupHubPage({
 function stepHint(key: WizardStepKey, counts: WizardStepsInput): string {
   switch (key) {
     case 'basic':
-      return 'Name, dates, venue, and show staff — managers, secretaries, scribes, gate stewards.';
+      return counts.registrationAnswered === false
+        ? 'Still to answer: the last day to sign up online, and until when exhibitors can change their own classes.'
+        : 'Name, dates, venue, registration deadlines, and show staff.';
     case 'judges':
       return counts.judgeCount === 0
         ? 'No judges added yet.'

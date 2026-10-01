@@ -6,6 +6,8 @@ import Link from 'next/link';
 import BackNumberRequest from './BackNumberRequest';
 import AddClassEntry from './AddClassEntry';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
+import { classEntryText } from '@/lib/registration-window';
+import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { formatMoney, healthWarnings, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
 
@@ -24,7 +26,9 @@ import type { BillClassLine } from '@/lib/my-shows';
  * It is also what a running show's "My classes" opens: only the class doors stay
  * open once a show is ACTIVE (`backend/self_entry.py`) — entering a class that
  * has not started and scratching from one that has not finished — and this page
- * is exactly those doors.
+ * is exactly those doors. Where the show office answered that class changes
+ * stop when the show starts (migration 159), the doors are shut from its first
+ * day and the page is the list of what they are entered in.
  *
  * **Nothing here is a second implementation.** The picker is the same
  * `AddClassEntry` the desk's form mirrors, the table is the bill's own class
@@ -148,6 +152,12 @@ export default function ClassEntryScreen({
   // — entering a class that has not started and scratching from one that has
   // not finished.
   const live = show.status === 'ACTIVE';
+  // The show's own answer to how late classes change online (migration 159).
+  // False only at a running show whose office said class changes stop when it
+  // starts; each class's own state still applies on top while it is true.
+  const classEntryOpen = preview.registration?.class_entry_open !== false;
+  const classEntryCloses = preview.registration?.class_entry_closes ?? 'class_start';
+  const signupOpen = preview.registration?.signup_open !== false;
   const registrationHref = `/shows/${showId}/register`;
 
   const scratchLocks = useMemo(
@@ -202,12 +212,16 @@ export default function ClassEntryScreen({
         style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
         {live
-          ? signedUp
-            ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
-            : 'The show is under way and online sign-up has closed.'
+          ? !classEntryOpen
+            ? 'The show is under way, and the show office makes every class change now. Ask at the office to enter or scratch a class.'
+            : signedUp
+              ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
+              : 'The show is under way and online sign-up has closed.'
           : signedUp
-            ? 'Pick a class and a horse — each entry saves as you add it. Fees shown here are what the office will collect at the show.'
-            : 'Class entry opens once you’ve signed up for this show.'}
+            ? `Pick a class and a horse — each entry saves as you add it. ${classEntryText(classEntryCloses)} Fees shown here are what the office will collect at the show.`
+            : signupOpen
+              ? 'Class entry opens once you’ve signed up for this show.'
+              : 'Class entry is for exhibitors signed up for this show, and online sign-up has closed.'}
       </div>
 
       {signedUp ? (
@@ -287,7 +301,9 @@ export default function ClassEntryScreen({
               <>
                 {entered.length === 0 ? (
                   <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-                    Nothing entered yet — pick a class below.
+                    {classEntryOpen
+                      ? 'Nothing entered yet — pick a class below.'
+                      : 'You’re not entered in any classes.'}
                   </p>
                 ) : (
                   <div className="overflow-x-auto mb-3">
@@ -317,7 +333,11 @@ export default function ClassEntryScreen({
                               setWithdrawError(null);
                             }}
                             onConfirm={() => handleWithdraw(line.entry_id)}
-                            lockedReason={scratchLocks.get(line.entry_id) ?? null}
+                            lockedReason={
+                              classEntryOpen
+                                ? scratchLocks.get(line.entry_id) ?? null
+                                : 'The show office makes class changes now that the show is under way.'
+                            }
                             live={live}
                           />
                         ))}
@@ -325,7 +345,7 @@ export default function ClassEntryScreen({
                     </table>
                     {/* Said once under the table rather than per row, because a
                         tooltip is no help on a phone. */}
-                    {entered.some((line) => scratchLocks.get(line.entry_id)) && (
+                    {classEntryOpen && entered.some((line) => scratchLocks.get(line.entry_id)) && (
                       <p className="text-xs mt-1.5" style={{ color: 'var(--muted)' }}>
                         <span className="font-medium">Office only</span>: that class is finished, or
                         your horse already has a result in it — only the show office can take you
@@ -335,14 +355,16 @@ export default function ClassEntryScreen({
                   </div>
                 )}
 
-                <AddClassEntry
-                  showId={showId}
-                  showTypeCode={show.show_type_code}
-                  classes={classes}
-                  horses={horses}
-                  existingEntries={existing_entries}
-                  onAdded={() => router.refresh()}
-                />
+                {classEntryOpen && (
+                  <AddClassEntry
+                    showId={showId}
+                    showTypeCode={show.show_type_code}
+                    classes={classes}
+                    horses={horses}
+                    existingEntries={existing_entries}
+                    onAdded={() => router.refresh()}
+                  />
+                )}
               </>
             )}
 
@@ -418,6 +440,10 @@ export default function ClassEntryScreen({
             Message the show office →
           </Link>
         </div>
+      ) : !signupOpen ? (
+        // Past the last day to sign up online (migration 159): the wizard would
+        // turn them away, so the office is the way in.
+        <SignupClosedNotice showId={showId} deadline={preview.registration?.signup_deadline ?? null} />
       ) : (
         // A destination, not a locked box: the registration wizard opens on
         // whichever step is still outstanding, so one link covers every case.

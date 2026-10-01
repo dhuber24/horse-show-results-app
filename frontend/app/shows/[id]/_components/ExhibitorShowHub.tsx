@@ -45,6 +45,11 @@ export default function ExhibitorShowHub({
     start_date: string;
     end_date: string;
     status: string;
+    /** The show office's two registration answers (migration 159), and whether
+     *  sign-up is still open today — decided on the server. */
+    signup_open?: boolean;
+    entry_deadline?: string | null;
+    self_entry_closes?: string | null;
     affiliations?: { show_type_id: string; show_type_code: string; show_type_name?: string }[];
   };
   standing: MyShowStanding | null;
@@ -96,6 +101,13 @@ export default function ExhibitorShowHub({
             : 'Your details and the horses you are bringing.',
         },
       );
+    } else if (show.signup_open === false) {
+      // Past the last day to sign up online (migration 159): the office signs
+      // people up now, so the slot sends them there with the question framed.
+      const late = signUpLink(showId, show.status, false);
+      if (late) {
+        tiles.push({ href: late.href, icon: '✍️', title: 'Sign Up', description: late.hint, primary: true });
+      }
     } else {
       tiles.push({
         // The whole flow in order, on one screen — profile, horses, then any
@@ -112,14 +124,24 @@ export default function ExhibitorShowHub({
       });
     }
   } else if (canSelfRegister && show.status === 'ACTIVE' && signedUp) {
-    // Under way and signed up: the class doors stay open (`backend/self_entry.py`),
-    // so the same slot keeps leading back to what they entered.
-    tiles.push({
-      href: `/shows/${showId}/register/classes`,
-      icon: '📝',
-      title: 'Add/Drop Classes',
-      description: 'Enter a class that hasn’t started, or scratch from one that hasn’t finished.',
-    });
+    // Under way and signed up: the class doors stay open (`backend/self_entry.py`)
+    // unless the office said class changes stop when the show starts, and
+    // either way the same slot keeps leading back to what they entered.
+    tiles.push(
+      show.self_entry_closes === 'show_start'
+        ? {
+            href: `/shows/${showId}/register/classes`,
+            icon: '📝',
+            title: 'My Classes',
+            description: 'What you’re entered in. The show office makes class changes now.',
+          }
+        : {
+            href: `/shows/${showId}/register/classes`,
+            icon: '📝',
+            title: 'Add/Drop Classes',
+            description: 'Enter a class that hasn’t started, or scratch from one that hasn’t finished.',
+          },
+    );
   } else if (canSelfRegister && show.status === 'ACTIVE' && !hasStanding) {
     // Under way and not entered: online sign-up has closed, but the office may
     // still take a late entry at the counter, so the same slot sends them to
@@ -230,7 +252,13 @@ export default function ExhibitorShowHub({
       <ShowHubHeader show={show} backHref="/" backLabel="Back to Shows" />
 
       {canSelfRegister && (
-        <ExhibitorStatusBanner showId={showId} showStatus={show.status} standing={standing} />
+        <ExhibitorStatusBanner
+          showId={showId}
+          showStatus={show.status}
+          standing={standing}
+          signupOpen={show.signup_open !== false}
+          signupDeadline={show.entry_deadline ?? null}
+        />
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

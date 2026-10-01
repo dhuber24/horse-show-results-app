@@ -46,6 +46,12 @@ export function stepName(label: string): string {
 
 export type WizardStepsInput = {
   showId: string;
+  /** Both registration questions answered — the last day to sign up online and
+   *  how late exhibitors change their own classes (migration 159). What Basics
+   *  ticks on: everything else on it has an answer from the moment the show
+   *  exists, and these two are required to publish. Optional so a screen with no
+   *  show yet (`/admin/shows/new`) need not pass it. */
+  registrationAnswered?: boolean;
   judgeCount: number;
   sanctioningCount: number;
   lodgingFeeCount: number;
@@ -98,6 +104,7 @@ export type WizardStepsInput = {
 
 export function buildSteps({
   showId,
+  registrationAnswered = true,
   judgeCount,
   sanctioningCount,
   lodgingFeeCount,
@@ -121,7 +128,7 @@ export function buildSteps({
       key: 'basic',
       label: 'Basics & Staff',
       href: `/admin/shows/${showId}/edit`,
-      done: true,
+      done: registrationAnswered,
     },
     {
       key: 'judges',

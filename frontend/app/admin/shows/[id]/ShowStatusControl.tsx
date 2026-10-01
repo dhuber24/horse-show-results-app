@@ -48,11 +48,18 @@ function extractErrorMessage(json: any, fallback: string): string {
 
 function preflightCheck(
   target: ShowStatus,
+  current: ShowStatus,
   classCount: number,
   venueId: string | null,
   startDate: string,
   endDate: string,
+  registrationAnswered: boolean,
 ): string | null {
+  // The two registration questions (migration 159), asked of every show before
+  // exhibitors can see it. Mirrors `update_show`, which is the enforcement.
+  if (!registrationAnswered && (target === 'PUBLISHED' || (target === 'ACTIVE' && current === 'DRAFT'))) {
+    return `Cannot ${target === 'PUBLISHED' ? 'publish' : 'set to In Progress'}: answer the last day to sign up online and how late exhibitors can enter and scratch their own classes, under Exhibitor registration in Step 1 (Basics & Staff).`;
+  }
   if (target === 'PUBLISHED') {
     if (!venueId) return 'Cannot publish: a venue must be selected before publishing.';
     if (classCount === 0) return 'Cannot publish: the show must have at least one class before publishing.';
@@ -76,9 +83,19 @@ interface Props {
   startDate: string;
   endDate: string;
   venueId: string | null;
+  /** Both of Step 1's registration questions are answered (migration 159). */
+  registrationAnswered: boolean;
 }
 
-export default function ShowStatusControl({ showId, currentStatus, classCount, startDate, endDate, venueId }: Props) {
+export default function ShowStatusControl({
+  showId,
+  currentStatus,
+  classCount,
+  startDate,
+  endDate,
+  venueId,
+  registrationAnswered,
+}: Props) {
   const router = useRouter();
   const [targetStatus, setTargetStatus] = useState<ShowStatus | ''>('');
   const [pendingStatus, setPendingStatus] = useState<ShowStatus | null>(null);
@@ -90,7 +107,15 @@ export default function ShowStatusControl({ showId, currentStatus, classCount, s
   const handleApply = () => {
     setError(null);
     if (!targetStatus || targetStatus === currentStatus) return;
-    const err = preflightCheck(targetStatus, classCount, venueId, startDate, endDate);
+    const err = preflightCheck(
+      targetStatus,
+      currentStatus,
+      classCount,
+      venueId,
+      startDate,
+      endDate,
+      registrationAnswered,
+    );
     if (err) {
       setError(err);
       return;

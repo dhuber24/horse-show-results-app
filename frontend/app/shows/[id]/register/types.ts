@@ -10,6 +10,7 @@
 
 import type { Bill } from '@/lib/my-shows';
 import type { Registration } from '@/components/ExhibitorRegistrations';
+import type { RegistrationWindow } from '@/lib/registration-window';
 
 export type PreviewClass = {
   id: string;
@@ -230,6 +231,10 @@ export type PreviewData = {
    *  round trip. The same rows the `memberships` checklist item is built from. */
   registrations: Registration[];
   cancellation: CancellationWindow;
+  /** Whether signing up and changing classes are still the exhibitor's to do,
+   *  and until when (migration 159). Optional for a frontend deployed ahead of
+   *  the backend that sends it. */
+  registration?: RegistrationWindow;
   show: {
     id: string;
     name: string;

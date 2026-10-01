@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import RegisterShowForm from './RegisterShowForm';
+import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { loadPreview } from './load-preview';
 import type { SignupData } from '../_components/ReservationFields';
 import type { ExhibitorFuturity } from './FuturityEntry';
@@ -86,6 +87,14 @@ export default async function RegisterShowPage({
           style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error ?? 'Registration is not available for this show right now.'}
+        </div>
+      ) : !data.signup && data.registration?.signup_open === false ? (
+        // Past the last day to sign up online (migration 159), and not signed
+        // up — cancelled, or never started. Somebody already signed up still
+        // gets the form: they are amending a registration, not making one.
+        <div className="mt-6">
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{data.show.name}</h1>
+          <SignupClosedNotice showId={id} deadline={data.registration.signup_deadline} />
         </div>
       ) : (
         <RegisterShowForm

@@ -43,8 +43,14 @@ Once a show flips out of PUBLISHED (ACTIVE / COMPLETED / DRAFT), these
 endpoints return 403 and the secretary must add late entries through the admin
 flow -- **except the class doors** (`POST /`, `DELETE /entries/{id}` and the
 `/preview` they are drawn from), which stay open while the show is ACTIVE for
-somebody already signed up. A class the ring has finished is closed to both, and
+somebody already signed up, unless the show office answered that class changes
+stop when the show starts. A class the ring has finished is closed to both, and
 only the show office takes an exhibitor out of it: see `self_entry.py`.
+
+**Sign-up also closes on the show's last day to sign up online**
+(`shows.entry_deadline`, migration 159): after it `PUT /signup` refuses anybody
+not already on the roster with `SIGNUP_CLOSED`, and the office signs them up at
+the desk.
 """
 import uuid
 from datetime import date
@@ -146,9 +152,14 @@ from futurity_enrollment import (
 from self_entry import (
     SELF_ENTRY_STATUSES,
     class_completed,
+    class_entry_closed_refusal,
+    class_entry_open,
     class_under_way,
     entry_refusal,
+    registration_window,
     scratch_refusal,
+    signup_closed_refusal,
+    signup_open,
     unnominated,
 )
 from side_pot_membership import (
@@ -276,13 +287,18 @@ async def _load_published_show_or_403(
 
 
 async def _load_entry_window_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
-    """The class doors' loader: PUBLISHED, or ACTIVE while the show runs.
+    """The class doors' loader: PUBLISHED, or ACTIVE while the show runs --
+    unless the show office answered that exhibitors' class changes stop when the
+    show starts (`shows.self_entry_closes`, migration 159).
 
     Everything else in this router stays PUBLISHED-only -- sign-up, stalls,
     horses, back numbers and futurity nominations are settled before the show,
     and a running show's office takes those at the counter.
     """
-    return await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
+    show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
+    if not class_entry_open(show.status, show.self_entry_closes):
+        raise HTTPException(403, class_entry_closed_refusal())
+    return show
 
 
 async def _registration_horses(
@@ -568,6 +584,9 @@ async def get_signup(
         "cancellation": cancellation_window(
             show.status, show.start_date, await self_cancel_days_before(show, db)
         ),
+        # The show's two registration cut-offs (migration 159). A screen offering
+        # sign-up to somebody not on the roster reads `signup_open` first.
+        "registration": registration_window(show),
     }
 
 
@@ -598,6 +617,17 @@ async def save_signup(
 
     show = await _load_published_show_or_403(show_id, db)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
+
+    # The last day to sign up online (migration 159). It closes *new* sign-ups:
+    # somebody already signed up is amending a registration, not making one, and
+    # keeps that until the show starts. Signing up again after cancelling is a
+    # new sign-up -- they called it off, and past the deadline the office takes
+    # them back. Checked first, because nothing further down is worth reporting
+    # to somebody who cannot sign up here at all.
+    if not signup_open(show.status, show.entry_deadline) and not is_on_roster(
+        await _load_show_entry(show_id, exhibitor.id, db)
+    ):
+        raise HTTPException(403, signup_closed_refusal(show))
 
     # Step one, and this is the first write in the flow — so this is where it
     # is enforced. Refused rather than flagged: unlike health paperwork, every
@@ -1329,9 +1359,10 @@ async def start_registration_draft(
     """
     show = await db.get(Show, show_id)
     # A bookmark points at a form. Registration closes when the show leaves
-    # PUBLISHED, so a draft for anything else would point at a screen that
-    # 403s -- see `_load_published_show_or_403`.
-    if show is None or show.status != "PUBLISHED":
+    # PUBLISHED, or on the last day to sign up online (migration 159), so a draft
+    # for anything else would point at a screen that turns them away -- see
+    # `_load_published_show_or_403` and `self_entry.signup_open`.
+    if show is None or not signup_open(show.status, show.entry_deadline):
         return
 
     exhibitor_result = await db.execute(
@@ -1422,7 +1453,10 @@ async def preview_registration(
     completed, and each entry whether its exhibitor may still scratch it, so the
     screen offers exactly what `POST /` and `DELETE /entries/{id}` will accept.
     """
-    show = await _load_entry_window_show_or_403(show_id, db)
+    # Readable whenever the class page is, even at a running show whose class
+    # doors have shut (`self_entry_closes = show_start`): the page still lists
+    # what they are entered in, and `registration` says the doors are shut.
+    show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
     is_apha = bool(show.show_type and show.show_type.code == "APHA")
     # The bodies this show runs under. The same list the membership checklist
@@ -1550,6 +1584,10 @@ async def preview_registration(
         "cancellation": cancellation_window(
             show.status, show.start_date, await self_cancel_days_before(show, db)
         ),
+        # Whether signing up and entering classes are still theirs to do, and
+        # until when (migration 159). `class_entry_open` false means the class
+        # doors refuse everything, whatever each class's own state says.
+        "registration": registration_window(show),
         "show": {
             "id": str(show.id),
             "name": show.name,

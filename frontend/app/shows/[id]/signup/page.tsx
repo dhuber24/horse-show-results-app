@@ -5,6 +5,7 @@ import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import SignupForm, { type SignupData } from './SignupForm';
 import WaiverSignatures from './WaiverSignatures';
 import ProfileStep from '../register/ProfileStep';
+import SignupClosedNotice from '../_components/SignupClosedNotice';
 
 async function loadSignup(
   showId: string,
@@ -44,6 +45,13 @@ export default async function ShowSignupPage({ params }: { params: Promise<{ id:
           style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}
         >
           {error ?? 'Sign-up is not available for this show right now.'}
+        </div>
+      ) : !data.signup && data.registration?.signup_open === false ? (
+        // Past the last day to sign up online (migration 159): the stall picker
+        // would be a form the save turns away.
+        <div className="mt-6">
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{data.show.name}</h1>
+          <SignupClosedNotice showId={id} deadline={data.registration.signup_deadline} />
         </div>
       ) : data.profile && !data.profile.complete ? (
         /* Step one, enforced on the direct URL as well as in the flow. `PUT

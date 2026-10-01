@@ -80,7 +80,7 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 - Deliberately not a session-token flag: the JWT is minted at sign-in, so somebody who ticked the box mid-session would keep a stale `false` on the very screen they are sent to next.
 - Admin user profiles can record `aqha_management_workshop_completed_at`, which AQHA validation uses to confirm at least one assigned show manager or show secretary is workshop-current within 3 years.
 - New self-registered Show Secretaries, Show Managers, Trainers, and Exhibitors are currently auto-approved. The `is_approved` column remains as an account lock gate.
-- Show Managers create shows directly via `/admin/shows/new`; `POST /shows/` auto-links them via `show_managers`. There is no per-show approval gate.
+- Show Managers create shows directly via `/admin/shows/new`. There is no per-show approval gate. `POST /shows/` puts the new show under the creator's company (`shows.company_id`, migration 156) — their only company, or their one organization when they also kept a company of their own — and the company's staff then work it with no per-show row. Somebody in two clubs, or an ADMIN, gets no company and chooses on setup Step 1; only then does the creator get a `show_managers` / `show_secretaries` row, as before.
 
 ## Password Reset
 
@@ -165,6 +165,17 @@ Show-scoped write access is usually checked with join tables:
 - `show_managers`
 - `show_gate_stewards`
 - `show_scribes`
+
+### Who Works A Show From The Office
+
+The show office — a `SHOW_MANAGER` or `SHOW_SECRETARY` — works a show through a per-show row for their role (`show_managers` / `show_secretaries`) **or** through membership of the company that runs it (`shows.company_id`, migration 156). ADMIN works every show. `backend/show_access.py` is the one place that is written down (`works_show`, `worked_show_ids` for lists, `show_office_users` for anybody reading the roster), and every office access check reads it: a check that forgot the company would lock a club's own secretary out of one screen of a show they could open everywhere else.
+
+- **Only the two office roles qualify through a company.** Scribes and gate stewards stay per show, even if an admin put one in a company.
+- **Leaving the company releases its shows.** `remove_company_member` deletes that person's per-show rows on the company's shows, so somebody who leaves does not keep a club's shows through a row written before the show had a company.
+- **Moving a show is for the current company's staff** (or an admin), and only to a company they work for, because moving it changes who works it. A guest on the show — a freelance secretary hired for the weekend — cannot take it to their own club.
+- **Deleting a company, or retiring a spare personal one, pins its shows first** (`pin_company_shows`): each office-role member gets a per-show row on each of the company's shows, so nobody loses a show they were working.
+- **Adding to the company from setup Step 1 is still a request** an admin approves (migration 149); an admin working Step 1 adds directly. Removing is immediate, and you cannot remove yourself there.
+- **The last-manager guard is relaxed**: removing the last `show_managers` row returns 409 only when the show has no company staff to fall back on.
 
 ### Horse Documents: Read And Write Split
 

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { errorMessage } from '@/lib/api-error';
+import RegistrationQuestions from '@/components/RegistrationQuestions';
+import type { SelfEntryCloses } from '@/lib/registration-window';
 
 interface Venue {
   id: string;
@@ -22,6 +24,7 @@ interface Show {
   start_date: string;
   end_date: string;
   entry_deadline: string | null;
+  self_entry_closes: SelfEntryCloses | null;
   apha_show_number: string | null;
   apha_zone: number | null;
   show_category_id: string | null;
@@ -85,6 +88,7 @@ export default function EditShowForm({
     start_date: show.start_date,
     end_date: show.end_date,
     entry_deadline: show.entry_deadline ?? '',
+    self_entry_closes: (show.self_entry_closes ?? '') as SelfEntryCloses | '',
     apha_show_number: show.apha_show_number ?? '',
     apha_zone: show.apha_zone === null || show.apha_zone === undefined ? '' : String(show.apha_zone),
     show_category_id: show.show_category_id ?? '',
@@ -133,6 +137,7 @@ export default function EditShowForm({
         start_date: form.start_date,
         end_date: form.end_date,
         entry_deadline: form.entry_deadline || null,
+        self_entry_closes: form.self_entry_closes || null,
         apha_show_number: form.apha_show_number || null,
         apha_zone: form.apha_zone ? Number(form.apha_zone) : null,
         show_category_id: form.show_category_id || null,
@@ -261,20 +266,6 @@ export default function EditShowForm({
             />
           </label>
         </div>
-
-        <label className="block">
-          <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-            Entry deadline (optional)
-          </span>
-          <input
-            name="entry_deadline"
-            type="date"
-            value={form.entry_deadline}
-            onChange={handleChange}
-            className="w-full border rounded px-3 py-2"
-            style={{ borderColor: COLORS.border }}
-          />
-        </label>
 
         {categoriesForType.length > 0 && (
           <label className="block">
@@ -424,6 +415,19 @@ export default function EditShowForm({
             </label>
           </div>
         )}
+
+        {/* Its own block rather than a date among the dates: the entry deadline
+            used to be an optional box here that closed nothing. It is the first
+            of two questions every show answers now (migration 159). */}
+        <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <RegistrationQuestions
+            entryDeadline={form.entry_deadline}
+            selfEntryCloses={form.self_entry_closes}
+            startDate={form.start_date}
+            onEntryDeadline={(value) => setForm((prev) => ({ ...prev, entry_deadline: value }))}
+            onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
+          />
+        </div>
 
         <div className="flex items-center justify-between pt-2">
           <button

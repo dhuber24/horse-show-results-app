@@ -16,6 +16,7 @@ interface Show {
   start_date: string;
   end_date: string;
   status: string;
+  signup_open?: boolean;
   show_type_code?: string | null;
 }
 
@@ -56,7 +57,7 @@ export default async function ActiveShowsPage() {
       ) : (
         <ul className="space-y-3">
           {active.map((show) => {
-            const signUp = signUpLink(show.id, show.status);
+            const signUp = signUpLink(show.id, show.status, show.signup_open);
             return (
             <li key={show.id} className="rounded-lg border overflow-hidden transition hover:shadow-md"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>

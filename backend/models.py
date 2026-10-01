@@ -142,12 +142,18 @@ class Show(Base):
     show_type_id = Column(UUID(as_uuid=True), ForeignKey("show_types.id"), nullable=False)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
-    # The day entries close (migration 123). Records only: it does not gate
-    # self-registration and it does not fire the `post_entry` fee. APHA SC-090.C
-    # measures the approval-application deadline against this or the show's first
-    # day, whichever comes first, and without it the app could only count from the
-    # later of the two -- which is the optimistic direction on a deadline.
+    # The day entries close (migration 123) -- since migration 159 the last day
+    # an exhibitor may sign up online, after which the office signs them up at
+    # the desk (`self_entry.signup_open`). It still does not fire the
+    # `post_entry` fee. APHA SC-090.C measures the approval-application deadline
+    # against this or the show's first day, whichever comes first, and without it
+    # the app could only count from the later of the two -- which is the
+    # optimistic direction on a deadline.
     entry_deadline = Column(Date, nullable=True)
+    # How late an exhibitor may enter and scratch their own classes (migration
+    # 159): `class_start` or `show_start`. NULL is not answered and reads as
+    # `class_start`. Read through `self_entry.class_entry_open`.
+    self_entry_closes = Column(Text, nullable=True)
     # What kind of show this is and the judge panel it allows (migration 124).
     # NULL means the show has not said, which is how every show predating the
     # migration reads -- and which APHA's application asks for.

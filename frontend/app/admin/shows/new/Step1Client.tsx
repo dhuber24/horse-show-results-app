@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import RegistrationQuestions from '@/components/RegistrationQuestions';
+import { errorMessage } from '@/lib/api-error';
+import type { SelfEntryCloses } from '@/lib/registration-window';
 
 type Venue = {
   id: string;
@@ -64,6 +67,8 @@ export default function Step1Client({
     venue_id: '',
     start_date: '',
     end_date: '',
+    entry_deadline: '',
+    self_entry_closes: '' as SelfEntryCloses | '',
   });
 
   const callerIsSecretary = callerRole === 'SHOW_SECRETARY';
@@ -98,6 +103,12 @@ export default function Step1Client({
     if (!form.start_date) return 'Start date is required.';
     if (!form.end_date) return 'End date is required.';
     if (form.end_date < form.start_date) return 'End date must be on or after start date.';
+    // Asked of every show (migration 159). Required here, where every show
+    // starts, and again to publish — for a show created some other way.
+    if (!form.entry_deadline) return 'Choose the last day exhibitors can sign up online.';
+    if (form.entry_deadline > form.start_date)
+      return 'The last day to sign up online can be no later than the show’s first day.';
+    if (!form.self_entry_closes) return 'Choose until when exhibitors can enter and scratch their own classes.';
     return null;
   }
 
@@ -147,12 +158,15 @@ export default function Step1Client({
           venue_id: form.venue_id || null,
           start_date: form.start_date,
           end_date: form.end_date,
+          entry_deadline: form.entry_deadline,
+          self_entry_closes: form.self_entry_closes,
           status: 'DRAFT',
         }),
       });
       const created = await createRes.json().catch(() => null);
       if (!createRes.ok) {
-        setError(created?.detail || 'Failed to create show.');
+        // A Pydantic 422 carries a list, not a string (`lib/api-error.ts`).
+        setError(errorMessage(created, 'Failed to create show.'));
         return;
       }
       const showId: string = created.id;
@@ -298,6 +312,17 @@ export default function Step1Client({
               style={{ borderColor: COLORS.border }}
             />
           </Field>
+        </div>
+
+        <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <RegistrationQuestions
+            entryDeadline={form.entry_deadline}
+            selfEntryCloses={form.self_entry_closes}
+            startDate={form.start_date}
+            onEntryDeadline={(value) => handleField('entry_deadline', value)}
+            onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
+            unansweredNote={null}
+          />
         </div>
       </section>
 

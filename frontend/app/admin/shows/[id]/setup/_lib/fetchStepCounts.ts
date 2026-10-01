@@ -1,6 +1,7 @@
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
+import { registrationAnswered } from '@/lib/registration-window';
 import type { SkipKey, WizardStepsInput } from '../../../_wizard/steps';
 
 // Mirrors LODGING_CODES in setup/lodging/page.tsx — `hookup` is the pre-108
@@ -74,6 +75,7 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
 
   return {
     showId,
+    registrationAnswered: registrationAnswered(show),
     judgeCount: judges.length,
     sanctioningCount: sanctioning.length,
     lodgingFeeCount,

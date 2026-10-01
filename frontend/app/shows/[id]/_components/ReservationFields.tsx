@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import type { CancellationWindow, ProfileStatus } from '../register/types';
+import type { RegistrationWindow } from '@/lib/registration-window';
 
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
@@ -79,6 +80,8 @@ export type SignupData = {
    *  offering a form the save will turn away. */
   profile?: ProfileStatus;
   cancellation?: CancellationWindow;
+  /** The show's two registration cut-offs (migration 159). */
+  registration?: RegistrationWindow;
 };
 
 /** Grouping for the picker. Units are what the secretary configured on the fee,
