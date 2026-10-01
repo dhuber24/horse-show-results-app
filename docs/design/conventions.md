@@ -1,0 +1,14 @@
+# Conventions In Full
+
+The long form of conventions that [Claude.md](../../Claude.md) states in one line. Frontend conventions as a whole are in [frontend.md](../frontend.md).
+
+These are the rules this part of the app keeps and the reasons behind them, moved here from `Claude.md` so they load when the work needs them rather than on every request. One claim per bullet, the claim first. Add new ones under the heading they belong to.
+
+## Eager loading in async SQLAlchemy
+
+- **`db.get(Model, id, options=[selectinload(...)])` silently drops the options when that row is already in the session's identity map** — the common case right after you created or fetched it. The relationship comes back unloaded, the first attribute read is lazy IO in an async request, and SQLAlchemy raises `MissingGreenlet`: a 500 with an empty body, on a request whose write already committed. Re-read with `select(Model).where(...).options(...).execution_options(populate_existing=True)` instead. This is what broke side pot creation.
+- **And `populate_existing=True` is a *refresh*, so the second one in a request wins and the first one's eager loads are gone.** The fix above, applied twice in one request, is the bug it was meant to prevent: two routers loading the same row with different options -- `show_desk._get_show_or_404` asks for `show_type`, `show_financials._get_show_or_404` asks for `fees`/`judges`/`sanctioning` -- and a refresh erases every relationship the second query did not name. The desk's `show.show_type` read was then lazy IO in an async request, and `GET /shows/{id}/desk` 500'd with an empty body at every show whose classes carry no `class_associations` rows: every schedule built by hand, and so every new show. It went unnoticed because `ClassAssociation.show_type` is `lazy="selectin"`, which kept the ShowType alive in the session's identity map at any show imported from an association catalog -- a weak reference, and an accident. **The fix belongs on the relationship, not on the caller**: `Show.show_type` is `lazy="selectin"` now, so it rides along on every refresh and no loader has to know what another loader asked for. Reach for that whenever two aggregate reads share a row.
+
+## Colour
+
+- **Never write a hex colour in a component.** Every colour is a CSS custom property in `frontend/app/globals.css`; components use them through the inline `style` prop (`style={{ color: 'var(--muted)' }}`). The rebrand to GaitDesk replaced 3,418 hardcoded hex values across 238 files precisely so the theme is one edit — a literal puts that back. The two exceptions, which must stay literal and stay in step with each other, are `viewport.themeColor` in `app/layout.tsx` and `theme_color` in `public/manifest.json`: browser chrome reads both before any stylesheet applies. See "Colour And Brand" in `docs/frontend.md`.

@@ -130,7 +130,7 @@ Two instructions matter more than the rest:
 
 - **Class prices go in `class_rates`, never in `fees`.** A class price stored as
   a `per_entry` fee row bills every entry *on top of* the class's own price —
-  a $36 class came to $552 on a real bill (see the Sharp Edges in `CLAUDE.md`).
+  a $36 class came to $552 on a real bill (see [design/billing.md](design/billing.md)).
   Classes point at a rate by key, so the reviewer checks five prices rather than
   a hundred and seventy.
 - **Transcribe, never multiply.** A bill quotes "$9 per judge"; the app stores

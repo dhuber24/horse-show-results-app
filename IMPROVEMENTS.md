@@ -1,5 +1,25 @@
 # Codebase Improvements
 
+## October 2026
+
+### Claude.md is an index, and each subsystem's rules have a file of their own
+
+- **`Claude.md` went from 257 KB to 18 KB.** It is loaded into every AI
+  request, so at roughly 64k tokens it was about a fifth of everything every
+  request re-read. It now holds the purpose, the stack, where to read before
+  changing what, the core files, the roles in a line each, and the rules that
+  apply across the whole codebase.
+- **Every Core Data Concepts entry and Sharp Edge moved, word for word**, into
+  `docs/design/` — billing, side pots and futurities, registration, the desk,
+  show setup, results and scoring, live boards and high point, companies,
+  associations, accounts, operations and conventions — each with its own key
+  files. A script checked that every line of the old file landed somewhere and
+  none landed twice.
+- **New notes go to the subsystem's design doc.** `Claude.md`'s "Keeping This
+  File Small", `CONTRIBUTING.md`, the docs guard's message and the commit skill
+  all say so. Comments that still say "see Claude.md" find the entry in
+  `docs/design/` under the same words.
+
 ## September 2026
 
 ### Every show answers two registration questions

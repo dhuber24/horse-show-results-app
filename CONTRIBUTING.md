@@ -44,7 +44,7 @@ Install the hook path once per clone:
 git config core.hooksPath .githooks
 ```
 
-When behavior, setup, schema, workflow, or architecture changes, update the relevant docs in `Claude.md`, `README.md`, `docs/`, `database/README.md`, or `frontend/README.md`.
+When behavior, setup, schema, workflow, or architecture changes, update the relevant docs in `docs/design/` (the subsystem's rules and the reasons behind them), `docs/` (workflow and reference), `README.md`, `database/README.md`, or `frontend/README.md`. `Claude.md` is loaded on every AI request, so it only takes a line for a rule that applies across subsystems — see "Keeping This File Small" in it.
 
 For changes with no documentation impact, bypass one commit:
 

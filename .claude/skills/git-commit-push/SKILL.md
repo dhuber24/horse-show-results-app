@@ -35,8 +35,9 @@ this same procedure; this skill is the Claude Code path to the same result.
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts/check-docs-updated.ps1
    ```
-   If it fails, update the relevant doc (`CLAUDE.md`, `docs/*`,
-   `database/README.md`, `frontend/README.md`) and stage that too, then
+   If it fails, update the relevant doc (`docs/design/*` for a
+   subsystem's rules, `docs/*`, `database/README.md`, `frontend/README.md`;
+   `CLAUDE.md` only for a rule that applies everywhere) and stage that too, then
    re-run. Only bypass with `DOCS_CHECK_BYPASS=1 git commit ...` if the user
    explicitly approves skipping it for this commit.
 

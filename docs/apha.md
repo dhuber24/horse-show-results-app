@@ -496,7 +496,7 @@ not typed the number in yet — and the fix for that is the field they already
 have. The alternative was a second set of `apha_approval_status` /
 `_submitted_at` / `_notes` columns mirroring the AQHA ones, which would have been
 the third time this repo made the same association-prefixed pair; migration 114
-exists because of the second time. See the Sharp Edge in `Claude.md`.
+exists because of the second time. See [design/associations.md](design/associations.md).
 
 ### The application ladder
 
