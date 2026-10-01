@@ -32,7 +32,7 @@
 
 - **A fourth marquee choice, *High Point***, beside Results, Message and Both
   (migration 158 widens `ck_show_marquees_mode`): a line per standings table,
-  "High Point · Amateur · Halter: 1st #21 Jolene Hasselquist · Too Hot To
+  "High Point · Amateur: 1st #21 Jolene Hasselquist · Too Hot To
   Handle HQ (6 pts) · …", the same top five the split board's right half
   shows.
 - **On both boards' pages.** The marquee is one setting for the show, so
@@ -43,19 +43,19 @@
   the results if the chart is taken away afterwards. A chart with nothing
   posted yet scrolls the results until there are standings.
 
-### High point standings are per division and discipline
+### High point standings add up by division
 
-- **A standings table is a division within a discipline** (`tally` in
-  `backend/high_point.py`): Amateur Western Pleasure and Amateur Halter are
-  two tables, where they were one Amateur all-around. Points earned in one
-  discipline never count toward another.
+- **A standings table is a division, across every discipline** (`tally` in
+  `backend/high_point.py`): points from Amateur Halter, Amateur Western
+  Pleasure and every other Amateur class add into one Amateur table, per
+  horse and rider. This replaces the per-division-and-discipline tables
+  ("Amateur · Western Pleasure" and "Amateur · Halter" apart) introduced
+  earlier the same day.
 - **Everywhere standings are read**: the public Leaderboard, a season
-  circuit's standings (matched by both names across its shows), the show's
-  High Point page and the Results & High Point board. Each table is named
-  "Amateur · Western Pleasure" — division first, the order the board's class
-  header reads — and carries `division` and `discipline` separately.
-- **Ordered by division, then discipline**, each by the show's own sort order,
-  so a division's tables sit together.
+  circuit's standings (matched by division name across its shows), the show's
+  High Point page, the Results & High Point board and the High Point marquee.
+  Each table is named for its division, "Amateur", in the show's own division
+  order; the payload no longer carries `division` and `discipline` fields.
 
 ### A Results & High Point board
 
@@ -68,8 +68,8 @@
 - **The left half shows two judges' cards at a time.** A four-judge panel
   takes two turns, and the header says which ("Judges 1–2 of 4"); a
   single-judge class, or the third judge of three, gets the whole half.
-- **The right half shows two standings tables at a time** — each a division
-  within a discipline, "Amateur · Western Pleasure" — each the top five ranks
+- **The right half shows two standings tables at a time** — each a division,
+  "Amateur" — each the top five ranks
   with its points, from the same standings the public Leaderboard reads. A
   tie is never split; a tie too long to list becomes one line, "4 tied for
   5th" (`topStandings` in `lib/high-point.ts`).

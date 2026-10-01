@@ -667,8 +667,8 @@ function BoardNotice({ title, children }: { title: string; children: React.React
 /* ── The split board: results beside high point ─────────────────────────────
    The same board halved (`layout="split"`, at `/board/results-high-point`):
    the class on the left, two of its judges' cards at a time, and the show's
-   high point standings on the right, two at a time — each a division
-   within a discipline, "Amateur · Western Pleasure". Four
+   high point standings on the right, two at a time — each a division,
+   "Amateur", its points added up across every discipline. Four
    quarter-width boxes across the screen — the width a four-judge class's cards
    already are on the Results Board, so every size, the compact row and the
    top five all carry over unchanged.
@@ -726,7 +726,7 @@ const STANDING_ROWS = TOP_PLACES + 1;
    exhibitor's name: the points are what the high point half is showing. */
 const POINTS_U = 2.35;
 const POINTS_UNIT_U = 1.1;
-/** A standings box's title, "Amateur · Western Pleasure" — a judge's name is 1.15. */
+/** A standings box's title, "Amateur" — a judge's name is 1.15. */
 const DIVISION_TITLE_U = 1.4;
 /** One dot of a leader and the space after it; a leader is never narrower. */
 const LEADER_DOT_U = 0.6;
@@ -869,9 +869,8 @@ function StandingRow({ line, compact }: { line: StandingLine; compact: boolean }
   );
 }
 
-/** One division-and-discipline's standings, shaped like a judge's card beside
- *  it: "Amateur · Western Pleasure" where the judge's name goes, and the rows
- *  at the same height. */
+/** One division's standings, shaped like a judge's card beside it: "Amateur"
+ *  where the judge's name goes, and the rows at the same height. */
 function DivisionBox({ pane, compact }: { pane: DivisionPane; compact: boolean }) {
   return (
     <div className="flex flex-col min-h-0 min-w-0 overflow-hidden" style={PANE_STYLE}>

@@ -9,7 +9,7 @@ One row per show (`show_marquees`, migration 139), written from the Results Boar
 page and read by the board on the same 12-second poll that keeps its placings
 current. Four modes: the results, the message alone, the message repeated
 between the results, or the high point standings (migration 158) -- a line per
-division within a discipline, which a room watches move as classes are posted.
+division, which a room watches move as classes are posted.
 
 Two rules:
 

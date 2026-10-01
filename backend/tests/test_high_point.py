@@ -7,7 +7,8 @@ printed chart, so each is pinned here:
 * the chart band is the largest one at or below the class size;
 * each judge's card earns its own points;
 * only a placed card earns, and a tie shares the place's points;
-* standings are per division and per horse-and-rider, ranked 1, 2, 2, 4.
+* standings are per division and per horse-and-rider, ranked 1, 2, 2, 4;
+* a division's classes count together whatever discipline they run in.
 """
 from decimal import Decimal
 from uuid import uuid4
@@ -53,15 +54,12 @@ SCALED = build_chart([
 
 
 def card(exhibitor, horse, place, *, class_id=None, division="Amateur", size=5,
-         outcome="placed", show=SHOW, sort=1, name=None, horse_name=None,
-         discipline="Western Pleasure", discipline_sort=1):
+         outcome="placed", show=SHOW, sort=1, name=None, horse_name=None):
     return Card(
         show_id=show,
         class_id=class_id or uuid4(),
         division_name=division,
         division_sort=sort,
-        discipline_name=discipline,
-        discipline_sort=discipline_sort,
         exhibitor_id=exhibitor,
         exhibitor_name=name or {ALICE: "Alice", BOB: "Bob", CARA: "Cara"}[exhibitor],
         horse_id=horse,
@@ -175,7 +173,7 @@ def test_standings_are_per_horse_and_rider_and_per_division():
     ]
     divisions = tally(cards, FLAT)
     # Division order follows the show's own sort order.
-    assert [d["division"] for d in divisions] == ["Youth 14-18", "Amateur"]
+    assert [d["name"] for d in divisions] == ["Youth 14-18", "Amateur"]
     amateur = divisions[1]["standings"]
     assert [(r["horse_id"], r["points"]) for r in amateur] == [(str(HORSE_A), 6), (str(HORSE_A2), 5)]
 
@@ -184,7 +182,7 @@ def test_divisions_match_by_name_across_shows():
     other_show = uuid4()
     cards = [
         card(ALICE, HORSE_A, 1, division="Amateur"),
-        card(ALICE, HORSE_A, 2, division="  amateur ", show=other_show, discipline=" western  pleasure"),
+        card(ALICE, HORSE_A, 2, division="  amateur ", show=other_show),
     ]
     [division] = tally(cards, FLAT)
     [row] = division["standings"]
@@ -192,26 +190,26 @@ def test_divisions_match_by_name_across_shows():
     assert row["show_count"] == 2
 
 
-def test_standings_are_per_division_and_discipline():
+def test_a_divisions_classes_count_together_across_disciplines():
+    """Amateur Halter and Amateur Western Pleasure are one Amateur standing --
+    the cards carry no discipline at all, so nothing can split them."""
+    halter, pleasure = uuid4(), uuid4()
     cards = [
-        card(ALICE, HORSE_A, 1, discipline="Western Pleasure", discipline_sort=2),
-        card(ALICE, HORSE_A, 1, discipline="Halter", discipline_sort=1),
-        card(BOB, HORSE_B, 2, discipline="Halter", discipline_sort=1),
-        card(BOB, HORSE_B, 1, division="Youth 14-18", sort=0, discipline="Halter", discipline_sort=1),
+        card(ALICE, HORSE_A, 1, class_id=pleasure),
+        card(ALICE, HORSE_A, 3, class_id=halter),
+        card(BOB, HORSE_B, 2, class_id=halter),
+        card(BOB, HORSE_B, 1, division="Youth 14-18", sort=0),
     ]
     divisions = tally(cards, FLAT)
-    # By division first, then discipline within it, each in the show's order:
-    # a division's standings sit together.
-    assert [d["name"] for d in divisions] == [
-        "Youth 14-18 · Halter",
-        "Amateur · Halter",
-        "Amateur · Western Pleasure",
+    assert [d["name"] for d in divisions] == ["Youth 14-18", "Amateur"]
+    amateur = divisions[1]["standings"]
+    # Alice: 6 in Western Pleasure + 4 in Halter.
+    assert [(r["exhibitor_name"], r["points"], r["class_count"]) for r in amateur] == [
+        ("Alice", 10, 2),
+        ("Bob", 5, 1),
     ]
-    assert [(d["division"], d["discipline"]) for d in divisions][1] == ("Amateur", "Halter")
-    # Points in one discipline never count toward another.
-    halter, pleasure = divisions[1]["standings"], divisions[2]["standings"]
-    assert [(r["exhibitor_name"], r["points"]) for r in halter] == [("Alice", 6), ("Bob", 5)]
-    assert [(r["exhibitor_name"], r["points"]) for r in pleasure] == [("Alice", 6)]
+    # Bob's Youth points stay in Youth.
+    assert [(r["exhibitor_name"], r["points"]) for r in divisions[0]["standings"]] == [("Bob", 6)]
 
 
 def test_competition_ranking():

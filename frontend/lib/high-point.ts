@@ -48,13 +48,11 @@ export type Standing = {
   back_number?: number | null;
 };
 
-/** One standings table: a division within a discipline — Amateur Western
- *  Pleasure and Amateur Halter are two. `name` is the two together,
- *  "Amateur · Western Pleasure", ready to print. */
+/** One standings table: a division, its points added up across every
+ *  discipline — Amateur Halter and Amateur Western Pleasure both count toward
+ *  "Amateur". */
 export type DivisionStandings = {
   name: string;
-  division: string;
-  discipline: string;
   standings: Standing[];
 };
 
