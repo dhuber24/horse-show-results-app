@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
+import { MY_COMPANY_TILE, ROLE_LABELS, adminSections } from './sections';
 
 /**
  * What is waiting on a GaitDesk admin at Show Companies — a request to join,
@@ -52,57 +53,6 @@ async function pendingJoinRequests(): Promise<string | null> {
   }
 }
 
-const MY_COMPANY_TILE = {
-  href: '/admin/my-company',
-  title: 'My Company Staff',
-  description: 'The managers and secretaries in your company — ask for colleagues to be added, answer requests to join, remove anybody who has left.',
-  icon: 'S',
-};
-
-// A show company keeps its own points systems (migration 148), so every
-// manager and secretary -- all of them are in a company -- gets the tile.
-const POINT_SYSTEMS_TILE = {
-  href: '/admin/point-systems',
-  title: 'Points Systems',
-  description: "Your company's high-point charts — how a posted placing becomes points at your shows.",
-  icon: 'P',
-};
-
-const adminTiles = [
-  { href: '/admin/shows', title: 'Shows', description: 'Create, edit, and manage horse shows, classes, and entries.', icon: 'T' },
-  { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where shows are held.', icon: 'V' },
-  { href: '/admin/horses', title: 'Horse Registry', description: 'Add and edit horses in the system.', icon: 'H' },
-  { href: '/admin/trainers', title: 'Trainer Registry', description: 'Manage trainer registry records used on horse profiles.', icon: 'R' },
-  { href: '/admin/judges', title: 'Judge Registry', description: 'One record per judge, shared by every show they work.', icon: 'J' },
-  { href: '/admin/users', title: 'Users', description: 'Create users, assign roles, and manage Show Secretaries and Scribes.', icon: 'U' },
-  { href: '/admin/companies', title: 'Show Companies', description: 'The clubs and firms that run shows, and the paid features turned on for them.', icon: 'S' },
-  { href: '/admin/exhibitors', title: 'Exhibitor Records', description: 'Everyone who competes, including walk-ups the office typed in and who have no login.', icon: 'E' },
-  { href: '/admin/standard-classes', title: 'Class Codes', description: "Load an association's approved class list from their published file.", icon: 'C' },
-  { href: '/admin/point-systems', title: 'Points Systems', description: "Every show company's high-point charts — how a posted placing becomes points.", icon: 'P' },
-  { href: '/admin/circuits', title: 'Season Circuits', description: 'Several shows added together for a season high point.', icon: 'O' },
-];
-
-const showSecretaryTiles = [
-  { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you own.', icon: 'T' },
-  { href: '/admin/circuits', title: 'Season Circuits', description: 'Add your shows together for a season high point.', icon: 'O' },
-  POINT_SYSTEMS_TILE,
-  MY_COMPANY_TILE,
-];
-
-const showManagerTiles = [
-  { href: '/admin/shows', title: 'My Shows', description: 'Create and manage the shows you run.', icon: 'T' },
-  { href: '/admin/venues', title: 'Venues', description: 'Add and update venues where your shows are held.', icon: 'V' },
-  { href: '/admin/circuits', title: 'Season Circuits', description: 'Add your shows together for a season high point.', icon: 'O' },
-  POINT_SYSTEMS_TILE,
-  MY_COMPANY_TILE,
-];
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Admin',
-  SHOW_SECRETARY: 'Show Secretary',
-  SHOW_MANAGER: 'Show Manager',
-};
-
 export default async function AdminPage() {
   const session = await auth();
   const role = (session?.user as any)?.role;
@@ -110,10 +60,7 @@ export default async function AdminPage() {
   if (!session?.user) redirect('/login');
   if (role !== 'ADMIN' && role !== 'SHOW_SECRETARY' && role !== 'SHOW_MANAGER') redirect('/');
 
-  const tiles =
-    role === 'SHOW_SECRETARY' ? showSecretaryTiles :
-    role === 'SHOW_MANAGER' ? showManagerTiles :
-    adminTiles;
+  const tiles = adminSections(role);
   const waiting: Record<string, string | null> =
     role === 'ADMIN'
       ? { '/admin/companies': await pendingCompanyRequests() }
@@ -125,7 +72,7 @@ export default async function AdminPage() {
         <h1 className="text-3xl font-bold" style={{ color: 'var(--foreground)' }}>{ROLE_LABELS[role] ?? 'Admin'}</h1>
         <Link href="/" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>Back to Shows</Link>
       </div>
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-2 desktop:grid-cols-3 gap-4">
         {tiles.map((tile) => (
           <Link key={tile.href} href={tile.href} className="block p-6 rounded-lg border transition-colors hover:bg-amber-50" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
             <div className="flex items-start gap-4">

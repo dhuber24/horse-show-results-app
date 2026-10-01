@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AutosaveNavLink } from '../[id]/setup/_lib/StepAutosave';
-import { stepName } from './steps';
+import { stepBadge, stepName, stepStatusTitle } from './steps';
 
 export type WizardStepKey =
   | 'basic'
@@ -81,11 +81,17 @@ const BADGE =
  * behind one small *N skipped* toggle at the end of the bar; opening it shows
  * them in place, minimized. The step you are standing on is always shown, even
  * if skipped — a tab bar with no current tab reads as a broken page.
+ *
+ * **On a desktop the steps are in the staff sidebar instead** (`app/@sidebar/`), and the
+ * pages inside a show pass `className="desktop:hidden"`. `/admin/shows/new` is
+ * not inside a show yet, so the sidebar has no steps to list, and it keeps the
+ * tab bar at every width.
  */
 export default function WizardStepper({
   steps,
   current,
   hubHref,
+  className = '',
 }: {
   steps: StepDef[];
   /** `'hub'` on the setup hub itself, where no step is open. */
@@ -93,6 +99,9 @@ export default function WizardStepper({
   /** Null on `/admin/shows/new`, where the show does not exist yet and so has
    *  no setup hub — and, for the same reason, no step has a link either. */
   hubHref: string | null;
+  /** On the `<nav>` itself rather than a wrapper: a wrapper would become the
+   *  sticky bar's containing block, and it would stop sticking. */
+  className?: string;
 }) {
   const [showSkipped, setShowSkipped] = useState(false);
   const skippedCount = steps.filter((s) => s.skipped && s.key !== current).length;
@@ -100,7 +109,7 @@ export default function WizardStepper({
   return (
     <nav
       aria-label="Show setup steps"
-      className="sm:sticky sm:top-0 sm:z-30 py-2 border-b"
+      className={`sm:sticky sm:top-0 sm:z-30 py-2 border-b ${className}`}
       style={{ backgroundColor: 'var(--background)', borderColor: COLORS.border }}
     >
       <ol className="flex flex-wrap items-center gap-1.5">
@@ -127,14 +136,8 @@ export default function WizardStepper({
                 skipped={step.skipped}
                 // The tick and the number are the only status on a tab, and
                 // neither says what it means on its own.
-                title={
-                  step.skipped
-                    ? `Step ${idx + 1} — skipped, not used at this show`
-                    : step.done
-                      ? `Step ${idx + 1} — set up`
-                      : `Step ${idx + 1} — nothing on file yet`
-                }
-                badge={step.skipped ? '–' : step.done ? '✓' : String(idx + 1)}
+                title={stepStatusTitle(step, idx)}
+                badge={stepBadge(step, idx)}
               >
                 {stepName(step.label)}
               </Tab>

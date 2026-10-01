@@ -120,7 +120,9 @@ export default function StepLayout({
           </p>
         </div>
 
-        <WizardStepper current={current} steps={steps} hubHref={hubHref} />
+        {/* On a desktop the sidebar lists the steps, so the tab bar would be the
+            same list twice. */}
+        <WizardStepper current={current} steps={steps} hubHref={hubHref} className="desktop:hidden" />
 
         {isSkipped ? (
           <SkippedStepNotice showId={showId} keys={skipKeysFor(current)} dashboardTiles={DASHBOARD_TILES[current]} />

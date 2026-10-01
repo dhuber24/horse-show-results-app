@@ -35,6 +35,14 @@ Per `/schedule` render the fan-out is `fetchShow` + `fetchClasses` +
 `fetchProgramIndex`, plus the page's own `auth()` session decrypt (for the
 Registered filter).
 
+Every render, refreshes included, also renders the staff sidebar slot
+(`app/@sidebar/`). For a spectator or exhibitor, and for an office browser
+switched to Mobile view, that is one more `auth()` and a cookie read and
+nothing else. For the office roles on desktop, on a show's page, it adds `fetchShow` and the
+show's unread-message count, and the ten setup reads only on a setup step,
+memoised with the step page's own. Few people hold those roles, so this is not
+where the polling cost is.
+
 So for 270 spectators on the live schedule:
 
 | | |

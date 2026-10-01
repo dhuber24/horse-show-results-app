@@ -2,6 +2,36 @@
 
 ## October 2026
 
+### A desktop layout for the show office
+
+- **Admins, show managers and show secretaries get a menu down the left of
+  every page** on a laptop or desktop: the admin hub's screens for their role,
+  and on a show's pages that show's sections first — Overview, Setup,
+  Registration Desk, Score Classes, Financials, Patterns, High Point, Side Pots,
+  Futurities, Show Record, Messages (with its unread count) and the two public
+  screens. One press between any two, instead of back to a dashboard and out
+  again. On a show's public pages the show's sections appear only for somebody
+  who works that show.
+- **Inside setup, Setup opens into its ten steps** with the ticks, dashes and
+  numbers the tab bar carries, and the tab bar hides. A menu link saves the
+  step it leaves, as the tabs do.
+- **Office pages use the full width beside the menu.** The Class Builder, the
+  desk, Financials and every other `/admin` page were held to a 768px–1152px
+  column; on the desktop layout they take what the screen has. The menu
+  **collapses to a rail of icons** for even more, remembered per browser.
+- **Those three roles start on the desktop layout on every device**, and a
+  Mobile view / Desktop view button in the top bar switches it, remembered per
+  browser. There is no automatic choice by screen: one was built (1280px and a
+  mouse) and taken out, because display scaling put office laptops under the
+  line, and because the server could not know the layout and built the sidebar
+  for every office page view. The cost is a manager's first visit on a phone,
+  which opens on desktop until they press 📱 once.
+- **Everybody else is always on the mobile layout**, with no button: exhibitors,
+  trainers, scribes, gate stewards and visitors.
+- The show dashboard's and the admin hub's tiles moved to `sections.ts` files
+  the menu reads too, and both grids go three across on the desktop layout. The
+  TV boards have no menu.
+
 ### Claude.md is an index, and each subsystem's rules have a file of their own
 
 - **`Claude.md` went from 257 KB to 18 KB.** It is loaded into every AI

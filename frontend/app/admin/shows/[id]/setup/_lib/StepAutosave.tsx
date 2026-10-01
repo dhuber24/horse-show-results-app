@@ -42,12 +42,23 @@ export type StepFlush = () => Promise<void> | void;
 
 type Registry = {
   register: (fn: StepFlush) => () => void;
-  flush: () => Promise<void>;
+  /** True when anything was registered — when there was a step to save. */
+  flush: () => Promise<boolean>;
 };
 
 const StepAutosaveContext = createContext<Registry | null>(null);
 
+/**
+ * The registry. The root layout (`app/layout.tsx`) holds one around the Navbar,
+ * the staff sidebar and the page, so the sidebar's links (and the layout
+ * toggle) save a step the same way its own tabs do. `StepLayout` asks for one
+ * too, and that request **joins
+ * the layout's** rather than starting a second: a step
+ * registering with an inner registry would be invisible to the sidebar, which
+ * would then navigate away from unsaved work — the loss this file exists to stop.
+ */
 export function StepAutosaveProvider({ children }: { children: React.ReactNode }) {
+  const outer = useContext(StepAutosaveContext);
   const flushes = useRef(new Set<StepFlush>());
 
   const register = useCallback((fn: StepFlush) => {
@@ -61,13 +72,17 @@ export function StepAutosaveProvider({ children }: { children: React.ReactNode }
   // row set (the charges editor and a step's own save), and a step that opens
   // with an error should not have fired the rest of its writes first.
   const flush = useCallback(async () => {
-    for (const fn of Array.from(flushes.current)) {
+    const pending = Array.from(flushes.current);
+    for (const fn of pending) {
       await fn();
     }
+    return pending.length > 0;
   }, []);
 
   const value = useRef<Registry>({ register, flush });
   value.current = { register, flush };
+
+  if (outer) return <>{children}</>;
 
   return (
     <StepAutosaveContext.Provider value={value.current}>
@@ -97,13 +112,13 @@ export function useRegisterStepAutosave(fn: StepFlush): void {
  * What a navigation control calls before it leaves.
  *
  * Returns a no-op outside a step — `WizardStepper` also renders on the setup
- * hub, where there is no form to save and nothing registered.
+ * hub, where there is no form to save and nothing registered. Resolves true
+ * when there was a step to save, which is how the sidebar knows whether it
+ * needs the full page load below or can navigate in place.
  */
-export function useStepAutosaveFlush(): () => Promise<void> {
+export function useStepAutosaveFlush(): () => Promise<boolean> {
   const ctx = useContext(StepAutosaveContext);
-  return useCallback(async () => {
-    if (ctx) await ctx.flush();
-  }, [ctx]);
+  return useCallback(async () => (ctx ? ctx.flush() : false), [ctx]);
 }
 
 /**

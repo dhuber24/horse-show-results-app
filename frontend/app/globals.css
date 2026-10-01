@@ -1,6 +1,21 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
+   `desktop:` — the desktop layout: the staff sidebar beside every page.
+
+   The root layout writes `<html data-layout>` from `lib/layout-mode.ts`:
+   `desktop` for the office roles unless their browser chose Mobile view,
+   `mobile` for everybody else. Nothing about the screen is consulted — see
+   `layout-mode.ts` for why the automatic version was taken out.
+--------------------------------------------------------------------------- */
+@custom-variant desktop (&:where([data-layout="desktop"] *));
+
+/* `collapsed:` — the staff sidebar folded to a rail of icons, from
+   `<html data-sidebar="collapsed">` (the root layout, from a cookie, and the
+   sidebar's own Collapse button). */
+@custom-variant collapsed (&:where([data-sidebar="collapsed"] *));
+
+/* ---------------------------------------------------------------------------
    GaitDesk palette.
 
    The five brand colours come from GaitDesk-Brand/README.md:

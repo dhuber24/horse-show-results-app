@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import { isClassFeeEditorUnit } from '@/lib/fee-units';
@@ -40,7 +41,14 @@ async function getJson<T>(url: string, fallback: T): Promise<T> {
   return res.json();
 }
 
-export async function fetchStepCounts(showId: string): Promise<WizardStepsInput> {
+/**
+ * Ten reads, so memoised for the request: a setup step's page and the desktop
+ * sidebar beside it (`@sidebar/`) both need these counts, render in the same
+ * request, and would otherwise make all ten twice.
+ */
+export const fetchStepCounts = cache(async function fetchStepCounts(
+  showId: string,
+): Promise<WizardStepsInput> {
   const [show, judges, sanctioning, fees, classes, futurities, showbill, sidePots, skips, highPoint] = await Promise.all([
     fetchShow(showId),
     getJson<{ id: string }[]>(`${API_URL}/shows/${showId}/judges/`, []),
@@ -110,4 +118,4 @@ export async function fetchStepCounts(showId: string): Promise<WizardStepsInput>
     showbillReady:
       showbill.effective_source === 'uploaded' || classes.length > 0,
   };
-}
+});

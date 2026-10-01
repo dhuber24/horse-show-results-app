@@ -2,7 +2,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { auth } from '@/auth';
 import SignOutButton from '../SignOutButton';
+import LayoutToggle from './LayoutToggle';
 import { canActAsExhibitor } from '@/lib/exhibitor-access';
+import { canUseDesktopLayout } from '@/lib/layout-mode';
 
 export default async function Navbar() {
   const session = await auth();
@@ -42,6 +44,7 @@ export default async function Navbar() {
             <span className="text-sm hidden md:block" style={{ color: 'var(--on-slate-muted)' }}>
               {session.user?.name} · {session.user?.role}
             </span>
+            {canUseDesktopLayout(session.user?.role) && <LayoutToggle />}
             {isExhibitor && (
               <Link href="/my-shows"
                 className="text-sm px-3 py-2 rounded font-medium transition"

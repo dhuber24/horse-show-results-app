@@ -55,6 +55,7 @@ export default async function SetupHubPage({
         current="hub"
         steps={steps}
         hubHref={`/admin/shows/${id}/setup`}
+        className="desktop:hidden"
       />
 
       <ul className="space-y-3">

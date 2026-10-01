@@ -248,6 +248,48 @@ export function buildSteps({
 }
 
 /**
+ * Where each step lives, without what any of them has on file — enough for the
+ * sidebar to tell whether a page is part of setup before it pays for the ten
+ * reads `fetchStepCounts` makes. Read from `buildSteps` rather than listed
+ * again, so a step added there is a setup page here too.
+ */
+export function stepHrefs(showId: string): string[] {
+  return buildSteps({
+    showId,
+    judgeCount: 0,
+    sanctioningCount: 0,
+    lodgingFeeCount: 0,
+    feesCount: 0,
+    classCount: 0,
+    futurityCount: 0,
+    sidePotCount: 0,
+    scoredClassCount: 0,
+    cardedClassCount: 0,
+    scoringChosenCount: 0,
+    cardTypeCounts: { placing: 0, scored: 0, equitation: 0, timed: 0 },
+    highPointChosen: false,
+    healthPaperCount: 0,
+    showbillReady: false,
+  }).flatMap((step) => (step.href ? [step.href] : []));
+}
+
+/** What a step's badge says: a tick, a dash for skipped, or its number. The
+ *  tab bar and the sidebar print the same three, so they read the same. */
+export function stepBadge(step: StepDef, index: number): string {
+  return step.skipped ? '–' : step.done ? '✓' : String(index + 1);
+}
+
+/** The hover text that says what the badge means — neither the tick nor the
+ *  number says it on its own. */
+export function stepStatusTitle(step: StepDef, index: number): string {
+  return step.skipped
+    ? `Step ${index + 1} — skipped, not used at this show`
+    : step.done
+      ? `Step ${index + 1} — set up`
+      : `Step ${index + 1} — nothing on file yet`;
+}
+
+/**
  * Whether the show declined a feature that has a dashboard tile, and still has
  * none of it — what greys that tile out. Per feature, not per step: a show
  * running a futurity and no side pots declines only the pots.
