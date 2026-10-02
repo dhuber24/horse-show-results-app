@@ -467,10 +467,11 @@ Web traffic is measured with a GA4 property through the standard gtag.js tag
    page_view of its own, so turning it off leaves only full page loads counted.
 2. Copy the stream's **Measurement ID** (`G-…`) into `GA_MEASUREMENT_ID` on
    `gaitdesk-web` in Render and restart the service.
-3. Register the role dimension: **Admin → Custom definitions → Create custom
-   dimension**, scope **User**, user property `user_role`, named *User role*.
-   GA reports a custom dimension only from the day it is registered, so do it
-   with step 2.
+3. Register the role dimension: **Admin → Property settings → Data display →
+   Custom definitions → Create custom dimension**, scope **User**, user
+   property `user_role`, named *User role*. It needs the Editor role on the
+   property. GA reports a custom dimension only from the day it is registered,
+   so do it with step 2.
 4. Open the site and check **Reports → Realtime** in GA for the visit.
 
 **Every visit carries the signed-in role** as the `user_role` user property:
