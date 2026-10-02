@@ -28,8 +28,48 @@ export function gaMeasurementId(value: string | null | undefined): string | null
 // a client-side navigation to a token-free page, which is where tracking
 // starts, and GA reads `document.referrer` (the email client, not the token
 // page) for that first hit.
+//
+// What this does not cover: once the tag has loaded, GA's history listener
+// sees every client-side navigation, including the Back button returning to a
+// token page earlier in the same tab. Closing that needs page views sent by
+// hand with the URL scrubbed, and the enhanced-measurement history option off.
 const UNTRACKED_PREFIXES = ['/invite/', '/horse-requests/'];
 
 export function isTrackedPath(pathname: string): boolean {
   return !UNTRACKED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+// A query string that names a token route carries the token too, and GA
+// records the query string as part of `page_location`. "Sign in" on
+// `/horse-requests/[token]` is a client-side navigation to
+// `/login?next=%2Fhorse-requests%2F<token>`, and the sign-in and register pages
+// hand `next` on to each other, so each of those pages is as untracked as the
+// token page itself. Matched anywhere in the value, so an absolute URL counts.
+export function isTrackedPage(pathname: string, searchParams?: URLSearchParams | null): boolean {
+  if (!isTrackedPath(pathname)) return false;
+  for (const value of searchParams?.values() ?? []) {
+    if (UNTRACKED_PREFIXES.some((prefix) => value.includes(prefix))) return false;
+  }
+  return true;
+}
+
+// Every role an account can hold (`VALID_ROLES` in `backend/routers/people.py`).
+// Sent to GA as the `user_role` user property so spectators, exhibitors and the
+// show office can be told apart in reports. Only the role — never a name, email
+// or id, which Google's terms forbid sending — and checked against the list
+// because it is written into an inline script, like the measurement ID.
+const ROLES = new Set([
+  'ADMIN',
+  'SHOW_MANAGER',
+  'SHOW_SECRETARY',
+  'SCRIBE',
+  'GATE_STEWARD',
+  'EXHIBITOR',
+  'TRAINER',
+  'JUDGE',
+]);
+
+export function gaUserRole(role: string | null | undefined): string {
+  if (!role) return 'VISITOR';
+  return ROLES.has(role) ? role : 'OTHER';
 }

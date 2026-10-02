@@ -405,13 +405,38 @@ Web traffic is measured with a GA4 property through the standard gtag.js tag
    page_view of its own, so turning it off leaves only full page loads counted.
 2. Copy the stream's **Measurement ID** (`G-…`) into `GA_MEASUREMENT_ID` on
    `gaitdesk-web` in Render and restart the service.
-3. Open the site and check **Reports → Realtime** in GA for the visit.
+3. Register the role dimension: **Admin → Custom definitions → Create custom
+   dimension**, scope **User**, user property `user_role`, named *User role*.
+   GA reports a custom dimension only from the day it is registered, so do it
+   with step 2.
+4. Open the site and check **Reports → Realtime** in GA for the visit.
+
+**Every visit carries the signed-in role** as the `user_role` user property:
+the account's `users.role` (`ADMIN`, `SHOW_SECRETARY`, `EXHIBITOR`, …),
+`VISITOR` when signed out, `OTHER` for a role the frontend does not know
+(`gaUserRole` in `frontend/lib/analytics.ts`, whose list follows `VALID_ROLES`
+in `backend/routers/people.py`). Add *User role* as a comparison or secondary
+dimension to tell spectators and exhibitors from the show office. It is the
+role only; a name, email or id must never be sent, which Google's terms forbid.
+The role is the account's, not every hat it wears: a secretary who also enters
+classes is `SHOW_SECRETARY`. Signing in changes it without a page load, so the
+page view of that first navigation still says `VISITOR`.
 
 Two routes never load the tag, because their URL carries a token GA would store
 in full: `/invite/[token]` and `/horse-requests/[token]`
-(`UNTRACKED_PREFIXES` in `frontend/lib/analytics.ts`). A new page that puts a
-secret in its path or query string belongs on that list. Staff screens are
-tracked like any other page; their URLs carry only record ids.
+(`UNTRACKED_PREFIXES` in `frontend/lib/analytics.ts`). **Neither does a page
+whose query string names one of them** (`isTrackedPage`): "Sign in" on a horse
+request goes to `/login?next=%2Fhorse-requests%2F<token>`, and the sign-in and
+register pages pass `next` on to each other. A new page that puts a secret in
+its path or query string belongs on that list. Staff screens are tracked like
+any other page; their URLs carry only record ids.
+
+**One path still reaches GA:** once the tag has loaded in a tab, its history
+listener reports every client-side navigation, so pressing Back from a tracked
+page to a token page visited earlier in the same tab sends that URL. The token
+has usually been used by then (an accepted invite, an answered request), and a
+horse request still needs its owner signed in. Closing it means turning the
+history option off and sending page views from the app with the URL scrubbed.
 
 ## Operations
 

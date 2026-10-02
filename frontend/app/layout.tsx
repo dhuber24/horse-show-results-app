@@ -7,7 +7,7 @@ import ServiceWorkerRegistration from './components/ServiceWorkerRegistration';
 import GoogleAnalytics from './components/GoogleAnalytics';
 import { StepAutosaveProvider } from './admin/shows/[id]/setup/_lib/StepAutosave';
 import { auth } from '@/auth';
-import { gaMeasurementId } from '@/lib/analytics';
+import { gaMeasurementId, gaUserRole } from '@/lib/analytics';
 import { LAYOUT_COOKIE, SIDEBAR_COOKIE, layoutFor } from '@/lib/layout-mode';
 
 const inter = Inter({
@@ -111,7 +111,9 @@ export default async function RootLayout({
           </div>
         </StepAutosaveProvider>
         <ServiceWorkerRegistration />
-        {measurementId && <GoogleAnalytics measurementId={measurementId} />}
+        {measurementId && (
+          <GoogleAnalytics measurementId={measurementId} userRole={gaUserRole(role)} />
+        )}
       </body>
     </html>
   );
