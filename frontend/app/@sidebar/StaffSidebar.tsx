@@ -43,7 +43,7 @@ function showInPath(path: string[]): { showId: string; office: boolean } | null 
 /** The show's unread count, or null when the inbox will not answer this person
  *  — which, because it checks `works_show` (`show_access.py`), is exactly
  *  "this person does not work this show". Read here for that answer only: the
- *  count itself is on the envelope in the top bar (`ShowMessagesButton`). */
+ *  count itself is on the envelope in the top bar (`MessagesButton`). */
 async function fetchUnreadCount(showId: string): Promise<number | null> {
   try {
     const headers = await getAuthHeaders();

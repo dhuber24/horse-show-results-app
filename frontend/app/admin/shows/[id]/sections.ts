@@ -31,7 +31,7 @@ export type ShowSection = {
 // the desk and scoring, then what is worked alongside them (Patterns, High
 // Point, Futurities, Side Pots), then the money and the record, then Setup.
 // Messages is not a section: it is the envelope in the top bar
-// (`app/components/ShowMessagesButton.tsx`), so a new question is in view from
+// (`app/components/MessagesButton.tsx`), so a new question is in view from
 // every page of the show rather than from one row of the menu.
 export const showSections = (showId: string): ShowSection[] => [
   // Entries, back numbers, and paperwork check-in were three tiles and three

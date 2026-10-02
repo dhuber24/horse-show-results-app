@@ -36,6 +36,10 @@
 - **Messages is an envelope in the top bar**, beside the account button, on
   every page of a show you work, with the unread count on it. It is no longer a
   menu row or a dashboard tile.
+- **Away from a show the envelope opens every show's messages at once**
+  (`/admin/messages`), with the unread count across all the shows you work and
+  each message under its show's name. Message times now show in your own time
+  zone; they were printed in UTC.
 
 ### The GaitDesk Pro banner is a strip
 

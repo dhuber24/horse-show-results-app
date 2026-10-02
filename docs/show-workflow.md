@@ -347,7 +347,7 @@ Someone browsing shows before they have signed up sees a different `/shows/[id]`
 
 ### Contacting A Show
 
-`/shows/[id]/contact` is open to anyone, account or not. Messages land in the show's inbox at `/admin/shows/[id]/messages`, reached from the envelope in the top bar — on every page of the show, for staff who work it — which carries the unread count.
+`/shows/[id]/contact` is open to anyone, account or not. Messages land in the show's inbox at `/admin/shows/[id]/messages`, reached from the envelope in the top bar — on every page of the show, for staff who work it — which carries the unread count. Away from a show the same envelope opens `/admin/messages`, every show's messages at once, each under its show's name.
 
 - **Stored, not emailed.** `mailer.py` is best-effort and does nothing without SMTP configured, so a forward-only contact form would accept a message, tell the sender it was sent, and lose it — the one failure a contact form must not have. Staff reply from their own mail client via a `mailto:` link on each message.
 - `POST /shows/{id}/contact/` needs the internal API key but **no session** — that is the point. It is **rate limited to 5/minute** per IP, because it is the one endpoint a stranger can write to. A show that is not `PUBLISHED` / `ACTIVE` / `COMPLETED` returns 404, so a DRAFT nobody can see cannot be used as an anonymous drop box; "no such show" and "not published" give the same answer so probing ids reveals nothing.

@@ -1,7 +1,8 @@
+import Link from 'next/link';
 import { fetchShow } from '@/lib/api';
 import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
-import MessageInbox, { type ContactMessage } from './MessageInbox';
+import MessageInbox, { type ContactMessage } from '@/components/MessageInbox';
 
 async function loadMessages(showId: string): Promise<ContactMessage[]> {
   const headers = await getAuthHeaders();
@@ -40,7 +41,11 @@ export default async function ShowMessagesPage({ params }: { params: Promise<{ i
         address the sender left.
       </div>
 
-      <MessageInbox showId={id} initialMessages={messages} />
+      <MessageInbox initialMessages={messages} />
+
+      <Link href="/admin/messages" className="inline-block text-sm hover:underline" style={{ color: 'var(--accent)' }}>
+        Every show&rsquo;s messages →
+      </Link>
     </main>
   );
 }

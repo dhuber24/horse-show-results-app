@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { auth } from '@/auth';
 import SignOutButton from '../SignOutButton';
 import LayoutToggle from './LayoutToggle';
-import ShowMessagesButton from './ShowMessagesButton';
+import MessagesButton from './MessagesButton';
 import { canActAsExhibitor } from '@/lib/exhibitor-access';
 import { canUseDesktopLayout } from '@/lib/layout-mode';
 
@@ -76,11 +76,11 @@ export default async function Navbar() {
                 Admin
               </Link>
             )}
-            {/* The show's inbox, on any page of a show this person works —
-                beside the account button rather than in the show's menu. */}
+            {/* The inbox on every office page — that show's on a show they work,
+                every show's elsewhere. Beside the account button. */}
             {(session.user?.role === 'ADMIN' ||
               session.user?.role === 'SHOW_SECRETARY' ||
-              session.user?.role === 'SHOW_MANAGER') && <ShowMessagesButton />}
+              session.user?.role === 'SHOW_MANAGER') && <MessagesButton />}
             <Link href="/profile"
               className="text-sm px-3 py-2 rounded font-medium transition"
               style={{ backgroundColor: 'var(--slate-raised)', color: 'var(--on-slate)' }}

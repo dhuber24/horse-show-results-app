@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import LocalTime from './LocalTime';
 
 export type ContactMessage = {
   id: string;
@@ -21,19 +23,21 @@ export type ContactMessage = {
   sender_is_registered: boolean;
   handled_at: string | null;
   created_at: string | null;
+  /** Which show it was sent to. Only on the combined inbox (`/admin/messages`,
+   *  `GET /my-messages`), where one list mixes shows. */
+  show_name?: string;
 };
 
 type Filter = 'open' | 'archived' | 'all';
 
-function formatWhen(iso: string | null): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
-  });
-}
+// Printed through LocalTime: formatted on the server this was the container's
+// UTC, hours out for the office reading it, and a hydration mismatch besides.
+const WHEN: Intl.DateTimeFormatOptions = {
+  month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+};
 
 /**
- * The show's inbox. Messages arrive from the contact form, including from
+ * A show's inbox, or every show's at once. Messages arrive from the contact form, including from
  * people with no account — so every field the sender typed is self-reported
  * text and is rendered as such. Replying happens in the reader's own mail
  * client via the mailto link; the app does not send mail.
@@ -45,13 +49,17 @@ function formatWhen(iso: string | null): string {
  * from someone who has never been here, and the answer to the question usually
  * depends on that. An unbadged message is not suspicious — it is the ordinary
  * case of a stranger asking about stalls.
+ *
+ * `combined` is the inbox across every show the reader works: each message
+ * names its show, and Mark read / Archive still go to that show's own endpoint
+ * — the message carries its `show_id`, so there is one writer either way.
  */
 export default function MessageInbox({
-  showId,
   initialMessages,
+  combined = false,
 }: {
-  showId: string;
   initialMessages: ContactMessage[];
+  combined?: boolean;
 }) {
   const [messages, setMessages] = useState(initialMessages);
   const [filter, setFilter] = useState<Filter>('open');
@@ -66,10 +74,11 @@ export default function MessageInbox({
 
   const unread = messages.filter((m) => m.status === 'new').length;
 
-  const setStatus = async (id: string, status: ContactMessage['status']) => {
+  const setStatus = async (message: ContactMessage, status: ContactMessage['status']) => {
+    const { id } = message;
     setError(null);
     setBusyId(id);
-    const res = await fetch(`/api/shows/${showId}/contact/messages/${id}`, {
+    const res = await fetch(`/api/shows/${message.show_id}/contact/messages/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
@@ -80,7 +89,10 @@ export default function MessageInbox({
       return;
     }
     const updated: ContactMessage = await res.json();
-    setMessages((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    // The per-show endpoint does not send the show's name back; keep ours.
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...updated, show_name: m.show_name } : m)),
+    );
   };
 
   if (messages.length === 0) {
@@ -91,8 +103,9 @@ export default function MessageInbox({
       >
         <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>No messages yet</p>
         <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-          Anyone viewing this show&rsquo;s page can send the office a question, with or without an
-          account. Their messages land here.
+          {combined
+            ? 'Anyone viewing the page of a show you work can send its office a question, with or without an account. Every show’s messages land here.'
+            : 'Anyone viewing this show’s page can send the office a question, with or without an account. Their messages land here.'}
         </p>
       </div>
     );
@@ -148,6 +161,16 @@ export default function MessageInbox({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
+                    {combined && m.show_name && (
+                      <Link
+                        href={`/admin/shows/${m.show_id}/messages`}
+                        className="block text-xs font-semibold uppercase tracking-wide mb-1 hover:underline"
+                        style={{ color: 'var(--accent)' }}
+                        title="This show's own inbox"
+                      >
+                        {m.show_name}
+                      </Link>
+                    )}
                     <div className="text-sm font-semibold flex items-center flex-wrap gap-1.5" style={{ color: 'var(--foreground)' }}>
                       {m.subject || '(no subject)'}
                       {isNew && (
@@ -193,7 +216,9 @@ export default function MessageInbox({
                         </span>
                       ) : null}
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--muted)' }}>{formatWhen(m.created_at)}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {m.created_at && <LocalTime iso={m.created_at} format={WHEN} />}
+                    </p>
                   </div>
                 </div>
 
@@ -220,7 +245,7 @@ export default function MessageInbox({
                   </a>
                   {m.status !== 'read' && (
                     <button
-                      onClick={() => setStatus(m.id, 'read')}
+                      onClick={() => setStatus(m, 'read')}
                       disabled={busyId === m.id}
                       className="text-xs font-medium hover:underline disabled:opacity-50"
                       style={{ color: 'var(--accent)' }}
@@ -230,7 +255,7 @@ export default function MessageInbox({
                   )}
                   {m.status === 'read' && (
                     <button
-                      onClick={() => setStatus(m.id, 'new')}
+                      onClick={() => setStatus(m, 'new')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
                       style={{ color: 'var(--muted)' }}
@@ -241,7 +266,7 @@ export default function MessageInbox({
                   )}
                   {m.status !== 'archived' ? (
                     <button
-                      onClick={() => setStatus(m.id, 'archived')}
+                      onClick={() => setStatus(m, 'archived')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
                       style={{ color: 'var(--muted)' }}
@@ -250,7 +275,7 @@ export default function MessageInbox({
                     </button>
                   ) : (
                     <button
-                      onClick={() => setStatus(m.id, 'read')}
+                      onClick={() => setStatus(m, 'read')}
                       disabled={busyId === m.id}
                       className="text-xs hover:underline disabled:opacity-50"
                       style={{ color: 'var(--muted)' }}
