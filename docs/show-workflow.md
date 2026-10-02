@@ -148,6 +148,8 @@ Coggins defaults on; CVI and vaccinations are opt-in, because they follow from s
 
 Once something is required the step asks a second question: **must the exhibitor produce the original at the counter?** (`shows.requires_physical_document_check`, migration 138). Which papers a show requires and whether it wants to see them are different questions, and the desk had been answering the second one for itself — every required document produced an inspection sign-off counted as outstanding, whether or not that show ever meant to look at paper. It defaults true, which is what every show already did. Unticked, the health rows are still listed and still signable — the office may record a paper it is handed, and that still clears the flag — they simply stop counting as paperwork the desk owes, and the desk prints a line saying so where the rows are.
 
+That question now sits on its own card, **Checked at the registration desk**, with the other three things the desk signs off on: **membership cards**, **horse registration papers** and the **horse's age** (`shows.requires_membership_card_check`, `requires_horse_age_check`, `requires_registration_papers_check`, migration 160). Plenty of shows never look at registration papers during class registration, and every one of them was handed a red row per horse per association. Each is ticked by default, which is what every show did before. Untick one and it comes off the desk entirely — no row on any exhibitor's panel and nothing in the outstanding count — and a sign-off already recorded comes back if it is ticked again. The health originals are the exception that keeps its rows, for the reason above.
+
 Every waiver added here is **required**. The form used to offer the choice, and an optional waiver is a row nobody chases and nobody can tell from one somebody forgot to chase; a show that only wants something read publishes it on the show bill. `show_waivers.is_required` stays, because rows filed before this and a futurity's own release may still be optional, and the list marks those.
 
 ## Class Setup Origins
@@ -249,7 +251,7 @@ The "Add from Standard Library" action on `/admin/shows/[id]/classes` is the cli
 
 What a show secretary physically picks up and reads at the counter. The office records each inspection in the **Paperwork** section of each exhibitor's panel on [the registration desk](#the-registration-desk), plus *Paperwork to check* and *Unsigned releases* roster filters for working the sweep front to back. Backed by [backend/routers/show_office.py](../backend/routers/show_office.py), [backend/routers/show_waivers.py](../backend/routers/show_waivers.py), `show_verifications` (migrations 090, 098), and `show_waivers` (migration 099).
 
-Four sign-offs, from the things staff hold in their hands:
+Four sign-offs, from the things staff hold in their hands — each one only where the show's Paperwork step says the desk checks it (migrations 138 and 160):
 
 | Check | Held against | Signed off per |
 | --- | --- | --- |
@@ -345,7 +347,7 @@ Someone browsing shows before they have signed up sees a different `/shows/[id]`
 
 ### Contacting A Show
 
-`/shows/[id]/contact` is open to anyone, account or not. Messages land in the show's inbox at `/admin/shows/[id]/messages`, which is also a tile on the show dashboard carrying an unread count.
+`/shows/[id]/contact` is open to anyone, account or not. Messages land in the show's inbox at `/admin/shows/[id]/messages`, reached from the envelope in the top bar — on every page of the show, for staff who work it — which carries the unread count.
 
 - **Stored, not emailed.** `mailer.py` is best-effort and does nothing without SMTP configured, so a forward-only contact form would accept a message, tell the sender it was sent, and lose it — the one failure a contact form must not have. Staff reply from their own mail client via a `mailto:` link on each message.
 - `POST /shows/{id}/contact/` needs the internal API key but **no session** — that is the point. It is **rate limited to 5/minute** per IP, because it is the one endpoint a stranger can write to. A show that is not `PUBLISHED` / `ACTIVE` / `COMPLETED` returns 404, so a DRAFT nobody can see cannot be used as an anonymous drop box; "no such show" and "not published" give the same answer so probing ids reveals nothing.

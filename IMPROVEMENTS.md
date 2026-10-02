@@ -2,6 +2,48 @@
 
 ## October 2026
 
+### Each show chooses what the desk inspects
+
+- **The Paperwork step has a *Checked at the registration desk* card**:
+  membership cards, horse registration papers, the horse's age (foaling date),
+  and the health documents in person. Each is ticked by default, which is what
+  every show did before. Untick one and it comes off the registration desk
+  entirely — no rows, nothing in the outstanding count. A show that never looks
+  at registration papers was handed a red row per horse per association. The
+  health originals question moved onto the card; untick it and the health rows
+  stay, since signing one off still clears the horse's flag (migration 160).
+- **A waiver needs only a title.** The wording is optional, for a show that
+  hands out a paper release and only wants the desk to track who signed it.
+  The exhibitor's signing screen offers *Sign* with no text box when there is
+  no wording.
+
+### The desk's Contact section works, and the office can fill it in
+
+- **The Contact section showed "nothing on file" for everybody.** The desk built
+  each exhibitor's email, phone, address and guardian and the response model
+  dropped them, because it never named the field. It does now.
+- **The office can add or correct contact details** — *+ Add contact details* /
+  *Edit contact details* on the section. Nothing is required. Phone, address
+  and guardian are kept for that show only, like the emergency contact; the
+  email is the office's own address on the record. The address somebody signs
+  in with is never changed from here.
+
+### The show menu in the office's order, and Messages in the top bar
+
+- **A show's menu and dashboard tiles run** Overview, Registration Desk, Score
+  Classes, Patterns, High Point, Futurities, Side Pots, Financials, Show Record,
+  then Setup.
+- **Messages is an envelope in the top bar**, beside the account button, on
+  every page of a show you work, with the unread count on it. It is no longer a
+  menu row or a dashboard tile.
+
+### The GaitDesk Pro banner is a strip
+
+- **The *Automate your show setup* card on Shows and New Show is one row**: the
+  GaitDesk Pro pill, one sentence, and the button. A company without the plan
+  sees *Request upgrade* and a line saying whose company is not on it, instead
+  of a disabled upload button above a second button.
+
 ### A payment's Received date starts at today
 
 - **Recording a payment on Financials → Exhibitors fills in today's date**,

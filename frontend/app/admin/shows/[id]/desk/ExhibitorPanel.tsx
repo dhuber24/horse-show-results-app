@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useId, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
 import CheckRow, { type VerificationKind } from './CheckRow';
+import ContactForm, { type ContactValues } from './ContactForm';
 import DocumentViewer from './DocumentViewer';
 import { UnenrolledFuturityRow, WithdrawFuturityButton } from './FuturityEnrollment';
 import HealthCheckRow from './HealthCheckRow';
@@ -98,7 +99,7 @@ function firstOutstandingPaperwork(
         };
       }
     }
-    if (horse.age_check.status !== 'verified') {
+    if (horse.age_check && horse.age_check.status !== 'verified') {
       return {
         anchor: anchorFor({ kind: 'horse_age', horse_id: horse.horse_id }),
         label: `${horse.horse_name} — foaling date`,
@@ -324,10 +325,10 @@ function ContactLine({ label, children }: { label: string; children: React.React
 /**
  * How to reach this exhibitor away from the counter.
  *
- * Read-only: `PATCH /exhibitors/{id}` is ADMIN-or-self, so the office cannot
- * correct a wrong number from here the way it can take an emergency contact.
- * That is a gap rather than a decision — worth closing the same way, with an
- * endpoint of its own.
+ * The read view. The office types the details in or corrects them with
+ * `ContactForm`, which writes this show's copy the way the emergency contact
+ * does — `PATCH /exhibitors/{id}` is ADMIN-or-self, so it has an endpoint of
+ * its own.
  *
  * The addresses are `mailto:` and `tel:` links because the reason to open this
  * section is to send something or ring somebody, and retyping an address off a
@@ -345,9 +346,7 @@ function ContactDetails({
   if (!contact?.has_any) {
     return (
       <p className="text-sm" style={{ color: COLORS.muted }}>
-        No email, telephone number or address on this profile. An exhibitor with an account
-        fills these in themselves; a record the office typed in carries whatever was written
-        on the entry blank.
+        No email, telephone number or address on file. None of it is required.
       </p>
     );
   }
@@ -432,8 +431,8 @@ function ContactDetails({
       )}
 
       <p className="text-xs pt-1" style={{ color: COLORS.muted }}>
-        {name}&rsquo;s own details, from their profile rather than this show. The emergency
-        contact is in Paperwork above, where the desk chases it.
+        {name}&rsquo;s details as this show holds them. The emergency contact is in Paperwork
+        above, where the desk chases it.
       </p>
     </div>
   );
@@ -491,7 +490,18 @@ export default function ExhibitorPanel({
   const [editingContact, setEditingContact] = useState(false);
   const [contactName, setContactName] = useState(exhibitor.emergency_contact?.name ?? '');
   const [contactPhone, setContactPhone] = useState(exhibitor.emergency_contact?.phone ?? '');
+  // Typing in how to reach them (email, phone, address, guardian) — optional,
+  // and closed until somebody asks for it, unlike the emergency contact above,
+  // which the desk chases.
+  const [editingDetails, setEditingDetails] = useState(false);
   const { collapsed, toggle, expand } = useCollapsedSections();
+
+  // Which card and papers sign-offs this show's office does (Paperwork setup,
+  // migration 160). The backend builds no rows for one that is off; these say
+  // so, so an empty list is not read as "nothing on file".
+  const checksMemberships = desk.requires_membership_card_check ?? true;
+  const checksAge = desk.requires_horse_age_check ?? true;
+  const checksPapers = desk.requires_registration_papers_check ?? true;
 
   // The Paperwork section folds itself away once this exhibitor is in good
   // standing, and opens again the moment something needs doing — it is the
@@ -535,6 +545,7 @@ export default function ExhibitorPanel({
 
   useEffect(() => {
     setEditingContact(false);
+    setEditingDetails(false);
     setContactName(exhibitor.emergency_contact?.name ?? '');
     setContactPhone(exhibitor.emergency_contact?.phone ?? '');
     // Only on a change of person: re-seeding on every reload would wipe a
@@ -665,6 +676,20 @@ export default function ExhibitorPanel({
       'Could not save that emergency contact.',
     );
     if (ok) setEditingContact(false);
+  };
+
+  const saveContactDetails = async (changes: Partial<ContactValues>) => {
+    const ok = await run(
+      'contact-details',
+      () =>
+        fetch(`/api/shows/${showId}/exhibitors/${exhibitor.exhibitor_id}/contact`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(changes),
+        }),
+      'Could not save those contact details.',
+    );
+    if (ok) setEditingDetails(false);
   };
 
   const startEditingContact = () => {
@@ -1296,6 +1321,10 @@ export default function ExhibitorPanel({
           </span>
         }
       >
+        {/* Dropped entirely at a show whose office does not check cards
+            (Paperwork setup, migration 160) — the backend builds no rows. */}
+        {checksMemberships && (
+        <>
         <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: COLORS.accent }}>
           Memberships
         </p>
@@ -1328,11 +1357,15 @@ export default function ExhibitorPanel({
             );
           })
         )}
+        </>
+        )}
 
         {/* Adding a horse lives under the Horses heading, where somebody looks
             for it — it used to sit at the foot of the whole Paperwork section,
             below the releases, where nobody did. */}
-        <div className="flex flex-wrap items-baseline justify-between gap-2 mt-4 mb-1">
+        <div
+          className={`flex flex-wrap items-baseline justify-between gap-2 mb-1 ${checksMemberships ? 'mt-4' : ''}`}
+        >
           <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.accent }}>
             Horses
           </p>
@@ -1377,6 +1410,11 @@ export default function ExhibitorPanel({
             This show does not ask to see health papers at the counter, so inspecting a current
             one is optional. One the file does not cover is still outlined — inspecting the paper
             clears it for this show.
+          </p>
+        )}
+        {!checksAge && !checksPapers && (
+          <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
+            This show does not check registration papers or foaling dates at the counter.
           </p>
         )}
         {exhibitor.horses.length === 0 ? (
@@ -1437,6 +1475,9 @@ export default function ExhibitorPanel({
                         );
                       })}
 
+                      {/* The papers header and its viewer only where the show
+                          checks something off them (migration 160). */}
+                      {(checksAge || checksPapers) && (
                       <div
                         className="flex items-center justify-between gap-2 pt-2 border-t"
                         style={{ borderColor: 'var(--bg-subtle)' }}
@@ -1473,26 +1514,28 @@ export default function ExhibitorPanel({
                             : 'View'}
                         </button>
                       </div>
+                      )}
 
-                      {(() => {
+                      {horse.age_check && (() => {
+                        const ageCheck = horse.age_check;
                         const subject: Subject = { kind: 'horse_age', horse_id: horse.horse_id };
                         return (
                           <div id={anchorFor(subject)}>
                             <CheckRow
                               label="Age (foaling date)"
-                              check={horse.age_check}
+                              check={ageCheck}
                               busy={busy.has(subjectKey(subject))}
                               onVerify={() => verify(subject)}
                               onUndo={() =>
-                                horse.age_check.verification_id &&
-                                undoVerify(subject, horse.age_check.verification_id)
+                                ageCheck.verification_id &&
+                                undoVerify(subject, ageCheck.verification_id)
                               }
                             />
                           </div>
                         );
                       })()}
 
-                      {horse.registrations.length === 0 ? (
+                      {!checksPapers ? null : horse.registrations.length === 0 ? (
                         // Scoped to the show's own associations, like the
                         // memberships above — a horse papered with four bodies
                         // shows none of them at a show that runs under none.
@@ -1689,7 +1732,26 @@ export default function ExhibitorPanel({
           ) : undefined
         }
       >
-        <ContactDetails contact={exhibitor.contact} name={exhibitor.exhibitor_name} />
+        {editingDetails ? (
+          <ContactForm
+            contact={exhibitor.contact}
+            busy={busy.has('contact-details')}
+            onSave={saveContactDetails}
+            onCancel={() => setEditingDetails(false)}
+          />
+        ) : (
+          <>
+            <ContactDetails contact={exhibitor.contact} name={exhibitor.exhibitor_name} />
+            <button
+              type="button"
+              onClick={() => setEditingDetails(true)}
+              className="text-sm hover:underline mt-2"
+              style={{ color: COLORS.accent }}
+            >
+              {exhibitor.contact?.has_any ? 'Edit contact details' : '+ Add contact details'}
+            </button>
+          </>
+        )}
       </Section>
 
       {/* The office's half of the rule: an exhibitor may cancel their own

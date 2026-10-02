@@ -31,8 +31,20 @@ function formatDate(value: string | null): string {
  *
  * Renders nothing for somebody in no company: there is nothing to upgrade,
  * and the locked text beside it already says what to do first.
+ *
+ * `compact` is for the end of a strip (`AutomateShowCard`) whose plan pill
+ * already names the plan: a smaller button that says only "Request upgrade",
+ * and a confirmation narrow enough to sit beside the pitch.
  */
-export default function UpgradeRequestButton({ mine, feature }: { mine: MyFeatures; feature: string }) {
+export default function UpgradeRequestButton({
+  mine,
+  feature,
+  compact = false,
+}: {
+  mine: MyFeatures;
+  feature: string;
+  compact?: boolean;
+}) {
   const plan = planFor(mine, feature);
   const [request, setRequest] = useState<UpgradeRequest | null>(() => upgradeRequestFor(mine, feature));
   const [companyId, setCompanyId] = useState<string>(() => defaultUpgradeCompany(mine)?.id ?? '');
@@ -51,7 +63,11 @@ export default function UpgradeRequestButton({ mine, feature }: { mine: MyFeatur
         ? `It's being reviewed, and someone from the GaitDesk team will contact ${request.requested_by_name} soon.`
         : 'The request is being reviewed, and someone from the GaitDesk team will be in contact soon.';
     return (
-      <p role="status" className="flex items-start gap-2 text-sm" style={{ color: 'var(--text-deep)' }}>
+      <p
+        role="status"
+        className={`flex items-start gap-2 ${compact ? 'text-xs sm:max-w-xs' : 'text-sm'}`}
+        style={{ color: 'var(--text-deep)' }}
+      >
         <CheckIcon />
         <span>
           {/* The date is formatted in the viewer's time zone and the server's
@@ -102,7 +118,7 @@ export default function UpgradeRequestButton({ mine, feature }: { mine: MyFeatur
             <select
               value={companyId}
               onChange={(e) => setCompanyId(e.target.value)}
-              className="min-w-0 flex-1 border rounded-lg px-3 py-2.5 text-sm"
+              className={`min-w-0 flex-1 border rounded-lg px-3 text-sm ${compact ? 'py-2' : 'py-2.5'}`}
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
             >
               {mine.companies.map((c) => (
@@ -118,11 +134,11 @@ export default function UpgradeRequestButton({ mine, feature }: { mine: MyFeatur
           onClick={send}
           disabled={busy}
           title={busy ? 'Sending…' : `Ask GaitDesk to set up ${plan}`}
-          className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-lg text-sm font-semibold disabled:opacity-60 disabled:cursor-wait"
+          className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto rounded-lg text-sm font-semibold disabled:opacity-60 disabled:cursor-wait ${compact ? 'px-4 py-2' : 'px-5 py-3'}`}
           style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
         >
           <SparkIcon />
-          {busy ? 'Sending…' : `Request upgrade to ${plan}`}
+          {busy ? 'Sending…' : compact ? 'Request upgrade' : `Request upgrade to ${plan}`}
         </button>
       </div>
       {error && (

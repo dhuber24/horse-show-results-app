@@ -57,6 +57,11 @@ def make_show(**overrides) -> SimpleNamespace:
         # Whether the originals are produced at the counter (migration 138).
         # True is what every show did before the column existed.
         requires_physical_document_check=True,
+        # Which card and papers sign-offs the desk does (migration 160). All
+        # three on is what every show did before the columns existed.
+        requires_membership_card_check=True,
+        requires_horse_age_check=True,
+        requires_registration_papers_check=True,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

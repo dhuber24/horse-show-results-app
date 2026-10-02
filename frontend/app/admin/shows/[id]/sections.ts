@@ -27,20 +27,13 @@ export type ShowSection = {
 };
 
 // The grid is two across (three on the desktop layout), so this order is the
-// layout, and the sidebar's: the tiles worked every
-// show (the desk, scoring, money) first, then Patterns and High Point, which
-// most shows use, then Side Pots and Futurities, which most shows do not.
+// layout, and the sidebar's, below its Overview — the show office's own order:
+// the desk and scoring, then what is worked alongside them (Patterns, High
+// Point, Futurities, Side Pots), then the money and the record, then Setup.
+// Messages is not a section: it is the envelope in the top bar
+// (`app/components/ShowMessagesButton.tsx`), so a new question is in view from
+// every page of the show rather than from one row of the menu.
 export const showSections = (showId: string): ShowSection[] => [
-  // Staff and the class schedule were tiles of their own. Both are things you
-  // set up once, before the show runs, so both are steps of the setup wizard —
-  // staff in Step 1 next to the dates, classes in Step 4.
-  {
-    href: `/admin/shows/${showId}/setup`,
-    title: 'Setup',
-    description:
-      'Basics and staff, judges, lodging, classes, sanctioning, futurities, side pots, fees and paperwork — the setup wizard.',
-    icon: '🎪',
-  },
   // Entries, back numbers, and paperwork check-in were three tiles and three
   // screens; they are one conversation at the counter, so they are one tile and
   // one screen. The old routes redirect here.
@@ -57,12 +50,6 @@ export const showSections = (showId: string): ShowSection[] => [
     icon: '🏆',
     scoring: true,
   },
-  {
-    href: `/admin/shows/${showId}/financials`,
-    title: 'Financials',
-    description: 'Registrations, revenue, outstanding balances, and reports.',
-    icon: '💵',
-  },
   // Not a setup step: patterns arrive from the judges in the days before the
   // show and change on the day, so this is worked alongside the show rather
   // than set once in the wizard.
@@ -73,9 +60,8 @@ export const showSections = (showId: string): ShowSection[] => [
       'The judges’ patterns, on file and ticked against the classes that run them — exhibitors open them from the schedule.',
     icon: '📐',
   },
-  // Beside the patterns because both are worked while the show runs. The
-  // standings are the public leaderboard; this is where the office says which
-  // points system scores them (migration 147).
+  // The standings are the public leaderboard; this is where the office says
+  // which points system scores them (migration 147).
   {
     href: `/admin/shows/${showId}/high-point`,
     title: 'High Point',
@@ -85,6 +71,14 @@ export const showSections = (showId: string): ShowSection[] => [
     feature: 'highpoint',
   },
   {
+    href: `/admin/shows/${showId}/futurities`,
+    title: 'Futurities',
+    description:
+      'Futurity classes, entry fee categories, entries, and Hi-Point award divisions.',
+    icon: '🌟',
+    feature: 'futurities',
+  },
+  {
     href: `/admin/shows/${showId}/side-pots`,
     title: 'Side Pots',
     description: 'Divisional jackpots spanning several classes — buy-ins, standings, and payouts.',
@@ -92,12 +86,10 @@ export const showSections = (showId: string): ShowSection[] => [
     feature: 'sidepots',
   },
   {
-    href: `/admin/shows/${showId}/futurities`,
-    title: 'Futurities',
-    description:
-      'Futurity classes, entry fee categories, entries, and Hi-Point award divisions.',
-    icon: '🌟',
-    feature: 'futurities',
+    href: `/admin/shows/${showId}/financials`,
+    title: 'Financials',
+    description: 'Registrations, revenue, outstanding balances, and reports.',
+    icon: '💵',
   },
   // What the office sends the association afterwards. Its own tile rather than
   // a link under Financials: these reports are the record of what happened —
@@ -109,11 +101,17 @@ export const showSections = (showId: string): ShowSection[] => [
       'Results, entry cards, judges’ cards and the compliance sheet — what the office sends on, plus the retention bundle to keep on file.',
     icon: '📁',
   },
+  // After the screens worked while the show runs: setup is done before it,
+  // and its steps open beneath it in the sidebar.
+  // Staff and the class schedule were tiles of their own. Both are things you
+  // set up once, before the show runs, so both are steps of the setup wizard —
+  // staff in Step 1 next to the dates, classes in Step 4.
   {
-    href: `/admin/shows/${showId}/messages`,
-    title: 'Messages',
-    description: 'Questions sent from the show page, including from people without an account.',
-    icon: '✉️',
+    href: `/admin/shows/${showId}/setup`,
+    title: 'Setup',
+    description:
+      'Basics and staff, judges, lodging, classes, sanctioning, futurities, side pots, fees and paperwork — the setup wizard.',
+    icon: '🎪',
   },
   // The public screens, reached from the office rather than by finding the
   // show's own page. Not status-gated: what the rail sees is worth checking

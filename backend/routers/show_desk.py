@@ -296,6 +296,11 @@ async def get_desk(
         # Quoted from the checklist rather than read off the show again, so the
         # desk cannot disagree with the tally it is drawing (migration 138).
         "requires_physical_document_check": checklist["requires_physical_document_check"],
+        # Which card and papers sign-offs were built (migration 160), quoted for
+        # the same reason.
+        "requires_membership_card_check": checklist["requires_membership_card_check"],
+        "requires_horse_age_check": checklist["requires_horse_age_check"],
+        "requires_registration_papers_check": checklist["requires_registration_papers_check"],
         # Quoted from the checklist for the same reason — the day it judged
         # every health row against. The inspection form needs it to tell staff
         # that the date they are typing stops before the show does.

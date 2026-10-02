@@ -292,3 +292,45 @@ def test_every_document_type_has_attested_wording(document_type):
 
     assert cleared["status"] == HEALTH_VALID
     assert cleared["message"] != check["message"]
+
+
+# ── Which sign-offs the desk does (migration 160) ─────────────────────────────
+
+
+def test_the_card_and_papers_checks_are_the_show_s_choice():
+    """A show that never looks at registration papers must not be handed a red
+    row per horse per association. Each of the three is its own switch: an Open
+    show may check foaling dates for its two-year-old classes and nothing else."""
+    from routers.show_office import desk_inspections
+
+    show = make_show(
+        requires_membership_card_check=False,
+        requires_horse_age_check=True,
+        requires_registration_papers_check=False,
+    )
+    assert desk_inspections(show) == {
+        "membership_cards": False,
+        "horse_age": True,
+        "registration_papers": False,
+    }
+
+
+def test_a_show_predating_the_desk_inspection_columns_checks_everything():
+    """Every show before migration 160 owed all three sign-offs. A row with no
+    columns must go on owing them, or a live show's chase list empties."""
+    from routers.show_office import desk_inspections
+
+    bare = make_show()
+    for column in (
+        "requires_membership_card_check",
+        "requires_horse_age_check",
+        "requires_registration_papers_check",
+    ):
+        if hasattr(bare, column):
+            delattr(bare, column)
+
+    assert desk_inspections(bare) == {
+        "membership_cards": True,
+        "horse_age": True,
+        "registration_papers": True,
+    }

@@ -64,6 +64,9 @@ export default async function SetupPaperworkPage({
           vaccination_notes: show.vaccination_notes ?? null,
           requires_physical_document_check:
             show.requires_physical_document_check ?? true,
+          requires_membership_card_check: show.requires_membership_card_check ?? true,
+          requires_horse_age_check: show.requires_horse_age_check ?? true,
+          requires_registration_papers_check: show.requires_registration_papers_check ?? true,
         }}
         initialWaivers={waivers}
       />

@@ -202,6 +202,15 @@ class Show(Base):
     # show that accepts the file as sufficient sets it false, and the health
     # rows stay visible and signable but stop being counted as outstanding.
     requires_physical_document_check = Column(Boolean, nullable=False, server_default="true")
+    # Which of the other desk sign-offs this show's office does (migration 160):
+    # membership cards, a horse's foaling date, its registration papers. True --
+    # every show's behaviour before this -- builds and counts the check; false
+    # drops it from the desk entirely, because unlike a health inspection a
+    # sign-off on these clears nothing and a row nobody is asked to do is only
+    # clutter.
+    requires_membership_card_check = Column(Boolean, nullable=False, server_default="true")
+    requires_horse_age_check = Column(Boolean, nullable=False, server_default="true")
+    requires_registration_papers_check = Column(Boolean, nullable=False, server_default="true")
     # The show company that runs this show (migration 156). Its managers and
     # secretaries work the show with no per-show row -- see `show_access.py`.
     # NULL: staffed by `show_managers` / `show_secretaries` alone, which is every

@@ -167,3 +167,39 @@ def test_nothing_here_claims_to_be_a_check():
     contact = _build_contact(make_exhibitor(phone="555-0100"))
     assert "status" not in contact
     assert "outstanding" not in contact
+
+
+def test_the_desk_payload_keeps_the_contact_block():
+    """`get_desk` is served through `ShowDeskOut`, which drops any key its
+    exhibitor model does not name. `contact` was built and never declared, so
+    the Contact section read "nothing on file" for every exhibitor at every
+    show. Validating the built block through the response model pins it."""
+    from schemas import ShowDeskExhibitorOut
+
+    built = _build_contact(make_exhibitor(phone="555-0100", city="Cambridge"))
+    row = ShowDeskExhibitorOut.model_validate(
+        {
+            "exhibitor_id": "00000000-0000-0000-0000-000000000001",
+            "exhibitor_name": "Ava Lindqvist",
+            "contact": built,
+        }
+    )
+    dumped = row.model_dump()
+    assert dumped["contact"]["phone"] == "555-0100"
+    assert dumped["contact"]["city"] == "Cambridge"
+    assert dumped["contact"]["has_any"] is True
+
+
+def test_the_office_edit_never_names_the_sign_in_address():
+    """The office's form writes `exhibitors.email`, the address taken at the
+    counter. Nothing in the update reaches `users.email`, which is a login."""
+    from schemas import ExhibitorContactUpdate
+
+    assert set(ExhibitorContactUpdate.model_fields) == {
+        "email", "phone", "address", "city", "state", "zip",
+        "guardian_name", "guardian_phone",
+    }
+    # Everything optional: the office may save a phone number and nothing else.
+    assert ExhibitorContactUpdate.model_validate({"phone": "555-0100"}).model_dump(
+        exclude_unset=True
+    ) == {"phone": "555-0100"}

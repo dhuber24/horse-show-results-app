@@ -165,6 +165,10 @@ class ShowUpdate(BaseModel):
     vaccination_notes: Optional[str] = Field(default=None, max_length=2000)
     # Whether the originals have to be produced at the counter (migration 138).
     requires_physical_document_check: Optional[bool] = None
+    # Which of the other desk sign-offs this show's office does (migration 160).
+    requires_membership_card_check: Optional[bool] = None
+    requires_horse_age_check: Optional[bool] = None
+    requires_registration_papers_check: Optional[bool] = None
 
     @model_validator(mode="after")
     def validate_date_range(self):
@@ -266,6 +270,10 @@ class ShowOut(BaseModel):
     # function builds the payload by hand, so a column named in only one of the
     # two reads back as this default whatever is stored.
     requires_physical_document_check: bool = True
+    # Migration 160, and the same warning: serialized in `_serialize` too.
+    requires_membership_card_check: bool = True
+    requires_horse_age_check: bool = True
+    requires_registration_papers_check: bool = True
     affiliations: list[ShowAffiliationOut] = []
     # Club sanctioning (NSBA, WSCA, ...), for the show bill and the exhibitor's
     # show-details screen. Forward-referenced because ShowSanctioningOut belongs
@@ -2462,7 +2470,9 @@ class VerificationHorseOut(BaseModel):
     horse_id: UUID
     horse_name: str
     barn_name: Optional[str] = None
-    age_check: VerificationCheckOut
+    # None where the show does not check foaling dates (migration 160), and the
+    # registrations empty where it does not check papers.
+    age_check: Optional[VerificationCheckOut] = None
     registrations: list[VerificationCheckOut] = Field(default_factory=list)
     # Required health papers only — a show that does not ask for a CVI gets no
     # CVI line. The derived `status` on each is excluded from `outstanding`;
@@ -2521,6 +2531,48 @@ class EmergencyContactOut(BaseModel):
     phone: Optional[str] = None
 
 
+class ExhibitorContactOut(BaseModel):
+    """How the office reaches this exhibitor away from the counter.
+
+    Built by `show_office._build_contact`. Reference, never a check: nothing
+    here counts toward `outstanding`. Declared rather than left to a dict
+    because the desk's response model drops any key it does not name -- the
+    Contact section read "nothing on file" for every exhibitor until this was.
+    """
+
+    # The account's address where there is one, otherwise the office's.
+    email: Optional[str] = None
+    email_source: Optional[Literal["account", "office"]] = None
+    # Only an office address that differs from the account's.
+    office_email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    has_any: bool = False
+
+
+class ExhibitorContactUpdate(BaseModel):
+    """Contact details the office takes over the counter. Every field optional.
+
+    A field left out of the body is left alone; one sent blank is cleared. The
+    email is the office's own (`exhibitors.email`, migration 140) -- the address
+    an account signs in with is never the office's to change.
+    """
+
+    email: Optional[str] = Field(default=None, max_length=320)
+    phone: Optional[str] = Field(default=None, max_length=30)
+    address: Optional[str] = Field(default=None, max_length=300)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
+    guardian_name: Optional[str] = Field(default=None, max_length=200)
+    guardian_phone: Optional[str] = Field(default=None, max_length=30)
+
+
 class VerificationExhibitorOut(BaseModel):
     exhibitor_id: UUID
     exhibitor_name: str
@@ -2557,6 +2609,12 @@ class VerificationChecklistOut(BaseModel):
     # counted as outstanding, so the desk says so rather than leaving staff to
     # wonder why a row it is showing them is not in the tally.
     requires_physical_document_check: bool = True
+    # Which card and papers sign-offs this show does (migration 160). False and
+    # that check is not built at all, so an empty list means "not checked here"
+    # only when the flag says so.
+    requires_membership_card_check: bool = True
+    requires_horse_age_check: bool = True
+    requires_registration_papers_check: bool = True
     # The day these checks were judged against — the show's last day. An
     # attested expiry earlier than this does not clear the horse, so the form
     # taking that date can say so as it is typed.
@@ -2607,7 +2665,10 @@ class ShowHealthFlagsOut(BaseModel):
 
 class ShowWaiverCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    body: str = Field(min_length=1, max_length=20000)
+    # Optional: plenty of shows hand out a paper release and only want the desk
+    # to track who signed it, so the title is the whole of it. Stored as "" --
+    # the column is NOT NULL, and an empty wording is not a missing one.
+    body: str = Field(default="", max_length=20000)
     is_required: bool = True
     # NULL means show-wide, which is what every waiver written before migration
     # 109 is. Set, only that futurity's entrants are asked to sign.
@@ -2617,7 +2678,8 @@ class ShowWaiverCreate(BaseModel):
 
 class ShowWaiverUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
-    body: Optional[str] = Field(default=None, min_length=1, max_length=20000)
+    # "" clears the wording; the title is the only part a waiver must have.
+    body: Optional[str] = Field(default=None, max_length=20000)
     is_required: Optional[bool] = None
     futurity_id: Optional[UUID] = None
     sort_order: Optional[int] = Field(default=None, ge=0)
@@ -4312,6 +4374,7 @@ class ShowDeskExhibitorOut(BaseModel):
     horses: list[VerificationHorseOut] = Field(default_factory=list)
     waivers: list[WaiverCheckOut] = Field(default_factory=list)
     emergency_contact: EmergencyContactOut = Field(default_factory=EmergencyContactOut)
+    contact: ExhibitorContactOut = Field(default_factory=ExhibitorContactOut)
     paperwork_outstanding: int = 0
     # From `build_account`, never re-derived: the running total the desk reads
     # out has to match the bill the exhibitor sees on My Shows.
@@ -4378,6 +4441,12 @@ class ShowDeskOut(BaseModel):
     # (migration 138). The health rows are listed either way; when false the
     # inspection sign-off is optional and is not in `paperwork_outstanding`.
     requires_physical_document_check: bool = True
+    # Which card and papers sign-offs this show does (migration 160). Off, the
+    # check is not on the desk at all; sent so the panel can say so rather than
+    # read as a horse with nothing on file.
+    requires_membership_card_check: bool = True
+    requires_horse_age_check: bool = True
+    requires_registration_papers_check: bool = True
     # The day health paperwork has to still be good for — the show's last day,
     # since the horse is on the grounds all week. Sent so the inspection form
     # can say "that date does not cover this show" *before* saving a date the

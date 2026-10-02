@@ -98,6 +98,8 @@ from routers.people import (
 from routers.shows import _assert_show_access
 from schemas import (
     EmergencyContactOut,
+    ExhibitorContactOut,
+    ExhibitorContactUpdate,
     ExhibitorEmergencyContactUpdate,
     MyHorseOut,
     ShowHealthFlagsOut,
@@ -418,6 +420,21 @@ def _build_check(
     }
 
 
+def desk_inspections(show) -> dict:
+    """Which of the card and papers sign-offs this show's office does (migration 160).
+
+    True for a show row that predates the columns, which is exactly what every
+    one of them already did. The health originals are the fourth desk
+    inspection and are asked separately (`requires_physical_check`), because
+    switching that one off keeps its rows.
+    """
+    return {
+        "membership_cards": bool(getattr(show, "requires_membership_card_check", True)),
+        "horse_age": bool(getattr(show, "requires_horse_age_check", True)),
+        "registration_papers": bool(getattr(show, "requires_registration_papers_check", True)),
+    }
+
+
 async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     """The paperwork sweep for this show, by exhibitor.
 
@@ -438,6 +455,16 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
     # show can meaningfully clear is one they learn to scroll past, and it
     # spends the credibility of the checks that matter.
     physical_check = requires_physical_check(show)
+
+    # Which of the other sign-offs this show's office does at all (migration
+    # 160). Plenty of shows never look at registration papers, and a red row per
+    # horse per association that nobody there will clear teaches staff to scroll
+    # past the panel. Unlike the health rows above these are not built when off:
+    # a health inspection clears the horse's flag whether or not the show asked
+    # for one, but a sign-off on a card or a foaling date only records, so a row
+    # nobody is asked to do is clutter. Sign-offs already recorded stay in
+    # `show_verifications` and reappear if the check is turned back on.
+    inspections = desk_inspections(show)
 
     # Which memberships and which registration papers this show may ask for.
     # An exhibitor's profile carries every card they hold and a horse carries
@@ -502,7 +529,8 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         view = roster.view(exhibitor_id)
         memberships = []
         for reg in sorted(
-            asked_of(view.registrations or [], asked_association_ids),
+            asked_of(view.registrations or [], asked_association_ids)
+            if inspections["membership_cards"] else [],
             key=lambda r: (r.association.code if r.association else ""),
         ):
             key = _verification_key(
@@ -520,16 +548,19 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         for horse in sorted(
             roster.horses.get(exhibitor_id, {}).values(), key=lambda h: h.name or ""
         ):
-            age_key = _verification_key("horse_age", horse.id)
-            age_check = record(age_key, _build_check(
-                "horse_age",
-                horse.foaling_date.isoformat() if horse.foaling_date else None,
-                by_key.get(age_key),
-            ))
+            age_check = None
+            if inspections["horse_age"]:
+                age_key = _verification_key("horse_age", horse.id)
+                age_check = record(age_key, _build_check(
+                    "horse_age",
+                    horse.foaling_date.isoformat() if horse.foaling_date else None,
+                    by_key.get(age_key),
+                ))
 
             horse_regs = []
             for reg in sorted(
-                asked_of(horse.registrations or [], asked_association_ids),
+                asked_of(horse.registrations or [], asked_association_ids)
+                if inspections["registration_papers"] else [],
                 key=lambda r: (r.association.code if r.association else ""),
             ):
                 key = _verification_key(
@@ -572,7 +603,9 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
 
         # Outstanding is what is left at *this person's* desk visit, so a shared
         # horse counts for each exhibitor who has to present it.
-        all_checks = memberships + [h["age_check"] for h in horses_out]
+        all_checks = memberships + [
+            h["age_check"] for h in horses_out if h["age_check"] is not None
+        ]
         for h in horses_out:
             all_checks.extend(h["registrations"])
 
@@ -632,6 +665,11 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         # Reported so the desk can say why a health row it is still showing is
         # not being counted, rather than leaving staff to wonder.
         "requires_physical_document_check": physical_check,
+        # Which sign-offs were built at all (migration 160), so the desk can
+        # tell "this show does not check papers" from "nothing here to check".
+        "requires_membership_card_check": inspections["membership_cards"],
+        "requires_horse_age_check": inspections["horse_age"],
+        "requires_registration_papers_check": inspections["registration_papers"],
         # The day every health check above was judged against. Reported for the
         # same reason: a sign-off whose attested date stops before this one does
         # not clear the flag, and the form asking for that date should be able
@@ -1042,6 +1080,94 @@ async def set_emergency_contact(
     copy.emergency_contact_phone = phone
     await db.commit()
     return _build_emergency_contact(ShowExhibitorView(exhibitor, copy))
+
+
+# ── Contact details ────────────────────────────────────────────────────────────
+
+#: Contact fields the office writes to the show's copy, by the name the desk
+#: payload uses. The guardian is `parent_guardian_*` on the copy.
+_CONTACT_COPY_FIELDS = {
+    "phone": "phone",
+    "address": "address",
+    "city": "city",
+    "state": "state",
+    "zip": "zip",
+    "guardian_name": "parent_guardian_name",
+    "guardian_phone": "parent_guardian_phone",
+}
+
+
+@router.patch(
+    "/exhibitors/{exhibitor_id}/contact",
+    response_model=ExhibitorContactOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def set_contact(
+    show_id: UUID,
+    exhibitor_id: UUID,
+    body: ExhibitorContactUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take an exhibitor's contact details over the counter. Nothing is required.
+
+    The desk could show how to reach somebody but not record it, so a walk-up
+    typed in with only a name stayed unreachable however many times they read
+    their number out. None of it is a check -- an exhibitor with no telephone is
+    somebody the office reaches another way -- so every field is optional and a
+    blank clears it.
+
+    Telephone, postal address and a youth exhibitor's guardian go to this
+    show's copy of the exhibitor's details, never to the profile (migration
+    145), exactly as the emergency contact beside them does. The email is the
+    one field the copy does not hold: it is `exhibitors.email`, the address the
+    office takes at the counter (migration 140) and which only the office
+    writes. The address an account signs in with is untouched, because a login
+    is not the office's to change.
+
+    Scoped to this show's roster, like every other write the desk makes on
+    somebody's behalf.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _assert_exhibitor_on_roster(show_id, exhibitor_id, db)
+    # Re-read with the account: the reply names the address they sign in with,
+    # and `user` is a lazy relationship -- reading it off the `db.get` row above
+    # is a lazy load in an async request.
+    exhibitor = (
+        await db.execute(
+            select(Exhibitor)
+            .options(selectinload(Exhibitor.user))
+            .where(Exhibitor.id == exhibitor_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+
+    sent = body.model_dump(exclude_unset=True)
+    values = {key: (value or "").strip() or None for key, value in sent.items()}
+
+    if "email" in values:
+        email = values["email"]
+        if email and ("@" not in email or " " in email):
+            raise HTTPException(422, f"{email} does not look like an email address.")
+        exhibitor.email = email
+
+    copy_values = {
+        column: values[key] for key, column in _CONTACT_COPY_FIELDS.items() if key in values
+    }
+    copy = await load_copy(show_id, exhibitor_id, db)
+    if copy_values:
+        copy = await get_or_create_copy(show_id, exhibitor_id, db)
+        # The first write copies the rest of the profile's details across, so
+        # the show goes on holding the date of birth and emergency contact it
+        # already had.
+        take_details(copy, exhibitor)
+        for column, value in copy_values.items():
+            setattr(copy, column, value)
+
+    await db.commit()
+    return _build_contact(ShowExhibitorView(exhibitor, copy))
 
 
 # ── Creating a horse for an exhibitor ──────────────────────────────────────────

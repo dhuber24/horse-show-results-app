@@ -50,7 +50,8 @@ export interface DeskHorse {
   horse_id: string;
   horse_name: string;
   barn_name: string | null;
-  age_check: VerificationCheck;
+  /** Null where the show does not check foaling dates (migration 160). */
+  age_check: VerificationCheck | null;
   registrations: VerificationCheck[];
   health?: HorseHealthCheck[];
 }
@@ -226,6 +227,14 @@ export interface Desk {
    *  still record a paper it was handed — but when false the sign-off is
    *  optional and is not in `paperwork_outstanding`. */
   requires_physical_document_check: boolean;
+  /** Which card and papers sign-offs this show's office does (migration 160).
+   *  False and that check is not on the desk at all — no row, no count — so an
+   *  empty list reads "not checked at this show" only when the flag says so.
+   *  `?? true` at every use: a desk payload cached from before the columns
+   *  should draw every check, as it did then. */
+  requires_membership_card_check?: boolean;
+  requires_horse_age_check?: boolean;
+  requires_registration_papers_check?: boolean;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
   futurities: DeskFuturity[];

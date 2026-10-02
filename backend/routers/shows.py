@@ -131,6 +131,10 @@ def _serialize(show: Show) -> dict:
         "vaccination_notes": show.vaccination_notes,
         # Whether the originals are produced at the counter (migration 138).
         "requires_physical_document_check": show.requires_physical_document_check,
+        # Which of the other desk sign-offs the office does (migration 160).
+        "requires_membership_card_check": show.requires_membership_card_check,
+        "requires_horse_age_check": show.requires_horse_age_check,
+        "requires_registration_papers_check": show.requires_registration_papers_check,
         "affiliations": [
             {
                 "show_type_id": str(a.show_type_id),

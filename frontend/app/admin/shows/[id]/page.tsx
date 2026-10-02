@@ -132,21 +132,6 @@ async function fetchScribeNames(
   return rows.map((r) => r.full_name);
 }
 
-/** Just the badge number — the dashboard has no business pulling every
- *  message body to render a count. */
-async function fetchUnreadMessageCount(
-  showId: string,
-  headers: Record<string, string>,
-): Promise<number> {
-  const res = await fetch(`${API_URL}/shows/${showId}/contact/messages/unread-count`, {
-    headers,
-    cache: 'no-store',
-  });
-  if (!res.ok) return 0;
-  const json = await res.json();
-  return json.unread ?? 0;
-}
-
 async function getAssociationValidation(
   showId: string,
   association: 'aqha' | 'apha',
@@ -177,7 +162,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   let scribeNames: string[] = [];
   let aqhaValidation: ValidationResult | null = null;
   let aphaValidation: AphaValidationData | null = null;
-  let unreadMessages = 0;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
     const headers = {
@@ -186,10 +170,7 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       'X-User-Id': user.id,
       'X-User-Role': user.role ?? '',
     };
-    [scribeNames, unreadMessages] = await Promise.all([
-      fetchScribeNames(id, headers),
-      fetchUnreadMessageCount(id, headers),
-    ]);
+    scribeNames = await fetchScribeNames(id, headers);
     if (show.show_type_code === 'AQHA') {
       aqhaValidation = await getAssociationValidation(id, 'aqha', headers);
     } else if (show.show_type_code === 'APHA') {
@@ -266,14 +247,6 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               <div>
                 <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
                   {tile.title}
-                  {tile.title === 'Messages' && unreadMessages > 0 && (
-                    <span
-                      className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
-                    >
-                      {unreadMessages} new
-                    </span>
-                  )}
                 </h2>
                 <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                   {tile.description}

@@ -19,7 +19,17 @@ import { useRouter } from 'next/navigation';
  * show, whether or not that show ever meant to look at paper — so a show that
  * takes the upload as sufficient had a row per horse per document that nobody
  * there could meaningfully clear. `requires_physical_document_check` is the
- * second question, asked only once something is required.
+ * second question.
+ *
+ * **What the desk inspects.** The registration desk signs off on four kinds of
+ * paper for every exhibitor: membership cards, each horse's registration
+ * papers, its foaling date, and the health originals. Plenty of shows never
+ * look at registration papers, and a red row per horse that nobody there will
+ * clear teaches staff to scroll past the panel — so each is the show's choice
+ * (migrations 138 and 160), all on by default because that is what every show
+ * did before. A card, papers or age check that is off leaves the desk
+ * entirely; the health originals are the exception, because a health sign-off
+ * clears the horse's flag even where the show did not ask for one.
  *
  * **Waivers.** Free text, because the entry blank and the liability release are
  * written by the venue's insurer or the fair board and this app has no business
@@ -65,7 +75,53 @@ export type HealthRequirements = {
    *  above say, so turning a document off and on again does not lose the
    *  show's answer. */
   requires_physical_document_check: boolean;
+  /** Which of the other desk sign-offs the office does (migration 160). Off
+   *  takes that check off the desk altogether. */
+  requires_membership_card_check: boolean;
+  requires_horse_age_check: boolean;
+  requires_registration_papers_check: boolean;
 };
+
+/** One tick-box line: what the desk checks, and what that means at the counter. */
+function InspectionOption({
+  label,
+  detail,
+  checked,
+  onChange,
+  disabled = false,
+  disabledReason,
+  title,
+}: {
+  label: string;
+  detail: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  disabledReason?: string;
+  title?: string;
+}) {
+  return (
+    <label
+      className="flex items-start gap-2 text-sm"
+      style={{ color: disabled ? COLORS.muted : COLORS.text }}
+      title={disabled ? disabledReason : title}
+    >
+      <input
+        type="checkbox"
+        className="mt-1"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="font-medium">{label}</span>
+        <span className="block text-xs" style={{ color: COLORS.muted }}>
+          {disabled && disabledReason ? disabledReason : detail}
+        </span>
+      </span>
+    </label>
+  );
+}
 
 function Card({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -95,7 +151,9 @@ export default function PaperworkClient({
   const [req, setReq] = useState(initialRequirements);
   const [waivers, setWaivers] = useState(initialWaivers);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  // Which card's Save was pressed, so "Saved." appears beside the button that
+  // was used — both cards save the same requirements in one request.
+  const [saved, setSaved] = useState<'health' | 'desk' | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [adding, setAdding] = useState(false);
@@ -111,10 +169,10 @@ export default function PaperworkClient({
   const anyDocumentRequired =
     req.requires_coggins || req.requires_health_certificate || req.requires_vaccination;
 
-  const saveRequirements = async () => {
+  const saveRequirements = async (from: 'health' | 'desk') => {
     setBusy(true);
     setError(null);
-    setSaved(false);
+    setSaved(null);
     try {
       const res = await fetch(`/api/shows/${showId}`, {
         method: 'PATCH',
@@ -127,6 +185,9 @@ export default function PaperworkClient({
           vaccination_valid_days: req.vaccination_valid_days,
           vaccination_notes: req.vaccination_notes?.trim() || null,
           requires_physical_document_check: req.requires_physical_document_check,
+          requires_membership_card_check: req.requires_membership_card_check,
+          requires_horse_age_check: req.requires_horse_age_check,
+          requires_registration_papers_check: req.requires_registration_papers_check,
         }),
       });
       if (!res.ok) {
@@ -134,7 +195,7 @@ export default function PaperworkClient({
         setError(body?.detail || 'Could not save these requirements.');
         return;
       }
-      setSaved(true);
+      setSaved(from);
       router.refresh();
     } finally {
       setBusy(false);
@@ -142,7 +203,9 @@ export default function PaperworkClient({
   };
 
   const addWaiver = async () => {
-    if (!draftTitle.trim() || !draftBody.trim()) return;
+    // Only the title is needed: a show handing out a paper release may just want
+    // the desk to track who signed it.
+    if (!draftTitle.trim()) return;
     setBusy(true);
     setError(null);
     try {
@@ -196,6 +259,21 @@ export default function PaperworkClient({
       setBusy(false);
     }
   };
+
+  const saveRow = (from: 'health' | 'desk') => (
+    <div className="flex items-center gap-3 pt-2">
+      <button
+        type="button"
+        onClick={() => saveRequirements(from)}
+        disabled={busy}
+        className="text-sm font-medium px-4 py-2 rounded disabled:opacity-50"
+        style={{ backgroundColor: COLORS.accent, color: 'var(--accent-foreground)' }}
+      >
+        {busy ? 'Saving…' : 'Save requirements'}
+      </button>
+      {saved === from && <span className="text-sm" style={{ color: 'var(--success)' }}>Saved.</span>}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -330,47 +408,53 @@ export default function PaperworkClient({
             )}
           </div>
 
-          {anyDocumentRequired && (
-            <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
-              <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={req.requires_physical_document_check}
-                  onChange={(e) =>
-                    setReq({ ...req, requires_physical_document_check: e.target.checked })
-                  }
-                />
-                <span>
-                  <span className="font-medium">
-                    Exhibitors must show these documents at the show
-                  </span>
-                  <span
-                    className="block text-xs"
-                    style={{ color: COLORS.muted }}
-                    title="The desk sign-off is the only thing that answers whether a paper is genuine, present, and describes this horse — the uploaded file only answers whether the date is still good. Leave it off and the desk can still record a document it is handed; it just is not counted as paperwork the office owes."
-                  >
-                    The desk signs off on each one after inspecting the paper, and it counts as
-                    outstanding paperwork until they do. Leave unticked if the uploaded document
-                    is enough.
-                  </span>
-                </span>
-              </label>
-            </div>
-          )}
+          {saveRow('health')}
+        </div>
+      </Card>
 
-          <div className="flex items-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={saveRequirements}
-              disabled={busy}
-              className="text-sm font-medium px-4 py-2 rounded text-white disabled:opacity-50"
-              style={{ backgroundColor: COLORS.accent }}
-            >
-              {busy ? 'Saving…' : 'Save requirements'}
-            </button>
-            {saved && <span className="text-sm" style={{ color: 'var(--success)' }}>Saved.</span>}
+      <Card
+        title="Checked at the registration desk"
+        hint="Select the documentation you require your show office to visually inspect prior to allowing an entry to a class"
+      >
+        <div className="space-y-3">
+          <InspectionOption
+            label="Membership cards"
+            detail="The exhibitor's card for each association or club this show runs under."
+            checked={req.requires_membership_card_check}
+            onChange={(checked) => setReq({ ...req, requires_membership_card_check: checked })}
+          />
+          <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
+            <InspectionOption
+              label="Horse registration papers"
+              detail="Each horse's registration certificate, for the associations this show runs under."
+              checked={req.requires_registration_papers_check}
+              onChange={(checked) =>
+                setReq({ ...req, requires_registration_papers_check: checked })
+              }
+            />
           </div>
+          <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
+            <InspectionOption
+              label="Horse's age"
+              detail="The foaling date on each horse's papers — worth keeping for age-restricted classes even where the papers themselves are not checked."
+              checked={req.requires_horse_age_check}
+              onChange={(checked) => setReq({ ...req, requires_horse_age_check: checked })}
+            />
+          </div>
+          <div className="pt-2 border-t" style={{ borderColor: COLORS.borderSoft }}>
+            <InspectionOption
+              label="Health documents, in person"
+              detail="Exhibitors show the original of each health document required above. Untick if the uploaded document is enough — the desk can still record a paper it is handed."
+              title="The desk sign-off is the only thing that answers whether a paper is genuine, present, and describes this horse — the uploaded file only answers whether the date is still good."
+              checked={req.requires_physical_document_check}
+              onChange={(checked) =>
+                setReq({ ...req, requires_physical_document_check: checked })
+              }
+              disabled={!anyDocumentRequired}
+              disabledReason="No health document is required above, so there is nothing to show in person."
+            />
+          </div>
+          {saveRow('desk')}
         </div>
       </Card>
 
@@ -405,9 +489,11 @@ export default function PaperworkClient({
                         </span>
                       )}
                     </p>
-                    <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: COLORS.muted }}>
-                      {w.body.length > 240 ? `${w.body.slice(0, 240)}…` : w.body}
-                    </p>
+                    {w.body && (
+                      <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: COLORS.muted }}>
+                        {w.body.length > 240 ? `${w.body.slice(0, 240)}…` : w.body}
+                      </p>
+                    )}
                   </div>
                   {confirmDelete === w.id ? (
                     <span className="flex items-center gap-2 shrink-0">
@@ -463,7 +549,7 @@ export default function PaperworkClient({
               rows={7}
               value={draftBody}
               onChange={(e) => setDraftBody(e.target.value)}
-              placeholder="Paste the wording your venue or insurer requires."
+              placeholder="Wording (optional) — paste what your venue or insurer requires, or leave blank for a paper form."
               className="w-full border rounded px-2 py-1.5 text-sm"
               style={{ borderColor: COLORS.border }}
             />
@@ -476,12 +562,8 @@ export default function PaperworkClient({
               <button
                 type="button"
                 onClick={addWaiver}
-                disabled={busy || !draftTitle.trim() || !draftBody.trim()}
-                title={
-                  !draftTitle.trim() || !draftBody.trim()
-                    ? 'A waiver needs a title and the wording people are agreeing to'
-                    : undefined
-                }
+                disabled={busy || !draftTitle.trim()}
+                title={!draftTitle.trim() ? 'A waiver needs a title' : undefined}
                 className="text-sm font-medium px-3 py-1.5 rounded text-white disabled:opacity-50"
                 style={{ backgroundColor: COLORS.accent }}
               >

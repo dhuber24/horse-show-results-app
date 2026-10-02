@@ -42,7 +42,8 @@ function showInPath(path: string[]): { showId: string; office: boolean } | null 
 
 /** The show's unread count, or null when the inbox will not answer this person
  *  — which, because it checks `works_show` (`show_access.py`), is exactly
- *  "this person does not work this show". */
+ *  "this person does not work this show". Read here for that answer only: the
+ *  count itself is on the envelope in the top bar (`ShowMessagesButton`). */
 async function fetchUnreadCount(showId: string): Promise<number | null> {
   try {
     const headers = await getAuthHeaders();
@@ -63,7 +64,6 @@ type ShowContext = {
   showId: string;
   office: boolean;
   show: { name: string; status: string; start_date: string; end_date: string };
-  unread: number;
   steps: StepDef[] | null;
   /** The office section or setup step the page belongs to. */
   active: string | null;
@@ -94,7 +94,7 @@ async function loadShowContext(
     // public one — Score Classes, the schedule — the show's office is offered
     // only to somebody who works this show, not to every manager who browses it.
     if (!office && unread === null) return null;
-    return { showId, office, show, unread: unread ?? 0, steps, active, inSetup };
+    return { showId, office, show, steps, active, inSetup };
   } catch {
     // A show that will not load has its own error on the page. The sidebar
     // falls back to the office list rather than taking the layout down.
@@ -172,7 +172,7 @@ export default async function StaffSidebar({ path }: { path: string[] }) {
 }
 
 function ShowBlock({ context, pathname }: { context: ShowContext; pathname: string }) {
-  const { showId, show, unread, steps, active, inSetup } = context;
+  const { showId, show, steps, active, inSetup } = context;
   const base = `/admin/shows/${showId}`;
   const hubHref = `${base}/setup`;
   const sections = showSections(showId);
@@ -209,7 +209,6 @@ function ShowBlock({ context, pathname }: { context: ShowContext; pathname: stri
                 highlighted={highlighted(section)}
                 open={section.href === hubHref && inSetup}
                 status={show.status}
-                unread={unread}
               />
               {section.href === hubHref && steps && (
                 <SetupStepsNav steps={steps} pathname={pathname} activeHref={active} />
@@ -234,7 +233,6 @@ function ShowBlock({ context, pathname }: { context: ShowContext; pathname: stri
                   highlighted={highlighted(section)}
                   open={false}
                   status={show.status}
-                  unread={0}
                 />
               </li>
             ))}
@@ -250,7 +248,6 @@ function SectionItem({
   highlighted,
   open,
   status,
-  unread,
 }: {
   section: ShowSection;
   pathname: string;
@@ -258,7 +255,6 @@ function SectionItem({
   /** Setup, while one of its steps is open below it. */
   open: boolean;
   status: string;
-  unread: number;
 }) {
   const label = section.navLabel ?? section.title;
 
@@ -302,7 +298,6 @@ function SectionItem({
       pathname={pathname}
       highlighted={highlighted}
       open={open}
-      badge={section.title === 'Messages' && unread > 0 ? `${unread} new` : undefined}
     />
   );
 }

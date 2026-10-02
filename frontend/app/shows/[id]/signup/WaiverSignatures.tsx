@@ -187,19 +187,23 @@ export default function WaiverSignatures({
                     className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
                     style={{ backgroundColor: COLORS.accent }}
                   >
-                    Read &amp; sign
+                    {waiver.body ? <>Read &amp; sign</> : 'Sign'}
                   </button>
                 )}
               </div>
 
               {signing && (
                 <div className="mt-3 space-y-3">
-                  <div
-                    className="rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto"
-                    style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--background)', color: COLORS.text }}
-                  >
-                    {waiver.body}
-                  </div>
+                  {/* A waiver may be a title alone -- a paper form the show only
+                      tracks -- so there is not always wording to show. */}
+                  {waiver.body && (
+                    <div
+                      className="rounded border p-3 text-sm whitespace-pre-wrap max-h-64 overflow-y-auto"
+                      style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--background)', color: COLORS.text }}
+                    >
+                      {waiver.body}
+                    </div>
+                  )}
 
                   <label className="flex items-start gap-2 text-sm" style={{ color: COLORS.text }}>
                     <input

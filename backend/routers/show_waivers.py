@@ -327,7 +327,9 @@ async def create_waiver(
     waiver = ShowWaiver(
         show_id=show_id,
         title=body.title.strip(),
-        body=body.body,
+        # Optional: whitespace alone is stored as no wording at all, so every
+        # screen can ask "is there any?" with one truthiness test.
+        body=body.body if body.body.strip() else "",
         is_required=body.is_required,
         futurity_id=body.futurity_id,
         sort_order=body.sort_order,
@@ -366,7 +368,7 @@ async def update_waiver(
     if body.title is not None:
         waiver.title = body.title.strip()
     if body.body is not None:
-        waiver.body = body.body
+        waiver.body = body.body if body.body.strip() else ""
     if body.is_required is not None:
         waiver.is_required = body.is_required
     if "futurity_id" in body.model_fields_set:
