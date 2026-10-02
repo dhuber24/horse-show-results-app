@@ -216,34 +216,44 @@ def _missing_coggins() -> dict:
     return document_health(requirement_for(make_show(), "COGGINS"), [], SHOW_END)
 
 
-def test_an_inspection_with_no_date_leaves_the_horse_flagged():
-    """"I looked at this" and "this is valid" are different claims. One click
-    clearing a flag on a test that expired in 2019 is exactly what the sign-off
-    exists to prevent, run backwards."""
-    check = attested_health(_missing_coggins(), attested_expiry=None, as_of=SHOW_END)
+def test_no_inspection_leaves_the_horse_flagged():
+    check = attested_health(_missing_coggins(), inspected=False, as_of=SHOW_END)
 
     assert check["status"] == HEALTH_MISSING
     assert check["attested"] is False
 
 
-def test_an_inspection_of_a_lapsed_paper_leaves_the_horse_flagged():
-    check = attested_health(_missing_coggins(), attested_expiry=date(2026, 5, 1), as_of=SHOW_END)
+def test_an_inspection_clears_the_flag_for_this_show():
+    """The office's word is enough. Pressing *I inspected it* says the paper
+    describes this horse and covers the show; making staff also type the
+    expiry off it left a horse the office had just cleared still flagged."""
+    check = attested_health(_missing_coggins(), inspected=True, as_of=SHOW_END)
 
-    assert check["status"] == HEALTH_MISSING
+    assert check["status"] == HEALTH_VALID
+    assert check["attested"] is True, "the app is not holding this document, and must say so"
+    assert "show office" in check["message"]
+    assert check["expiry_date"] is None
 
 
-def test_an_inspection_covering_the_show_clears_the_flag():
-    check = attested_health(_missing_coggins(), attested_expiry=date(2027, 5, 3), as_of=SHOW_END)
+def test_an_inspection_keeps_the_date_read_off_the_paper():
+    check = attested_health(
+        _missing_coggins(), inspected=True, attested_expiry=date(2027, 5, 3), as_of=SHOW_END
+    )
 
     assert check["status"] == HEALTH_VALID
     assert check["expiry_date"] == date(2027, 5, 3)
-    assert check["attested"] is True, "the app is not holding this document, and must say so"
-    assert "show office" in check["message"]
 
 
-def test_an_inspection_dated_the_last_day_of_the_show_clears_the_flag():
-    check = attested_health(_missing_coggins(), attested_expiry=SHOW_END, as_of=SHOW_END)
+def test_a_recorded_date_short_of_the_show_still_clears_but_is_not_quoted():
+    """Rows recorded under the old form may carry a date that stops before the
+    show. The inspection is what clears the horse now; quoting that date beside
+    "accepted for this show" would contradict the line it sits on."""
+    check = attested_health(
+        _missing_coggins(), inspected=True, attested_expiry=date(2026, 5, 1), as_of=SHOW_END
+    )
+
     assert check["status"] == HEALTH_VALID
+    assert check["expiry_date"] is None
 
 
 def test_an_already_valid_check_is_returned_untouched():
@@ -252,7 +262,7 @@ def test_an_already_valid_check_is_returned_untouched():
         requirement_for(make_show(), "COGGINS"), [(None, date(2027, 5, 3))], SHOW_END
     )
 
-    assert attested_health(on_file, date(2030, 1, 1), SHOW_END) is on_file
+    assert attested_health(on_file, True, date(2030, 1, 1), SHOW_END) is on_file
 
 
 def test_the_attestation_never_reaches_the_snapshot():
@@ -261,7 +271,7 @@ def test_the_attestation_never_reaches_the_snapshot():
     effect, and the check would read back stale the instant it was written —
     staleness has to keep meaning "the file changed under me".
     """
-    cleared = attested_health(_missing_coggins(), date(2027, 5, 3), SHOW_END)
+    cleared = attested_health(_missing_coggins(), True, date(2027, 5, 3), SHOW_END)
 
     assert cleared["status"] == HEALTH_VALID
     assert cleared["file_snapshot"] == "missing:none"
@@ -278,7 +288,7 @@ def test_every_document_type_has_attested_wording(document_type):
     show = make_show(requires_health_certificate=True, requires_vaccination=True)
     check = document_health(requirement_for(show, document_type), [], SHOW_END)
 
-    cleared = attested_health(check, date(2027, 5, 3), SHOW_END)
+    cleared = attested_health(check, True, as_of=SHOW_END)
 
     assert cleared["status"] == HEALTH_VALID
     assert cleared["message"] != check["message"]

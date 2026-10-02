@@ -459,18 +459,19 @@ async def record_paper_signature(
     `on_paper` is set here rather than accepted from the caller, so the two
     routes into this table stay honest about which one a row came through.
 
-    A futurity's release may arrive with no name: the desk records it as one
-    "signed release on file" tick, and the exhibitor's own name is what goes on
-    the row — the name the office would have typed off the blank in all but the
-    rarest case. Every other waiver still needs the name as signed, since the
-    show's own release is where a guardian signing for a minor matters.
+    A signature may arrive with no name, and from the desk it always does: the
+    office ticks *Signed* once the paper is in the folder, and the exhibitor's
+    own name is what goes on the row — the name the office would have typed off
+    the blank in all but the rarest case. The desk used to make staff transcribe
+    the name, and say whether a guardian signed, for everything but a
+    futurity's release; the show office asked for one tick, because to them a
+    release is signed or it is not, and the paper itself is what records who
+    held the pen. A name sent by the caller is still recorded as given.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     waiver = await _get_waiver_or_404(show_id, waiver_id, db)
     await _assert_exhibitor_on_roster(show_id, exhibitor_id, db)
     if not (body.signed_name or "").strip():
-        if waiver.futurity_id is None:
-            raise HTTPException(422, "Type the name as it is signed on the blank.")
         exhibitor = await db.get(Exhibitor, exhibitor_id)
         if exhibitor is None:
             raise HTTPException(404, "Exhibitor not found")

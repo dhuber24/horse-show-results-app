@@ -21,8 +21,8 @@ export interface HealthInspection {
   verification_id: string | null;
   verified_by_name: string | null;
   verified_at: string | null;
-  /** The expiry staff read off the paper they were handed. This is what lets an
-   *  inspection clear a flag rather than merely note that somebody looked. */
+  /** The expiry staff read off the paper, where one was recorded. The desk no
+   *  longer asks — the inspection itself is what clears the flag. */
   attested_expiry: string | null;
   note: string | null;
 }
@@ -226,11 +226,6 @@ export interface Desk {
    *  still record a paper it was handed — but when false the sign-off is
    *  optional and is not in `paperwork_outstanding`. */
   requires_physical_document_check: boolean;
-  /** The day health paperwork has to still be good for — the show's last day.
-   *  An inspection whose attested expiry stops before this does not clear the
-   *  horse, so the form says so while the date is being typed. Nullable for a
-   *  frontend deployed ahead of the backend that adds it. */
-  paperwork_deadline?: string | null;
   classes: DeskClass[];
   side_pots: DeskSidePot[];
   futurities: DeskFuturity[];
@@ -396,6 +391,21 @@ export function healthAlerts(exhibitor: DeskExhibitor): HealthAlert[] {
       .filter((c) => c.status !== 'valid')
       .map((check) => ({ horse_id: h.horse_id, horse_name: h.horse_name, check })),
   );
+}
+
+/**
+ * How many rows of this exhibitor's Paperwork section are outlined red — what
+ * the desk still has to sort out before they are in good standing.
+ *
+ * `paperwork_outstanding` plus, where the show does not ask for the health
+ * originals at the counter, each health document the file does not cover:
+ * that is flagged at the top of the panel and one press of *I inspected it*
+ * clears it, but it owes no sign-off and so is not in the backend's count.
+ * Where the show does ask, those rows are already counted as uninspected.
+ * Zero is what folds the section away.
+ */
+export function paperworkToDo(exhibitor: DeskExhibitor, physicalCheck: boolean): number {
+  return exhibitor.paperwork_outstanding + (physicalCheck ? 0 : healthAlerts(exhibitor).length);
 }
 
 /** Required waivers this exhibitor has not signed by either route. */

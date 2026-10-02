@@ -2651,11 +2651,9 @@ class StaffWaiverSignatureCreate(WaiverSignatureCreate):
     """Staff recording a paper blank handed in at the counter. Same fact, other
     route — `on_paper` is set by the endpoint, not by the caller.
 
-    `signed_name` may be left out **on a futurity release only**, where the desk
-    offers a single "signed release on file" tick rather than a name to type:
-    the endpoint records the exhibitor's own name. The show's own entry blank
-    and releases still take the name as signed, because those are where a
-    guardian signing for a minor has to be told apart.
+    `signed_name` may be left out, and the desk always leaves it out: every
+    waiver there is one "signed" tick, and the endpoint records the
+    exhibitor's own name.
     """
 
     signed_name: Optional[str] = Field(default=None, max_length=200)

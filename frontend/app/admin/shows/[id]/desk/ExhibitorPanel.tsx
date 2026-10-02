@@ -7,6 +7,7 @@ import CheckRow, { type VerificationKind } from './CheckRow';
 import DocumentViewer from './DocumentViewer';
 import { UnenrolledFuturityRow, WithdrawFuturityButton } from './FuturityEnrollment';
 import HealthCheckRow from './HealthCheckRow';
+import { rowFrame, ToDo } from './NeedsAction';
 import StaffAddHorseForm, { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
 import WaiverRow from './WaiverRow';
 import {
@@ -15,6 +16,7 @@ import {
   futurityForClass,
   healthAlerts,
   nextFreeBackNumber,
+  paperworkToDo,
   unenrolledFuturityHorses,
 } from './types';
 import type { Desk, DeskExhibitor, ExhibitorContact } from './types';
@@ -28,10 +30,6 @@ type Subject = {
   exhibitor_id?: string;
   association_id?: string | null;
   document_type?: string;
-  /** Health documents only: the expiry staff read off the paper. Not part of
-   *  the subject's identity, so it is left out of `subjectKey` — re-inspecting
-   *  the same document with a new date is the same check, not another one. */
-  attested_expiry?: string | null;
 };
 
 function subjectKey(s: Subject): string {
@@ -55,15 +53,20 @@ function anchorFor(s: Subject): string {
 /** The id of the Paperwork section, for a jump with no single row to land on. */
 const PAPERWORK_SECTION_ID = 'desk-section-paperwork';
 const CONTACT_SECTION_ID = 'desk-section-contact';
+const EMERGENCY_CONTACT_ID = 'desk-check-emergency-contact';
+
+function waiverAnchor(waiverId: string): string {
+  return `desk-check-waiver-${waiverId}`;
+}
 
 /**
- * The first sign-off the desk still owes, in the order the panel renders them.
+ * The first red row in the Paperwork section, in the order the panel renders
+ * them — so the jump at the top of the panel lands on the first thing to do
+ * rather than wherever a different ordering put it.
  *
- * This is the same set `paperwork_outstanding` counts — memberships, foaling
- * dates, registration papers, and (where the show asks for the originals) the
- * health inspections. The health *status* is deliberately not in it: a lapsed
- * Coggins is the exhibitor's to fix and has its own warning, which jumps to its
- * own row.
+ * The same set `paperworkToDo` counts: memberships, each horse's health
+ * documents, foaling date and registration papers, the emergency contact, and
+ * the required releases.
  */
 function firstOutstandingPaperwork(
   exhibitor: DeskExhibitor,
@@ -82,6 +85,19 @@ function firstOutstandingPaperwork(
     }
   }
   for (const horse of exhibitor.horses) {
+    for (const check of horse.health ?? []) {
+      const owed = physicalCheck && (check.inspection?.status ?? 'unverified') !== 'verified';
+      if (check.status !== 'valid' || owed) {
+        return {
+          anchor: anchorFor({
+            kind: 'horse_health_document',
+            horse_id: horse.horse_id,
+            document_type: check.code,
+          }),
+          label: `${horse.horse_name} — ${check.label}`,
+        };
+      }
+    }
     if (horse.age_check.status !== 'verified') {
       return {
         anchor: anchorFor({ kind: 'horse_age', horse_id: horse.horse_id }),
@@ -100,18 +116,13 @@ function firstOutstandingPaperwork(
         };
       }
     }
-    if (!physicalCheck) continue;
-    for (const check of horse.health ?? []) {
-      if ((check.inspection?.status ?? 'unverified') !== 'verified') {
-        return {
-          anchor: anchorFor({
-            kind: 'horse_health_document',
-            horse_id: horse.horse_id,
-            document_type: check.code,
-          }),
-          label: `${horse.horse_name} — ${check.label}`,
-        };
-      }
+  }
+  if (exhibitor.emergency_contact?.status !== 'on_file') {
+    return { anchor: EMERGENCY_CONTACT_ID, label: 'Emergency contact' };
+  }
+  for (const waiver of exhibitor.waivers ?? []) {
+    if (waiver.is_required && waiver.status !== 'signed') {
+      return { anchor: waiverAnchor(waiver.waiver_id), label: waiver.title };
     }
   }
   return null;
@@ -473,12 +484,31 @@ export default function ExhibitorPanel({
   // One document open at a time, across the whole panel. The desk has a queue
   // behind it and a screen full of open scans is worse than none.
   const [openDocument, setOpenDocument] = useState<OpenDocument | null>(null);
-  // Taking an emergency contact over the counter. Pre-filled from the profile
-  // so editing an existing one is a deliberate change rather than a retype.
+  // Taking an emergency contact over the counter. Pre-filled from what this
+  // show holds so editing an existing one is a deliberate change rather than a
+  // retype — and so half a contact (a name with no number) is finished rather
+  // than typed again.
   const [editingContact, setEditingContact] = useState(false);
-  const [contactName, setContactName] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
+  const [contactName, setContactName] = useState(exhibitor.emergency_contact?.name ?? '');
+  const [contactPhone, setContactPhone] = useState(exhibitor.emergency_contact?.phone ?? '');
   const { collapsed, toggle, expand } = useCollapsedSections();
+
+  // The Paperwork section folds itself away once this exhibitor is in good
+  // standing, and opens again the moment something needs doing — it is the
+  // longest section on the panel, and for most people in the queue there is
+  // nothing in it to do. Not remembered per browser like the other sections:
+  // what decides it is this person's paperwork, not the office's habit. A press
+  // on its heading overrides that for this exhibitor until the answer changes.
+  // An exhibitor with no horse entered stays open, because "+ Add a horse" lives
+  // in it and that is what the class picker sends staff looking for.
+  const toDo = paperworkToDo(exhibitor, desk.requires_physical_document_check);
+  const paperworkDone = toDo === 0 && exhibitor.horses.length > 0;
+  const [paperworkFolded, setPaperworkFolded] = useState<boolean | null>(null);
+  useEffect(() => {
+    setPaperworkFolded(null);
+  }, [exhibitor.exhibitor_id, paperworkDone]);
+  const paperworkCollapsed = !addingHorse && (paperworkFolded ?? paperworkDone);
+
   // Where a jump link is sending the eye. Set by the warnings at the top of the
   // panel; cleared by nothing, because the ring times itself out.
   const [revealing, setRevealing] = useState<{ id: string; nonce: number } | null>(null);
@@ -489,7 +519,8 @@ export default function ExhibitorPanel({
    *  staff scanning a long panel for the row it was talking about. */
   const jumpTo = useCallback(
     (sectionKey: string, anchorId: string) => {
-      expand(sectionKey);
+      if (sectionKey === 'paperwork') setPaperworkFolded(false);
+      else expand(sectionKey);
       setRevealing({ id: anchorId, nonce: Date.now() });
     },
     [expand],
@@ -500,8 +531,16 @@ export default function ExhibitorPanel({
     setConfirmRemove(false);
     setError(null);
     setOpenDocument(null);
-    setEditingContact(false);
   }, [exhibitor.exhibitor_id, exhibitor.back_number]);
+
+  useEffect(() => {
+    setEditingContact(false);
+    setContactName(exhibitor.emergency_contact?.name ?? '');
+    setContactPhone(exhibitor.emergency_contact?.phone ?? '');
+    // Only on a change of person: re-seeding on every reload would wipe a
+    // contact being typed in while another row on the panel saved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exhibitor.exhibitor_id]);
 
   const toggleDocument = (next: OpenDocument) =>
     setOpenDocument((current) =>
@@ -586,15 +625,9 @@ export default function ExhibitorPanel({
       'Could not undo that sign-off.',
     );
 
-  // A futurity release is recorded as "on file" with no name: the backend puts
-  // the exhibitor's own name on it, and refuses the same empty body on any
-  // other waiver.
-  const recordWaiver = (
-    waiverId: string,
-    body:
-      | { signed_name: string; signed_by_guardian: boolean; guardian_relationship: string | null }
-      | Record<string, never>,
-  ) =>
+  // Every waiver is one tick at the desk, sent with no name: the backend puts
+  // the exhibitor's own name on the row.
+  const markWaiverSigned = (waiverId: string) =>
     run(
       `waiver-${waiverId}`,
       () =>
@@ -603,7 +636,7 @@ export default function ExhibitorPanel({
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+            body: JSON.stringify({}),
           },
         ),
       'Could not record that signature.',
@@ -639,6 +672,9 @@ export default function ExhibitorPanel({
     setContactPhone(exhibitor.emergency_contact?.phone ?? '');
     setEditingContact(true);
   };
+  // With no contact on file the form is simply open: the boxes are the answer
+  // to "where do I add one?", which a link inside a sentence was not.
+  const contactMissing = exhibitor.emergency_contact?.status !== 'on_file';
 
   const cancelRegistration = async () => {
     const ok = await run(
@@ -880,25 +916,24 @@ export default function ExhibitorPanel({
               this opens the Paperwork section and scrolls to the first check
               still owed, naming it in the tooltip so staff know where they are
               being sent before they press. */}
-          {exhibitor.paperwork_outstanding > 0 ? (
+          {toDo > 0 ? (
             <button
               type="button"
               onClick={() =>
                 jumpTo('paperwork', nextPaperwork?.anchor ?? PAPERWORK_SECTION_ID)
               }
-              className="underline decoration-dotted hover:decoration-solid text-left"
-              style={{ color: 'var(--warning)' }}
+              className="font-medium underline decoration-dotted hover:decoration-solid text-left"
+              style={{ color: 'var(--error)' }}
               title={
                 nextPaperwork
-                  ? `Go to the first one still to check: ${nextPaperwork.label}`
+                  ? `Go to the first one still to do: ${nextPaperwork.label}`
                   : 'Go to the paperwork section'
               }
             >
-              {exhibitor.paperwork_outstanding} paperwork check
-              {exhibitor.paperwork_outstanding === 1 ? '' : 's'} outstanding →
+              {toDo} paperwork item{toDo === 1 ? '' : 's'} to sort out →
             </button>
           ) : (
-            <span style={{ color: 'var(--success)' }}>Paperwork all checked</span>
+            <span style={{ color: 'var(--success)' }}>✓ Paperwork in good standing</span>
           )}
           {/* The panel's only money figures. Paid is here because billed and
               owing alone cannot answer "how much have they already given us?",
@@ -1241,21 +1276,23 @@ export default function ExhibitorPanel({
       <Section
         id={PAPERWORK_SECTION_ID}
         title="Paperwork"
-        collapsed={collapsed.has('paperwork')}
-        onToggle={() => toggle('paperwork')}
-        hint="Sign off only for documents you have physically inspected. Each sign-off is recorded against the exact value on file at the time — if the exhibitor edits it afterwards, the check reappears as needing another look."
+        collapsed={paperworkCollapsed}
+        onToggle={() => setPaperworkFolded(!paperworkCollapsed)}
+        hint={
+          toDo > 0
+            ? 'Everything outlined in red still needs doing — each one says what. Sign off only for documents you have physically inspected; if the exhibitor edits a value afterwards, the check comes back for another look.'
+            : 'Sign off only for documents you have physically inspected. Each sign-off is recorded against the exact value on file at the time — if the exhibitor edits it afterwards, the check reappears as needing another look.'
+        }
         badge={
           <span
-            className="text-xs font-medium px-2 py-1 rounded-full"
+            className="text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap"
             style={
-              exhibitor.paperwork_outstanding === 0
+              toDo === 0
                 ? { backgroundColor: 'var(--success-border)', color: 'var(--success-strong)' }
-                : { backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }
+                : { backgroundColor: 'var(--error)', color: 'var(--surface)' }
             }
           >
-            {exhibitor.paperwork_outstanding === 0
-              ? 'All checked'
-              : `${exhibitor.paperwork_outstanding} to check`}
+            {toDo === 0 ? '✓ All in good standing' : `${toDo} to sort out`}
           </span>
         }
       >
@@ -1331,14 +1368,15 @@ export default function ExhibitorPanel({
             />
           </div>
         )}
-        {/* A health row that is listed but not counted needs saying so, or it
+        {/* A health row that is listed but not outlined needs saying so, or it
             reads as a sign-off the desk has forgotten. This show takes the
             uploaded document as sufficient (setup Step 9); staff may still
-            record a paper they are handed, and that still clears the flag. */}
+            record a paper they are handed, and that clears the flag. */}
         {!desk.requires_physical_document_check && (
           <p className="text-xs mb-2" style={{ color: COLORS.muted }}>
-            This show does not ask for health papers at the counter, so those sign-offs are
-            optional and are not counted above.
+            This show does not ask to see health papers at the counter, so inspecting a current
+            one is optional. One the file does not cover is still outlined — inspecting the paper
+            clears it for this show.
           </p>
         )}
         {exhibitor.horses.length === 0 ? (
@@ -1381,7 +1419,7 @@ export default function ExhibitorPanel({
                             viewing={
                               showingHere && openDocument?.documentType === check.code
                             }
-                            paperworkDeadline={desk.paperwork_deadline}
+                            physicalCheck={desk.requires_physical_document_check}
                             onView={() =>
                               toggleDocument({
                                 horseId: horse.horse_id,
@@ -1389,9 +1427,7 @@ export default function ExhibitorPanel({
                                 title: check.label,
                               })
                             }
-                            onInspect={(attestedExpiry) =>
-                              verify({ ...subject, attested_expiry: attestedExpiry })
-                            }
+                            onInspect={() => verify(subject)}
                             onUndo={() =>
                               check.inspection?.verification_id &&
                               undoVerify(subject, check.inspection.verification_id)
@@ -1514,100 +1550,107 @@ export default function ExhibitorPanel({
         <p className="text-xs font-semibold uppercase tracking-wide mt-4 mb-1" style={{ color: COLORS.accent }}>
           Emergency contact
         </p>
-        {editingContact ? (
-          <div
-            className="rounded border p-2 space-y-2"
-            style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
-          >
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                aria-label="Emergency contact name"
-                placeholder="Name"
-                className="flex-1 min-w-[160px] border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: COLORS.border }}
-              />
-              <input
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                aria-label="Emergency contact phone"
-                placeholder="Phone"
-                inputMode="tel"
-                className="flex-1 min-w-[140px] border rounded px-2 py-1.5 text-sm"
-                style={{ borderColor: COLORS.border }}
-              />
-            </div>
-            <p className="text-xs" style={{ color: COLORS.muted }}>
-              Saved to {exhibitor.exhibitor_name}&rsquo;s profile, not just this show — it is who to
-              telephone about them, and a per-show copy would go stale.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => saveEmergencyContact(contactName.trim(), contactPhone.trim())}
-                disabled={busy.has('emergency-contact') || !contactName.trim() || !contactPhone.trim()}
-                title={
-                  !contactName.trim() || !contactPhone.trim()
-                    ? 'A contact needs both a name and a number — one without the other still reads as missing'
-                    : undefined
+        <div id={EMERGENCY_CONTACT_ID}>
+          {contactMissing || editingContact ? (
+            // A form, so Enter in the phone box saves it — the person is
+            // standing there reading the number out.
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (contactName.trim() && contactPhone.trim()) {
+                  saveEmergencyContact(contactName.trim(), contactPhone.trim());
                 }
-                className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-                style={{ backgroundColor: 'var(--accent)' }}
-              >
-                {busy.has('emergency-contact') ? 'Saving…' : 'Save contact'}
-              </button>
+              }}
+              className={contactMissing ? `${rowFrame(true).className} space-y-2` : 'rounded border p-2 space-y-2'}
+              style={
+                contactMissing
+                  ? rowFrame(true).style
+                  : { borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }
+              }
+            >
+              {contactMissing && (
+                <ToDo>
+                  No emergency contact for this show. Ask who to call if something happens to{' '}
+                  {exhibitor.exhibitor_name}, and type it in here.
+                </ToDo>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  aria-label="Emergency contact name"
+                  placeholder="Contact's name"
+                  className="flex-1 min-w-[160px] border rounded px-2 py-1.5 text-sm"
+                  style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)', color: COLORS.text }}
+                />
+                <input
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  aria-label="Emergency contact phone"
+                  placeholder="Phone number"
+                  inputMode="tel"
+                  className="flex-1 min-w-[140px] border rounded px-2 py-1.5 text-sm"
+                  style={{ borderColor: COLORS.border, backgroundColor: 'var(--surface)', color: COLORS.text }}
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={busy.has('emergency-contact') || !contactName.trim() || !contactPhone.trim()}
+                  title={
+                    !contactName.trim() || !contactPhone.trim()
+                      ? 'A contact needs both a name and a number — one without the other still reads as missing'
+                      : undefined
+                  }
+                  className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--accent)' }}
+                >
+                  {busy.has('emergency-contact') ? 'Saving…' : 'Save contact'}
+                </button>
+                {!contactMissing && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingContact(false)}
+                    className="text-xs hover:underline"
+                    style={{ color: COLORS.muted }}
+                  >
+                    Cancel
+                  </button>
+                )}
+                <span className="text-xs" style={{ color: COLORS.muted }}>
+                  Saved for this show only — their profile is not changed.
+                </span>
+                {!contactMissing && (
+                  <button
+                    type="button"
+                    onClick={() => saveEmergencyContact(null, null)}
+                    disabled={busy.has('emergency-contact')}
+                    title="Remove the emergency contact from this show"
+                    className="text-xs hover:underline ml-auto disabled:opacity-50"
+                    style={{ color: 'var(--error)' }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </form>
+          ) : (
+            <p className="text-sm flex flex-wrap items-baseline gap-2" style={{ color: COLORS.text }}>
+              {exhibitor.emergency_contact.name}
+              <span className="font-mono text-xs" style={{ color: COLORS.muted }}>
+                {exhibitor.emergency_contact.phone}
+              </span>
               <button
                 type="button"
-                onClick={() => setEditingContact(false)}
+                onClick={startEditingContact}
                 className="text-xs hover:underline"
-                style={{ color: COLORS.muted }}
+                style={{ color: COLORS.accent }}
               >
-                Cancel
+                Change
               </button>
-              {exhibitor.emergency_contact?.status === 'on_file' && (
-                <button
-                  type="button"
-                  onClick={() => saveEmergencyContact(null, null)}
-                  disabled={busy.has('emergency-contact')}
-                  title="Remove the contact from their profile"
-                  className="text-xs hover:underline ml-auto disabled:opacity-50"
-                  style={{ color: 'var(--error)' }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-        ) : exhibitor.emergency_contact?.status === 'on_file' ? (
-          <p className="text-sm flex flex-wrap items-baseline gap-2" style={{ color: COLORS.text }}>
-            {exhibitor.emergency_contact.name}
-            <span className="font-mono text-xs" style={{ color: COLORS.muted }}>
-              {exhibitor.emergency_contact.phone}
-            </span>
-            <button
-              type="button"
-              onClick={startEditingContact}
-              className="text-xs hover:underline"
-              style={{ color: COLORS.accent }}
-            >
-              Change
-            </button>
-          </p>
-        ) : (
-          <div className="text-sm rounded px-2 py-1.5" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}>
-            No emergency contact on this profile.{' '}
-            <button
-              type="button"
-              onClick={startEditingContact}
-              className="font-medium underline"
-              style={{ color: 'var(--warning)' }}
-            >
-              Take one now
-            </button>{' '}
-            — no need to wait for them to edit their own account.
-          </div>
-        )}
+            </p>
+          )}
+        </div>
 
         {exhibitor.waivers && exhibitor.waivers.length > 0 && (
           <>
@@ -1615,18 +1658,14 @@ export default function ExhibitorPanel({
               Entry blank &amp; releases
             </p>
             {exhibitor.waivers.map((waiver) => (
-              <WaiverRow
-                key={waiver.waiver_id}
-                waiver={waiver}
-                busy={busy.has(`waiver-${waiver.waiver_id}`)}
-                onRecord={async (body) => {
-                  await recordWaiver(waiver.waiver_id, body);
-                }}
-                onMarkOnFile={async () => {
-                  await recordWaiver(waiver.waiver_id, {});
-                }}
-                onUndo={() => undoWaiver(waiver.waiver_id)}
-              />
+              <div key={waiver.waiver_id} id={waiverAnchor(waiver.waiver_id)}>
+                <WaiverRow
+                  waiver={waiver}
+                  busy={busy.has(`waiver-${waiver.waiver_id}`)}
+                  onMarkSigned={() => markWaiverSigned(waiver.waiver_id)}
+                  onUndo={() => undoWaiver(waiver.waiver_id)}
+                />
+              </div>
             ))}
           </>
         )}

@@ -85,14 +85,16 @@ HEALTH_SHOW_MESSAGES = {
 }
 
 
-# What a screen says when the horse is covered because the office was handed
+# What a screen says when the horse is covered because the office inspected
 # the paper, rather than because a document is on file. Deliberately different
 # wording from the on-file case: the app is *not* holding this document, and the
-# next show — which has not seen it — will flag the horse again.
+# next show — which has not seen it — will flag the horse again. "Accepted",
+# not "valid through": the office's word is the fact here, and no date need
+# have been read off the paper for it.
 HEALTH_ATTESTED_MESSAGES = {
-    "COGGINS": "Coggins inspected at the show office — valid through the show",
-    "HEALTH_CERTIFICATE": "Health certificate inspected at the show office — valid through the show",
-    "VACCINATION": "Vaccination record inspected at the show office — current through the show",
+    "COGGINS": "Coggins inspected at the show office — accepted for this show",
+    "HEALTH_CERTIFICATE": "Health certificate inspected at the show office — accepted for this show",
+    "VACCINATION": "Vaccination record inspected at the show office — accepted for this show",
 }
 
 
@@ -321,48 +323,51 @@ def health_snapshot(check: dict) -> str:
 
 
 def attested_health(
-    check: dict, attested_expiry: Optional[date], as_of: Optional[date] = None
+    check: dict,
+    inspected: bool,
+    attested_expiry: Optional[date] = None,
+    as_of: Optional[date] = None,
 ) -> dict:
     """Fold the office's own inspection into a horse's standing on one document.
 
-    A secretary who has just held a valid negative Coggins in their hands should
-    not still be told to go and find it. Until this existed the flag chased
-    paperwork the office already had, which is the fastest way to teach staff to
-    stop reading a panel.
+    **An inspection puts the horse in good standing for this show.** Pressing
+    *I inspected it* at the desk is the office saying it has the paper, it
+    describes this horse, and it covers the show — the button is worded as that
+    claim, and a paper that fails it is one the office does not sign off. This
+    used to clear the flag only when staff also typed the expiry off the paper,
+    and an office that had just held a good Coggins went on being told to find
+    one; the show office asked for its word to be enough.
 
-    Only applied when the documents on file do not already cover the horse, and
-    only when the date read off the paper actually covers the show. Recording an
-    inspection of an illegible or genuinely lapsed document leaves the horse
-    flagged, which is the honest outcome — "I looked at this" and "this is
-    valid" are different claims, and collapsing them would let one click clear a
-    flag on a test that expired years ago.
-
+    Only applied where the documents on file do not already cover the horse.
     The result is marked `attested` so no screen can imply the app is holding a
-    scan it has never been shown.
+    scan it has never been shown. `attested_expiry` is the date read off the
+    paper where somebody recorded one (the desk no longer asks): kept as the
+    line's date when it covers the show, dropped when it does not, so a cleared
+    line never quotes a date that contradicts it.
     """
-    if check["status"] == HEALTH_VALID or attested_expiry is None:
+    if check["status"] == HEALTH_VALID or not inspected:
         return check
-    as_of = as_of or date.today()
-    if attested_expiry < as_of:
-        return check
+    covers = attested_expiry is not None and attested_expiry >= (as_of or date.today())
     return {
         **check,
         "status": HEALTH_VALID,
         "message": HEALTH_ATTESTED_MESSAGES[check["code"]],
-        "expiry_date": attested_expiry,
+        "expiry_date": attested_expiry if covers else None,
         "attested": True,
     }
 
 
 async def load_health_attestations(
     show_id, horse_ids: list[UUID], db: AsyncSession
-) -> dict[tuple[UUID, str], date]:
-    """Expiry dates this show's office read off paper, per (horse, document).
+) -> dict[tuple[UUID, str], Optional[date]]:
+    """Every health document this show's office has inspected, per (horse,
+    document), with the expiry read off the paper where one was recorded.
 
-    Scoped to the one show on purpose, like every other verification: this is
-    *this* office attesting it saw the paper, not a property of the horse. A
-    horse whose Coggins only ever existed on paper is flagged again at the next
-    show, correctly, because that show has not seen it.
+    The key being present is the fact — the office inspected it. Scoped to the
+    one show on purpose, like every other verification: this is *this* office
+    attesting it saw the paper, not a property of the horse. A horse whose
+    Coggins only ever existed on paper is flagged again at the next show,
+    correctly, because that show has not seen it.
 
     Imported lazily to keep the model import graph one-way — `show_office`
     already imports this module.
@@ -380,7 +385,6 @@ async def load_health_attestations(
             ShowVerification.show_id == show_id,
             ShowVerification.kind == "horse_health_document",
             ShowVerification.horse_id.in_(horse_ids),
-            ShowVerification.attested_expiry.isnot(None),
         )
     )
     return {
@@ -427,6 +431,7 @@ async def health_by_horse(
                     documents.get(horse_id, {}).get(requirement.document_type, []),
                     deadline,
                 ),
+                (horse_id, requirement.document_type) in attestations,
                 attestations.get((horse_id, requirement.document_type)),
                 deadline,
             )

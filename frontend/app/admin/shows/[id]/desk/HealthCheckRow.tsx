@@ -1,38 +1,31 @@
 'use client';
 
-import { useState } from 'react';
 import { COLORS } from './types';
 import type { HorseHealthCheck } from './types';
+import { rowFrame, ToDo } from './NeedsAction';
 
 /**
  * One health document at the desk: what the file says, and what the office saw.
  *
- * Two facts on one line, and they can disagree in both directions. The
- * documents on file say whether the date is still good; only a person at the
- * counter says whether the paper is genuine, present, and describes *this*
- * horse. A current Coggins nobody has looked at and a lapsed one the office is
- * holding are different situations, and staff have to be able to tell them
- * apart at a glance.
+ * Two facts on one line. The documents on file say whether the date is still
+ * good; only a person at the counter says whether the paper is genuine,
+ * present, and describes *this* horse. A current Coggins nobody has looked at
+ * and a paper Coggins the app has never seen are different situations, and
+ * staff have to be able to tell them apart at a glance.
  *
  * Which is why the sign-off is never blocked by "nothing on file". An exhibitor
  * handing over a paper Coggins the app has never seen is the ordinary case at a
- * horse show, and a checkbox that refused it would be useless exactly there.
+ * horse show, and a button that refused it would be useless exactly there.
  *
- * When the file does not already cover the horse, inspecting asks for the
- * expiry printed on that paper. Given, and covering the show, it clears the
- * flag — a secretary who has just held a valid negative test in their hands
- * should not still be told to go and find one, and nothing needs to be uploaded
- * for that to work. It clears this show only: the next show has not seen that
- * paper and asks again.
- *
- * The date is therefore the **expected** answer, not an optional extra. It used
- * to be a blank box over a button reading "Record without a date", so the
- * quickest way through the form was the one that left the horse flagged, with
- * nothing on the row afterwards to say why. Now saving without a date takes a
- * deliberate tick, and a date that stops before the show does is called out
- * before it is saved rather than discovered from a row that did not change.
- * Both escape hatches stay open, because "I looked at this" and "this is valid"
- * are different claims and a lapsed or illegible paper is still worth recording.
+ * **Pressing "I inspected it" puts the horse in good standing for this show.**
+ * It is the office saying the paper describes this horse and covers the show,
+ * and it clears the flag in one press (`attested_health` on the backend). It
+ * used to open a form asking for the expiry printed on the paper, and an
+ * inspection recorded without one left the horse flagged — so an office that
+ * had just held a good Coggins went on being told to find one. A paper that is
+ * lapsed or does not match the horse is simply not signed off: the row stays
+ * red and the exhibitor is the one to chase. It clears this show only; the next
+ * show has not seen that paper and asks again.
  */
 
 const HEALTH_PILL: Record<
@@ -64,7 +57,7 @@ export default function HealthCheckRow({
   check,
   busy,
   viewing,
-  paperworkDeadline,
+  physicalCheck,
   onView,
   onInspect,
   onUndo,
@@ -72,22 +65,14 @@ export default function HealthCheckRow({
   check: HorseHealthCheck;
   busy: boolean;
   viewing: boolean;
-  /** The day the paper has to still be good for — the show's last day. Used to
-   *  say a typed date will not clear the horse *before* it is saved. */
-  paperworkDeadline?: string | null;
+  /** Whether this show asks for the paper at the counter. Where it does, an
+   *  uninspected document is paperwork the desk owes even when the file is
+   *  current; where it does not, only a document the file does not cover is. */
+  physicalCheck: boolean;
   onView: () => void;
-  /** `attestedExpiry` is the date read off the paper, or null when staff could
-   *  not read one. Only ever sent for a document the file does not cover. */
-  onInspect: (attestedExpiry: string | null) => void;
+  onInspect: () => void;
   onUndo: () => void;
 }) {
-  const [recording, setRecording] = useState(false);
-  const [expiry, setExpiry] = useState('');
-  // Ticked when there is no usable date to read: an illegible paper, or one
-  // that is genuinely out of date. Recording it is still worth doing — it says
-  // the office looked — and the horse stays flagged, which is honest.
-  const [noDate, setNoDate] = useState(false);
-
   const health = HEALTH_PILL[check.status];
   const inspection = check.inspection ?? {
     status: 'unverified' as const,
@@ -98,36 +83,17 @@ export default function HealthCheckRow({
     note: null,
   };
   const pill = INSPECTION_PILL[inspection.status];
+  const label = check.label.toLowerCase();
 
-  // The file already covers the horse, so there is no date to ask for — unless
-  // the only reason it reads current is a previous attestation, in which case
-  // the paper is still the source and re-inspecting should ask again.
-  const needsDate = check.status !== 'valid' || check.attested;
-
-  // A date that stops before the show ends does not cover the horse, so the
-  // backend will record the inspection and leave the flag up. Said here, while
-  // it is being typed, rather than left to be inferred from a row that did not
-  // change. String compare is safe: both are ISO yyyy-mm-dd.
-  const shortOfShow = Boolean(expiry && paperworkDeadline && expiry < paperworkDeadline);
-
-  const startInspect = () => {
-    if (!needsDate) {
-      onInspect(null);
-      return;
-    }
-    setExpiry(inspection.attested_expiry ?? '');
-    setNoDate(false);
-    setRecording(true);
-  };
-
-  const submit = () => {
-    onInspect(noDate ? null : expiry || null);
-    setRecording(false);
-    setNoDate(false);
-  };
+  // A document the file does not cover is flagged at the top of the panel
+  // whatever the show asks for; an uninspected one is owed only where the show
+  // wants the paper produced. The same two facts the panel's count adds up.
+  const flagged = check.status !== 'valid';
+  const owed = physicalCheck && inspection.status !== 'verified';
+  const frame = rowFrame(flagged || owed);
 
   return (
-    <div className="py-2 border-t first:border-t-0" style={{ borderColor: 'var(--bg-subtle)' }}>
+    <div className={frame.className} style={frame.style}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium" style={{ color: COLORS.text }}>
@@ -135,7 +101,7 @@ export default function HealthCheckRow({
           </div>
           <p
             className="text-xs mt-0.5"
-            style={{ color: check.status === 'valid' ? COLORS.muted : 'var(--error-strong)' }}
+            style={{ color: flagged ? 'var(--error-strong)' : COLORS.muted }}
           >
             {check.message}
             {check.expiry_date && check.status !== 'missing' ? ` (${check.expiry_date})` : ''}
@@ -156,7 +122,7 @@ export default function HealthCheckRow({
           {inspection.status === 'stale' && (
             <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
               The documents on file have changed since this was signed off
-              {inspection.verified_by_name ? ` by ${inspection.verified_by_name}` : ''}. Look again.
+              {inspection.verified_by_name ? ` by ${inspection.verified_by_name}` : ''}.
             </p>
           )}
           {inspection.status === 'verified' && (
@@ -167,17 +133,20 @@ export default function HealthCheckRow({
               {inspection.note ? ` · ${inspection.note}` : ''}
             </p>
           )}
-          {/* Signed off and still flagged. Two ways that happens — no date was
-              recorded, or the date recorded stops before the show — and both
-              look identical on the row without this: an "Inspected" pill
-              beside a red warning, with nothing to say what is left to do. */}
-          {inspection.status === 'verified' && check.status !== 'valid' && (
-            <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
-              {inspection.attested_expiry
-                ? `The date read off the paper (${inspection.attested_expiry}) does not cover this show, so the horse is still flagged.`
-                : 'Recorded with no usable date, so the horse is still flagged. Re-inspect to add the expiry off the paper.'}
-            </p>
-          )}
+
+          {/* What to do, in words, on every red row. The flagged case leads,
+              because pressing the button there is a claim about the paper and
+              the row has to say which claim. */}
+          {flagged ? (
+            <ToDo>
+              Look at the paper. If it describes this horse and covers the show, press I
+              inspected it — that clears it for this show. If not, they need a current one.
+            </ToDo>
+          ) : owed && inspection.status === 'stale' ? (
+            <ToDo>Look at the paper again, then press Re-inspect.</ToDo>
+          ) : owed ? (
+            <ToDo>Check the paper against the horse, then press I inspected it.</ToDo>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
@@ -220,7 +189,7 @@ export default function HealthCheckRow({
             {viewing ? 'Hide' : 'View'}
           </button>
 
-          {inspection.status === 'verified' && !recording ? (
+          {inspection.status === 'verified' ? (
             <button
               type="button"
               onClick={onUndo}
@@ -232,100 +201,19 @@ export default function HealthCheckRow({
               Undo
             </button>
           ) : (
-            !recording && (
-              <button
-                type="button"
-                onClick={startInspect}
-                disabled={busy}
-                title={`Records that you have physically inspected this horse's ${check.label.toLowerCase()} — on paper or on screen`}
-                className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
-                style={{ backgroundColor: 'var(--accent)' }}
-              >
-                {inspection.status === 'stale' ? 'Re-inspect' : 'I inspected it'}
-              </button>
-            )
-          )}
-        </div>
-      </div>
-
-      {recording && (
-        <div
-          className="mt-2 rounded border p-2"
-          style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}
-        >
-          <label className="block text-xs font-medium" style={{ color: COLORS.text }}>
-            Expiry date printed on the document
-            <input
-              type="date"
-              value={expiry}
-              onChange={(e) => {
-                setExpiry(e.target.value);
-                if (e.target.value) setNoDate(false);
-              }}
-              disabled={noDate}
-              autoFocus
-              className="mt-1 block border rounded px-2 py-1 text-sm disabled:opacity-50"
-              style={{ borderColor: COLORS.border }}
-            />
-          </label>
-          <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
-            The date off the paper in your hand. Nothing has to be uploaded — recording it here
-            clears this horse for <strong>this show only</strong>, and the next show will ask to
-            see the paper again.
-          </p>
-
-          {shortOfShow && (
-            <p className="text-xs mt-1.5" style={{ color: 'var(--warning)' }}>
-              ⚠ That date stops before the show ends ({paperworkDeadline}), so it does not cover
-              the horse — the inspection will be recorded and the flag will stay up.
-            </p>
-          )}
-
-          <label className="flex items-start gap-1.5 text-xs mt-2" style={{ color: COLORS.muted }}>
-            <input
-              type="checkbox"
-              checked={noDate}
-              onChange={(e) => {
-                setNoDate(e.target.checked);
-                if (e.target.checked) setExpiry('');
-              }}
-              className="mt-0.5"
-            />
-            <span>
-              No usable date — the paper is illegible or out of date. Records that you looked;
-              the horse stays flagged.
-            </span>
-          </label>
-
-          <div className="flex gap-2 mt-2">
             <button
               type="button"
-              onClick={submit}
-              disabled={busy || (!expiry && !noDate)}
-              title={
-                !expiry && !noDate
-                  ? 'Enter the expiry date off the document, or tick the box to record that there is no usable date'
-                  : undefined
-              }
+              onClick={onInspect}
+              disabled={busy}
+              title={`Records that you have seen this horse's ${label}, that it describes this horse and that it covers the show. Clears it for this show only.`}
               className="text-xs font-medium px-2.5 py-1 rounded text-white disabled:opacity-50"
               style={{ backgroundColor: 'var(--accent)' }}
             >
-              {busy ? 'Saving…' : noDate ? 'Record without a date' : 'Record inspection'}
+              {busy ? 'Saving…' : inspection.status === 'stale' ? 'Re-inspect' : 'I inspected it'}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setRecording(false);
-                setNoDate(false);
-              }}
-              className="text-xs hover:underline"
-              style={{ color: COLORS.muted }}
-            >
-              Cancel
-            </button>
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

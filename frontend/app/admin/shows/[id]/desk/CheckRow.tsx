@@ -1,5 +1,7 @@
 'use client';
 
+import { rowFrame, ToDo } from './NeedsAction';
+
 export type VerificationKind =
   | 'horse_age'
   | 'horse_registration'
@@ -46,10 +48,14 @@ const WHAT_TO_INSPECT: Record<VerificationKind, string> = {
   horse_health_document: 'the document',
 };
 
+/** Said in the red row when there is nothing on file to check — what has to
+ *  happen before the sign-off can be given at all. */
 const MISSING_HINT: Record<VerificationKind, string> = {
   horse_age: 'No foaling date on the horse record — add it from the papers before verifying.',
-  horse_registration: 'No registration number on file for this association.',
-  exhibitor_membership: 'No membership number on file for this association.',
+  horse_registration:
+    'No registration number on file for this association — it has to be added to the horse before it can be checked.',
+  exhibitor_membership:
+    'No membership number on file for this association — it has to be added to their registration before it can be checked.',
   horse_health_document: 'Nothing on file.',
 };
 
@@ -82,12 +88,12 @@ export default function CheckRow({
 }) {
   const pill = STATUS_PILL[check.status];
   const canVerify = check.status !== 'not_on_file';
+  // Everything short of verified is in the outstanding count, so everything
+  // short of verified is outlined: the badge and the red boxes agree.
+  const frame = rowFrame(check.status !== 'verified');
 
   return (
-    <div
-      className="flex items-start justify-between gap-3 py-2 border-t first:border-t-0"
-      style={{ borderColor: 'var(--bg-subtle)' }}
-    >
+    <div className={`flex items-start justify-between gap-3 ${frame.className}`} style={frame.style}>
       <div className="min-w-0">
         <div className="text-sm" style={{ color: 'var(--foreground)' }}>
           <span className="font-medium">{label}</span>
@@ -102,11 +108,18 @@ export default function CheckRow({
             both is the whole point — staff need to know what changed under a
             sign-off they already gave. */}
         {check.status === 'stale' && (
-          <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
-            Signed off against <span className="font-mono">{check.verified_value}</span>
-            {check.verified_by_name ? ` by ${check.verified_by_name}` : ''} — the record has
-            changed since. Check the paper again.
-          </p>
+          <>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--warning)' }}>
+              Signed off against <span className="font-mono">{check.verified_value}</span>
+              {check.verified_by_name ? ` by ${check.verified_by_name}` : ''} — the record has
+              changed since.
+            </p>
+            <ToDo>Check {WHAT_TO_INSPECT[check.kind]} again, then press Re-verify.</ToDo>
+          </>
+        )}
+
+        {check.status === 'unverified' && (
+          <ToDo>Check {WHAT_TO_INSPECT[check.kind]}, then press I inspected it.</ToDo>
         )}
 
         {check.status === 'verified' && (
@@ -117,11 +130,7 @@ export default function CheckRow({
           </p>
         )}
 
-        {check.status === 'not_on_file' && (
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {MISSING_HINT[check.kind]}
-          </p>
-        )}
+        {check.status === 'not_on_file' && <ToDo>{MISSING_HINT[check.kind]}</ToDo>}
 
         {/* Whether the card is still good is a separate question from whether
             anybody has looked at it, so it reads as its own line. Judged against

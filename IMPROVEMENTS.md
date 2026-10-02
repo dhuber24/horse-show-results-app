@@ -2,6 +2,36 @@
 
 ## October 2026
 
+### The desk's Paperwork section shows what to do, and gets out of the way when nothing is left
+
+- **Every row the desk still has to deal with is outlined in red and says what
+  to do** — "Check the membership card, then press I inspected it", "Not
+  signed — tick once the signed paper is in the show office". Before this the
+  section's badge said "8 to check" and left staff to find the eight among
+  rows that differed only by a grey pill. The badge, the jump link at the top
+  of the panel and the red rows now count the same things, and the jump lands
+  on the first red row in the order they are drawn (it used to skip the
+  emergency contact and the releases).
+- **A missing emergency contact is a form, not a sentence.** The name and
+  phone boxes are open in the red row; Enter saves. The help text under it
+  said the contact was saved to the exhibitor's profile, which stopped being
+  true at migration 145; it now says it is saved for this show only.
+- **Every release, entry blank and rule is one checkbox at the desk.** They
+  signed it or they did not. The name-and-guardian form is gone; the endpoint
+  records the exhibitor's own name, as it already did for a futurity's
+  release, and no longer 422s without a typed name.
+- **The Paperwork section folds itself away once the exhibitor is in good
+  standing**, with "✓ All in good standing" on its heading, and opens again
+  when something needs doing. It is no longer remembered per browser — the
+  exhibitor's paperwork decides it. Somebody with no horse entered stays open,
+  because "+ Add a horse" lives there.
+- **Pressing "I inspected it" on a Coggins, CVI or vaccination record clears
+  the flag for this show.** It used to open a form asking for the expiry date
+  off the paper, and an inspection without one left the horse flagged. The
+  button now carries the claim — the paper describes this horse and covers the
+  show — and a paper that fails it is simply not signed off. Inspections
+  recorded earlier without a date now clear their horse as well.
+
 ### A desktop layout for the show office
 
 - **Admins, show managers and show secretaries get a menu down the left of

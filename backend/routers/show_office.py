@@ -253,9 +253,9 @@ def _build_inspection(snapshot: str, verification: Optional[ShowVerification]) -
         "verification_id": verification.id if verification else None,
         "verified_by_name": verification.verified_by_name if verification else None,
         "verified_at": verification.created_at if verification else None,
-        # What staff read off the paper, when they recorded it. The health
-        # status above may already be `valid` *because* of this — see
-        # `attested_health` in routers/horse_documents.py.
+        # What staff read off the paper, when they recorded one. The health
+        # status above may already be `valid` *because* of this inspection —
+        # see `attested_health` in routers/horse_documents.py.
         "attested_expiry": verification.attested_expiry if verification else None,
         "note": verification.note if verification else None,
     }
@@ -910,12 +910,12 @@ async def record_verification(
     Re-signing an existing check replaces it rather than stacking a second row —
     that is how a stale check is cleared once staff have seen the new paper.
 
-    For a health document the caller may also send `attested_expiry`: the date
-    printed on the paper in the secretary's hand. Given, and covering the show,
-    it clears the horse's health flag — an office that has just inspected a
-    valid Coggins should not still be told to go and find one. Omitted, the
-    inspection is still recorded and the horse stays flagged, which is the right
-    outcome for a document that was illegible or genuinely lapsed.
+    For a health document the sign-off is the office's word that the paper
+    describes this horse and covers the show, and it clears the horse's health
+    flag for this show (`attested_health`) — an office that has just inspected a
+    good Coggins should not still be told to go and find one. The caller may
+    also send `attested_expiry`, the date printed on the paper, which is kept
+    for the record; it is no longer what decides whether the flag clears.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     show = await _get_show_or_404(show_id, db)
