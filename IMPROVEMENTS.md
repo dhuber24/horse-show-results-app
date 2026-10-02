@@ -2,6 +2,13 @@
 
 ## October 2026
 
+### A payment's Received date starts at today
+
+- **Recording a payment on Financials → Exhibitors fills in today's date**,
+  since the office nearly always records money as it is handed over. It was
+  blank, which the server read as its own today — UTC, so an evening payment
+  at a US show was dated tomorrow. Change it for money that came in earlier.
+
 ### The desk's Paperwork section shows what to do, and gets out of the way when nothing is left
 
 - **Every row the desk still has to deal with is outlined in red and says what

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { todayIso } from '@/lib/minor';
 import {
   formatMoney,
   formatReceivedOn,
@@ -474,7 +475,11 @@ function RecordPaymentForm({
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState<PaymentMethod>('check');
   const [reference, setReference] = useState('');
+  // Today, because the office nearly always records money as it is handed
+  // over. Set after mount and in the reader's own zone: the server renders in
+  // UTC, which is tomorrow by a US show's evening.
   const [receivedOn, setReceivedOn] = useState('');
+  useEffect(() => setReceivedOn(todayIso()), []);
   const [note, setNote] = useState('');
   const [isRefund, setIsRefund] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -514,7 +519,7 @@ function RecordPaymentForm({
     setAmount('');
     setReference('');
     setNote('');
-    setReceivedOn('');
+    setReceivedOn(todayIso());
     setIsRefund(false);
     onRecorded();
   };
@@ -595,7 +600,7 @@ function RecordPaymentForm({
             onChange={(e) => setReceivedOn(e.target.value)}
             className="w-full mt-0.5 text-sm px-2 py-1.5 rounded border"
             style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }}
-            title="Leave blank for today"
+            title="Today unless you change it — set the day the money actually came in"
           />
         </label>
       </div>
