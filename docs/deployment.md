@@ -378,9 +378,14 @@ Worth knowing before debugging a symptom against the wrong setting.
   above: no browser calls the API directly, so CORS is never exercised in normal
   operation. A failure here will not present as a CORS error, because there are
   no cross-origin browser requests to fail. Keep the value correct anyway.
-- **`INTERNAL_API_KEY` is shared by both services** via `fromService`, so it
-  cannot drift. `AUTH_SECRET` is deliberately a different value; regenerating it
-  invalidates every session.
+- **`INTERNAL_API_KEY` is one value on both services, but only the Blueprint
+  keeps it that way.** It is generated on `gaitdesk-api` and the web service
+  reads it through `fromService`, which Render copies across **on a Blueprint
+  sync, not when the value changes**. Change it on the API in the dashboard and
+  the web service goes on sending the old key, so every data read fails until
+  the next sync. Change it on both by hand — see
+  [Rotating a secret](#rotating-a-secret). `AUTH_SECRET` is deliberately a
+  different value; regenerating it invalidates every session.
 - **SMTP is optional and silent.** `mailer.py` returns `None` when `SMTP_HOST`
   is unset and never raises, and every flow that mails a link also returns the
   link. The variables it reads are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
@@ -392,6 +397,63 @@ Worth knowing before debugging a symptom against the wrong setting.
   restart, not a rebuild. A value that is not a GA4 ID (`G-` then letters and
   digits) is ignored rather than rendered into the page. See
   [Google Analytics](#google-analytics) below.
+
+## Rotating a secret
+
+The web service holds two secrets, and they are the ones to rotate if it was
+ever exposed: `INTERNAL_API_KEY` and `AUTH_SECRET`. First done on 3 Oct 2026,
+after production had run the Next.js release React2Shell could take over (see
+`IMPROVEMENTS.md`, October 2026).
+
+- **`INTERNAL_API_KEY` first, because it is ADMIN on the API.** `dependencies.py`
+  takes the role from the `X-User-Role` header once the key matches, and
+  `api.gaitdesk.com` is public, so whoever holds the key needs no login.
+  `AUTH_SECRET` forges a session on the web service; rotating it signs everybody
+  out once.
+- **Rotate only once the hole is closed.** A secret rotated while the leak is
+  still open leaks again.
+- **Not on a show day.** The two services restart a few seconds apart, so data
+  reads fail for about a minute, and scribes and the desk are signed out by the
+  new `AUTH_SECRET`.
+
+The steps:
+
+1. **Make a value per secret.** In PowerShell (`openssl rand -hex 32` in Git
+   Bash):
+   ```powershell
+   $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString('x2') })
+   ```
+   Keep a copy of the current `INTERNAL_API_KEY` for step 4.
+2. **Edit both services before saving either.** `gaitdesk-api` →
+   Environment → `INTERNAL_API_KEY`. `gaitdesk-web` → Environment → the **same**
+   `INTERNAL_API_KEY`, and the new `AUTH_SECRET`. Two keys that differ by a
+   trailing space is the one way this goes wrong. If the web service will not
+   let you edit the linked value, save the API's and run the Blueprint's
+   **Manual Sync** to copy it across.
+3. **Save and deploy on the API, then straight away on the web service.** Not
+   *Save, rebuild, and deploy*: the existing build is restarted with the new
+   values, so both are back in a minute or two rather than after a Docker build.
+   *Save only* changes nothing until the next deploy.
+4. **Prove the old key is dead.** This prompts for the key without echoing it or
+   writing it to history; the old key must get `401`, the new one `200`:
+   ```powershell
+   $s = Read-Host 'Key' -AsSecureString
+   $k = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
+   try { (Invoke-WebRequest -UseBasicParsing -Uri 'https://api.gaitdesk.com/judging-systems/symbol-system' -Headers @{ 'X-API-Key' = $k }).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+   Remove-Variable s, k
+   ```
+   Then prove the two services agree: a public class page with entries lists
+   horse names, and `fetchHorse` sends the key, so a mismatch is an error page
+   rather than a page without names. Health and `/shows/` stay green either
+   way — they never send the key.
+5. **Look for anything the old key made.** An account created through the API
+   with it keeps working after the rotation: check Admin → Users for names and
+   ADMIN or Show Manager roles nobody on the team gave out. Then update any
+   saved copy (1Password) and destroy the old one.
+
+Nothing in `render.yaml` changes. `generateValue` only fills in a value that is
+missing, so a later sync does not overwrite a rotated one, and the sync's
+`fromService` copy is by then the same new key.
 
 ## Google Analytics
 

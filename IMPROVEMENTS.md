@@ -16,10 +16,14 @@
   (forges a session) and `INTERNAL_API_KEY`, which matters more — the API
   takes the role from `X-User-Role` once that key is presented, so it is ADMIN
   on `api.gaitdesk.com` from anywhere. Vercel's advice is to rotate both on any
-  app that was online and unpatched after 4 Dec 2025. Rotating `AUTH_SECRET`
-  signs everybody out once. `INTERNAL_API_KEY` lives on `gaitdesk-api` and the
-  web service reads it from there (`fromService`), so it changes in one place
-  and both services restart to pick it up.
+  app that was online and unpatched after 4 Dec 2025. Both were rotated on
+  3 Oct 2026, once 15.3.9 was live.
+- **Rotating `INTERNAL_API_KEY` means changing it on both services by hand.**
+  The web service reads it from `gaitdesk-api` through `fromService`, which
+  Render copies across on a Blueprint sync rather than when the value changes,
+  so changing it on the API alone breaks every data read until the next sync.
+  `docs/deployment.md` said the shared key "cannot drift"; it now says how it
+  can, and has the steps under *Rotating a secret*.
 
 ### Each show chooses what the desk inspects
 
