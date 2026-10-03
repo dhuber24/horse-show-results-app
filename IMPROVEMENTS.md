@@ -2,6 +2,25 @@
 
 ## October 2026
 
+### Next.js 15.3.1 to 15.3.9, for React2Shell
+
+- **Next.js 15.3.1 could be made to run code on the server by anybody who
+  could reach it** (CVE-2025-66478, from React's CVE-2025-55182; CVSS 10). The
+  hole is in how the App Router reads React Server Components requests, so
+  every page of the web service was a way in, signed in or not. The 15.3 line
+  was fixed in 15.3.6; 15.3.9 is the last release in that line and carries the
+  later fixes as well. `eslint-config-next` moves with it. Nothing in the app
+  changed; React was already 19.2.5, and the vulnerable code is the copy
+  bundled inside Next.
+- **The web service's secrets are the ones that were exposed**: `AUTH_SECRET`
+  (forges a session) and `INTERNAL_API_KEY`, which matters more — the API
+  takes the role from `X-User-Role` once that key is presented, so it is ADMIN
+  on `api.gaitdesk.com` from anywhere. Vercel's advice is to rotate both on any
+  app that was online and unpatched after 4 Dec 2025. Rotating `AUTH_SECRET`
+  signs everybody out once. `INTERNAL_API_KEY` lives on `gaitdesk-api` and the
+  web service reads it from there (`fromService`), so it changes in one place
+  and both services restart to pick it up.
+
 ### Each show chooses what the desk inspects
 
 - **The Paperwork step has a *Checked at the registration desk* card**:
