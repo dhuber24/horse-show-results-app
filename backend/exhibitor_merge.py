@@ -634,3 +634,118 @@ async def merge_exhibitors(
         "duplicates_dropped": duplicates,
         "account_moved": account_moved,
     }
+
+
+# ── Removing a record outright ────────────────────────────────────────────────
+#
+# The other answer to a record that should not be here, for when there is
+# nothing to fold it into: a seed leftover, a name typed in at the counter for
+# somebody who never came, an office record whose person turned out to be on
+# file already and has been joined. Deleting one is safe only while it holds
+# nothing a show has to keep, so whether it may go is decided first, on plain
+# figures, where it can be tested without a database.
+
+
+def _plural(count: int, word: str, plural: Optional[str] = None) -> str:
+    return f"{count} {word if count == 1 else (plural or word + 's')}"
+
+
+def removal_refusal(full_name: str, has_account: bool, summary: dict) -> Optional[dict]:
+    """Why this record may not be deleted, or None when it may.
+
+    Three refusals, in the order a person would sort them out.
+
+    **A login.** The `exhibitors` row *is* the exhibitor permission, so deleting
+    it leaves an account that can no longer enter a show, and an EXHIBITOR user
+    is never meant to exist without one. Closing the account under Users leaves
+    this record accountless (`exhibitors.user_id` is ON DELETE SET NULL), and
+    removable here.
+
+    **Show history** -- a roster row or a class entry. Those carry back numbers,
+    bills, payments and published placings, and `show_entries` and `entries`
+    reference the record with no ON DELETE, so the database would refuse anyway;
+    it is refused here so the answer is a sentence rather than a 500. The way
+    through is a merge into the record the person really is, or taking them off
+    each show at its desk, which keeps its own refusals for money and placings.
+
+    **A signed waiver.** It is the show's record of who signed its release, and
+    it cascades with the exhibitor -- a merge moves it, a delete destroys it.
+
+    Memberships, documents and horse links are the person's own profile and go
+    with the record. The horses themselves stay; see `remove_exhibitor`.
+    """
+    if has_account:
+        return {
+            "code": "HAS_ACCOUNT",
+            "message": (
+                f"{full_name} signs in with an account, so this record is not removed here. "
+                "Close the account under Users first, which leaves the record without one."
+            ),
+        }
+
+    shows = int(summary.get("shows") or 0)
+    class_entries = int(summary.get("class_entries") or 0)
+    if shows or class_entries:
+        held = ", ".join(
+            part
+            for part in (
+                _plural(shows, "show") if shows else "",
+                _plural(class_entries, "class entry", "class entries") if class_entries else "",
+            )
+            if part
+        )
+        return {
+            "code": "HAS_SHOW_HISTORY",
+            "message": (
+                f"{full_name} has show history on file ({held}). Back numbers, bills and "
+                "results are kept, so join this record with the one it belongs with, or take "
+                "them off each show at its registration desk first."
+            ),
+        }
+
+    signatures = int(summary.get("signatures") or 0)
+    if signatures:
+        return {
+            "code": "HAS_SIGNATURES",
+            "message": (
+                f"{full_name} has signed {_plural(signatures, 'show waiver')}. A signed waiver "
+                "is the show's record of who signed it, so join this record with the one it "
+                "belongs with instead of removing it."
+            ),
+        }
+
+    return None
+
+
+async def remove_exhibitor(exhibitor: Exhibitor, db: AsyncSession) -> None:
+    """Delete a record `removal_refusal` has passed. The caller commits.
+
+    The one thing a delete has to carry across by hand is a horse's owner. The
+    class schedule and the entry list print the linked record's name first and
+    `horses.owner_name` after it, so clearing `owner_exhibitor_id` alone would
+    leave the horse with no owner at all. The name moves into `owner_name` where
+    that is blank: the office no longer has a record of the person, and the
+    horse still says who owns it.
+
+    Both horse columns are cleared here rather than left to the foreign key.
+    Migrations 008 and 033 declare them ON DELETE SET NULL, but the model does
+    not, and a database whose `horses` table `create_all` made first would
+    refuse the delete instead.
+    """
+    await db.execute(
+        update(Horse)
+        .where(Horse.owner_exhibitor_id == exhibitor.id)
+        .values(
+            owner_name=func.coalesce(func.nullif(func.trim(Horse.owner_name), ""), exhibitor.full_name),
+            owner_exhibitor_id=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await db.execute(
+        update(Horse)
+        .where(Horse.created_by_exhibitor_id == exhibitor.id)
+        .values(created_by_exhibitor_id=None)
+        .execution_options(synchronize_session=False)
+    )
+    await db.delete(exhibitor)
+    await db.flush()

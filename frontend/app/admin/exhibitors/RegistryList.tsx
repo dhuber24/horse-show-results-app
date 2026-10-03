@@ -57,6 +57,13 @@ const SCOPES: { value: Scope; label: string; hint: string }[] = [
  * `users.first_name`/`last_name` (`_sync_linked_exhibitor_name`), so editing it
  * here would be overwritten the next time that person touched their profile —
  * rename the account under Users instead.
+ *
+ * **Remove** is offered on the same rows, for a record nobody needs — a seed
+ * leftover, a walk-up typed in for somebody who never came. It is disabled on
+ * a row with show history, because back numbers, bills and results are kept
+ * and the answer there is Join. The backend is the authority
+ * (`exhibitor_merge.removal_refusal`), and refuses a signed waiver too, which
+ * this list has no count for; its 409 is the sentence printed above the list.
  */
 export default function RegistryList() {
   const [rows, setRows] = useState<RegistryRow[] | null>(null);
@@ -72,6 +79,9 @@ export default function RegistryList() {
   const [keepId, setKeepId] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, MergeSummary>>({});
   const [merged, setMerged] = useState<string | null>(null);
+  /** The row whose removal is being confirmed, and the name last removed. */
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -141,6 +151,34 @@ export default function RegistryList() {
     clearPair();
     setMerged(keptName);
     setReloadKey((k) => k + 1);
+  };
+
+  /** Open the inline confirmation, reading what the record holds for it. */
+  const askRemove = async (row: RegistryRow) => {
+    setRemoving(row.id);
+    setMerged(null);
+    setRemoved(null);
+    setError(null);
+    if (summaries[row.id]) return;
+    const res = await fetch(`/api/exhibitors/${row.id}/merge-summary`);
+    const summary = res.ok ? await res.json().catch(() => null) : null;
+    if (summary) setSummaries((prev) => ({ ...prev, [row.id]: summary }));
+  };
+
+  const remove = async (row: RegistryRow) => {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(`/api/exhibitors/${row.id}`, { method: 'DELETE' });
+    setSaving(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      setError(errorMessage(body, 'Could not remove that record.'));
+      setRemoving(null);
+      return;
+    }
+    setRemoving(null);
+    setRemoved(row.full_name);
+    setRows((prev) => prev?.filter((r) => r.id !== row.id) ?? null);
   };
 
   const rename = async (row: RegistryRow) => {
@@ -226,6 +264,20 @@ export default function RegistryList() {
           }}
         >
           Joined. Everything now sits on <strong>{merged}</strong>.
+        </p>
+      )}
+
+      {removed && (
+        <p
+          className="rounded border p-3 text-sm"
+          role="status"
+          style={{
+            borderColor: 'var(--border)',
+            backgroundColor: 'var(--bg-subtle)',
+            color: 'var(--foreground)',
+          }}
+        >
+          Removed <strong>{removed}</strong>.
         </p>
       )}
 
@@ -404,6 +456,31 @@ export default function RegistryList() {
                         </button>
                       </>
                     )}
+                    {!row.has_account && !pairFrom && (
+                      <>
+                        {' · '}
+                        {row.shows || row.class_entries ? (
+                          <button
+                            type="button"
+                            disabled
+                            title="This record has show history — back numbers, bills and results are kept. Join it with the record it belongs with instead, or take them off each show at its registration desk first."
+                            className="cursor-not-allowed opacity-60"
+                            style={{ color: 'var(--muted)' }}
+                          >
+                            Remove
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => askRemove(row)}
+                            className="hover:underline"
+                            style={{ color: 'var(--error)' }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </>
+                    )}
                     {/* Two presses, not a checkbox column: joining is rare and
                         destructive, and a row of ticks invites one. */}
                     {!pairFrom ? (
@@ -414,6 +491,8 @@ export default function RegistryList() {
                           onClick={() => {
                             setPairFrom(row);
                             setMerged(null);
+                            setRemoved(null);
+                            setRemoving(null);
                           }}
                           className="hover:underline"
                           style={{ color: 'var(--accent)' }}
@@ -435,6 +514,45 @@ export default function RegistryList() {
                       </>
                     ) : null}
                   </span>
+                </div>
+              )}
+              {removing === row.id && (
+                <div
+                  className="mt-2 rounded border p-2.5 text-xs space-y-2"
+                  style={{
+                    borderColor: 'var(--error-border)',
+                    backgroundColor: 'var(--error-bg)',
+                    color: 'var(--text-deep)',
+                  }}
+                >
+                  <p>
+                    Remove <strong>{row.full_name}</strong>?{' '}
+                    {summaries[row.id] ? `Holds: ${holdingText(summaries[row.id])}.` : 'Reading what it holds…'}
+                  </p>
+                  <p>
+                    Memberships and documents on this record are deleted with it. Horses stay on
+                    file, keeping this name as their owner. This cannot be undone.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => remove(row)}
+                      disabled={saving}
+                      title={saving ? 'Removing…' : undefined}
+                      className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
+                      style={{ backgroundColor: 'var(--error)', color: 'var(--surface)' }}
+                    >
+                      {saving ? 'Removing…' : 'Yes, remove'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRemoving(null)}
+                      className="text-xs hover:underline"
+                      style={{ color: 'var(--muted)' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </li>

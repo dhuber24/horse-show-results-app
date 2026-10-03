@@ -31,7 +31,13 @@ from schemas import (
     StaffCertificationOut, StaffCertificationsReplace,
     MyFeaturesOut, ShowCompanyRef, FeatureInfoOut, UpgradeRequestCreate, UpgradeRequestOut,
 )
-from exhibitor_merge import merge_candidates, merge_exhibitors, merge_summary
+from exhibitor_merge import (
+    merge_candidates,
+    merge_exhibitors,
+    merge_summary,
+    remove_exhibitor,
+    removal_refusal,
+)
 from show_companies import (
     FEATURES,
     SHOW_OFFICE_ROLES,
@@ -2225,11 +2231,34 @@ async def merge_exhibitor(
 
 @exhibitors_router.delete("/{exhibitor_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def delete_exhibitor(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Remove an exhibitor record that has no login and holds no show history.
+
+    The registry's answer to a record nobody needs -- seed leftovers, a walk-up
+    typed in for somebody who never came. Anything a show has to keep refuses
+    with a 409 saying what to do instead (`exhibitor_merge.removal_refusal`);
+    that used to reach the database's own foreign keys and come back a 500.
+    """
     exhibitor = await db.get(Exhibitor, exhibitor_id)
     if not exhibitor:
         raise HTTPException(404, "Exhibitor not found")
-    await db.delete(exhibitor)
-    await db.commit()
+    name = exhibitor.full_name
+    refusal = removal_refusal(name, exhibitor.user_id is not None, await merge_summary(exhibitor_id, db))
+    if refusal:
+        raise HTTPException(409, refusal)
+    try:
+        await remove_exhibitor(exhibitor, db)
+        await db.commit()
+    except IntegrityError:
+        # Something reached the record between the check and the delete -- a
+        # desk entering them a moment ago. The foreign keys are the last word.
+        await db.rollback()
+        raise HTTPException(
+            409,
+            {
+                "code": "HAS_SHOW_HISTORY",
+                "message": f"{name} was just entered somewhere. Reload the list and look again.",
+            },
+        )
 
 
 # ── Exhibitor Registrations ───────────────────────────────────────────────────

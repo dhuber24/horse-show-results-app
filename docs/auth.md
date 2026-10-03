@@ -244,6 +244,8 @@ The one behavioural difference between them is deliberate: **the desk refuses tw
 
 Whichever door, **the login moves to the surviving record** if only the removed one had it. A merge that left somebody unable to sign in to their own entries would be worse than the duplicate it fixed.
 
+**Removing a record outright** is `DELETE /exhibitors/{id}`, `ADMIN` only, from *Remove* on the registry — and only for a record with **no login, no show history and no signed waiver** (`409 HAS_ACCOUNT` / `HAS_SHOW_HISTORY` / `HAS_SIGNATURES` otherwise; see [design/desk.md](design/desk.md)). A record holding anything a show keeps is joined, not deleted.
+
 ### Paid Features
 
 Some features are sold, and a paid feature is gated **on top of** the role check, not instead of it (migration 142, [backend/show_companies.py](../backend/show_companies.py)). The only one so far is starting a show from its show bill.
