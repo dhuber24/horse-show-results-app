@@ -1,12 +1,9 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
-import { fetchShow, fetchClasses, fetchMyShowStanding } from '@/lib/api';
-import { getAuthHeaders } from '@/lib/backend-fetch';
+import { fetchClasses } from '@/lib/api';
 import { auth } from '@/auth';
-import { canActAsExhibitor } from '@/lib/exhibitor-access';
-import type { MyShowStanding } from '@/lib/my-shows';
-import ExhibitorShowHub from './_components/ExhibitorShowHub';
-import VisitorShowView from './_components/VisitorShowView';
+import ShowHub from './_components/ShowHub';
+import { loadShowHub } from './_components/loadShowHub';
 import AutoRefresh from '@/components/AutoRefresh';
 
 function formatClassDate(dateStr: string): string {
@@ -21,50 +18,25 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const session = await auth();
   const role = (session?.user as any)?.role;
   const canScore = (role === 'ADMIN' || role === 'SCRIBE');
-  // Having an exhibitor record is what lets somebody enter a show — the same
-  // test `show_registration.py` applies, rather than the narrower role check
-  // this used to make. A show manager who also competes holds one account.
-  const canSelfRegister = session ? await canActAsExhibitor() : false;
 
-  // A visitor with no account gets the event details and the two things they
-  // can act on, not a class list. The classes fetch is skipped entirely for
-  // them — nothing on their screen reads it. The rail screens (/live,
-  // /schedule, /results) stay open to everyone; this gates the browsing path.
-  if (!session) {
-    const show = await fetchShow(id);
-    return <VisitorShowView showId={id} show={show} />;
-  }
-
-  const headers = canSelfRegister ? await getAuthHeaders() : null;
-  const [show, classes, standing] = await Promise.all([
-    fetchShow(id),
-    fetchClasses(id),
-    // Only exhibitors have a standing to report, and only they see the banner
-    // it feeds — nobody else pays for the round trip.
-    canSelfRegister
-      ? (fetchMyShowStanding(id, headers || undefined) as Promise<MyShowStanding | null>)
-      : Promise.resolve(null),
+  // Together, so a scribe working a running show waits on one round trip
+  // rather than two. The class list is wasted only on staff opening a show
+  // that is not running.
+  const [hub, classes] = await Promise.all([
+    loadShowHub(id),
+    canScore ? fetchClasses(id) : Promise.resolve(null),
   ]);
 
-  // Anyone who isn't entering scores gets a menu, not a class list. For a
-  // scribe or an admin on an active show the class numbers *are* the menu —
-  // every row is a link into a scribe screen — so they keep the list below.
-  // Everybody else was landing on forty rows of something to read rather than
-  // the four things they came to do.
-  if (!canScore) {
-    const posted = classes.filter((cls: any) => cls.status !== 'DRAFT');
-    return (
-      <ExhibitorShowHub
-        showId={id}
-        show={show}
-        standing={standing}
-        classCount={posted.length}
-        patternCount={new Set(posted.map((cls: any) => cls.pattern_id).filter(Boolean)).size}
-        hasPatternClasses={posted.some((cls: any) => cls.score_type === 'pattern')}
-        canSelfRegister={canSelfRegister}
-      />
-    );
+  // Everybody gets the show menu — the public results hub, the same page
+  // `/live` serves, with an exhibitor's own standing and tiles on top — except
+  // a scribe or an admin while the show runs. Then the class numbers *are* the
+  // menu: every row is a link into a scribe screen. Before the show and after
+  // it no row can be scored, and the list was forty rows of something to read
+  // under a "Read-only" banner, where everybody else got the menu.
+  if (!classes || hub.show.status !== 'ACTIVE') {
+    return <ShowHub {...hub} />;
   }
+  const show = hub.show;
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -92,22 +64,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
       </div>
 
       {/* The exhibitor status banner used to sit here. It has moved to
-          ExhibitorShowHub, which is where an exhibitor now lands — reaching
-          this branch means the caller can score, and no account is both a
-          scribe and a self-registering exhibitor. */}
-
-      {/* Only for people who could otherwise be entering scores. An exhibitor or
-          spectator reading the class schedule has no scoring screen to be locked
-          out of, so the banner told them nothing and read like a warning. */}
-      {canScore && show.status !== 'ACTIVE' && (
-        <div
-          className="mb-4 px-4 py-3 rounded border text-sm font-medium"
-          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--border)', color: 'var(--warning)' }}
-        >
-          Read-only — results can only be entered when the show is Active.
-          Current status: <strong>{show.status}</strong>.
-        </div>
-      )}
+          ShowHub, which is where an exhibitor now lands — reaching this
+          branch means the caller is scoring a running show. The "Read-only"
+          banner went too: before the show and after it, a scorer gets the
+          show menu instead of this list. */}
 
       <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Classes</h2>
       {classes.length === 0 ? (
@@ -119,15 +79,10 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
         // and a list that silently starts at 14 reads like broken numbering.
         // Classes close underneath the scribe as the show runs — the gate
         // steward closes one, and it should roll into the finished group
-        // without anyone reloading. Only polls in this case: on a finished or
-        // unstarted show nothing moves, so refreshing would be pure waste.
-        const foldFinished = canScore && show.status === 'ACTIVE';
-        const finished = foldFinished
-          ? classes.filter((cls: any) => cls.status === 'CLOSED')
-          : [];
-        const remaining = foldFinished
-          ? classes.filter((cls: any) => cls.status !== 'CLOSED')
-          : classes;
+        // without anyone reloading, so the list polls. It only exists while
+        // the show runs, so nothing here polls a show where nothing moves.
+        const finished = classes.filter((cls: any) => cls.status === 'CLOSED');
+        const remaining = classes.filter((cls: any) => cls.status !== 'CLOSED');
 
         const renderList = (list: any[]) => (
           <ul className="space-y-3">
@@ -147,11 +102,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
                 )}
                 <li>
                   <Link
-                    href={
-                      canScore && show.status === 'ACTIVE'
-                        ? `/shows/${id}/classes/${cls.id}/scribe`
-                        : `/shows/${id}/classes/${cls.id}`
-                    }
+                    href={`/shows/${id}/classes/${cls.id}/scribe`}
                     className="flex-1 block p-4 rounded-lg border transition hover:bg-amber-50"
                     style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
                   >
@@ -162,22 +113,20 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
                         </div>
                       </div>
                       <div className="flex items-center gap-2 ml-3 shrink-0">
-                        {canScore && (
-                          cls.placed_count > 0 ? (
-                            <span
-                              className="text-xs font-medium px-2 py-1 rounded-full"
-                              style={{ backgroundColor: 'var(--success-border)', color: 'var(--success-strong)' }}
-                            >
-                              {cls.placed_count} placed
-                            </span>
-                          ) : (
-                            <span
-                              className="text-xs font-medium px-2 py-1 rounded-full"
-                              style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
-                            >
-                              Pending
-                            </span>
-                          )
+                        {cls.placed_count > 0 ? (
+                          <span
+                            className="text-xs font-medium px-2 py-1 rounded-full"
+                            style={{ backgroundColor: 'var(--success-border)', color: 'var(--success-strong)' }}
+                          >
+                            {cls.placed_count} placed
+                          </span>
+                        ) : (
+                          <span
+                            className="text-xs font-medium px-2 py-1 rounded-full"
+                            style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning)' }}
+                          >
+                            Pending
+                          </span>
                         )}
                         <span
                           className="text-xs font-medium px-2 py-1 rounded-full"
@@ -196,7 +145,7 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
 
         return (
           <>
-            {foldFinished && <AutoRefresh />}
+            <AutoRefresh />
             {finished.length > 0 && (
               // <details> rather than a client component: this page is server
               // rendered and the toggle needs no JS to work.

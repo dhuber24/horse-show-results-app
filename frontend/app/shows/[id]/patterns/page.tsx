@@ -11,6 +11,7 @@ import {
 } from '@/lib/patterns';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
+import BackToShow from '../_components/BackToShow';
 
 /**
  * Every pattern the office has put on file, and the classes each one runs
@@ -79,6 +80,8 @@ export default async function ShowPatternsPage({ params }: { params: Promise<{ i
           </section>
         </div>
       )}
+
+      <BackToShow showId={id} />
     </main>
   );
 }

@@ -2,6 +2,41 @@
 
 ## October 2026
 
+### The public results hub is every show's page
+
+- **`/shows/[id]` is now the public results hub for everybody, account or
+  not** — the page the office's *Public Results* tile and the Active Shows list
+  always opened: the show's six sections (Class Schedule, Patterns, Results,
+  Leaderboard, Show Bill, Show Details) whatever its status, *Message the Show
+  Office*, and a sign-up bar by the show's state. It was three pages for one
+  show: a signed-out visitor got an event-details card and a row of links, a
+  signed-in exhibitor tiles that came and went with the show's status, and
+  `/live` a third menu, so a section one offered was missing from another.
+  `VisitorShowView` and `ExhibitorShowHub` are gone; `ShowHub` and
+  `lib/show-hub.ts` replace both, and `/live` renders the same thing.
+- **ADMIN and SCRIBE keep their class list only while the show runs**, when
+  each row opens a scribe screen. Before and after, the list scored nothing
+  and sat under a "Read-only" banner; they get the menu like everybody else.
+- **An exhibitor's own standing goes above the same menu, never instead of
+  it.** The status banner when there is something of theirs to say —
+  cancelled, signed up, or entered by the office — and their own tiles (Add/Drop
+  Classes, My Registration, What I Owe) in a grid above the show's, so the
+  show's tiles sit in the same place for every reader. Somebody not yet entered
+  sees what a visitor sees.
+- **One sign-up button, not two.** The banner's three not-yet states are gone:
+  two (registration open, past the last day to sign up online) put a second
+  sign-up button directly over the bar, and the third (closed) repeated what
+  the bar or the status badge already says. The bar states the
+  last day to sign up online, and reads *Profile, horses and any stalls, then
+  classes* — a show that sells no stalls has no stalls step.
+- **Staff get the same bar, and it no longer dead-ends.** A signed-in account
+  with no exhibitor record that follows it is told the account isn't set up to
+  enter shows, with a link to *I also compete* that comes straight back, rather
+  than the registration screen's raw 403.
+- **Show Details carries what the signed-out card did**: the status in words,
+  and, while the show is published, the last day to sign up online — or that
+  it has passed — and how late classes can change.
+
 ### Next.js 15.3.1 to 15.3.9, for React2Shell
 
 - **Next.js 15.3.1 could be made to run code on the server by anybody who

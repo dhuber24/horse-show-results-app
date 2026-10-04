@@ -1,7 +1,5 @@
 import Link from 'next/link';
 import type { MyShowStanding } from '@/lib/my-shows';
-import { signupClosedText, signupDeadlineText } from '@/lib/registration-window';
-import { ENTERING_TOPIC } from '@/lib/show-signup';
 
 /**
  * What an exhibitor's own standing at this show is, at the top of the show page.
@@ -10,26 +8,29 @@ import { ENTERING_TOPIC } from '@/lib/show-signup';
  * people who had just signed up and come straight back to it. Telling someone
  * to do a thing they have already done reads as the thing not having worked.
  *
- * Four states, in the order they are checked:
+ * Three states, in the order they are checked:
  *
- *  1. **Signed up.** Say so, with the back number and class count, and offer the
+ *  1. **Cancelled.** Say so, and what happened to their classes and money,
+ *     with the way back in while sign-up is open.
+ *  2. **Signed up.** Say so, with the back number and class count, and offer the
  *     two things left to change. Shown whatever the show's status is — after
  *     registration closes it becomes the record of where they stand.
- *  2. **Entered by the office but never signed up.** A `show_entries` shell row
+ *  3. **Entered by the office but never signed up.** A `show_entries` shell row
  *     with no `registered_at`. They have classes but the office has no stall or
  *     shavings numbers for them, so they still need the sign-up form.
- *  3. **Nothing yet, registration open.** The original invitation, with the
- *     last day to sign up online where the show gave one.
- *  4. **Nothing yet, past that day** (migration 159). The show is still taking
- *     entries, just not online: point at the show office's contact form.
- *  5. **Nothing yet, registration closed.** Point at the secretary.
+ *
+ * **Somebody with none of these has nothing of their own to say here**, so the
+ * banner renders nothing and the show menu's sign-up bar is their way in — the
+ * same bar a visitor with no account sees (`lib/show-hub.ts`). It used to carry
+ * three more states: registration open and past the last day to sign up online
+ * put a second sign-up button directly over the bar, and closed repeated what
+ * the bar or the status badge already says.
  */
 export default function ExhibitorStatusBanner({
   showId,
   showStatus,
   standing,
   signupOpen = true,
-  signupDeadline = null,
 }: {
   showId: string;
   showStatus: string;
@@ -37,8 +38,6 @@ export default function ExhibitorStatusBanner({
   /** `signup_open` off the show payload: somebody not yet signed up may still
    *  sign up online. Only read while the show is published. */
   signupOpen?: boolean;
-  /** The last day to sign up online, `YYYY-MM-DD`, or null. */
-  signupDeadline?: string | null;
 }) {
   const registrationOpen = showStatus === 'PUBLISHED';
   // A new sign-up — including signing up again after cancelling, and finishing
@@ -186,67 +185,6 @@ export default function ExhibitorStatusBanner({
             </Link>
           </div>
         )}
-      </div>
-    );
-  }
-
-  if (canSignUp) {
-    const deadline = signupDeadlineText(signupDeadline);
-    return (
-      <div
-        className="mb-4 px-4 py-3 rounded border flex items-center justify-between gap-3"
-        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
-      >
-        <div className="text-sm" style={{ color: 'var(--text-deep)' }}>
-          {offersLodging
-            ? 'Registration is open. Fill in your profile, reserve stalls, shavings and camping, then pick your classes.'
-            : 'Registration is open. Fill in your profile and add your horses, then pick your classes.'}
-          {deadline && <span className="block text-xs mt-0.5 font-medium">{deadline}</span>}
-        </div>
-        {/* `/register` is the single entry point, and it is the whole flow in
-            order — profile, then grounds, then classes — each step locked
-            until the one above it is done. It opens on whichever step they
-            still have to do, so coming back does not mean starting again. */}
-        <Link
-          href={`/shows/${showId}/register`}
-          className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
-          style={{ backgroundColor: 'var(--accent)' }}
-        >
-          Sign up →
-        </Link>
-      </div>
-    );
-  }
-
-  if (registrationOpen) {
-    // Published, and past the last day to sign up online. Not "closed": the
-    // office signs people up at the desk from here, and may still take this one.
-    return (
-      <div
-        className="mb-4 px-4 py-3 rounded border flex items-center justify-between gap-3 flex-wrap"
-        style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
-      >
-        <div className="text-sm" style={{ color: 'var(--text-deep)' }}>
-          {signupClosedText(signupDeadline)} The show office can still sign you up.
-        </div>
-        <Link
-          href={`/shows/${showId}/contact?about=${ENTERING_TOPIC}`}
-          className="text-sm font-medium px-3 py-1.5 rounded text-white shrink-0"
-          style={{ backgroundColor: 'var(--accent)' }}
-        >
-          Message the show office →
-        </Link>
-      </div>
-    );
-  }
-
-  if (showStatus !== 'DRAFT') {
-    return (
-      <div
-        className="mb-4 px-4 py-3 rounded border text-sm"
-        style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
-      >
-        Online registration is closed. Contact the show secretary to be added to classes.
       </div>
     );
   }

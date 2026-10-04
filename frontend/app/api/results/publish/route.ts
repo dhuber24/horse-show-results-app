@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthHeaders, safeFetchBackend, API_URL } from '@/lib/backend-fetch';
 
-/** Post a class's placings to the public /live and /results screens.
+/** Post a class's placings to the public /results and class results pages.
  *  Until this runs, results autosave as a staff-only draft. */
 export async function POST(request: NextRequest) {
   const headers = await getAuthHeaders();

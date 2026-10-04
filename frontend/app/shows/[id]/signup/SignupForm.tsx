@@ -13,8 +13,9 @@ export type { SignupData, FeeOption } from '../_components/ReservationFields';
  * which now folds the same editor into a section of its own — one exhibitor
  * doing one job should not have to notice that stalls and classes were built as
  * two screens. This route stays because it is the door people arrive at: the
- * show hub's **Sign Up** tile, the status banner, and the My Shows card all
- * point here, and it is where somebody who has not signed up yet is sent.
+ * status banner's stalls and releases link, the registration screen's own
+ * link and the empty What I Owe page point here, and it is where somebody who
+ * has not signed up yet is sent.
  */
 export default function SignupForm({ showId, data }: { showId: string; data: SignupData }) {
   const router = useRouter();

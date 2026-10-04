@@ -1,89 +1,22 @@
-import Link from 'next/link';
-import { fetchShow } from '@/lib/api';
-import { signUpLink } from '@/lib/show-signup';
-import ShowHubHeader from '../_components/ShowHubHeader';
+import ShowHub from '../_components/ShowHub';
+import { loadShowHub } from '../_components/loadShowHub';
 
-// The full-screen results board is deliberately not here. It lives at
-// /admin/shows/[id]/board/results, behind the office's sign-in: standing a show up on
-// a wall is staff's call, not something a spectator opens from the hub. The
-// placings it shows are public either way — /results below is the same data.
-const TILES = [
-  {
-    slug: 'schedule',
-    icon: '📋',
-    title: 'Class Schedule',
-    description: 'Browse the full class list by day and ring.',
-  },
-  // Always offered: the tiles here are static, and a pattern is exactly what
-  // somebody at the rail with no account opens on their phone.
-  {
-    slug: 'patterns',
-    icon: '📐',
-    title: 'Patterns',
-    description: 'The pattern each class runs, as the office posts them.',
-  },
-  {
-    slug: 'results',
-    icon: '🏆',
-    title: 'Results',
-    description: 'See posted placings as classes finish.',
-  },
-  {
-    slug: 'leaderboard',
-    icon: '⭐',
-    title: 'Leaderboard',
-    description: 'High-point standings across the show.',
-  },
-  {
-    slug: 'showbill',
-    icon: '📄',
-    title: 'Show Bill',
-    description: 'Classes, judges, fees and rules — print it or save a PDF.',
-  },
-  {
-    slug: 'details',
-    icon: 'ℹ️',
-    title: 'Show Details',
-    description: 'Venue, dates, associations, and policies.',
-  },
-];
-
+/**
+ * Where the Active Shows list and the office's *Public Results* tile land: the
+ * show menu, for everybody.
+ *
+ * The same page as `/shows/[id]` — one component and one loader, so the public
+ * results hub and the show's own page cannot drift apart again. It is not a
+ * redirect there: at `/shows/[id]` a scribe or an admin gets the class list
+ * they score from while the show runs, and the office opens this to see what
+ * the public sees. Any link already pointing here keeps working too.
+ *
+ * The full-screen results board is deliberately not here. It lives at
+ * /admin/shows/[id]/board/results, behind the office's sign-in: standing a show
+ * up on a wall is staff's call, not something a spectator opens from the hub.
+ * The placings it shows are public either way — /results is the same data.
+ */
 export default async function ShowLiveHubPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = await fetchShow(id);
-  // Somebody at the rail who decides they want in: the registration flow while
-  // it is open, the show office once the show is under way.
-  const signUp = signUpLink(id, show.status, show.signup_open);
-
-  return (
-    <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <ShowHubHeader show={show} backHref="/shows/active" backLabel="Back to Active Shows" />
-
-      {signUp && (
-        <Link
-          href={signUp.href}
-          className="block mb-3 p-4 rounded-lg border transition hover:opacity-90"
-          style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--accent)' }}
-        >
-          <div className="font-semibold" style={{ color: 'var(--surface)' }}>✍️ {signUp.label}</div>
-          <div className="text-sm mt-0.5" style={{ color: 'var(--bg-subtle)' }}>{signUp.hint}</div>
-        </Link>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {TILES.map((tile) => (
-          <Link
-            key={tile.slug}
-            href={`/shows/${id}/${tile.slug}`}
-            className="block p-5 rounded-lg border transition hover:shadow-md hover:bg-amber-50"
-            style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}
-          >
-            <div className="text-3xl mb-2" aria-hidden="true">{tile.icon}</div>
-            <div className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{tile.title}</div>
-            <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>{tile.description}</div>
-          </Link>
-        ))}
-      </div>
-    </main>
-  );
+  return <ShowHub {...await loadShowHub(id)} />;
 }

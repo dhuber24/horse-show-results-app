@@ -26,7 +26,10 @@ on the in-gate table. Nobody is clicking. The traffic is timers.
 - [ScheduleBoard.tsx](../frontend/app/shows/%5Bid%5D/schedule/ScheduleBoard.tsx)
   calls `router.refresh()` every **30 s** while the show is live.
 - [AutoRefresh.tsx](../frontend/components/AutoRefresh.tsx) polls every **20 s**,
-  mounted on the show hub and both Financials screens.
+  mounted on the scorers' class list at `/shows/[id]` (ADMIN and SCRIBE, while
+  the show runs), the leaderboard while the show runs, circuit standings and
+  the results boards. The public show menu does not poll. Financials has its
+  own `AutoRefresh` beside it.
 
 `router.refresh()` re-runs the **server** render. It is not a client-side
 repaint — every tick is a full trip through Next, the API and Neon.

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { fetchShow, fetchShowFeesPublic } from '@/lib/api';
 import { unitLabel } from '@/lib/fee-units';
+import { classEntryText, signupClosedText, signupDeadlineText } from '@/lib/registration-window';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import BackToShow from '../_components/BackToShow';
@@ -8,10 +9,10 @@ import BackToShow from '../_components/BackToShow';
 /**
  * The show, described.
  *
- * One page, one audience, nothing personal on it. A spectator arriving from the
- * at-the-rail hub and an exhibitor arriving from their show menu are asking the
- * same question here — what is this show, where and when is it, who sanctions
- * it — and none of that depends on who is reading.
+ * One page, one audience, nothing personal on it. A spectator at the rail and
+ * an exhibitor arriving from the same show menu are asking the same question
+ * here — what is this show, where and when is it, who sanctions it, and until
+ * when it takes entries online — and none of that depends on who is reading.
  *
  * It briefly carried the reader's own balance and a button to their entries.
  * Both belong with the reader, not with the show: *What I Owe* is a tile on the
@@ -35,6 +36,19 @@ function formatDate(dateStr: string): string {
 
 function formatMoney(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+/** The status in words. Published past its last day to sign up online
+ *  (migration 159) is still taking entries, through the office. */
+function statusText(show: { status: string; signup_open?: boolean }): string {
+  if (show.status === 'PUBLISHED') {
+    return show.signup_open === false
+      ? 'Online sign-up closed — entries through the show office'
+      : 'Open for registration';
+  }
+  if (show.status === 'ACTIVE') return 'In progress';
+  if (show.status === 'COMPLETED') return 'Completed';
+  return show.status;
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
@@ -77,7 +91,20 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           {formatDate(show.start_date)}
           {show.end_date !== show.start_date && <> – {formatDate(show.end_date)}</>}
         </Row>
-        <Row label="Status">{show.status}</Row>
+        <Row label="Status">{statusText(show)}</Row>
+        {/* The show office's two answers (migration 159), while they still
+            decide anything. These were on the signed-out show page's own
+            details card before that page became the show menu. Past the last
+            day the sentence says so, rather than inviting a sign-up by a date
+            that has gone. */}
+        {show.status === 'PUBLISHED' && show.entry_deadline && (
+          <Row label="Online entries">
+            {show.signup_open === false
+              ? signupClosedText(show.entry_deadline)
+              : signupDeadlineText(show.entry_deadline)}{' '}
+            {classEntryText(show.self_entry_closes)}
+          </Row>
+        )}
         {show.show_type_code && (
           <Row label="Show type">
             {show.show_type_name ? `${show.show_type_name} (${show.show_type_code})` : show.show_type_code}

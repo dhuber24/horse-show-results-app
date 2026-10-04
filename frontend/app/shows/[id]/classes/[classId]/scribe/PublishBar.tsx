@@ -8,8 +8,8 @@ import type { SaveStatus } from './useAutosave';
  * Save status plus the publish gate, shared by both scribe forms.
  *
  * The gate is the reason autosave is safe here: results write continuously
- * into a draft only show staff can read, and reach the public /live and
- * /results screens only when someone presses the button. A placement card is
+ * into a draft only show staff can read, and reach the public /results and
+ * class results pages only when someone presses the button. A placement card is
  * full of gaps until the last horse is entered — without this, autosave would
  * broadcast wrong placings at the rail.
  */

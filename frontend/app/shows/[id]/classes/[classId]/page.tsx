@@ -92,8 +92,9 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const multiJudge = judgeColumns.length > 1;
 
   // The public reach this page from Results, so that is where they go back
-  // to. Scoring staff reach it from the show's class list.
-  const back = canEnterPlacings
+  // to. Scoring staff reach it from the show's class list — which is only
+  // there while the show runs; before and after, they came from Results too.
+  const back = canEnterPlacings && show.status === 'ACTIVE'
     ? { href: `/shows/${id}`, label: `Back to ${show.name}` }
     : { href: `/shows/${id}/results`, label: 'Back to Results' };
 

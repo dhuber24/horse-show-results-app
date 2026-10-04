@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
+import { canActAsExhibitor } from '@/lib/exhibitor-access';
+import { fetchShow } from '@/lib/api';
 import RegisterShowForm from './RegisterShowForm';
 import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { loadPreview } from './load-preview';
@@ -47,6 +49,20 @@ async function loadFuturities(showId: string): Promise<ExhibitorFuturity[]> {
   return (await readJsonBody(res)) ?? [];
 }
 
+/**
+ * Whether a 403 from the preview is about the caller having no exhibitor
+ * record. The preview refuses on the show's status first, so while the show is
+ * not taking sign-ups at all the refusal is the status, and setting up an
+ * exhibitor profile would only lead back to it.
+ */
+async function lacksExhibitorRecord(showId: string): Promise<boolean> {
+  const [show, isExhibitor] = await Promise.all([
+    fetchShow(showId).catch(() => null),
+    canActAsExhibitor(),
+  ]);
+  return !isExhibitor && (show?.status === 'PUBLISHED' || show?.status === 'ACTIVE');
+}
+
 export default async function RegisterShowPage({
   params,
   searchParams,
@@ -64,11 +80,18 @@ export default async function RegisterShowPage({
   const classesHref = `/shows/${id}/register/classes`;
   if (step === 'classes') redirect(classesHref);
 
-  const [{ data, error }, signupData, futurities] = await Promise.all([
+  const [{ status, data, error }, signupData, futurities] = await Promise.all([
     loadPreview(id),
     loadSignup(id),
     loadFuturities(id),
   ]);
+
+  // Entering a show takes an exhibitor record, and the show menu offers its
+  // sign-up bar to everybody — it is the public's page, and the office opens it
+  // to see what the public sees. Somebody refused for want of a record is told
+  // how to get one, not shown the backend's 403. Asked only after a 403, so a
+  // backend that is down still reads as down rather than as "no record".
+  const needsExhibitorRecord = !data && status === 403 && (await lacksExhibitorRecord(id));
 
   // Once the show is running only the class doors are open
   // (`backend/self_entry.py`), and those are the class page. Details, stalls
@@ -81,7 +104,27 @@ export default async function RegisterShowPage({
         ← Back to Show
       </Link>
 
-      {!data ? (
+      {needsExhibitorRecord ? (
+        <div
+          className="mt-6 rounded-lg border p-4 text-sm"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
+        >
+          <p className="font-medium" style={{ color: 'var(--foreground)' }}>
+            This account isn&rsquo;t set up to enter shows
+          </p>
+          <p className="mt-1">
+            Entering a show takes an exhibitor profile. If you compete as well, tick{' '}
+            <strong>I also compete</strong> and you&rsquo;ll come straight back here to sign up.
+          </p>
+          <Link
+            href={`/welcome?next=${encodeURIComponent(`/shows/${id}/register`)}`}
+            className="mt-3 inline-block text-sm font-medium px-4 py-2 rounded text-white"
+            style={{ backgroundColor: 'var(--accent)' }}
+          >
+            Set up an exhibitor profile →
+          </Link>
+        </div>
+      ) : !data ? (
         <div
           className="mt-6 rounded-lg border p-4 text-sm"
           style={{ backgroundColor: 'var(--error-bg)', borderColor: 'var(--error-border)', color: 'var(--error-strong)' }}

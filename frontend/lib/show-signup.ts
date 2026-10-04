@@ -33,7 +33,9 @@ export function signUpLink(
     return {
       href: `/shows/${showId}/register`,
       label: 'Sign up for this show',
-      hint: 'Profile, stalls, then classes.',
+      // "Any": a show that sells no stalls, shavings or camping has no stalls
+      // step, and this is read before anybody knows which kind of show it is.
+      hint: 'Profile, horses and any stalls, then classes.',
     };
   }
   if (status === 'PUBLISHED' || status === 'ACTIVE') {
