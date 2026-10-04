@@ -10,6 +10,7 @@ import {
 } from './FuturityEnrollment';
 import {
   COLORS,
+  exhibitorNumbers,
   futurityEnrollment,
   futurityForClass,
   potsForClass,
@@ -337,7 +338,7 @@ export default function AddEntryForm({
             </option>
             {selectableExhibitors.map((e) => (
               <option key={e.exhibitor_id} value={e.exhibitor_id}>
-                {e.back_number != null ? `#${e.back_number} ` : ''}
+                {exhibitorNumbers(e).length > 0 ? `#${exhibitorNumbers(e).join(', #')} ` : ''}
                 {e.exhibitor_name}
               </option>
             ))}

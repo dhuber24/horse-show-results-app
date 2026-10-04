@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BackNumberQuestion, { type BackNumberPer } from '@/components/BackNumberQuestion';
 import RegistrationQuestions from '@/components/RegistrationQuestions';
 import { errorMessage } from '@/lib/api-error';
 import type { SelfEntryCloses } from '@/lib/registration-window';
@@ -69,6 +70,7 @@ export default function Step1Client({
     end_date: '',
     entry_deadline: '',
     self_entry_closes: '' as SelfEntryCloses | '',
+    back_number_per: 'exhibitor' as BackNumberPer,
   });
 
   const callerIsSecretary = callerRole === 'SHOW_SECRETARY';
@@ -160,6 +162,7 @@ export default function Step1Client({
           end_date: form.end_date,
           entry_deadline: form.entry_deadline,
           self_entry_closes: form.self_entry_closes,
+          back_number_per: form.back_number_per,
           status: 'DRAFT',
         }),
       });
@@ -322,6 +325,13 @@ export default function Step1Client({
             onEntryDeadline={(value) => handleField('entry_deadline', value)}
             onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
             unansweredNote={null}
+          />
+        </div>
+
+        <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <BackNumberQuestion
+            value={form.back_number_per}
+            onChange={(value) => setForm((prev) => ({ ...prev, back_number_per: value }))}
           />
         </div>
       </section>

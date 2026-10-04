@@ -65,6 +65,15 @@ def _unit_label(unit: str) -> str:
     return UNIT_LABEL.get(unit, unit.replace("_", " "))
 
 
+def _numbers_cell(account: dict):
+    """Every back number an exhibitor wears -- several at a show that numbers
+    horses (migration 161) -- or a dash for none."""
+    numbers = account.get("back_numbers")
+    if numbers:
+        return numbers[0] if len(numbers) == 1 else ", ".join(str(n) for n in numbers)
+    return account["back_number"] if account["back_number"] is not None else "—"
+
+
 def _sorted_by_back_number(accounts: list[dict]) -> list[dict]:
     """Back number order, with the not-yet-assigned last.
 
@@ -160,7 +169,7 @@ def _outstanding_balances(fin: dict) -> dict:
 
     rows = [
         {
-            "back_number": a["back_number"] if a["back_number"] is not None else "—",
+            "back_number": _numbers_cell(a),
             "exhibitor": _account_label(a),
             "entries": a["entry_count"],
             "billed_cents": a["bill"]["total_cents"],
@@ -208,7 +217,7 @@ def _registrations(fin: dict) -> dict:
     """The full roster, with what each exhibitor is being billed."""
     rows = [
         {
-            "back_number": a["back_number"] if a["back_number"] is not None else "—",
+            "back_number": _numbers_cell(a),
             "exhibitor": _account_label(a),
             "signed_up": "Sign-up" if a["signed_up"] else "Added by office",
             "entries": a["entry_count"],
@@ -251,7 +260,7 @@ def _payments_received(fin: dict) -> dict:
         for payment in account["payments"]:
             rows.append({
                 "received_on": payment["received_on"],
-                "back_number": account["back_number"] if account["back_number"] is not None else "—",
+                "back_number": _numbers_cell(account),
                 "exhibitor": _account_label(account),
                 "method": payment["method"].title(),
                 "reference": payment["reference"] or "—",

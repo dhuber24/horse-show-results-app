@@ -50,6 +50,10 @@ export interface DeskHorse {
   horse_id: string;
   horse_name: string;
   barn_name: string | null;
+  /** The horse's own back number, at a show that numbers horses (migration
+   *  161), and the one asked for. Null at a show that numbers exhibitors. */
+  back_number?: number | null;
+  preferred_back_number?: number | null;
   /** Null where the show does not check foaling dates (migration 160). */
   age_check: VerificationCheck | null;
   registrations: VerificationCheck[];
@@ -161,7 +165,10 @@ export interface DeskExhibitor {
   /** NULL until they have a `show_entries` row. A back number and a side pot
    *  entry both hang off that row, which is why the desk creates one first. */
   show_entry_id: string | null;
+  /** The exhibitor's number — or, at a show that numbers horses, the lowest of
+   *  their horses' numbers. `back_numbers` is every one they wear. */
   back_number: number | null;
+  back_numbers?: number[];
   /** What the exhibitor asked for at registration (migration 104). Shown only
    *  when it differs from `back_number` — a granted request needs no comment,
    *  an overridden one is worth staff seeing before somebody asks at the desk. */
@@ -222,6 +229,9 @@ export interface Desk {
   show_name: string;
   show_status: string;
   show_type_code: string | null;
+  /** Who a back number belongs to here (migration 161). `?? 'exhibitor'` at
+   *  every use, through `numbersHorses`, for a payload from before it. */
+  back_number_per?: 'exhibitor' | 'horse';
   /** Whether this show asks for the health originals at the counter
    *  (migration 138). The health rows are listed either way — the office may
    *  still record a paper it was handed — but when false the sign-off is
@@ -317,6 +327,69 @@ export function unenrolledFuturityHorses(
 
 /** The lowest back number nobody else at the show holds or has asked for —
  *  the same rule the backend assigns at sign-up. */
+/** Whether this show gives each horse its own back number (migration 161). */
+export function numbersHorses(desk: Desk): boolean {
+  return desk.back_number_per === 'horse';
+}
+
+/** Every number an exhibitor wears: one, or one per numbered horse. */
+export function exhibitorNumbers(exhibitor: DeskExhibitor): number[] {
+  if (exhibitor.back_numbers) return exhibitor.back_numbers;
+  return exhibitor.back_number != null ? [exhibitor.back_number] : [];
+}
+
+/** The number worn on one entry: the horse's at a show that numbers horses,
+ *  the exhibitor's otherwise. */
+export function entryBackNumber(
+  desk: Desk,
+  exhibitor: DeskExhibitor,
+  horseId: string | null,
+): number | null {
+  if (!numbersHorses(desk)) return exhibitor.back_number;
+  if (!horseId) return null;
+  return exhibitor.horses.find((h) => h.horse_id === horseId)?.back_number ?? null;
+}
+
+/** Somebody the desk still has to give a number: no number of their own, or a
+ *  horse without one. Mirrors `totals.no_back_number`. */
+export function needsBackNumber(desk: Desk, exhibitor: DeskExhibitor): boolean {
+  if (!numbersHorses(desk)) return exhibitor.back_number === null;
+  return exhibitor.horses.some((h) => h.back_number == null);
+}
+
+/** The horse that already wears a number, and whose it is, if any. A horse
+ *  shown by two exhibitors appears under both, so the first match is enough. */
+export function horseHoldingNumber(
+  desk: Desk,
+  number: number,
+  exceptHorseId: string,
+): { horse_name: string; exhibitor_name: string } | undefined {
+  for (const e of desk.exhibitors) {
+    for (const h of e.horses) {
+      if (h.horse_id !== exceptHorseId && h.back_number === number) {
+        return { horse_name: h.horse_name, exhibitor_name: e.exhibitor_name };
+      }
+    }
+  }
+  return undefined;
+}
+
+/** What "Assign" hands a horse: the lowest number no other horse at the show
+ *  holds or has asked for — the same courtesy the exhibitor version pays. */
+export function nextFreeHorseNumber(desk: Desk, exceptHorseId: string): number {
+  const taken = new Set<number>();
+  for (const e of desk.exhibitors) {
+    for (const h of e.horses) {
+      if (h.horse_id === exceptHorseId) continue;
+      if (h.back_number != null) taken.add(h.back_number);
+      if (h.preferred_back_number != null) taken.add(h.preferred_back_number);
+    }
+  }
+  let n = 1;
+  while (taken.has(n)) n += 1;
+  return n;
+}
+
 export function nextFreeBackNumber(desk: Desk, exceptExhibitorId: string): number {
   const taken = new Set<number>();
   for (const e of desk.exhibitors) {

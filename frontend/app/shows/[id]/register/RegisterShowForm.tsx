@@ -216,7 +216,7 @@ export default function RegisterShowForm({
     entered.length === 0
       ? 'No classes entered'
       : `${entered.length} class${entered.length === 1 ? '' : 'es'} entered`,
-    preview.signup?.back_number != null ? `Back #${preview.signup.back_number}` : 'No back # yet',
+    backNumberSummary(preview),
   ].join(' · ');
 
   // Why the steps after sign-up are shut, said the same way wherever it shows.
@@ -628,4 +628,16 @@ export default function RegisterShowForm({
       )}
     </div>
   );
+}
+
+/** The back number line on the classes step: the exhibitor's number, or one
+ *  per horse at a show that numbers horses (migration 161). */
+function backNumberSummary(preview: PreviewData): string {
+  if (preview.back_number_per === 'horse') {
+    const numbers = (preview.horse_numbers ?? [])
+      .map((h) => h.back_number)
+      .filter((n): n is number => n != null);
+    return numbers.length > 0 ? `Back #${numbers.join(', #')}` : 'No back # yet';
+  }
+  return preview.signup?.back_number != null ? `Back #${preview.signup.back_number}` : 'No back # yet';
 }

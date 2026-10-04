@@ -52,6 +52,9 @@ export interface PotEntry {
   side_pot_id: string;
   show_entry_id: string;
   back_number: number | null;
+  /** Every number the exhibitor wears — one per horse at a show that numbers
+   *  horses (migration 161). */
+  back_numbers?: number[];
   exhibitor_name: string | null;
   paid: boolean;
   created_at: string;
@@ -61,12 +64,18 @@ export interface PotEntry {
 export interface RosterEntry {
   show_entry_id: string;
   back_number: number | null;
+  /** Every number the exhibitor wears — one per horse at a show that numbers
+   *  horses (migration 161). */
+  back_numbers?: number[];
   exhibitor_name: string | null;
 }
 
 export interface Standing {
   show_entry_id: string;
   back_number: number | null;
+  /** Every number the exhibitor wears — one per horse at a show that numbers
+   *  horses (migration 161). */
+  back_numbers?: number[];
   exhibitor_name: string | null;
   aggregate_value: number;
   place: number | null;
@@ -91,6 +100,9 @@ export interface Payout {
   side_pot_id: string;
   show_entry_id: string;
   back_number: number | null;
+  /** Every number the exhibitor wears — one per horse at a show that numbers
+   *  horses (migration 161). */
+  back_numbers?: number[];
   exhibitor_name: string | null;
   place: number;
   payout_cents: number;

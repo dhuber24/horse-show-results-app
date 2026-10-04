@@ -3,12 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, outerjoin
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
+from backnumbers import PER_HORSE, assign_missing_horse_numbers
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
-from models import ShowEntry, Entry, Class, Show, Exhibitor
+from models import ShowEntry, ShowHorseNumber, Entry, Class, Show, Exhibitor, Horse
 from routers.shows import _assert_show_access
 
 router = APIRouter(prefix="/shows/{show_id}/back-numbers", tags=["Back Numbers"])
@@ -21,6 +22,32 @@ class BackNumberAssignment(BaseModel):
 
 class BulkBackNumberUpdate(BaseModel):
     assignments: list[BackNumberAssignment]
+
+
+class HorseBackNumberAssignment(BaseModel):
+    horse_id: UUID
+    back_number: Optional[int] = Field(default=None, ge=1, le=9999)
+
+
+class BulkHorseBackNumberUpdate(BaseModel):
+    assignments: list[HorseBackNumberAssignment]
+
+
+def _wrong_kind(show: Show) -> HTTPException:
+    """A number of the kind this show does not issue (migration 161). Refused
+    rather than stored, because nothing would read it and staff would think it
+    had taken."""
+    if show.back_number_per == PER_HORSE:
+        message = (
+            "This show gives each horse its own back number. "
+            "Number the horse, not the exhibitor."
+        )
+    else:
+        message = (
+            "This show gives each exhibitor one back number. "
+            "Switch it to a number per horse under Show details first."
+        )
+    return HTTPException(409, {"code": "BACK_NUMBER_KIND", "message": message})
 
 
 @router.get("/")
@@ -124,6 +151,8 @@ async def bulk_update_back_numbers(
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
+    if show.back_number_per == PER_HORSE:
+        raise _wrong_kind(show)
 
     # Check for duplicates within the submitted batch
     submitted = [a.back_number for a in body.assignments if a.back_number is not None]
@@ -219,6 +248,8 @@ async def auto_assign_back_numbers(
     show = await db.get(Show, show_id)
     if not show:
         raise HTTPException(404, "Show not found")
+    if show.back_number_per == PER_HORSE:
+        return {"assigned": await _renumber_horses(show_id, db)}
 
     result = await db.execute(
         select(Entry.exhibitor_id).join(
@@ -275,3 +306,169 @@ async def auto_assign_back_numbers(
 
     await db.commit()
     return {"assigned": len(targets)}
+
+
+async def _renumber_horses(show_id: UUID, db: AsyncSession) -> int:
+    """Auto-assign at a show that numbers horses (migration 161): every entered
+    horse, requests first, then the lowest free number -- the same two rules,
+    for the same reasons, as the exhibitor version above. A row for a horse no
+    longer entered keeps its number, which stays reserved."""
+    entered = await db.execute(
+        select(Entry.horse_id)
+        .join(Class, Class.id == Entry.class_id)
+        .where(Class.show_id == show_id, Entry.horse_id.is_not(None))
+        .distinct()
+    )
+    entered_ids = set(entered.scalars().all())
+    rows = await db.execute(select(ShowHorseNumber).where(ShowHorseNumber.show_id == show_id))
+    for row in rows.scalars().all():
+        if row.horse_id in entered_ids:
+            row.back_number = None
+    await db.flush()
+    assigned = await assign_missing_horse_numbers(show_id, db)
+    await db.commit()
+    return assigned
+
+
+@router.get("/horses")
+async def list_horse_back_numbers(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every horse entered at this show with its number (migration 161), and
+    who is showing it. At a show that numbers exhibitors every number is None."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await db.get(Show, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+
+    pairs = await db.execute(
+        select(Horse.id, Horse.name, Exhibitor.id, Exhibitor.full_name)
+        .join(Entry, Entry.horse_id == Horse.id)
+        .join(Class, Class.id == Entry.class_id)
+        .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
+        .where(Class.show_id == show_id)
+        .distinct()
+    )
+    numbers = await db.execute(
+        select(ShowHorseNumber).where(ShowHorseNumber.show_id == show_id)
+    )
+    by_horse = {row.horse_id: row for row in numbers.scalars().all()}
+    per_horse = show.back_number_per == PER_HORSE
+
+    horses: dict[UUID, dict] = {}
+    for horse_id, horse_name, exhibitor_id, exhibitor_name in pairs.all():
+        row = by_horse.get(horse_id) if per_horse else None
+        horse = horses.setdefault(horse_id, {
+            "horse_id": str(horse_id),
+            "horse_name": horse_name,
+            "back_number": row.back_number if row else None,
+            "preferred_back_number": row.preferred_back_number if row else None,
+            "exhibitors": [],
+        })
+        horse["exhibitors"].append({"exhibitor_id": str(exhibitor_id), "full_name": exhibitor_name})
+    return sorted(
+        horses.values(),
+        key=lambda h: (h["back_number"] is None, h["back_number"] or 0, h["horse_name"].lower()),
+    )
+
+
+@router.patch("/horses", dependencies=[Depends(require_admin_or_show_admin)])
+async def bulk_update_horse_back_numbers(
+    show_id: UUID,
+    body: BulkHorseBackNumberUpdate,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or clear horses' back numbers at a show that numbers horses
+    (migration 161). The counterpart of the exhibitor PATCH above, with the
+    same two refusals -- a duplicate inside the batch, and a number a horse
+    outside it already wears, named so the desk can say who has 42. A batch
+    may swap two numbers."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    show = await db.get(Show, show_id)
+    if not show:
+        raise HTTPException(404, "Show not found")
+    if show.back_number_per != PER_HORSE:
+        raise _wrong_kind(show)
+    if not body.assignments:
+        return {"updated": 0}
+
+    submitted = [a.back_number for a in body.assignments if a.back_number is not None]
+    if len(submitted) != len(set(submitted)):
+        dupes = sorted({n for n in submitted if submitted.count(n) > 1})
+        raise HTTPException(400, f"Duplicate back numbers in submission: {dupes}")
+
+    horse_ids = [a.horse_id for a in body.assignments]
+    # Only a horse entered at this show can be numbered at it -- otherwise any
+    # horse id would do, and a number would sit on a horse nobody brought.
+    entered = await db.execute(
+        select(Entry.horse_id)
+        .join(Class, Class.id == Entry.class_id)
+        .where(Class.show_id == show_id, Entry.horse_id.in_(horse_ids))
+        .distinct()
+    )
+    if set(horse_ids) - set(entered.scalars().all()):
+        raise HTTPException(404, "That horse is not entered in any class at this show.")
+
+    if submitted:
+        holders = await db.execute(
+            select(ShowHorseNumber.back_number, Horse.name)
+            .join(Horse, Horse.id == ShowHorseNumber.horse_id)
+            .where(
+                ShowHorseNumber.show_id == show_id,
+                ShowHorseNumber.back_number.in_(submitted),
+                ShowHorseNumber.horse_id.not_in(horse_ids),
+            )
+        )
+        clash = holders.first()
+        if clash is not None:
+            number, holder = clash
+            raise HTTPException(
+                409,
+                {
+                    "code": "BACK_NUMBER_TAKEN",
+                    "message": (
+                        f"Back number {number} is already on {holder}. "
+                        "Pick a different one."
+                    ),
+                },
+            )
+
+    existing = await db.execute(
+        select(ShowHorseNumber).where(
+            ShowHorseNumber.show_id == show_id,
+            ShowHorseNumber.horse_id.in_(horse_ids),
+        )
+    )
+    rows = {row.horse_id: row for row in existing.scalars().all()}
+    # Cleared first, so a swap inside the batch never meets the unique
+    # constraint halfway -- Postgres checks it per statement.
+    for row in rows.values():
+        row.back_number = None
+    await db.flush()
+    for assignment in body.assignments:
+        row = rows.get(assignment.horse_id)
+        if row is None:
+            row = ShowHorseNumber(show_id=show_id, horse_id=assignment.horse_id)
+            db.add(row)
+            rows[assignment.horse_id] = row
+        row.back_number = assignment.back_number
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            409,
+            {
+                "code": "BACK_NUMBER_TAKEN",
+                "message": "Another horse took that number a moment ago. Pick a different one.",
+            },
+        ) from None
+    return {"updated": len(body.assignments)}

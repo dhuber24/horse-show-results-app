@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
+from backnumbers import ShowBackNumbers, back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
 from dependencies import INTERNAL_API_KEY, safe_uuid
 from models import (
@@ -72,13 +72,13 @@ async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession) -> 
     return class_
 
 
-def _serialize_entry(e: Entry, by_exhibitor: dict[UUID, int] | None = None) -> dict:
+def _serialize_entry(e: Entry, numbers: ShowBackNumbers | None = None) -> dict:
     return {
         "id": e.id,
         # From show_entries, not the entry row — see backend/backnumbers.py. The
         # gate calls exhibitors by back number, so reading the always-NULL
         # per-entry column left the steward with a screen full of dashes.
-        "back_number": resolve_back_number(e, by_exhibitor or {}),
+        "back_number": resolve_back_number(e, numbers),
         "exhibitor_name": e.exhibitor.full_name if e.exhibitor else "",
         "horse_name": e.horse.name if e.horse else None,
         "is_disqualified": e.is_disqualified,
@@ -89,7 +89,7 @@ def _serialize_entry(e: Entry, by_exhibitor: dict[UUID, int] | None = None) -> d
 
 async def _load_class_entries(
     class_id: UUID, db: AsyncSession, show_id: UUID | None = None
-) -> tuple[list[Entry], dict[UUID, int]]:
+) -> tuple[list[Entry], ShowBackNumbers | None]:
     """Entries for one class plus this show's back numbers, ordered the way the
     gate reads them: explicit order of go first, then by back number.
 
@@ -106,15 +106,15 @@ async def _load_class_entries(
     if show_id is None:
         class_ = await db.get(Class, class_id)
         show_id = class_.show_id if class_ else None
-    by_exhibitor = await back_numbers_for_show(show_id, db) if show_id else {}
+    numbers = await back_numbers_for_show(show_id, db) if show_id else None
 
     entries.sort(
         key=lambda e: (
             (1, 0) if e.gate_order is None else (0, e.gate_order),
-            sort_key(resolve_back_number(e, by_exhibitor)),
+            sort_key(resolve_back_number(e, numbers)),
         )
     )
-    return entries, by_exhibitor
+    return entries, numbers
 
 
 @router.get("/classes/{class_id}/entries", response_model=list[GateEntryOut])

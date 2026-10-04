@@ -60,6 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import func
 
+from backnumbers import ShowBackNumbers, back_numbers_for_show
 from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
@@ -138,7 +139,8 @@ class _Roster:
 
     def __init__(self) -> None:
         self.exhibitors: dict[UUID, Exhibitor] = {}
-        self.back_numbers: dict[UUID, Optional[int]] = {}
+        # The show's back numbers, of whichever kind it issues (migration 161).
+        self.numbers = ShowBackNumbers()
         self.signed_up: dict[UUID, bool] = {}
         # Horses each exhibitor has entered, keyed so a horse entered in several
         # classes is only listed once.
@@ -183,7 +185,6 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
         if show_entry.exhibitor is None:
             continue
         roster.exhibitors[show_entry.exhibitor_id] = show_entry.exhibitor
-        roster.back_numbers[show_entry.exhibitor_id] = show_entry.back_number
         roster.signed_up[show_entry.exhibitor_id] = is_on_roster(show_entry)
 
     entry_result = await db.execute(
@@ -204,7 +205,6 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
         if entry.exhibitor is None:
             continue
         roster.exhibitors.setdefault(entry.exhibitor_id, entry.exhibitor)
-        roster.back_numbers.setdefault(entry.exhibitor_id, entry.back_number)
         roster.signed_up.setdefault(entry.exhibitor_id, False)
         # Deleting a horse nulls entries.horse_id to preserve history, so an
         # entry without a horse is expected and simply has no papers to check.
@@ -213,6 +213,7 @@ async def _load_roster(show_id: UUID, db: AsyncSession) -> _Roster:
             roster.entry_counts[entry.horse_id] = roster.entry_counts.get(entry.horse_id, 0) + 1
 
     roster.copies = await load_copies_for_show(show_id, db, roster.exhibitors.keys())
+    roster.numbers = await back_numbers_for_show(show_id, db)
     return roster
 
 
@@ -588,6 +589,16 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
                 "horse_id": horse.id,
                 "horse_name": horse.name,
                 "barn_name": horse.barn_name,
+                # The horse's own number, at a show that numbers horses
+                # (migration 161); None at one that numbers exhibitors.
+                "back_number": (
+                    roster.numbers.by_horse.get(horse.id) if roster.numbers.per_horse else None
+                ),
+                "preferred_back_number": (
+                    roster.numbers.preferred_by_horse.get(horse.id)
+                    if roster.numbers.per_horse
+                    else None
+                ),
                 "age_check": age_check,
                 "registrations": horse_regs,
                 "health": health_out,
@@ -625,7 +636,8 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
         exhibitors_out.append({
             "exhibitor_id": exhibitor_id,
             "exhibitor_name": exhibitor.full_name,
-            "back_number": roster.back_numbers.get(exhibitor_id),
+            "back_number": roster.numbers.first_for_exhibitor(exhibitor_id),
+            "back_numbers": roster.numbers.for_exhibitor(exhibitor_id),
             "signed_up": roster.signed_up.get(exhibitor_id, False),
             "memberships": memberships,
             "horses": horses_out,
@@ -733,7 +745,9 @@ async def get_health_flags(
             riders.setdefault(horse_id, []).append({
                 "exhibitor_id": exhibitor_id,
                 "exhibitor_name": exhibitor.full_name if exhibitor else "(unknown)",
-                "back_number": roster.back_numbers.get(exhibitor_id),
+                # The number worn on this horse: the exhibitor's, or the
+                # horse's where the show numbers horses.
+                "back_number": roster.numbers.resolve(exhibitor_id, horse_id),
             })
 
     totals = {

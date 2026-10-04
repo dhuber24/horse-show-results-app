@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from uuid import UUID
 from typing import Optional
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_authenticated
 from models import Exhibitor, Entry, Class, Show, Horse, Result
@@ -40,11 +41,21 @@ async def get_exhibitor_dashboard(
     )
     entries = entries_result.scalars().all()
 
+    # Resolved per show: `entries.back_number` is a legacy column nothing
+    # writes, and the number worn is the exhibitor's or, at a show that numbers
+    # horses (migration 161), the horse's.
+    numbers_by_show = {}
+    for entry in entries:
+        show_id = entry.class_.show_id if entry.class_ else None
+        if show_id is not None and show_id not in numbers_by_show:
+            numbers_by_show[show_id] = await back_numbers_for_show(show_id, db)
+
     output = []
     for entry in entries:
         class_ = entry.class_
         show = class_.show if class_ else None
         horse = entry.horse
+        numbers = numbers_by_show.get(class_.show_id) if class_ else None
         # A class can now be placed by several judges (migration 095), so this
         # entry may hold one card per judge. The dashboard shows a single number
         # per class, so report the best of them — identical to the old value on
@@ -53,7 +64,7 @@ async def get_exhibitor_dashboard(
 
         output.append({
             "entry_id": str(entry.id),
-            "back_number": entry.back_number,
+            "back_number": numbers.for_entry(entry) if numbers else entry.back_number,
             "status": entry.status,
             "is_disqualified": entry.is_disqualified,
             "entry_created_at": entry.created_at.isoformat() if entry.created_at else None,

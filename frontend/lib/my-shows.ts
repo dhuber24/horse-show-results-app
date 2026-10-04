@@ -34,6 +34,10 @@ export type MyShowStanding = {
     deadline: string | null;
   } | null;
   back_number: number | null;
+  /** Every number they wear here — one per horse at a show that numbers
+   *  horses (migration 161) — and which kind the show issues. */
+  back_numbers?: number[];
+  back_number_per?: 'exhibitor' | 'horse';
   entry_count: number;
   arrival_date: string | null;
   departure_date: string | null;
@@ -267,6 +271,10 @@ export type MyShow = {
    *  a frontend deployed ahead of the backend that sends it. */
   location?: string | null;
   back_number: number | null;
+  /** Every number they wear here — one per horse at a show that numbers
+   *  horses (migration 161) — and which kind the show issues. */
+  back_numbers?: number[];
+  back_number_per?: 'exhibitor' | 'horse';
   registered_at: string | null;
   /** Set when the registration was called off. The backend leaves a cancelled
    *  registration off this list altogether (`my_shows.withdrawn`), so this is

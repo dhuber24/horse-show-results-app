@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { errorMessage } from '@/lib/api-error';
+import BackNumberQuestion, { type BackNumberPer } from '@/components/BackNumberQuestion';
 import RegistrationQuestions from '@/components/RegistrationQuestions';
 import type { SelfEntryCloses } from '@/lib/registration-window';
 
@@ -25,6 +26,9 @@ interface Show {
   end_date: string;
   entry_deadline: string | null;
   self_entry_closes: SelfEntryCloses | null;
+  /** Migration 161. Optional for a payload from before it. */
+  back_number_per?: BackNumberPer;
+  status?: string;
   apha_show_number: string | null;
   apha_zone: number | null;
   show_category_id: string | null;
@@ -89,6 +93,7 @@ export default function EditShowForm({
     end_date: show.end_date,
     entry_deadline: show.entry_deadline ?? '',
     self_entry_closes: (show.self_entry_closes ?? '') as SelfEntryCloses | '',
+    back_number_per: (show.back_number_per ?? 'exhibitor') as BackNumberPer,
     apha_show_number: show.apha_show_number ?? '',
     apha_zone: show.apha_zone === null || show.apha_zone === undefined ? '' : String(show.apha_zone),
     show_category_id: show.show_category_id ?? '',
@@ -138,6 +143,7 @@ export default function EditShowForm({
         end_date: form.end_date,
         entry_deadline: form.entry_deadline || null,
         self_entry_closes: form.self_entry_closes || null,
+        back_number_per: form.back_number_per,
         apha_show_number: form.apha_show_number || null,
         apha_zone: form.apha_zone ? Number(form.apha_zone) : null,
         show_category_id: form.show_category_id || null,
@@ -426,6 +432,15 @@ export default function EditShowForm({
             startDate={form.start_date}
             onEntryDeadline={(value) => setForm((prev) => ({ ...prev, entry_deadline: value }))}
             onSelfEntryCloses={(value) => setForm((prev) => ({ ...prev, self_entry_closes: value }))}
+          />
+        </div>
+
+        <div className="border-t pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <BackNumberQuestion
+            value={form.back_number_per}
+            onChange={(value) => setForm((prev) => ({ ...prev, back_number_per: value }))}
+            showStatus={show.status}
+            savedValue={show.back_number_per ?? 'exhibitor'}
           />
         </div>
 

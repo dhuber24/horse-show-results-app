@@ -9,6 +9,7 @@ import {
   type RosterEntry,
   type SidePot,
 } from '../../pot-shared';
+import { backNumbersLabel } from '@/lib/back-numbers';
 
 /**
  * Add an exhibitor to the pot, remove one added by mistake.
@@ -97,7 +98,7 @@ export default function SidePotEntriesPanel({
   const legacyUnpaid = entries.length - paidCount;
   const money = potMoney(pot, paidCount);
   const rosterLabel = (r: RosterEntry) =>
-    `${r.back_number != null ? `#${r.back_number}` : 'No back number'} — ${
+    `${backNumbersLabel(r, '#') ?? 'No back number'} — ${
       r.exhibitor_name ?? 'Unknown'
     }`;
 
@@ -195,7 +196,7 @@ export default function SidePotEntriesPanel({
                       : undefined
                   }
                 >
-                  #{entry.back_number ?? '—'}
+                  {backNumbersLabel(entry, '#') ?? '#—'}
                 </span>
                 <span style={{ color: 'var(--foreground)' }}>
                   {entry.exhibitor_name ?? 'Unknown'}

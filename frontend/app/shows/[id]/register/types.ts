@@ -218,11 +218,25 @@ export type CancellationWindow = {
   deadline: string | null;
 };
 
+/** One of the exhibitor's entered horses and its back number, at a show that
+ *  numbers horses (migration 161). */
+export type HorseNumber = {
+  horse_id: string;
+  horse_name: string;
+  back_number: number | null;
+  preferred_back_number: number | null;
+};
+
 export type PreviewData = {
   /** Null until the exhibitor completes show sign-up. The POST rejects class
    *  entries without it, so the form refuses to render the picker rather than
    *  letting someone fill it in and be turned away on submit. */
   signup: Signup | null;
+  /** Who a back number belongs to (migration 161). Where it is `horse`,
+   *  `horse_numbers` has one per horse entered and `signup.back_number` is not
+   *  issued. Optional for a payload from before it. */
+  back_number_per?: 'exhibitor' | 'horse';
+  horse_numbers?: HorseNumber[];
   /** Step one. The stalls half is locked on this the same way the classes half
    *  is locked on `signup`. */
   profile: ProfileStatus;

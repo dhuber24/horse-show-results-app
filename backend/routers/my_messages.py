@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import Show, ShowContactMessage, ShowEntry
@@ -75,13 +76,20 @@ async def list_my_messages(
     by_show: dict[UUID, dict[UUID, Optional[int]]] = {}
     if senders:
         entries = await db.execute(
-            select(ShowEntry.show_id, ShowEntry.exhibitor_id, ShowEntry.back_number).where(
+            select(ShowEntry.show_id, ShowEntry.exhibitor_id).where(
                 ShowEntry.exhibitor_id.in_(senders),
                 ShowEntry.show_id.in_({m.show_id for m, _name in rows}),
             )
         )
-        for show_id, exhibitor_id, back_number in entries.all():
-            by_show.setdefault(show_id, {})[exhibitor_id] = back_number
+        # Read through `backnumbers` so a show that numbers horses (migration
+        # 161) reports the lowest number the sender wears there.
+        numbers_by_show = {}
+        for show_id, exhibitor_id in entries.all():
+            if show_id not in numbers_by_show:
+                numbers_by_show[show_id] = await back_numbers_for_show(show_id, db)
+            by_show.setdefault(show_id, {})[exhibitor_id] = (
+                numbers_by_show[show_id].first_for_exhibitor(exhibitor_id)
+            )
 
     return [
         {**_serialize_message(m, by_show.get(m.show_id, {})), "show_name": name}

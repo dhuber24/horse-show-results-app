@@ -31,12 +31,16 @@ export default function BackNumberRequest({
   showId,
   backNumber,
   preferredBackNumber,
+  horse,
 }: {
   showId: string;
   /** What the show has issued them, if anything. */
   backNumber: number | null;
   /** What they asked for. Differs from `backNumber` once the office renumbers. */
   preferredBackNumber: number | null;
+  /** The horse this number is for, at a show that numbers horses (migration
+   *  161). Absent, the number is the exhibitor's own. */
+  horse?: { id: string; name: string };
 }) {
   const router = useRouter();
   const current = preferredBackNumber ?? backNumber;
@@ -58,7 +62,11 @@ export default function BackNumberRequest({
       const res = await fetch(`/api/shows/${showId}/register/back-number`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferred_back_number: parsed }),
+        body: JSON.stringify(
+          horse
+            ? { preferred_back_number: parsed, horse_id: horse.id }
+            : { preferred_back_number: parsed },
+        ),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -72,7 +80,7 @@ export default function BackNumberRequest({
         return;
       }
       setTaken(false);
-      setSaved(json?.signup?.back_number ?? parsed);
+      setSaved((horse ? json?.horse_number?.back_number : json?.signup?.back_number) ?? parsed);
       setSaving(false);
       // The banner on the show page and the bill both read the back number, so
       // the whole route re-renders rather than this box updating on its own.
@@ -95,12 +103,14 @@ export default function BackNumberRequest({
       style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-        Your back number
+        {horse ? `${horse.name}’s back number` : 'Your back number'}
       </h2>
       <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-        {backNumber != null
-          ? 'Ride a number of your own? Ask for it here.'
-          : 'Ask for a number, or leave it and one will be assigned.'}
+        {horse
+          ? 'This show numbers horses — whoever shows this horse wears its number. Want a particular one? Ask for it here.'
+          : backNumber != null
+            ? 'Ride a number of your own? Ask for it here.'
+            : 'Ask for a number, or leave it and one will be assigned.'}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mt-2">
@@ -117,7 +127,7 @@ export default function BackNumberRequest({
             setSaved(null);
           }}
           placeholder="e.g. 42"
-          aria-label="Preferred back number"
+          aria-label={horse ? `Preferred back number for ${horse.name}` : 'Preferred back number'}
           aria-invalid={taken || undefined}
           className="w-28 border rounded px-3 py-2 text-sm"
           style={{ borderColor: 'var(--border)' }}
@@ -140,12 +150,12 @@ export default function BackNumberRequest({
         </button>
         {backNumber != null && !saved && (
           <span className="text-xs" style={{ color: 'var(--success)' }}>
-            You have back number <strong>{backNumber}</strong>.
+            {horse ? `${horse.name} has` : 'You have'} back number <strong>{backNumber}</strong>.
           </span>
         )}
         {saved != null && (
           <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>
-            ✓ Back number {saved} is yours.
+            ✓ Back number {saved} is {horse ? `${horse.name}’s` : 'yours'}.
           </span>
         )}
       </div>

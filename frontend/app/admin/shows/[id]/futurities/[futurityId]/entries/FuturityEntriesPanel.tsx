@@ -9,6 +9,7 @@ import {
   type Futurity,
   type FuturityEntry,
 } from '../../futurity-shared';
+import { backNumbersLabel } from '@/lib/back-numbers';
 
 interface RosterHorse {
   horse_id: string;
@@ -22,6 +23,8 @@ interface RosterRow {
    *  roster row, and the enroll form books the futurity's classes itself. */
   exhibitor_id: string;
   back_number: number | null;
+  /** Every number they wear (migration 161). */
+  back_numbers?: number[];
   exhibitor_name: string | null;
   horses: RosterHorse[];
 }
@@ -455,7 +458,7 @@ function AddEntryForm({
             <option value="">— pick —</option>
             {roster.map((r) => (
               <option key={r.show_entry_id} value={r.show_entry_id}>
-                {r.back_number != null ? `#${r.back_number} ` : ''}
+                {backNumbersLabel(r, '#') ? `${backNumbersLabel(r, '#')} ` : ''}
                 {r.exhibitor_name ?? 'Unnamed'}
               </option>
             ))}

@@ -22,6 +22,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import (
@@ -258,8 +259,52 @@ async def delete_pot(show_id: UUID, pot_id: UUID, db: AsyncSession = Depends(get
 # ── Side pot entries ──────────────────────────────────────────────────────────
 
 
+async def _show_entry_wearing(show_id: UUID, number: int, db: AsyncSession) -> ShowEntry:
+    """The roster row of whoever wears this back number.
+
+    At a show that numbers horses (migration 161) the number is a horse's, and
+    a buy-in is an exhibitor's: the horse's rider is the answer when there is
+    one, and when two exhibitors show that horse the number cannot say which of
+    them is buying in, so staff are asked to pick by name.
+    """
+    numbers = await back_numbers_for_show(show_id, db)
+    if not numbers.per_horse:
+        rows = await db.execute(
+            select(ShowEntry).where(
+                ShowEntry.show_id == show_id,
+                ShowEntry.back_number == number,
+            )
+        )
+        show_entry = rows.scalar_one_or_none()
+    else:
+        horse_ids = {h for h, held in numbers.by_horse.items() if held == number}
+        riders = [
+            exhibitor_id
+            for exhibitor_id, horses in numbers.horses_by_exhibitor.items()
+            if horses & horse_ids
+        ]
+        if len(riders) > 1:
+            raise HTTPException(
+                409,
+                f"Back number {number} is a horse shown by more than one exhibitor. "
+                "Pick the exhibitor by name instead.",
+            )
+        show_entry = None
+        if riders:
+            rows = await db.execute(
+                select(ShowEntry).where(
+                    ShowEntry.show_id == show_id,
+                    ShowEntry.exhibitor_id == riders[0],
+                )
+            )
+            show_entry = rows.scalar_one_or_none()
+    if not show_entry:
+        raise HTTPException(404, f"Back number {number} is not assigned for this show")
+    return show_entry
+
+
 async def _hydrate_entry(
-    pot_entry: SidePotEntry, db: AsyncSession
+    pot_entry: SidePotEntry, db: AsyncSession, show_id: UUID
 ) -> dict:
     """Build a dict for SidePotEntryOut, looking up back number + name.
 
@@ -275,11 +320,16 @@ async def _hydrate_entry(
         .execution_options(populate_existing=True)
     )
     show_entry = rows.scalar_one_or_none()
+    numbers = await back_numbers_for_show(show_id, db)
+    exhibitor_id = show_entry.exhibitor_id if show_entry else None
     return {
         "id": pot_entry.id,
         "side_pot_id": pot_entry.side_pot_id,
         "show_entry_id": pot_entry.show_entry_id,
-        "back_number": show_entry.back_number if show_entry else None,
+        # A buy-in is the exhibitor's, so it carries every number they wear --
+        # one per horse at a show that numbers horses (migration 161).
+        "back_number": numbers.first_for_exhibitor(exhibitor_id),
+        "back_numbers": numbers.for_exhibitor(exhibitor_id),
         "exhibitor_name": (
             show_entry.exhibitor.full_name
             if show_entry and show_entry.exhibitor
@@ -297,7 +347,7 @@ async def list_entries(
     pot = await _get_pot_or_404(show_id, pot_id, db)
     out = []
     for pe in pot.pot_entries:
-        out.append(await _hydrate_entry(pe, db))
+        out.append(await _hydrate_entry(pe, db, show_id))
     out.sort(key=lambda e: (e["back_number"] is None, e["back_number"] or 0))
     return out
 
@@ -323,10 +373,12 @@ async def list_show_roster(
         .where(ShowEntry.show_id == show_id)
         .options(selectinload(ShowEntry.exhibitor))
     )
+    numbers = await back_numbers_for_show(show_id, db)
     roster = [
         {
             "show_entry_id": se.id,
-            "back_number": se.back_number,
+            "back_number": numbers.first_for_exhibitor(se.exhibitor_id),
+            "back_numbers": numbers.for_exhibitor(se.exhibitor_id),
             "exhibitor_name": se.exhibitor.full_name if se.exhibitor else None,
         }
         for se in rows.scalars().all()
@@ -357,17 +409,7 @@ async def add_entry(
         if not show_entry or show_entry.show_id != show_id:
             raise HTTPException(400, "Show entry does not belong to this show")
     else:
-        rows = await db.execute(
-            select(ShowEntry).where(
-                ShowEntry.show_id == show_id,
-                ShowEntry.back_number == body.back_number,
-            )
-        )
-        show_entry = rows.scalar_one_or_none()
-        if not show_entry:
-            raise HTTPException(
-                404, f"Back number {body.back_number} is not assigned for this show"
-            )
+        show_entry = await _show_entry_wearing(show_id, body.back_number, db)
 
     existing = await db.execute(
         select(SidePotEntry).where(
@@ -384,7 +426,7 @@ async def add_entry(
     db.add(pe)
     await db.commit()
     await db.refresh(pe)
-    return await _hydrate_entry(pe, db)
+    return await _hydrate_entry(pe, db, show_id)
 
 
 @router.patch(
@@ -408,7 +450,7 @@ async def update_entry(
         setattr(pe, k, v)
     await db.commit()
     await db.refresh(pe)
-    return await _hydrate_entry(pe, db)
+    return await _hydrate_entry(pe, db, show_id)
 
 
 @router.delete("/{pot_id}/entries/{entry_id}", status_code=204)
@@ -584,6 +626,7 @@ async def _compute_standings(
     )
     se_by_id = {se.id: se for se in se_rows.scalars().all()}
     paid_by_id = {pe.show_entry_id: pe.paid for pe in pot.pot_entries}
+    numbers = await back_numbers_for_show(pot.show_id, db)
 
     standings: list[SidePotStanding] = []
     for sid in show_entry_ids:
@@ -597,7 +640,8 @@ async def _compute_standings(
         standings.append(
             SidePotStanding(
                 show_entry_id=sid,
-                back_number=se.back_number if se else None,
+                back_number=numbers.first_for_exhibitor(se.exhibitor_id if se else None),
+                back_numbers=numbers.for_exhibitor(se.exhibitor_id if se else None),
                 exhibitor_name=(
                     se.exhibitor.full_name if se and se.exhibitor else None
                 ),
@@ -651,7 +695,11 @@ async def _compute_standings(
 def _project_payouts(
     standings: list[SidePotStanding], pool_cents: int, splits: list[int]
 ) -> dict[str, int]:
-    """Map (back_number or show_entry_id) → cents for projected payouts.
+    """Map show_entry_id, and back_number where there is one, → cents for
+    projected payouts. The roster row is the key that cannot collide: at a show
+    that numbers horses (migration 161) two exhibitors sharing a horse can
+    report the same lowest number. The back-number key stays for a page loaded
+    before the change.
 
     Tied entries split the combined share of their tied positions evenly.
     Remainder cents from rounding go to the lowest position in the tie.
@@ -679,12 +727,9 @@ def _project_payouts(
         remainder = combined - (per * n)
         for idx_in_group, s in enumerate(group):
             amount = per + (remainder if idx_in_group == 0 else 0)
-            key = (
-                str(s.back_number)
-                if s.back_number is not None
-                else str(s.show_entry_id)
-            )
-            payouts[key] = amount
+            payouts[str(s.show_entry_id)] = amount
+            if s.back_number is not None:
+                payouts.setdefault(str(s.back_number), amount)
         i += n
     return payouts
 
@@ -784,15 +829,17 @@ async def settle_pot(
         .options(selectinload(ShowEntry.exhibitor))
     )
     se_by_id = {se.id: se for se in se_rows.scalars().all()}
+    numbers = await back_numbers_for_show(show_id, db)
     return [
         {
             "id": p.id,
             "side_pot_id": p.side_pot_id,
             "show_entry_id": p.show_entry_id,
-            "back_number": (
-                se_by_id[p.show_entry_id].back_number
-                if p.show_entry_id in se_by_id
-                else None
+            "back_number": numbers.first_for_exhibitor(
+                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
+            ),
+            "back_numbers": numbers.for_exhibitor(
+                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
             ),
             "exhibitor_name": (
                 se_by_id[p.show_entry_id].exhibitor.full_name
@@ -829,15 +876,17 @@ async def list_payouts(
         .options(selectinload(ShowEntry.exhibitor))
     )
     se_by_id = {se.id: se for se in se_rows.scalars().all()}
+    numbers = await back_numbers_for_show(show_id, db)
     return [
         {
             "id": p.id,
             "side_pot_id": p.side_pot_id,
             "show_entry_id": p.show_entry_id,
-            "back_number": (
-                se_by_id[p.show_entry_id].back_number
-                if p.show_entry_id in se_by_id
-                else None
+            "back_number": numbers.first_for_exhibitor(
+                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
+            ),
+            "back_numbers": numbers.for_exhibitor(
+                se_by_id[p.show_entry_id].exhibitor_id if p.show_entry_id in se_by_id else None
             ),
             "exhibitor_name": (
                 se_by_id[p.show_entry_id].exhibitor.full_name

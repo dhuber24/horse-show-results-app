@@ -465,13 +465,17 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
     cards, posted = await load_cards(db, [show_id])
     if system is not None:
         divisions = tally(cards, build_chart(system.awards))
-        # The number the exhibitor wears at this show, for the results board.
-        # Here rather than in `tally`, which a circuit shares: across several
-        # shows one exhibitor has several numbers, and none of them is theirs.
-        numbers = {str(k): v for k, v in (await back_numbers_for_show(show_id, db)).items()}
+        # The number worn at this show, for the results board -- the
+        # exhibitor's, or the horse's where the show numbers horses. Here
+        # rather than in `tally`, which a circuit shares: across several shows
+        # one exhibitor has several numbers, and none of them is theirs.
+        numbers = await back_numbers_for_show(show_id, db)
         for division in divisions:
             for row in division["standings"]:
-                row["back_number"] = numbers.get(row["exhibitor_id"])
+                row["back_number"] = numbers.resolve(
+                    UUID(row["exhibitor_id"]),
+                    UUID(row["horse_id"]) if row["horse_id"] else None,
+                )
 
     return {
         "show_id": str(show_id),

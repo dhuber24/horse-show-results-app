@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import AddEntryForm from './AddEntryForm';
-import { COLORS, formatShowDate } from './types';
+import { COLORS, entryBackNumber, formatShowDate } from './types';
 import type { Desk, DeskEntry } from './types';
 
 /**
@@ -65,7 +65,8 @@ export default function ByClassView({
           ...entry,
           exhibitor_id: ex.exhibitor_id,
           exhibitor_name: ex.exhibitor_name,
-          back_number: ex.back_number,
+          // The horse's number at a show that numbers horses (migration 161).
+          back_number: entryBackNumber(desk, ex, entry.horse_id),
         });
         map.set(entry.class_id, rows);
       }
@@ -81,7 +82,7 @@ export default function ByClassView({
       });
     }
     return map;
-  }, [desk.exhibitors]);
+  }, [desk]);
 
   const normalized = query.trim().toLowerCase();
   const filtering = normalized.length > 0;

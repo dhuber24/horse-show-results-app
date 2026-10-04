@@ -14,6 +14,7 @@ import {
 } from '@/lib/financials';
 import { unitLabel } from '@/lib/fee-units';
 import AutoRefresh from '../AutoRefresh';
+import { backNumbersLabel } from '@/lib/back-numbers';
 
 type Filter = 'owing' | 'settled' | 'all';
 
@@ -65,7 +66,7 @@ export default function AccountsPanel({
       if (!term) return true;
       return (
         a.exhibitor_name.toLowerCase().includes(term) ||
-        String(a.back_number ?? '').includes(term)
+        (backNumbersLabel(a) ?? '').includes(term)
       );
     });
   }, [accounts, filter, search]);
@@ -187,12 +188,12 @@ function AccountRow({
       >
         <div className="min-w-0">
           <p className="text-sm font-semibold flex items-center flex-wrap gap-2" style={{ color: 'var(--foreground)' }}>
-            {account.back_number !== null && (
+            {backNumbersLabel(account, '#') && (
               <span
                 className="text-xs font-mono px-1.5 py-0.5 rounded"
                 style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
               >
-                #{account.back_number}
+                {backNumbersLabel(account, '#')}
               </span>
             )}
             {account.exhibitor_name}

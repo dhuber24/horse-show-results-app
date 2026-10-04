@@ -25,6 +25,7 @@ from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backnumbers import back_numbers_for_show
 from billing import build_bill, offers_lodging
 from side_pot_membership import billed_pots, load_show_pots
 from cancellations import (
@@ -351,6 +352,8 @@ async def list_my_shows(
             await load_show_pots(show_id, db), signup.id if signup else None
         )
         bill = build_bill(show, show_entries, reservations, futurities, pots)
+        # One number, or one per horse at a show that numbers horses (161).
+        numbers = await back_numbers_for_show(show_id, db)
 
         placed = [
             results_by_entry[e.id]
@@ -366,7 +369,9 @@ async def list_my_shows(
                 "end_date": show.end_date,
                 "venue": show.venue_rel.name if show.venue_rel else None,
                 "location": venue_location(show.venue_rel),
-                "back_number": signup.back_number if signup else None,
+                "back_number": numbers.first_for_exhibitor(exhibitor.id),
+                "back_numbers": numbers.for_exhibitor(exhibitor.id),
+                "back_number_per": show.back_number_per or "exhibitor",
                 "registered_at": signup.registered_at if signup else None,
                 "cancelled_at": signup.cancelled_at if signup else None,
                 "arrival_date": signup.arrival_date if signup else None,
@@ -480,6 +485,8 @@ async def my_standing_at_show(
         "cancelled_at": None,
         "cancellation": None,
         "back_number": None,
+        "back_numbers": [],
+        "back_number_per": "exhibitor",
         "entry_count": 0,
         "arrival_date": None,
         "departure_date": None,
@@ -520,6 +527,7 @@ async def my_standing_at_show(
         .join(Class, Entry.class_id == Class.id)
         .where(Class.show_id == show_id, Entry.exhibitor_id == exhibitor.id)
     )
+    numbers = await back_numbers_for_show(show_id, db)
 
     return {
         "show_id": str(show_id),
@@ -541,7 +549,12 @@ async def my_standing_at_show(
             if show
             else None
         ),
-        "back_number": show_entry.back_number if show_entry else None,
+        # Every number they wear here -- one per horse entered, at a show that
+        # numbers horses (migration 161) -- and which kind the show issues, so
+        # the banner does not offer to request an exhibitor number there.
+        "back_number": numbers.first_for_exhibitor(exhibitor.id),
+        "back_numbers": numbers.for_exhibitor(exhibitor.id),
+        "back_number_per": (show.back_number_per if show else None) or "exhibitor",
         "entry_count": count_result.scalar_one(),
         # Required waivers with no signature by either route. Counted here
         # rather than fetched separately by the show page: it is one more thing

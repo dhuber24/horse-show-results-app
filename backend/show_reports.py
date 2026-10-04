@@ -392,7 +392,7 @@ def _compliance(record: dict) -> dict:
                 person["back_number"] if person["back_number"] is not None else 99999,
                 person["name"].lower(),
             ),
-            "back_number": _dash(person["back_number"]),
+            "back_number": _dash(person.get("back_numbers_label") or person["back_number"]),
             "exhibitor": person["name"],
             "member_number": _dash(person["member_number"]),
             "member_expires": _dash(person["member_expires_at"]),

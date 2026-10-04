@@ -154,6 +154,11 @@ class Show(Base):
     # 159): `class_start` or `show_start`. NULL is not answered and reads as
     # `class_start`. Read through `self_entry.class_entry_open`.
     self_entry_closes = Column(Text, nullable=True)
+    # Who a back number belongs to at this show (migration 161): `exhibitor`,
+    # one per person on `show_entries.back_number`, or `horse`, one per horse on
+    # `show_horse_numbers` -- APHA SC-160.D numbers horses. Read through
+    # `backnumbers.back_numbers_for_show`, never by picking a column directly.
+    back_number_per = Column(Text, nullable=False, server_default="exhibitor", default="exhibitor")
     # What kind of show this is and the judge panel it allows (migration 124).
     # NULL means the show has not said, which is how every show predating the
     # migration reads -- and which APHA's application asks for.
@@ -2129,6 +2134,29 @@ class Judge(Base):
         email is the contact address the show office holds for this judge; the
         account's is what they sign in with, and they are allowed to differ."""
         return self.user.email if self.user else None
+
+
+class ShowHorseNumber(Base):
+    """A horse's back number at one show (migration 161), read only where
+    `shows.back_number_per` is `horse`. Keyed on the horse alone: whoever
+    shows it wears its number, which is what numbering horses means."""
+    __tablename__ = "show_horse_numbers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    back_number = Column(Integer, nullable=True)
+    # What was asked for, as against what the show issued -- the same pair
+    # `show_entries` carries (migration 104).
+    preferred_back_number = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "horse_id", name="uq_show_horse_numbers_horse"),
+        UniqueConstraint("show_id", "back_number", name="uq_show_horse_numbers_number"),
+    )
+
+    horse = relationship("Horse")
 
 
 class ShowJudge(Base):

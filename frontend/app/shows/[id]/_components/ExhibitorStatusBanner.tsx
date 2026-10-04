@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { MyShowStanding } from '@/lib/my-shows';
+import { backNumbersLabel, backNumbersOf } from '@/lib/back-numbers';
 
 /**
  * What an exhibitor's own standing at this show is, at the top of the show page.
@@ -95,12 +96,13 @@ export default function ExhibitorStatusBanner({
           <p className="text-sm font-medium" style={{ color: 'var(--success-strong)' }}>
             ✓ You&rsquo;re signed up for this show
           </p>
-          {standing.back_number != null && (
+          {backNumbersLabel(standing) && (
             <span
               className="text-xs font-semibold px-2 py-1 rounded shrink-0"
               style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }}
             >
-              Back number {standing.back_number}
+              {backNumbersOf(standing).length > 1 ? 'Back numbers' : 'Back number'}{' '}
+              {backNumbersLabel(standing)}
             </span>
           )}
         </div>
@@ -109,7 +111,9 @@ export default function ExhibitorStatusBanner({
           {/* Only while they can still do something about it. The link is the
               point of the sentence — telling someone to enter a number
               without saying where is worse than saying nothing. */}
-          {standing.back_number == null && registrationOpen && (
+          {/* Not at a show that numbers horses (migration 161): there the
+              number comes with each horse entered. */}
+          {standing.back_number == null && standing.back_number_per !== 'horse' && registrationOpen && (
             <>
               {' '}
               <Link

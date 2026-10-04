@@ -7,7 +7,7 @@ import ByClassView from './ByClassView';
 import CogginsOverridePanel from './CogginsOverridePanel';
 import ExhibitorPanel from './ExhibitorPanel';
 import type { AssociationOption, LookupOption } from './StaffAddHorseForm';
-import { COLORS, healthAlerts, unsignedWaivers } from './types';
+import { COLORS, exhibitorNumbers, healthAlerts, needsBackNumber, unsignedWaivers } from './types';
 import type { Desk, DeskExhibitor } from './types';
 import { formatMoney } from '@/lib/financials';
 
@@ -23,10 +23,10 @@ const FILTER_LABELS: Record<Filter, string> = {
   no_entries: 'No classes yet',
 };
 
-function matchesFilter(exhibitor: DeskExhibitor, filter: Filter): boolean {
+function matchesFilter(desk: Desk, exhibitor: DeskExhibitor, filter: Filter): boolean {
   switch (filter) {
     case 'no_back_number':
-      return exhibitor.back_number === null;
+      return needsBackNumber(desk, exhibitor);
     case 'paperwork':
       return exhibitor.paperwork_outstanding > 0;
     case 'health':
@@ -88,7 +88,7 @@ function groupByPerson(exhibitors: DeskExhibitor[]): PersonGroup[] {
 function haystack(exhibitor: DeskExhibitor): string {
   return [
     exhibitor.exhibitor_name,
-    exhibitor.back_number != null ? `#${exhibitor.back_number} ${exhibitor.back_number}` : '',
+    ...exhibitorNumbers(exhibitor).map((n) => `#${n} ${n}`),
     ...exhibitor.horses.map((h) => `${h.horse_name} ${h.barn_name ?? ''}`),
     ...exhibitor.entries.map((e) => `${e.horse_name ?? ''} ${e.class_number ?? ''} ${e.class_name ?? ''}`),
   ]
@@ -161,11 +161,12 @@ export default function DeskClient({
     return people.filter((group) =>
       group.members.some(
         (e) =>
-          matchesFilter(e, filter) &&
+          desk !== null &&
+          matchesFilter(desk, e, filter) &&
           (tokens.length === 0 || tokens.every((t) => haystack(e).includes(t))),
       ),
     );
-  }, [people, query, filter]);
+  }, [desk, people, query, filter]);
 
   // Selection is still an exhibitor id — the by-class view and the add form both
   // hand one over — and the panel shows the whole person that record belongs to.
@@ -274,7 +275,7 @@ export default function DeskClient({
                 const count =
                   f === 'all'
                     ? people.length
-                    : people.filter((g) => g.members.some((e) => matchesFilter(e, f))).length;
+                    : people.filter((g) => g.members.some((e) => matchesFilter(desk, e, f))).length;
                 const disabled = f !== 'all' && count === 0 && filter !== f;
                 return (
                   <button
@@ -357,10 +358,9 @@ export default function DeskClient({
                   const alerts = members.some((e) => healthAlerts(e).length > 0);
                   const unsigned = members.some((e) => unsignedWaivers(e).length > 0);
                   const owing = members.reduce((n, e) => n + Math.max(e.balance_cents, 0), 0);
-                  const numbers = members
-                    .map((e) => e.back_number)
-                    .filter((n): n is number => n != null)
-                    .map((n) => `#${n}`);
+                  // Every number on every record: one per horse at a show
+                  // that numbers horses (migration 161).
+                  const numbers = members.flatMap(exhibitorNumbers).map((n) => `#${n}`);
                   return (
                     <li key={group.key}>
                       <button
@@ -442,7 +442,9 @@ export default function DeskClient({
                         className="text-xs font-semibold uppercase tracking-wide"
                         style={{ color: COLORS.accent }}
                       >
-                        {member.back_number != null ? `Back #${member.back_number}` : 'No back number'}
+                        {exhibitorNumbers(member).length > 0
+                          ? `Back #${exhibitorNumbers(member).join(', #')}`
+                          : 'No back number'}
                         {' · '}
                         {member.cancelled_at
                           ? 'cancelled registration'

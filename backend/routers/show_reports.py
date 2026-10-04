@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from registration_profile import exhibitor_views, load_copies_for_show
@@ -164,12 +165,9 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
         .where(Class.show_id == show_id)
     )).scalars().all()
 
-    back_numbers = {
-        se.exhibitor_id: se.back_number
-        for se in (await db.execute(
-            select(ShowEntry).where(ShowEntry.show_id == show_id)
-        )).scalars().all()
-    }
+    # The exhibitor's number, or the horse's where the show numbers horses
+    # (migration 161).
+    numbers = await back_numbers_for_show(show_id, db)
 
     # The membership each exhibitor gave this show, where they changed it on
     # their registration (migration 145).
@@ -213,7 +211,7 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
             "class_id": e.class_id,
             "exhibitor_id": e.exhibitor_id,
             "exhibitor_name": (e.exhibitor.full_name if e.exhibitor else None) or "(unnamed)",
-            "back_number": back_numbers.get(e.exhibitor_id),
+            "back_number": numbers.resolve(e.exhibitor_id, e.horse_id),
             "horse_id": e.horse_id,
             "horse_name": e.horse.name if e.horse else None,
             "registration_number": registration(e.horse),
@@ -285,7 +283,10 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
     for e in entries:
         person = people.setdefault(e["exhibitor_id"], {
             "name": e["exhibitor_name"],
-            "back_number": e["back_number"],
+            # Every number they wear -- one per horse where the show numbers
+            # horses -- sorted on by the lowest.
+            "back_number": numbers.first_for_exhibitor(e["exhibitor_id"]),
+            "back_numbers_label": numbers.label_for_exhibitor(e["exhibitor_id"]),
             "member_number": e["member_number"],
             "member_expires_at": e["member_expires_at"],
             "entry_count": 0,
@@ -314,6 +315,7 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
         {
             "name": p["name"],
             "back_number": p["back_number"],
+            "back_numbers_label": p["back_numbers_label"],
             "member_number": p["member_number"],
             "member_expires_at": p["member_expires_at"],
             # Judged against the show's end date, never today — a card that

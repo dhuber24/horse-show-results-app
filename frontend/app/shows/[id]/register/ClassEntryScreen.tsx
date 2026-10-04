@@ -8,7 +8,7 @@ import AddClassEntry from './AddClassEntry';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
 import { classEntryText } from '@/lib/registration-window';
 import SignupClosedNotice from '../_components/SignupClosedNotice';
-import { formatMoney, healthWarnings, type PreviewData } from './types';
+import { formatMoney, healthWarnings, type HorseNumber, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
 
 /**
@@ -233,7 +233,11 @@ export default function ClassEntryScreen({
           {/* First inside on purpose: people who ride the same number every year
               come here to claim it, and burying it under the class table would
               mean they only remember at the desk. */}
-          {live ? (
+          {preview.back_number_per === 'horse' ? (
+            // A show that numbers horses (migration 161): a number per horse,
+            // each arriving with the horse's first entry.
+            <HorseNumbers showId={showId} horses={preview.horse_numbers ?? []} live={live} />
+          ) : live ? (
             // Asking for a number closes when the show opens — the numbers are on
             // backs by then — so a running show states the one they have.
             <p className="text-sm" style={{ color: 'var(--foreground)' }}>
@@ -505,6 +509,60 @@ export default function ClassEntryScreen({
           All my shows →
         </Link>
       </div>
+    </div>
+  );
+}
+
+/** Each entered horse's back number, at a show that numbers horses. While the
+ *  show is taking entries each one can be asked for, as the exhibitor's own
+ *  number can elsewhere; once it is running they are stated. */
+function HorseNumbers({
+  showId,
+  horses,
+  live,
+}: {
+  showId: string;
+  horses: HorseNumber[];
+  live: boolean;
+}) {
+  if (horses.length === 0) {
+    return (
+      <p className="text-sm" style={{ color: 'var(--muted)' }}>
+        This show gives each horse its own back number. Enter a horse in a class and its number
+        appears here.
+      </p>
+    );
+  }
+  if (live) {
+    return (
+      <div className="text-sm" style={{ color: 'var(--foreground)' }}>
+        <p className="font-semibold">Your back numbers</p>
+        <ul className="mt-1 space-y-0.5">
+          {horses.map((h) => (
+            <li key={h.horse_id}>
+              {h.horse_name}:{' '}
+              {h.back_number != null ? (
+                <span className="font-semibold">#{h.back_number}</span>
+              ) : (
+                <span style={{ color: 'var(--muted)' }}>the show office gives it a number at the desk</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {horses.map((h) => (
+        <BackNumberRequest
+          key={h.horse_id}
+          showId={showId}
+          backNumber={h.back_number}
+          preferredBackNumber={h.preferred_back_number}
+          horse={{ id: h.horse_id, name: h.horse_name }}
+        />
+      ))}
     </div>
   );
 }

@@ -113,6 +113,9 @@ class ShowCreate(BaseModel):
     # How late exhibitors enter and scratch their own classes (migration 159).
     # Both are asked when a show is created and required to publish it.
     self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
+    # Who a back number belongs to (migration 161): one per exhibitor, or one
+    # per horse as APHA SC-160.D requires.
+    back_number_per: Literal["exhibitor", "horse"] = "exhibitor"
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -142,6 +145,7 @@ class ShowUpdate(BaseModel):
     end_date: Optional[date] = None
     entry_deadline: Optional[date] = None
     self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
+    back_number_per: Optional[Literal["exhibitor", "horse"]] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -239,6 +243,9 @@ class ShowOut(BaseModel):
     # Migration 159. Serialized in `routers/shows._serialize` as well -- see the
     # note on `showbill_source` below.
     self_entry_closes: Optional[str] = None
+    # Who a back number belongs to (migration 161). Serialized in `_serialize`
+    # too, for the same reason.
+    back_number_per: str = "exhibitor"
     # Whether somebody not yet signed up may sign up online today
     # (`self_entry.signup_open`). Derived, so every show list can send a Sign Up
     # link to the right place without opening the show.
@@ -2470,6 +2477,10 @@ class VerificationHorseOut(BaseModel):
     horse_id: UUID
     horse_name: str
     barn_name: Optional[str] = None
+    # The horse's number at a show that numbers horses (migration 161), and the
+    # one asked for. None at a show that numbers exhibitors.
+    back_number: Optional[int] = None
+    preferred_back_number: Optional[int] = None
     # None where the show does not check foaling dates (migration 160), and the
     # registrations empty where it does not check papers.
     age_check: Optional[VerificationCheckOut] = None
@@ -2576,7 +2587,10 @@ class ExhibitorContactUpdate(BaseModel):
 class VerificationExhibitorOut(BaseModel):
     exhibitor_id: UUID
     exhibitor_name: str
+    # The lowest number they wear; `back_numbers` is every one -- one per horse
+    # at a show that numbers horses (migration 161).
     back_number: Optional[int] = None
+    back_numbers: list[int] = Field(default_factory=list)
     # NULL registered_at is a shell row a secretary created while adding an
     # entry by hand — the person is on the roster but never self-signed up.
     signed_up: bool = False
@@ -3511,6 +3525,9 @@ class SidePotEntryOut(BaseModel):
     side_pot_id: UUID
     show_entry_id: UUID
     back_number: Optional[int] = None
+    # Every number the exhibitor wears; `back_number` is the lowest of them
+    # (migration 161).
+    back_numbers: list[int] = Field(default_factory=list)
     exhibitor_name: Optional[str] = None
     paid: bool
     created_at: datetime
@@ -3530,12 +3547,18 @@ class SidePotRosterEntry(BaseModel):
 
     show_entry_id: UUID
     back_number: Optional[int] = None
+    # Every number the exhibitor wears; `back_number` is the lowest of them
+    # (migration 161).
+    back_numbers: list[int] = Field(default_factory=list)
     exhibitor_name: Optional[str] = None
 
 
 class SidePotStanding(BaseModel):
     show_entry_id: UUID
     back_number: Optional[int] = None
+    # Every number the exhibitor wears; `back_number` is the lowest of them
+    # (migration 161).
+    back_numbers: list[int] = Field(default_factory=list)
     exhibitor_name: Optional[str] = None
     aggregate_value: float
     place: Optional[int] = None
@@ -3560,6 +3583,9 @@ class SidePotPayoutOut(BaseModel):
     side_pot_id: UUID
     show_entry_id: UUID
     back_number: Optional[int] = None
+    # Every number the exhibitor wears; `back_number` is the lowest of them
+    # (migration 161).
+    back_numbers: list[int] = Field(default_factory=list)
     exhibitor_name: Optional[str] = None
     place: int
     payout_cents: int
@@ -3807,6 +3833,8 @@ class FuturityRosterEntry(BaseModel):
     show_entry_id: UUID
     exhibitor_id: UUID
     back_number: Optional[int] = None
+    # Every number the exhibitor wears; `back_number` is the lowest (migration 161).
+    back_numbers: list[int] = Field(default_factory=list)
     exhibitor_name: Optional[str] = None
     horses: list[FuturityRosterHorse] = []
 
@@ -4106,7 +4134,10 @@ class FinancialAccountOut(BaseModel):
     exhibitor_id: UUID
     exhibitor_name: str
     show_entry_id: Optional[UUID] = None
+    # The lowest number they wear; `back_numbers` is all of them -- one per
+    # horse at a show that numbers horses (migration 161).
     back_number: Optional[int] = None
+    back_numbers: list[int] = Field(default_factory=list)
     # False for the shell `show_entries` row a secretary creates when adding a
     # late entry by hand. Those accounts still owe money, so they belong here —
     # but the office reads them differently from a completed sign-up.
@@ -4346,7 +4377,11 @@ class ShowDeskExhibitorOut(BaseModel):
     # side pot entry both hang off that row, which is why the desk creates one
     # before offering either.
     show_entry_id: Optional[UUID] = None
+    # The exhibitor's number. At a show that numbers horses (migration 161) the
+    # numbers are on `horses[].back_number`, and this is the lowest of them;
+    # `back_numbers` lists every one either way.
     back_number: Optional[int] = None
+    back_numbers: list[int] = Field(default_factory=list)
     # What the exhibitor asked for at registration (migration 104). The desk
     # renders it only when it differs from `back_number` — a granted request
     # needs no comment, an overridden one is worth seeing before the exhibitor
@@ -4437,6 +4472,9 @@ class ShowDeskOut(BaseModel):
     show_name: str
     show_status: str
     show_type_code: Optional[str] = None
+    # Who a back number belongs to here (migration 161): `exhibitor` puts one
+    # box in each exhibitor's header, `horse` one beside each of their horses.
+    back_number_per: Literal["exhibitor", "horse"] = "exhibitor"
     # Whether this show asks for the health originals at the counter
     # (migration 138). The health rows are listed either way; when false the
     # inspection sign-off is optional and is not in `paperwork_outstanding`.

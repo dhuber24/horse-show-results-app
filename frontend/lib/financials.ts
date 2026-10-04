@@ -41,6 +41,8 @@ export type FinancialAccount = {
   exhibitor_name: string;
   show_entry_id: string | null;
   back_number: number | null;
+  /** Every number they wear; `back_number` is the lowest (migration 161). */
+  back_numbers?: number[];
   /** False for the shell roster row a secretary creates when adding a late
    *  entry by hand. Those accounts still owe money and are still listed. */
   signed_up: boolean;

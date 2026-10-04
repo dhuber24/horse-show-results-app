@@ -9,6 +9,13 @@ from uuid import UUID
 from datetime import date
 from typing import Optional
 
+from backnumbers import (
+    assign_back_number_if_missing,
+    assign_missing_horse_numbers,
+    back_numbers_for_show,
+    show_numbers_per_horse,
+)
+from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin, INTERNAL_API_KEY, safe_uuid
 from models import (
@@ -77,6 +84,8 @@ def _serialize(show: Show) -> dict:
         "entry_deadline": show.entry_deadline,
         # How late exhibitors enter and scratch their own classes (migration 159).
         "self_entry_closes": show.self_entry_closes,
+        # Who a back number belongs to (migration 161): `exhibitor` or `horse`.
+        "back_number_per": show.back_number_per or "exhibitor",
         "signup_open": signup_open(show.status, show.entry_deadline),
         "status": show.status,
         "apha_show_number": show.apha_show_number,
@@ -296,7 +305,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Result.outcome,
             Result.outcome_note,
             Entry.back_number,
-            ShowEntry.back_number,
+            Entry.exhibitor_id,
+            Entry.horse_id,
             Exhibitor.full_name,
             Horse.name,
             Judge.first_name,
@@ -308,11 +318,6 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .outerjoin(Horse, Horse.id == Entry.horse_id)
         .outerjoin(ShowJudge, ShowJudge.id == Result.judge_id)
         .outerjoin(Judge, Judge.id == ShowJudge.judge_id)
-        .outerjoin(
-            ShowEntry,
-            (ShowEntry.show_id == show_id)
-            & (ShowEntry.exhibitor_id == Entry.exhibitor_id),
-        )
         .where(
             Class.show_id == show_id,
             Class.status != "DRAFT",
@@ -323,6 +328,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .order_by(ShowJudge.sort_order.nulls_first(), Result.place)
     )
 
+    # The exhibitor's number, or the horse's where the show numbers horses.
+    numbers = await back_numbers_for_show(show_id, db)
     by_class: dict[str, list[dict]] = {}
     for (
         class_id,
@@ -331,7 +338,8 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         outcome,
         outcome_note,
         entry_bn,
-        show_bn,
+        exhibitor_id,
+        horse_id,
         exhibitor_name,
         horse_name,
         judge_first,
@@ -346,7 +354,7 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 # has to say which.
                 "outcome": outcome or "placed",
                 "outcome_note": outcome_note,
-                "back_number": show_bn if show_bn is not None else entry_bn,
+                "back_number": numbers.resolve(exhibitor_id, horse_id, entry_bn),
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,
                 "judge_name": f"{judge_first} {judge_last}" if judge_first else None,
@@ -386,7 +394,8 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Class.id,
             Entry.id,
             Entry.back_number,
-            ShowEntry.back_number,
+            Entry.exhibitor_id,
+            Entry.horse_id,
             Entry.is_disqualified,
             Entry.gate_order,
             Exhibitor.full_name,
@@ -400,11 +409,6 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
         .outerjoin(Horse, Horse.id == Entry.horse_id)
         .outerjoin(owner, owner.id == Horse.owner_exhibitor_id)
-        .outerjoin(
-            ShowEntry,
-            (ShowEntry.show_id == show_id)
-            & (ShowEntry.exhibitor_id == Entry.exhibitor_id),
-        )
         .where(
             Class.show_id == show_id,
             Class.status != "DRAFT",
@@ -413,12 +417,14 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         .order_by(Entry.gate_order.nullslast(), Entry.back_number.nullslast())
     )
 
+    numbers = await back_numbers_for_show(show_id, db)
     by_class: dict[str, list[dict]] = {}
     for (
         class_id,
         entry_id,
         entry_bn,
-        show_bn,
+        exhibitor_id,
+        horse_id,
         is_disqualified,
         gate_order,
         exhibitor_name,
@@ -431,7 +437,7 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         by_class.setdefault(str(class_id), []).append(
             {
                 "id": str(entry_id),
-                "back_number": show_bn if show_bn is not None else entry_bn,
+                "back_number": numbers.resolve(exhibitor_id, horse_id, entry_bn),
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,
                 "owner_name": owner_full_name or horse_owner_name,
@@ -564,11 +570,42 @@ async def update_show(
                 "Cannot set status to In Progress: the current date is outside the show's date range.",
             )
 
+    # Switching who a back number belongs to (migration 161) hands out the new
+    # kind straight away, so the desk opens on numbered horses -- or numbered
+    # exhibitors -- rather than a column of dashes. The old kind is left where
+    # it is, unread, so switching back restores every number as it was.
+    renumber = (
+        "back_number_per" in updates
+        and updates["back_number_per"] is not None
+        and updates["back_number_per"] != (show.back_number_per or "exhibitor")
+    )
+    if "back_number_per" in updates and updates["back_number_per"] is None:
+        del updates["back_number_per"]
+
     for k, v in updates.items():
         setattr(show, k, v)
+    if renumber:
+        await db.flush()
+        await _hand_out_back_numbers(show_id, db)
     await db.commit()
     show = await _get_show_with_type(db, show_id)
     return _serialize(show)
+
+
+async def _hand_out_back_numbers(show_id: UUID, db: AsyncSession) -> None:
+    """Give everyone a number of the kind the show now issues, where they hold
+    none: each entered horse, or each exhibitor on the roster."""
+    if await show_numbers_per_horse(show_id, db):
+        await assign_missing_horse_numbers(show_id, db)
+        return
+    rows = await db.execute(
+        select(ShowEntry)
+        .where(ShowEntry.show_id == show_id, ShowEntry.back_number.is_(None))
+        .order_by(ShowEntry.registered_at.nullslast(), ShowEntry.created_at)
+    )
+    for show_entry in rows.scalars().all():
+        if is_on_roster(show_entry):
+            await assign_back_number_if_missing(show_entry, db)
 
 
 @router.delete("/{show_id}", status_code=204)
@@ -905,13 +942,9 @@ async def apha_export(
                     break
             apha_code_by_class[cls.id] = code
 
-    # Build exhibitor → back number map from show_entries
-    show_entries_result = await db.execute(
-        select(ShowEntry).where(ShowEntry.show_id == show_id)
-    )
-    back_number_map: dict = {
-        se.exhibitor_id: se.back_number for se in show_entries_result.scalars().all()
-    }
+    # The number worn on each entry: the exhibitor's, or the horse's where the
+    # show numbers horses -- which is what APHA SC-160.D asks for.
+    numbers = await back_numbers_for_show(show_id, db)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -958,7 +991,7 @@ async def apha_export(
         writer.writerow([
             show.apha_show_number,
             show_yr,
-            back_number_map.get(entry.exhibitor_id, ""),
+            numbers.resolve(entry.exhibitor_id, entry.horse_id) or "",
             apha_registration_number(entry.horse),
             entry.horse.name if entry.horse else "",
             apha_code_by_class.get(entry.class_.id, ""),

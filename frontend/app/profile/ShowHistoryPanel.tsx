@@ -9,6 +9,7 @@ import {
   SHOW_STATUS_BADGE,
   type MyShow,
 } from '@/lib/my-shows';
+import { backNumbersLabel } from '@/lib/back-numbers';
 
 /**
  * Every show this exhibitor has competed in, newest first, each linking back to
@@ -107,7 +108,7 @@ export default function ShowHistoryPanel({ shows }: { shows: MyShow[] }) {
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
                       {show.entry_count} class{show.entry_count === 1 ? '' : 'es'}
-                      {show.back_number != null && <> · back #{show.back_number}</>}
+                      {backNumbersLabel(show, '#') && <> · back {backNumbersLabel(show, '#')}</>}
                       {show.placed_count > 0 && show.best_place != null && (
                         <>
                           {' · '}

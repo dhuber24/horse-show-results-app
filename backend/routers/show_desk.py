@@ -235,6 +235,7 @@ async def get_desk(
             "exhibitor_name": account["exhibitor_name"],
             "show_entry_id": account["show_entry_id"],
             "back_number": account["back_number"],
+            "back_numbers": account["back_numbers"],
             # What they asked for at registration. The desk shows it only when
             # it differs from what they hold, so a granted request is silent
             # and an overridden one is visible.
@@ -293,6 +294,7 @@ async def get_desk(
         "show_name": show.name,
         "show_status": show.status,
         "show_type_code": show_type_code,
+        "back_number_per": show.back_number_per or "exhibitor",
         # Quoted from the checklist rather than read off the show again, so the
         # desk cannot disagree with the tally it is drawing (migration 138).
         "requires_physical_document_check": checklist["requires_physical_document_check"],
@@ -376,7 +378,17 @@ async def get_desk(
             "exhibitors": len(exhibitors_out),
             "entries": financials["registrations"]["entries"],
             "classes": financials["registrations"]["classes"],
-            "no_back_number": sum(1 for e in exhibitors_out if e["back_number"] is None),
+            # Exhibitors somebody still has to give a number: no number of their
+            # own, or -- where the show numbers horses -- a horse without one.
+            "no_back_number": sum(
+                1
+                for e in exhibitors_out
+                if (
+                    any(h["back_number"] is None for h in e["horses"])
+                    if show.back_number_per == "horse"
+                    else e["back_number"] is None
+                )
+            ),
             "no_entries": sum(1 for e in exhibitors_out if not e["entries"]),
             "paperwork_outstanding": checklist["totals"]["stale"] + checklist["totals"]["unverified"],
             "health_alerts": health_alerts,

@@ -5,7 +5,12 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 
-from backnumbers import back_numbers_for_show, resolve_back_number, sort_key
+from backnumbers import (
+    assign_horse_number_if_missing,
+    back_numbers_for_show,
+    resolve_back_number,
+    sort_key,
+)
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import (
@@ -142,8 +147,8 @@ def _raise_for_validation_errors(issues: list[dict]) -> None:
 
 @router.get("/", response_model=list[EntryOut])
 async def list_entries(show_id: UUID, class_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Entries in a class, with the back number actually assigned to each
-    exhibitor.
+    """Entries in a class, with the back number actually worn on each one --
+    the exhibitor's, or the horse's at a show that numbers horses.
 
     The number lives on `show_entries`, not on the entry row — see
     `backend/backnumbers.py`. Returning the raw `Entry.back_number` here left
@@ -155,10 +160,10 @@ async def list_entries(show_id: UUID, class_id: UUID, db: AsyncSession = Depends
     result = await db.execute(select(Entry).where(Entry.class_id == class_id))
     entries = list(result.scalars().all())
 
-    by_exhibitor = await back_numbers_for_show(show_id, db)
+    numbers = await back_numbers_for_show(show_id, db)
     out = [
         EntryOut.model_validate(entry, from_attributes=True).model_copy(
-            update={"back_number": resolve_back_number(entry, by_exhibitor)}
+            update={"back_number": resolve_back_number(entry, numbers)}
         )
         for entry in entries
     ]
@@ -313,6 +318,10 @@ async def create_entry(
         if "entries_class_horse_uniq" in msg:
             raise HTTPException(409, "This horse is already entered in this class.")
         raise HTTPException(409, "Entry conflicts with an existing entry in this class.")
+    # The horse's number, at a show that numbers horses (migration 161). After
+    # the entry commits, so a number can never cost anybody the entry.
+    await assign_horse_number_if_missing(show_id, entry.horse_id, db)
+    await db.commit()
     await db.refresh(entry)
     return entry
 

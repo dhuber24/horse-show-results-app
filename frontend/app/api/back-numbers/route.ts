@@ -6,11 +6,16 @@ export async function PATCH(request: NextRequest) {
   if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { showId, assignments } = body;
-  const { json, status } = await safeFetchBackend(`${API_URL}/shows/${showId}/back-numbers/`, {
+  const { showId, assignments, horses } = body;
+  // `horses` is a show that numbers horses (migration 161): one number per
+  // horse rather than per exhibitor, on its own endpoint.
+  const url = horses
+    ? `${API_URL}/shows/${showId}/back-numbers/horses`
+    : `${API_URL}/shows/${showId}/back-numbers/`;
+  const { json, status } = await safeFetchBackend(url, {
     method: 'PATCH',
     headers,
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify({ assignments: horses ?? assignments }),
   });
   return NextResponse.json(json, { status });
 }

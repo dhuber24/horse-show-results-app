@@ -38,6 +38,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin, require_api_key, safe_uuid
 from models import Exhibitor, Show, ShowContactMessage, ShowEntry
@@ -121,12 +122,18 @@ async def _back_numbers_for_senders(
     if not exhibitor_ids:
         return {}
     result = await db.execute(
-        select(ShowEntry.exhibitor_id, ShowEntry.back_number).where(
+        select(ShowEntry.exhibitor_id).where(
             ShowEntry.show_id == show_id,
             ShowEntry.exhibitor_id.in_(exhibitor_ids),
         )
     )
-    return {row.exhibitor_id: row.back_number for row in result.all()}
+    # The lowest number they wear: one of several at a show that numbers
+    # horses (migration 161), and enough to find them on the roster.
+    numbers = await back_numbers_for_show(show_id, db)
+    return {
+        row.exhibitor_id: numbers.first_for_exhibitor(row.exhibitor_id)
+        for row in result.all()
+    }
 
 
 def _serialize_message(

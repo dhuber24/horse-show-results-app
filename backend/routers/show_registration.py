@@ -128,6 +128,7 @@ from models import (
     Result,
     Show,
     ShowEntry,
+    ShowHorseNumber,
     ShowEntryReservation,
     ShowFee,
     ShowRegistrationDraft,
@@ -141,7 +142,11 @@ from rules import get_rules
 from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
-from backnumbers import assign_back_number_if_missing
+from backnumbers import (
+    PER_HORSE,
+    assign_back_number_if_missing,
+    assign_horse_number_if_missing,
+)
 from futurity_enrollment import (
     class_ids_of,
     entered_class_ids as futurity_entered_class_ids,
@@ -1218,6 +1223,38 @@ class BackNumberRequestBody(BaseModel):
     person's back — four digits is already generous for a cloth number."""
 
     preferred_back_number: Optional[int] = Field(default=None, ge=1, le=9999)
+    # Which horse the number is for, at a show that numbers horses (migration
+    # 161). Ignored at a show that numbers exhibitors.
+    horse_id: Optional[UUID] = None
+
+
+async def _horse_numbers_out(show: Show, exhibitor_id: UUID, db: AsyncSession) -> list[dict]:
+    """The horses this exhibitor has entered, each with its number, at a show
+    that numbers horses (migration 161). Empty at one that numbers exhibitors."""
+    if show.back_number_per != PER_HORSE:
+        return []
+    rows = await db.execute(
+        select(Horse.id, Horse.name, ShowHorseNumber.back_number, ShowHorseNumber.preferred_back_number)
+        .join(Entry, Entry.horse_id == Horse.id)
+        .join(Class, Class.id == Entry.class_id)
+        .outerjoin(
+            ShowHorseNumber,
+            (ShowHorseNumber.horse_id == Horse.id) & (ShowHorseNumber.show_id == show.id),
+        )
+        .where(Class.show_id == show.id, Entry.exhibitor_id == exhibitor_id)
+        .distinct()
+    )
+    out = [
+        {
+            "horse_id": str(horse_id),
+            "horse_name": name,
+            "back_number": number,
+            "preferred_back_number": asked,
+        }
+        for horse_id, name, number, asked in rows.all()
+    ]
+    out.sort(key=lambda h: (h["back_number"] is None, h["back_number"] or 0, h["horse_name"].lower()))
+    return out
 
 
 def _back_number_taken(wanted: int) -> HTTPException:
@@ -1279,6 +1316,9 @@ async def request_back_number(
 
     wanted = body.preferred_back_number
 
+    if show.back_number_per == PER_HORSE:
+        return await _request_horse_number(show, exhibitor.id, body.horse_id, wanted, show_entry, db)
+
     if wanted is not None and wanted != show_entry.back_number:
         # Checked before writing so the common collision gets a message naming
         # the number, rather than an IntegrityError we can only report vaguely.
@@ -1309,6 +1349,87 @@ async def request_back_number(
 
     show_entry = await _load_show_entry(show.id, exhibitor.id, db)
     return {"signup": _signup_out(show_entry)}
+
+
+async def _request_horse_number(
+    show: Show,
+    exhibitor_id: UUID,
+    horse_id: Optional[UUID],
+    wanted: Optional[int],
+    show_entry: ShowEntry,
+    db: AsyncSession,
+) -> dict:
+    """`PUT .../back-number` at a show that numbers horses (migration 161):
+    the same grant-outright rule, applied to one of the exhibitor's horses.
+
+    The horse has to be one they have entered here. A horse shown by two
+    exhibitors has one number, so either of them may ask for it -- the second
+    ask simply replaces the first, as a renumber at the desk would.
+    """
+    if horse_id is None:
+        raise HTTPException(
+            422,
+            "This show gives each horse its own back number. Say which horse it is for.",
+        )
+    entered = await db.execute(
+        select(Horse.name)
+        .join(Entry, Entry.horse_id == Horse.id)
+        .join(Class, Class.id == Entry.class_id)
+        .where(
+            Class.show_id == show.id,
+            Entry.exhibitor_id == exhibitor_id,
+            Entry.horse_id == horse_id,
+        )
+        .limit(1)
+    )
+    if entered.first() is None:
+        raise HTTPException(
+            409,
+            {
+                "code": "HORSE_NOT_ENTERED",
+                "message": "Enter this horse in a class first -- its number comes with its first entry.",
+            },
+        )
+
+    row = (
+        await db.execute(
+            select(ShowHorseNumber).where(
+                ShowHorseNumber.show_id == show.id,
+                ShowHorseNumber.horse_id == horse_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if wanted is not None and (row is None or wanted != row.back_number):
+        clash = await db.execute(
+            select(ShowHorseNumber.id).where(
+                ShowHorseNumber.show_id == show.id,
+                ShowHorseNumber.back_number == wanted,
+                ShowHorseNumber.horse_id != horse_id,
+            )
+        )
+        if clash.first() is not None:
+            raise _back_number_taken(wanted)
+
+    if row is None:
+        row = ShowHorseNumber(show_id=show.id, horse_id=horse_id)
+        db.add(row)
+    row.preferred_back_number = wanted
+    if wanted is not None:
+        row.back_number = wanted
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _back_number_taken(wanted) from None
+
+    horses = await _horse_numbers_out(show, exhibitor_id, db)
+    return {
+        "signup": _signup_out(show_entry),
+        "horse_number": next((h for h in horses if h["horse_id"] == str(horse_id)), None),
+        "horse_numbers": horses,
+    }
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -1571,6 +1692,11 @@ async def preview_registration(
         # exhibitor to sign-up first rather than letting them fill in a class
         # picker the POST would reject.
         "signup": _signup_out(show_entry),
+        # Who a back number belongs to at this show (migration 161). Where it
+        # is the horse, `horse_numbers` carries one per horse they have entered,
+        # and the exhibitor's own `signup.back_number` is not issued.
+        "back_number_per": show.back_number_per or "exhibitor",
+        "horse_numbers": await _horse_numbers_out(show, exhibitor.id, db),
         # Step one. The screen locks the stalls half on this, the same way it
         # locks the classes half on `signup` — and `PUT /signup` refuses on the
         # identical list, so the lock and the refusal cannot disagree.
@@ -2099,6 +2225,13 @@ async def register_for_show(
             409,
             "One or more selections conflict with an existing entry.",
         )
+
+    # At a show that numbers horses (migration 161), each newly entered horse
+    # gets its number now -- after the entries commit, so a collision on a
+    # number can never cost anybody an entry. A no-op elsewhere.
+    for horse_id in {e.horse_id for e in created if e.horse_id is not None}:
+        await assign_horse_number_if_missing(show_id, horse_id, db)
+    await db.commit()
 
     for entry in created:
         await db.refresh(entry)

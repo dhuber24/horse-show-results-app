@@ -8,6 +8,7 @@ import ContactForm, { type ContactValues } from './ContactForm';
 import DocumentViewer from './DocumentViewer';
 import { UnenrolledFuturityRow, WithdrawFuturityButton } from './FuturityEnrollment';
 import HealthCheckRow from './HealthCheckRow';
+import HorseBackNumbers from './HorseBackNumbers';
 import { rowFrame, ToDo } from './NeedsAction';
 import StaffAddHorseForm, { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
 import WaiverRow from './WaiverRow';
@@ -17,6 +18,7 @@ import {
   futurityForClass,
   healthAlerts,
   nextFreeBackNumber,
+  numbersHorses,
   paperworkToDo,
   unenrolledFuturityHorses,
 } from './types';
@@ -837,6 +839,17 @@ export default function ExhibitorPanel({
                   : 'Added at the desk — has not completed show sign-up.'}
             </p>
           </div>
+          {/* A show that numbers horses (migration 161) has a box per horse
+              here instead of one for the person. */}
+          {numbersHorses(desk) ? (
+            <HorseBackNumbers
+              showId={showId}
+              desk={desk}
+              exhibitor={exhibitor}
+              busy={busy}
+              run={run}
+            />
+          ) : (
           <div className="flex items-end gap-2">
             <div>
               <label
@@ -897,9 +910,10 @@ export default function ExhibitorPanel({
               </button>
             )}
           </div>
+          )}
         </div>
 
-        {backNumberHolder && backNumberDirty && (
+        {!numbersHorses(desk) && backNumberHolder && backNumberDirty && (
           <p
             role="alert"
             className="mt-2 text-sm rounded px-3 py-2"

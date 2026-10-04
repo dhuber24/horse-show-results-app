@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import side_pot_membership
+from backnumbers import back_numbers_for_show
 from billing import build_account, side_pot_money, summarize_accounts
 from cancellations import is_on_roster
 from database import get_db
@@ -180,6 +181,10 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
         await side_pot_membership.load_show_pots(show_id, db)
     )
 
+    # 5. Back numbers, of whichever kind the show issues (migration 161): one
+    # per exhibitor, or one per horse -- several for somebody with several.
+    numbers = await back_numbers_for_show(show_id, db)
+
     accounts: list[dict] = []
     for exhibitor_id, exhibitor in exhibitors.items():
         show_entry = show_entry_by_exhibitor.get(exhibitor_id)
@@ -205,9 +210,15 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             "exhibitor_id": exhibitor_id,
             "exhibitor_name": exhibitor.full_name,
             "show_entry_id": show_entry.id if show_entry else None,
-            "back_number": show_entry.back_number if show_entry else None,
+            # The lowest number they wear, which is what an exhibitor-level list
+            # sorts on; `back_numbers` is every one of them, for display.
+            "back_number": numbers.first_for_exhibitor(exhibitor_id),
+            "back_numbers": numbers.for_exhibitor(exhibitor_id),
+            # A request for a horse's number lives on that horse's row.
             "preferred_back_number": (
-                show_entry.preferred_back_number if show_entry else None
+                show_entry.preferred_back_number
+                if show_entry and not numbers.per_horse
+                else None
             ),
             "signed_up": is_on_roster(show_entry),
             "registered_at": show_entry.registered_at if show_entry else None,

@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import billing
+from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from futurity_enrollment import class_ids_of, entered_class_ids
@@ -805,20 +806,24 @@ async def _hydrate_entries(
 ) -> list[dict]:
     counts = await _entered_class_counts(futurity, db)
     show_entry_ids = [e.show_entry_id for e in futurity.entries]
-    people: dict[UUID, tuple[Optional[int], Optional[str]]] = {}
+    people: dict[UUID, tuple[Optional[UUID], Optional[str]]] = {}
     if show_entry_ids:
         rows = await db.execute(
-            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.full_name)
+            select(ShowEntry.id, ShowEntry.exhibitor_id, Exhibitor.full_name)
             .join(Exhibitor, Exhibitor.id == ShowEntry.exhibitor_id)
             .where(ShowEntry.id.in_(show_entry_ids))
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
+    # A nomination is the horse's, so it wears the horse's number at a show
+    # that numbers horses (migration 161), the exhibitor's otherwise.
+    numbers = await back_numbers_for_show(futurity.show_id, db)
 
     out: list[dict] = []
     for enrollment in futurity.entries:
         count = counts.get(enrollment.horse_id, 0)
         charge, is_late = billing.futurity_charge_cents(futurity, enrollment, count)
-        back_number, exhibitor_name = people.get(enrollment.show_entry_id, (None, None))
+        exhibitor_id, exhibitor_name = people.get(enrollment.show_entry_id, (None, None))
+        back_number = numbers.resolve(exhibitor_id, enrollment.horse_id)
         out.append(
             {
                 "id": enrollment.id,
@@ -901,12 +906,14 @@ async def list_roster(show_id: UUID, futurity_id: UUID, db: AsyncSession = Depen
     )
     for exhibitor_id, horse_id, horse_name in rows:
         horses_by_exhibitor.setdefault(exhibitor_id, {})[horse_id] = horse_name
+    numbers = await back_numbers_for_show(show_id, db)
 
     roster = [
         {
             "show_entry_id": se.id,
             "exhibitor_id": se.exhibitor_id,
-            "back_number": se.back_number,
+            "back_number": numbers.first_for_exhibitor(se.exhibitor_id),
+            "back_numbers": numbers.for_exhibitor(se.exhibitor_id),
             "exhibitor_name": se.exhibitor.full_name if se.exhibitor else None,
             "horses": [
                 {
@@ -1143,15 +1150,18 @@ async def get_standings(
         for result, class_id, horse_id in rows:
             by_horse_class.setdefault((horse_id, class_id), []).append(result)
 
-    people: dict[UUID, tuple[Optional[int], Optional[str]]] = {}
+    people: dict[UUID, tuple[Optional[UUID], Optional[str]]] = {}
     show_entry_ids = [e.show_entry_id for e in futurity.entries]
     if show_entry_ids:
         rows = await db.execute(
-            select(ShowEntry.id, ShowEntry.back_number, Exhibitor.full_name)
+            select(ShowEntry.id, ShowEntry.exhibitor_id, Exhibitor.full_name)
             .join(Exhibitor, Exhibitor.id == ShowEntry.exhibitor_id)
             .where(ShowEntry.id.in_(show_entry_ids))
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
+    # A nomination is the horse's, so it wears the horse's number at a show
+    # that numbers horses (migration 161), the exhibitor's otherwise.
+    numbers = await back_numbers_for_show(futurity.show_id, db)
 
     class_numbers = {
         dc.class_id: (dc.class_.class_number if dc.class_ else str(dc.class_id))
@@ -1222,7 +1232,8 @@ async def get_standings(
                 else float(best_result.place)
             )
 
-        back_number, exhibitor_name = people.get(enrollment.show_entry_id, (None, None))
+        exhibitor_id, exhibitor_name = people.get(enrollment.show_entry_id, (None, None))
+        back_number = numbers.resolve(exhibitor_id, enrollment.horse_id)
         rows_out.append(
             {
                 "futurity_entry_id": enrollment.id,

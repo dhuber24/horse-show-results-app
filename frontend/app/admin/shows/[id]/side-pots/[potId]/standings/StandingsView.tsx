@@ -10,6 +10,7 @@ import {
   type SidePot,
   type Standings,
 } from '../../pot-shared';
+import { backNumbersLabel } from '@/lib/back-numbers';
 
 /**
  * The live ranking, the settle control, and the frozen payout sheet.
@@ -127,9 +128,13 @@ function StandingsTable({
           </thead>
           <tbody>
             {standings.standings.map((s) => {
-              const key =
-                s.back_number != null ? String(s.back_number) : s.show_entry_id;
-              const projected = standings.projected_payouts[key] ?? 0;
+              // Keyed by roster row first: at a show that numbers horses two
+              // exhibitors can share a lowest number (migration 161). The
+              // back-number key is for a backend from before that.
+              const projected =
+                standings.projected_payouts[s.show_entry_id] ??
+                (s.back_number != null ? standings.projected_payouts[String(s.back_number)] : undefined) ??
+                0;
               return (
                 <tr
                   key={s.show_entry_id}
@@ -140,7 +145,7 @@ function StandingsTable({
                   }}
                 >
                   <td className="py-1">{s.is_eligible ? s.place ?? '—' : 'DQ'}</td>
-                  <td className="py-1 font-mono">#{s.back_number ?? '—'}</td>
+                  <td className="py-1 font-mono">{backNumbersLabel(s, '#') ?? '#—'}</td>
                   <td className="py-1">
                     {s.exhibitor_name ?? '—'}
                     {!s.is_eligible && s.missing_class_ids.length > 0 && (
@@ -292,7 +297,7 @@ function PayoutsTable({ payouts }: { payouts: Payout[] }) {
             {payouts.map((p) => (
               <tr key={p.id} className="border-b" style={{ borderColor: 'var(--bg-subtle)' }}>
                 <td className="py-1">{p.place}</td>
-                <td className="py-1 font-mono">#{p.back_number ?? '—'}</td>
+                <td className="py-1 font-mono">{backNumbersLabel(p, '#') ?? '#—'}</td>
                 <td className="py-1">
                   {p.exhibitor_name ?? '—'}
                   {p.tiebreaker_notes && (
