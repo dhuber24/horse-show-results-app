@@ -218,11 +218,15 @@ class AQHARules(DefaultRules):
             or any(term in upper_name for term in RANCH_MINIMUM_AGE_TERMS)
             or self._is_two_year_old_performance(class_name, getattr(cls, "class_date", None))
         )
+        # A warning, not an error: a missing foaling date is paperwork the desk
+        # can sort out, so it flags rather than refusing the entry -- the same
+        # posture as APHA's SC-190.A.3.a, which declines to run without one. A
+        # known age that is out of range below still refuses.
         if checks_age and age is None:
             issues.append(self._issue(
-                "error",
+                "warning",
                 "AQHA_HORSE_FOALING_DATE_REQUIRED",
-                f"{getattr(horse, 'name', 'Horse')} needs a foaling date to verify AQHA age eligibility.",
+                f"{getattr(horse, 'name', 'Horse')} has no foaling date on file to verify AQHA age eligibility.",
                 class_id=getattr(cls, "id", None),
                 class_code=class_code,
                 horse_id=getattr(horse, "id", None),
