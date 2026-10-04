@@ -4,9 +4,8 @@ import AutoRefresh from '@/components/AutoRefresh';
 import LiveBoard from '../results/LiveBoard';
 
 // The Results & High Point board: the Results Board split down the middle,
-// the class on the left — two of its judges' cards at a time — and the show's
-// high point standings on the right, two at a time, each a division within a
-// discipline.
+// one division at a time: each of its classes on the left — two judges' cards
+// at a time — beside that division's high point standings on the right.
 //
 // The same board as `/board/results` in every other way — the sizes, full
 // screen, duplicate and extend, the marquee, the QR code — so it is that

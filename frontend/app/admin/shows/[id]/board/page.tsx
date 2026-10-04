@@ -100,8 +100,8 @@ export default async function LiveScreensPage({
               Results &amp; High Point
             </div>
             <div style={{ fontSize: 'max(14px, 1.9vh)', marginTop: '1vh', color: 'var(--on-slate-muted)' }}>
-              The screen split in two: each class’s top five on the left, two judges’ cards at a time, and the high point
-              standings on the right — each division within its discipline, two at a time.
+              The screen split in two, one division at a time: each of its classes’ top five on the left, two judges’
+              cards at a time, beside that division’s high point standings on the right.
             </div>
           </Link>
 

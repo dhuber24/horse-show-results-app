@@ -666,28 +666,33 @@ function BoardNotice({ title, children }: { title: string; children: React.React
 
 /* ── The split board: results beside high point ─────────────────────────────
    The same board halved (`layout="split"`, at `/board/results-high-point`):
-   the class on the left, two of its judges' cards at a time, and the show's
-   high point standings on the right, two at a time — each a division,
-   "Amateur", its points added up across every discipline. Four
-   quarter-width boxes across the screen — the width a four-judge class's cards
-   already are on the Results Board, so every size, the compact row and the
-   top five all carry over unchanged.
+   the class on the left, two of its judges' cards at a time, and the high
+   point standings of **that class's division** on the right — "Amateur", its
+   points added up across every discipline. Judges' boxes are quarter-width,
+   the width a four-judge class's cards already are on the Results Board, so
+   every size, the compact row and the top five all carry over unchanged.
 
    **A panel of more than two takes turns**: judges one and two, then three
    and four, with the header saying which ("Judges 1–2 of 4"). A class with a
-   single card, or the third judge of three, gets the whole half. A standings
-   table left over on its own gets the whole half the same way.
+   single card, or the third judge of three, gets the whole half, as the
+   standings table always does.
+
+   **One division at a time** (`buildSplitTurns`): a division's standings hold
+   the right half while each of its classes posted today takes a turn on the
+   left, then both halves move on to the next division together. The halves
+   used to turn through their own lists, two standings tables at a time, and
+   the show office asked for one division across the screen: a room reading
+   an Amateur class beside the Open and Youth tables had to work out which
+   table its horse was in.
 
    **A standing reads like a placing**: the same rosette for its rank and the
    back number in the same place, so a room finds its number and its colour
    on either half without learning a second layout.
 
-   **Both halves turn together**, each through its own list, on the board's
-   one clock — so the dwell bar still means "this screen is about to change",
-   and a pause holds both. */
+   **One clock**, so the dwell bar still means "this screen is about to
+   change", and a pause holds both halves. */
 
 const SPLIT_CARDS = 2;
-const SPLIT_DIVISIONS = 2;
 /** Either side of the rule between the halves, and the rule, in --u. The
  *  rule is in the accent colour and the gutter wider than the gap between
  *  two cards: drawn in the boxes' own grey, a hair wide, it vanished between
@@ -732,6 +737,65 @@ const DIVISION_TITLE_U = 1.4;
 const LEADER_DOT_U = 0.6;
 
 type DivisionPane = { name: string; lines: StandingLine[] };
+
+/** A division name as the standings match it: spaces collapsed, case
+ *  ignored — `_division_key` in `backend/high_point.py`, so a class in
+ *  "Amateur " is shown beside the "Amateur" table. Empty for no division. */
+function divisionKey(name: string | null | undefined): string {
+  return (name ?? '').split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+}
+
+/** One screen of the split board: a class (or a pair of its cards) on the
+ *  left, its division's standings on the right. */
+type SplitTurn = {
+  /** Which division of the rotation this is — what keys the right half, so
+   *  the table stays put while its division's classes turn over beside it. */
+  division: number;
+  /** The division as the room reads it; null for classes in no division. */
+  divisionName: string | null;
+  /** Null for a division with standings but no class posted today. */
+  block: Block | null;
+  /** Null for a division that has earned no points yet, or no division. */
+  pane: DivisionPane | null;
+};
+
+/** The split board's rotation, a division at a time. Divisions come in the
+ *  show's own order — the order the standings arrive in — then any division
+ *  whose classes have earned no points yet, in the order its classes were
+ *  posted, and classes in no division last. Within a division the classes
+ *  keep `blocks`' order, newest posted first.
+ *
+ *  A division with standings and no class posted today still gets one turn,
+ *  its table beside a notice: the points are the whole show's and the classes
+ *  only the day's, and leaving it out would take its standings off the board
+ *  for the rest of the show. */
+function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
+  type Group = { key: string; name: string | null; pane: DivisionPane | null; blocks: Block[] };
+  const groups: Group[] = [];
+  const byKey = new Map<string, Group>();
+  const add = (group: Group) => {
+    groups.push(group);
+    byKey.set(group.key, group);
+    return group;
+  };
+  for (const pane of panes) add({ key: divisionKey(pane.name), name: pane.name, pane, blocks: [] });
+  for (const block of blocks) {
+    const key = divisionKey(block.cls.division_name);
+    const group =
+      byKey.get(key) ?? add({ key, name: block.cls.division_name?.trim() || null, pane: null, blocks: [] });
+    group.blocks.push(block);
+  }
+  // Classes in no division after every division (a stable sort keeps the rest).
+  groups.sort((a, b) => Number(a.key === '') - Number(b.key === ''));
+  return groups.flatMap((group, division) =>
+    (group.blocks.length ? group.blocks : [null]).map((block) => ({
+      division,
+      divisionName: group.name,
+      block,
+      pane: group.pane,
+    })),
+  );
+}
 
 /** The marquee's High Point mode: a line per standings table, the same top
  *  five the board's right half shows (`topStandings`), so the band and the
@@ -920,44 +984,39 @@ function HighPointHeader() {
   );
 }
 
-/** The right half: two standings tables, or why there are none — said
- *  without the header, so it sits level with "Waiting on results" beside it. */
+/** The right half: the division's standings table, or why there is none —
+ *  said without the header, so it sits level with "Waiting on results" beside
+ *  it. */
 function HighPointBlock({
   leaderboard,
-  panes,
+  pane,
+  divisionName,
   stageU,
   unitVh,
   scale,
 }: {
   leaderboard: ShowLeaderboard | null;
-  panes: DivisionPane[];
+  pane: DivisionPane | null;
+  /** The division this screen is on, for saying why it has no table. Null for
+   *  classes in no division; undefined when the board has nothing to turn. */
+  divisionName?: string | null;
   /** The half's width in the board's --u, which decides the compact row
    *  exactly as it does for the judges' cards beside it. */
   stageU: number;
   unitVh: number;
   scale: number;
 }) {
-  const cols = Math.max(panes.length, 1);
-  const boxU = (stageU / scale - GRID_GAP_U * (cols - 1)) / cols;
-  const compact = stageU > 0 && boxU < COMPACT_CARD_U;
+  const compact = stageU > 0 && stageU / scale < COMPACT_CARD_U;
   return (
     <section className="w-full h-full flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]">
-      {panes.length > 0 && leaderboard?.point_system ? (
+      {pane && leaderboard?.point_system ? (
         <>
           <HighPointHeader />
           <div
             className="flex-1 min-h-0 grid"
-            style={
-              {
-                '--u': `${(unitVh * scale).toFixed(3)}vh`,
-                gap: u(GRID_GAP_U),
-                gridTemplateColumns: `repeat(${panes.length}, minmax(0, 1fr))`,
-              } as React.CSSProperties
-            }
+            style={{ '--u': `${(unitVh * scale).toFixed(3)}vh` } as React.CSSProperties}
           >
-            {panes.map((pane) => (
-              <DivisionBox key={pane.name} pane={pane} compact={compact} />
-            ))}
+            <DivisionBox pane={pane} compact={compact} />
           </div>
         </>
       ) : !leaderboard ? (
@@ -965,32 +1024,38 @@ function HighPointBlock({
         <BoardNotice title="High Point">The standings will be back in a moment.</BoardNotice>
       ) : !leaderboard.point_system ? (
         <BoardNotice title="No high point">High point is not being kept at this show.</BoardNotice>
-      ) : (
+      ) : leaderboard.divisions.length === 0 || divisionName === undefined ? (
         <BoardNotice title="High Point">
           Standings start as soon as the first class is judged and its placings are posted.
         </BoardNotice>
+      ) : divisionName === null ? (
+        // Standings are per division; a class in none earns toward no table.
+        <BoardNotice title="High Point">This class is not in a division, so it earns no high point.</BoardNotice>
+      ) : (
+        <BoardNotice title={divisionName}>No high point points have been earned in this division yet.</BoardNotice>
       )}
     </section>
   );
 }
 
-/** The split board's stage: the class on the left, the standings on the
- *  right, an accent rule in a wide gutter between (SPLIT_GAP_U, SPLIT_RULE_U). Each half is keyed on its own turn, so a half
- *  whose list has only one entry stays put while the other turns over. */
+/** The split board's stage: the class on the left, its division's standings on
+ *  the right, an accent rule in a wide gutter between (SPLIT_GAP_U,
+ *  SPLIT_RULE_U). The right half is keyed on the division, so its table stays
+ *  put while that division's classes turn over beside it. */
 function SplitStage({
-  active,
-  activeKey,
-  panes,
-  panesKey,
+  turn,
+  turnKey,
+  anyPosted,
   leaderboard,
   stageU,
   unitVh,
   scale,
 }: {
-  active: Block | null;
-  activeKey: number;
-  panes: DivisionPane[];
-  panesKey: number;
+  turn: SplitTurn | null;
+  turnKey: number;
+  /** Whether any class has been posted today — what tells "waiting on
+   *  results" from a division with standings but no class today. */
+  anyPosted: boolean;
   leaderboard: ShowLeaderboard | null;
   stageU: number;
   unitVh: number;
@@ -1000,8 +1065,12 @@ function SplitStage({
   return (
     <div className="w-full h-full min-h-0 min-w-0 flex">
       <div className="flex-1 min-w-0 min-h-0 flex">
-        {active ? (
-          <ClassBlock key={activeKey} block={active} stageU={halfU} unitVh={unitVh} scale={scale} split />
+        {turn?.block ? (
+          <ClassBlock key={turnKey} block={turn.block} stageU={halfU} unitVh={unitVh} scale={scale} split />
+        ) : anyPosted && turn?.divisionName ? (
+          <BoardNotice key={turnKey} title={turn.divisionName}>
+            No {turn.divisionName} classes have been posted today.
+          </BoardNotice>
         ) : (
           <BoardNotice title="Waiting on results">
             Posted placings will show here as soon as the first class of the day goes up.
@@ -1021,9 +1090,10 @@ function SplitStage({
       />
       <div className="flex-1 min-w-0 min-h-0 flex">
         <HighPointBlock
-          key={panesKey}
+          key={turn?.division ?? -1}
           leaderboard={leaderboard}
-          panes={panes}
+          pane={turn?.pane ?? null}
+          divisionName={turn ? turn.divisionName : undefined}
           stageU={halfU}
           unitVh={unitVh}
           scale={scale}
@@ -1801,9 +1871,8 @@ export default function LiveBoard({
   const split = layout === 'split';
   const boardName = split ? 'Results & High Point' : 'Results Board';
   const [now, setNow] = useState(() => new Date());
-  // Counts turns and never wraps: the split board's two halves each take their
-  // own position off it (`wrap`), since they run through lists of different
-  // lengths.
+  // Counts turns and never wraps: the screen is `wrap(tick, turns)`, so a poll
+  // that adds a class carries on from about where it was.
   const [tick, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -1977,20 +2046,24 @@ export default function LiveBoard({
     return split ? buildSplitBlocks(blocks) : blocks;
   }, [postedToday, groups, split]);
 
-  // The high point half's turns, two standings tables each. The whole show's
-  // standings, not the day's: points add up across every posted class.
-  const divisionSlides = useMemo(() => {
-    if (!split || !leaderboard?.point_system) return [];
-    const panes = leaderboard.divisions.map(
-      (d): DivisionPane => ({ name: d.name, lines: topStandings(d.standings, TOP_PLACES, STANDING_ROWS) }),
-    );
-    return chunk(panes, SPLIT_DIVISIONS);
-  }, [split, leaderboard]);
+  // The split board's screens, a division at a time: each of its classes
+  // beside its standings. The whole show's standings, not the day's: points
+  // add up across every posted class.
+  const splitTurns = useMemo(() => {
+    if (!split) return [];
+    const panes = leaderboard?.point_system
+      ? leaderboard.divisions.map(
+          (d): DivisionPane => ({ name: d.name, lines: topStandings(d.standings, TOP_PLACES, STANDING_ROWS) }),
+        )
+      : [];
+    return buildSplitTurns(slides, panes);
+  }, [split, slides, leaderboard]);
 
-  const turns = Math.max(slides.length, divisionSlides.length);
-  const active = slides.length ? slides[wrap(tick, slides.length)] : null;
-  const panes = divisionSlides.length ? divisionSlides[wrap(tick, divisionSlides.length)] : [];
-  const paneRows = panes.reduce((n, pane) => n + pane.lines.length, 0);
+  const turns = split ? splitTurns.length : slides.length;
+  const turnAt = turns ? wrap(tick, turns) : 0;
+  const turn = split && turns ? splitTurns[turnAt] : null;
+  const active = split ? (turn?.block ?? null) : slides.length ? slides[turnAt] : null;
+  const paneRows = turn?.pane?.lines.length ?? 0;
   // A screen time the office chose is taken exactly, with no pricing and no
   // preset factor on top: somebody who picked "30 sec" is timing it.
   const dwellMs =
@@ -2338,10 +2411,9 @@ export default function LiveBoard({
             <div ref={gridRef} className="w-full h-full min-h-0 flex items-center justify-center">
               {split ? (
                 <SplitStage
-                  active={active}
-                  activeKey={slides.length ? wrap(tick, slides.length) : 0}
-                  panes={panes}
-                  panesKey={divisionSlides.length ? wrap(tick, divisionSlides.length) : 0}
+                  turn={turn}
+                  turnKey={turnAt}
+                  anyPosted={slides.length > 0}
                   leaderboard={leaderboard}
                   stageU={uPx ? gridBox.w / uPx : 0}
                   unitVh={preset.scale * U_VH}
@@ -2349,7 +2421,7 @@ export default function LiveBoard({
                   // the same size and their rows run across on one line.
                   scale={scaleFor(
                     SPLIT_CARDS,
-                    Math.max(active ? blockDepth(active) : 0, ...panes.map((pane) => pane.lines.length)),
+                    Math.max(active ? blockDepth(active) : 0, paneRows),
                   )}
                 />
               ) : active ? (

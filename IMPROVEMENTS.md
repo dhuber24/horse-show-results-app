@@ -2,6 +2,21 @@
 
 ## October 2026
 
+### The Results & High Point board shows one division at a time
+
+- **Both halves of the split board are on the same division.** The right half
+  holds one division's standings while each of that division's classes posted
+  today takes its turn on the left, then both move to the next division
+  together (`buildSplitTurns`). The halves used to turn through their own
+  lists, the standings two tables at a time, so an Amateur class sat beside
+  the Open and Youth tables.
+- **Divisions in the show's own order**, then any division whose classes have
+  earned no points yet, then classes in no division at all. A division with
+  standings but no class today still gets a turn — its table beside "No …
+  classes have been posted today" — since the points are the whole show's.
+- **The standings table is the whole half wide**, and says why when it is
+  missing: no points in this division yet, or a class in no division.
+
 ### The public results hub is every show's page
 
 - **`/shows/[id]` is now the public results hub for everybody, account or
