@@ -389,7 +389,11 @@ Worth knowing before debugging a symptom against the wrong setting.
 - **SMTP is optional and silent.** `mailer.py` returns `None` when `SMTP_HOST`
   is unset and never raises, and every flow that mails a link also returns the
   link. The variables it reads are `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-  `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`.
+  `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_STARTTLS`. Without `SMTP_HOST` a new
+  account's welcome email (`welcome_email.py`) is skipped too — the backend
+  log says "Email not sent … Welcome to GaitDesk" for each one. Set
+  `SMTP_FROM` to a GaitDesk address: unset, mail goes out as `SMTP_USER`, or
+  failing that the placeholder `no-reply@horseshowresults.app`.
 - **`GA_MEASUREMENT_ID` turns Google Analytics on, and only on the web
   service.** Unset — every environment but production — loads no tag at all.
   It is read by the root layout on the server at request time, not baked into
@@ -454,6 +458,66 @@ The steps:
 Nothing in `render.yaml` changes. `generateValue` only fills in a value that is
 missing, so a later sync does not overwrite a rotated one, and the sync's
 `fromService` copy is by then the same new key.
+
+## Email (SMTP)
+
+Mail goes out through [Resend](https://resend.com) over SMTP. Nothing depends
+on it arriving (see "Which variables actually do something"), but without it
+nobody receives a welcome, a horse-access request or an upgrade request.
+
+1. In Resend, **Domains → Add Domain**, `gaitdesk.com`. Copy the records it
+   shows into the domain registrar exactly: DKIM on `resend._domainkey`, and
+   an MX and an SPF TXT on the `send` subdomain. None of them touch the apex's
+   own mail records, so add them beside whatever is already there. Add a
+   `_dmarc` TXT of `v=DMARC1; p=none;` if the domain has none — Gmail and
+   Yahoo look for one. Wait for **Verified**.
+2. **API Keys → Create**, *Sending access*, limited to `gaitdesk.com`. The key
+   (`re_…`) is shown once; it goes straight into 1Password.
+3. Test from a workstation before production. Write the file **in Notepad**
+   (`notepad $HOME\smtp-test.env`), not at the prompt — pasted into PowerShell
+   the `<` in `SMTP_FROM` is a parse error, and a typed key lands in the
+   history file:
+
+   ```
+   SMTP_HOST=smtp.resend.com
+   SMTP_PORT=587
+   SMTP_USER=resend
+   SMTP_PASSWORD=re_…
+   SMTP_FROM=GaitDesk <no-reply@gaitdesk.com>
+   SMTP_STARTTLS=true
+   PUBLIC_APP_URL=https://gaitdesk.com
+   ```
+
+   No quotes round the values. Then, from the repo, with a real address:
+
+   ```powershell
+   docker run --rm --env-file "$HOME\smtp-test.env" -v "${PWD}\backend:/app" -w /app horse-show-results-app-backend:latest python -c "import asyncio, welcome_email; print(asyncio.run(welcome_email.send_welcome_email('you@example.com', 'Test', 'EXHIBITOR')))"
+   ```
+
+   `True` is sent; `False` prints the SMTP error above it. A refused
+   *recipient* (`SMTPRecipientsRefused`) means connection, TLS, login and
+   sender all passed. Delete the file afterwards.
+4. On `gaitdesk-api` only — the web service sends no mail — set `SMTP_HOST`
+   `smtp.resend.com`, `SMTP_USER` `resend`, `SMTP_PASSWORD` the key, and
+   `SMTP_FROM` `GaitDesk <no-reply@gaitdesk.com>`. `SMTP_PORT` (587) and
+   `SMTP_STARTTLS` (true) come from `render.yaml`; check `PUBLIC_APP_URL` is
+   `https://gaitdesk.com`, since every link in a message is built from it.
+
+- **Port 587 with STARTTLS, never 465.** `mailer.py` opens a plain
+  `smtplib.SMTP` connection and upgrades it; 465 is implicit TLS, which that
+  never speaks. Render blocks 25 on every plan and every SMTP port on free.
+- **`SMTP_FROM` is not optional with Resend.** The SMTP username is the
+  literal `resend`, and an unset `SMTP_FROM` falls back to it as the sender,
+  which Resend refuses.
+- **Never put SMTP in a local `.env`.** Every test sign-up and seeded account
+  would mail a made-up address; the bounces count against the domain, and
+  Resend pauses an account whose bounce rate climbs. Unset, the backend logs
+  "Email not sent" instead.
+- **The free plan is 3,000 a month and 100 a day**, and sending pauses at the
+  cap rather than billing over it. A big show's sign-up rush is what would
+  reach the daily one. A failed send is logged on `gaitdesk-api` as "Failed to
+  send email to …" with the SMTP error under it; Resend's **Emails** page lists
+  every message it accepted.
 
 ## Google Analytics
 

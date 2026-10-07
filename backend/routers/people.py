@@ -16,6 +16,7 @@ from routers.horse_access import approval_url, build_access_request, notify_requ
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
 from staff_certifications import plan_certification_changes
+from welcome_email import send_welcome_email
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry, ShowCompanyUpgradeRequest
 from schemas import (
     UserCreate, UserOut,
@@ -176,7 +177,9 @@ async def list_users_by_role(
     return result.scalars().all()
 
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
-async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
+async def create_user(
+    body: UserCreate, background: BackgroundTasks, db: AsyncSession = Depends(get_db)
+):
     _validate_name_parts(body.first_name, body.last_name)
     data = body.model_dump()
     data["email"] = _normalize_email(data["email"])
@@ -190,6 +193,9 @@ async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db)):
         await db.rollback()
         raise HTTPException(409, "Email already registered")
     await db.refresh(user)
+    background.add_task(
+        send_welcome_email, user.email, user.first_name, user.role, set_up_by_staff=True
+    )
     return user
 
 
@@ -204,6 +210,7 @@ class UserWithPasswordCreate(BaseModel):
 @users_router.post("/with-password", response_model=UserOut, status_code=201)
 async def create_user_with_password(
     body: UserWithPasswordCreate,
+    background: BackgroundTasks,
     x_api_key: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
@@ -244,6 +251,9 @@ async def create_user_with_password(
     await _ensure_role_profile(user, db)
     await db.commit()
     await db.refresh(user)
+    background.add_task(
+        send_welcome_email, user.email, user.first_name, user.role, set_up_by_staff=True
+    )
     return user
 
 

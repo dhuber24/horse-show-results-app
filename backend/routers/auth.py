@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ import logging
 from database import get_db
 from models import User, Exhibitor, ShowSecretaryCertification, Association, Trainer
 from show_companies import place_in_company
+from welcome_email import send_welcome_email
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +307,12 @@ async def reset_password_with_security_answer(
 
 @router.post("/register")
 @limiter.limit("5/minute")
-async def register_user(request: Request, body: UserRegister, db: AsyncSession = Depends(get_db)):
+async def register_user(
+    request: Request,
+    body: UserRegister,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
     validate_name_parts(body.first_name, body.last_name)
@@ -332,6 +338,7 @@ async def register_user(request: Request, body: UserRegister, db: AsyncSession =
 
     await db.commit()
     await db.refresh(user)
+    background.add_task(send_welcome_email, user.email, user.first_name, user.role)
 
     return {
         "id": str(user.id),
@@ -346,7 +353,10 @@ async def register_user(request: Request, body: UserRegister, db: AsyncSession =
 @router.post("/register/show-secretary")
 @limiter.limit("5/minute")
 async def register_show_secretary(
-    request: Request, body: ShowSecretaryRegister, db: AsyncSession = Depends(get_db)
+    request: Request,
+    body: ShowSecretaryRegister,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
@@ -382,6 +392,7 @@ async def register_show_secretary(
     await place_in_company(user, db, body.organization_name)
     await db.commit()
     await db.refresh(user)
+    background.add_task(send_welcome_email, user.email, user.first_name, user.role)
 
     return {
         "id": str(user.id),
@@ -396,7 +407,10 @@ async def register_show_secretary(
 @router.post("/register/show-manager")
 @limiter.limit("5/minute")
 async def register_show_manager(
-    request: Request, body: ShowManagerRegister, db: AsyncSession = Depends(get_db)
+    request: Request,
+    body: ShowManagerRegister,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
@@ -419,6 +433,7 @@ async def register_show_manager(
     await place_in_company(user, db, body.organization_name)
     await db.commit()
     await db.refresh(user)
+    background.add_task(send_welcome_email, user.email, user.first_name, user.role)
 
     return {
         "id": str(user.id),
@@ -433,7 +448,10 @@ async def register_show_manager(
 @router.post("/register/trainer")
 @limiter.limit("5/minute")
 async def register_trainer(
-    request: Request, body: TrainerRegister, db: AsyncSession = Depends(get_db)
+    request: Request,
+    body: TrainerRegister,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
@@ -503,6 +521,7 @@ async def register_trainer(
 
     await db.commit()
     await db.refresh(user)
+    background.add_task(send_welcome_email, user.email, user.first_name, user.role)
 
     return {
         "id": str(user.id),

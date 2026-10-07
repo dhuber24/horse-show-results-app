@@ -12,6 +12,7 @@ These are the rules this part of the app keeps and the reasons behind them, move
 | What show staff say they are carded with | `backend/staff_certifications.py` |
 | Post-signup questionnaire for show staff | `frontend/app/welcome/` |
 | May this caller act as an exhibitor | `frontend/lib/exhibitor-access.ts` |
+| The email a new account is sent | `backend/welcome_email.py` |
 
 ## Roles
 
@@ -41,6 +42,9 @@ New Show Secretary, Show Manager, Trainer, and Exhibitor registrations are curre
 - Do not create a `TRAINER` user without also creating or linking the matching `trainers` row.
 - `cert_org_users.Org` uses a capital `O`.
 - Email is best-effort and optional. `backend/mailer.py` returns `None` when `SMTP_HOST` is unset and never raises. Every flow that mails a link must also return that link for copy/paste — an undelivered email must never be the reason a horse can't change hands or a request can't be answered.
+- **Every new account is sent a welcome email — what GaitDesk does for its role, and a few tips to start** (`backend/welcome_email.py`). It goes from all eight paths that create a `users` row: the four sign-up screens, an admin's `POST /users` and `POST /users/with-password` (which a secretary uses for a scribe and a manager for a secretary), an admin giving a registry judge a login, and a scribe or gate steward accepting an invite. Never on a role change, which is not a new account. It is sent **after the commit, as a `BackgroundTasks` task**, so a slow SMTP server never holds up a sign-up and an undelivered welcome changes nothing; it carries no link anybody depends on, and never a password or a token.
+- **An account somebody else made says so in its welcome.** `set_up_by_staff` is passed wherever the password was chosen by whoever made the account: the person has never seen it, and a welcome that only said "sign in" would send them to a login screen they cannot get past. An accepted invite is not that case — the invitee chose their password — and its welcome names the show the invite assigned them to instead.
+- **A role's welcome says only what that role can do today, in the words its screens use** ("My Account", "My Shows", "What I Owe"). The facts and tips are `ROLE_WELCOMES`, one entry per role; when a role's screens change, its entry changes with them. A welcome that promises a screen the role cannot open is the first thing a new user learns not to trust. `test_welcome_email.py` fails for a role in `VALID_ROLES` with no entry, so a new role cannot ship with the generic fallback by accident. Every role is told to set a security question, because `/forgot-password` asks it and without one only an administrator can reset the password.
 
 ## Exhibitor and trainer records
 

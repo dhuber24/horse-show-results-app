@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 import bcrypt
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -40,6 +40,7 @@ from schemas import (
     UserInviteCreateResult,
     UserInviteOut,
 )
+from welcome_email import send_welcome_email
 
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
 
@@ -230,6 +231,7 @@ async def get_invite_by_token(
 async def accept_invite(
     token: str,
     body: UserInviteAcceptBody,
+    background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Public-ish: anyone with a valid token can complete this. Creates a
@@ -237,7 +239,9 @@ async def accept_invite(
     the invite accepted. Idempotent on repeat calls — the second call hits
     the status guard and returns 409."""
     invite_q = await db.execute(
-        select(UserInvite).where(UserInvite.token == token)
+        select(UserInvite)
+        .where(UserInvite.token == token)
+        .options(selectinload(UserInvite.show))
     )
     invite = invite_q.scalar_one_or_none()
     if not invite:
@@ -281,7 +285,13 @@ async def accept_invite(
     invite.status = "accepted"
     invite.accepted_at = _now()
     invite.accepted_user_id = user.id
+    # The welcome names the show the invite assigned them to. Read it before
+    # the refresh below, which expires `invite.show` into a lazy load -- a
+    # MissingGreenlet in an async route. The invitee chose their own password,
+    # so this is not the set-up-by-staff variant.
+    show_name = invite.show.name if invite.show else None
 
     await db.commit()
     await db.refresh(invite)
+    background.add_task(send_welcome_email, user.email, user.first_name, user.role, show_name=show_name)
     return invite

@@ -11,7 +11,7 @@ worked; a typo fix in one show's setup should not silently rewrite the others.
 """
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,6 +21,7 @@ from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
 from models import Association, Judge, User
 from schemas import JudgeCreate, JudgeOut, JudgeUpdate, JudgeUserCreate
+from welcome_email import send_welcome_email
 
 router = APIRouter(prefix="/judges", tags=["Judges"])
 
@@ -133,7 +134,10 @@ async def update_judge(judge_id: UUID, body: JudgeUpdate, db: AsyncSession = Dep
     dependencies=[Depends(require_admin)],
 )
 async def create_judge_user(
-    judge_id: UUID, body: JudgeUserCreate, db: AsyncSession = Depends(get_db)
+    judge_id: UUID,
+    body: JudgeUserCreate,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ):
     """Give a registry judge a login.
 
@@ -185,4 +189,7 @@ async def create_judge_user(
     await db.flush()
     judge.user_id = user.id
     await db.commit()
+    background.add_task(
+        send_welcome_email, user.email, user.first_name, user.role, set_up_by_staff=True
+    )
     return await _fetch(db, judge_id)

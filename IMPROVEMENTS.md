@@ -2,6 +2,23 @@
 
 ## October 2026
 
+### Every new account is sent a welcome email
+
+- **What GaitDesk does for that role, and a few tips to start** — an
+  exhibitor hears about signing up for shows, My Shows and live results and is
+  told to add their horses and memberships first; a gate steward hears about
+  check-in and the undo buttons; a scribe that nothing goes public until the
+  class is posted. Every role is told to set a security question, since
+  without one only an administrator can reset a forgotten password.
+  (`backend/welcome_email.py`)
+- **Sent from every path that makes an account** — the four sign-up screens,
+  an admin or show office making somebody one, an accepted scribe or gate
+  steward invite (which names the show), and a judge's login. An account
+  somebody else made says its password came from them.
+- **Best-effort, after the response.** The account is committed first and the
+  welcome goes out as a background task, so it never slows a sign-up and an
+  undelivered one changes nothing. Nothing is sent without `SMTP_HOST`.
+
 ### The schedule's live badge follows posted results, not the gate alone
 
 - **A class with posted results reads *Done* on the public schedule**, and so
