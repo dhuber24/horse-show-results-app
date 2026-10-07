@@ -2,6 +2,21 @@
 
 ## October 2026
 
+### The schedule's live badge follows posted results, not the gate alone
+
+- **A class with posted results reads *Done* on the public schedule**, and so
+  does every class before a class that has started or finished in the same day
+  and ring — a ring runs in order, so the badge keeps moving when the office
+  posts in batches. The badge read `classes.gate_status` alone, which only the
+  gate screen writes: at a show whose steward started class 1 and then stopped
+  using the gate, class 1 read *In the ring* and class 2 *Up next* all day, and
+  the day's count stayed at "0 complete" while the results went up.
+- **Worked out from what happened, not a per-show switch.** A show may run the
+  gate in the morning and not after lunch, or in one ring and not the other.
+  *In the ring* still comes only from the gate's start button: without a gate
+  nothing says a class has started, and no badge beats a wrong arena.
+  (`lib/class-progress.ts`)
+
 ### The Results & High Point board shows one division at a time
 
 - **Both halves of the split board are on the same division.** The right half

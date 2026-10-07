@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { classProgress, type ClassProgress } from '@/lib/class-progress';
 import { patternFileHref } from '@/lib/patterns';
 
 export type ScheduleClass = {
@@ -11,6 +12,9 @@ export type ScheduleClass = {
   class_date: string;
   status: string;
   gate_status: string;
+  /** Posting a class's results says it has run, as much as the gate saying
+   *  so does — see `lib/class-progress.ts`. No placings are read here. */
+  results_published_at: string | null;
   entry_count: number;
   placed_count: number;
   ring_name: string | null;
@@ -59,20 +63,11 @@ function todayIso(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-const LIVE_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  in_progress: { label: '🟢 In the ring', bg: 'var(--success-border)', text: 'var(--success-strong)' },
+const LIVE_BADGE: Record<ClassProgress, { label: string; bg: string; text: string }> = {
+  in_ring: { label: '🟢 In the ring', bg: 'var(--success-border)', text: 'var(--success-strong)' },
   up_next: { label: 'Up next', bg: 'var(--warning-bg)', text: 'var(--warning)' },
   done: { label: 'Done', bg: 'var(--border-subtle)', text: 'var(--text-deep)' },
 };
-
-/** The gate's on-deck rule, mirrored for display: within a day and ring, the
- *  first class still awaiting the gate (pending/ready) is the one up next. */
-function liveStateFor(cls: ScheduleClass, upNextIds: Set<string>): string | null {
-  if (cls.gate_status === 'in_progress') return 'in_progress';
-  if (cls.gate_status === 'done') return 'done';
-  if (upNextIds.has(cls.id)) return 'up_next';
-  return null;
-}
 
 function entryText(e: ProgramEntry): string {
   return [
@@ -164,18 +159,7 @@ export default function ScheduleBoard({
     return () => clearInterval(timer);
   }, [isLive, router]);
 
-  const upNextIds = useMemo(() => {
-    const seen = new Set<string>();
-    const ids = new Set<string>();
-    for (const c of classes) {
-      if (c.gate_status !== 'pending' && c.gate_status !== 'ready') continue;
-      const key = `${c.class_date}|${c.ring_name ?? ''}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      ids.add(c.id);
-    }
-    return ids;
-  }, [classes]);
+  const progress = useMemo(() => classProgress(classes), [classes]);
 
   // One lowercase haystack per class covering the class itself and everyone
   // entered in it, so a spectator can search by horse, exhibitor, owner or
@@ -239,7 +223,7 @@ export default function ScheduleBoard({
   ]);
 
   const dayClasses = classes.filter(c => c.class_date === activeDay);
-  const dayDone = dayClasses.filter(c => c.gate_status === 'done').length;
+  const dayDone = dayClasses.filter(c => progress.get(c.id) === 'done').length;
 
   // Both filters can be on at once, so the summary and empty state name
   // whichever combination is actually active rather than assuming one.
@@ -408,7 +392,7 @@ export default function ScheduleBoard({
             )}
             <ul className="space-y-2">
               {group.items.map(cls => {
-                const live = isLive ? liveStateFor(cls, upNextIds) : null;
+                const live = isLive ? progress.get(cls.id) : undefined;
                 const badge = live ? LIVE_BADGE[live] : null;
                 const isOpen = !!expanded[cls.id];
                 const isFav = favorites.has(cls.id);
