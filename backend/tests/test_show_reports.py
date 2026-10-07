@@ -157,6 +157,44 @@ def test_a_posted_class_carries_the_identifiers_the_association_asks_for():
     assert row["judge"] == "Pat Hale"
 
 
+def test_a_results_row_carries_its_class_and_entry_but_does_not_print_them():
+    """The page's *My classes* filter matches on them; a column would put two
+    UUIDs on a sheet the office forwards to an association."""
+    report = build_report("results", a_record())
+    row = report["rows"][0]
+
+    assert row["class_id"] == str(CLASS_A)
+    assert row["entry_id"] == str(ENTRY_ONE)
+    assert not {"class_id", "entry_id"} & {c["key"] for c in report["columns"]}
+
+
+def test_every_results_filter_reads_keys_the_rows_carry():
+    """Declared beside the columns so a renamed key cannot leave a filter
+    silently matching nothing."""
+    report = build_report("results", a_record())
+    row_keys = set(report["rows"][0])
+
+    assert {f["key"] for f in report["filters"]} == {
+        "my_classes", "name", "back_number", "horse", "class",
+    }
+    for spec in report["filters"]:
+        assert set(spec["columns"]) <= row_keys, spec["key"]
+
+
+def test_a_back_number_filter_matches_the_whole_number():
+    """Back number 14 must not find 142 — the page compares it exactly."""
+    report = build_report("results", a_record())
+    back = next(f for f in report["filters"] if f["key"] == "back_number")
+
+    assert back["match"] == "exact"
+
+
+def test_a_report_with_nothing_to_filter_declares_no_filters():
+    report = build_report("class-summary", a_record())
+
+    assert report.get("filters", []) == []
+
+
 def test_a_panel_lists_the_same_horse_once_per_card():
     """The app does not combine cards into one official placing — that is a
     rules decision, and the report says so rather than picking a winner."""

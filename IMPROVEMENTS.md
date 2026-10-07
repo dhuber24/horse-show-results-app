@@ -2,6 +2,33 @@
 
 ## October 2026
 
+### Results can be filtered by name, back number, horse and class — and to your own classes
+
+- **The public Results page and the Show Results report filter the same way.**
+  Four fields — Name, Back #, Horse, Class — and, for a signed-in exhibitor, a
+  **🐴 My classes** toggle. Both read them through `lib/results-filter.ts`, so
+  "Back # 14" cannot mean one thing at the rail and another in the office.
+- **Every field filled in must match the same placing.** "Name: Reed, Horse:
+  Dusty" finds the class Ann Reed showed Dusty Gold in. The single search box
+  the Results page had matched across the whole class, so it also found a
+  class where Reed rode one horse and somebody else rode Dusty. A **back number
+  is matched whole** (14 does not find 142), and a number in the other fields
+  matches a whole number, so class "12" does not list 112 and 120.
+- **My classes lists every class the reader is in, posted or still to come,
+  with their own placing under each** — one line per judge's card. It matches
+  on the entry, so `results-index` now carries `entry_id` (already public on
+  the class results payload). A `WITHDRAWN` entry no longer counts as one of
+  the reader's classes, here or on the schedule and patterns pages
+  (`lib/my-class-ids.ts`).
+- **On the report the filters narrow the page and nothing else.** The registry
+  declares them beside the columns (`show_reports._filter`, `ReportOut.filters`);
+  the rows carry `class_id` and `entry_id` without printing them. CSV and Print
+  take the filtered rows, and a filtered copy says so — above the table, on
+  paper, in the CSV and in its file name — so part of the show's record is
+  never forwarded as the whole of it. An office user with an exhibitor record
+  gets My classes there too. (`components/FilteredReport.tsx`,
+  `components/ResultsFilterBar.tsx`)
+
 ### Every new account is sent a welcome email
 
 - **What GaitDesk does for that role, and a few tips to start** — an

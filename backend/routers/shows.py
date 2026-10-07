@@ -304,6 +304,7 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
             Result.is_tie,
             Result.outcome,
             Result.outcome_note,
+            Entry.id,
             Entry.back_number,
             Entry.exhibitor_id,
             Entry.horse_id,
@@ -337,6 +338,7 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
         is_tie,
         outcome,
         outcome_note,
+        entry_id,
         entry_bn,
         exhibitor_id,
         horse_id,
@@ -354,6 +356,11 @@ async def get_results_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
                 # has to say which.
                 "outcome": outcome or "placed",
                 "outcome_note": outcome_note,
+                # Already public on the class results payload. The Results
+                # page's *My classes* filter matches it against the reader's own
+                # entries — how it picks their placing out of a class without
+                # guessing from a name.
+                "entry_id": str(entry_id),
                 "back_number": numbers.resolve(exhibitor_id, horse_id, entry_bn),
                 "exhibitor_name": exhibitor_name,
                 "horse_name": horse_name,

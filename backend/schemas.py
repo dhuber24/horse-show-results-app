@@ -4293,6 +4293,15 @@ class ReportDefinitionOut(BaseModel):
     description: str
 
 
+class ReportFilterOut(BaseModel):
+    """A way the page may narrow a report — see `show_reports._filter`."""
+    key: str
+    label: str
+    # Row keys the filter reads; a hidden key (not a column) is allowed.
+    columns: list[str]
+    match: Literal["words", "exact", "my_classes"] = "words"
+
+
 class ReportOut(BaseModel):
     slug: str
     title: str
@@ -4307,6 +4316,8 @@ class ReportOut(BaseModel):
     # Column key → cents, rendered as a footer row when present.
     totals: dict[str, Any] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+    # Empty for a report the page offers no filter on.
+    filters: list[ReportFilterOut] = Field(default_factory=list)
 
 
 # ── Registration desk ──────────────────────────────────────────────────────────

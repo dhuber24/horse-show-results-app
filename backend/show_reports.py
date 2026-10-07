@@ -40,6 +40,19 @@ def _col(key: str, label: str, *, money: bool = False, right: bool = False) -> d
     }
 
 
+def _filter(key: str, label: str, columns: list[str], *, match: str = "words") -> dict:
+    """A way to narrow a report on the page, declared beside the columns it
+    reads so the two cannot drift apart.
+
+    `match` is how the page compares: `words` — every word typed appears in one
+    of `columns`; `exact` — the whole value, so back number 14 does not find
+    142; `my_classes` — a toggle, true where the row's `columns[0]` is one of
+    the reader's own classes. A filter narrows what is on screen and nothing
+    else: the report is built and served whole either way.
+    """
+    return {"key": key, "label": label, "columns": columns, "match": match}
+
+
 def _dash(value) -> str:
     """An empty cell that reads as empty. A blank looks like a rendering fault
     in a table somebody is going to print and post."""
@@ -121,6 +134,10 @@ def _results(record: dict) -> dict:
                 record["judges_by_id"].get(result["judge_id"], {}).get("sort_order", 0),
                 result["place"] if result["place"] is not None else 9999,
             ),
+            # Not columns, so neither drawn nor exported — what the page's
+            # *My classes* filter matches the reader's own entries against.
+            "class_id": str(result["class_id"]),
+            "entry_id": str(result["entry_id"]),
             "class_number": cls["class_number"],
             "class_name": cls["class_name"],
             "class_code": _dash(cls["association_class_code"]),
@@ -169,6 +186,14 @@ def _results(record: dict) -> dict:
         "rows": rows,
         "totals": {},
         "notes": notes,
+        # The public Results page offers the same four, and the same toggle.
+        "filters": [
+            _filter("my_classes", "My classes", ["class_id"], match="my_classes"),
+            _filter("name", "Name", ["exhibitor"]),
+            _filter("back_number", "Back #", ["back_number"], match="exact"),
+            _filter("horse", "Horse", ["horse"]),
+            _filter("class", "Class", ["class_number", "class_name", "class_code"]),
+        ],
     }
 
 

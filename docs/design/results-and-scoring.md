@@ -20,6 +20,7 @@ These are the rules this part of the app keeps and the reasons behind them, move
 | Pattern screens (office, exhibitor) | `frontend/app/admin/shows/[id]/patterns/`, `frontend/app/shows/[id]/patterns/` |
 | Reading a placing that may not exist | `backend/placings.py` |
 | Show-record report registry | `backend/show_reports.py` |
+| Filtering results (Results page, Show Results report) | `frontend/lib/results-filter.ts`, `frontend/components/ResultsFilterBar.tsx`, `frontend/components/FilteredReport.tsx` |
 
 ## Results, one card per judge
 
@@ -53,6 +54,15 @@ These are the rules this part of the app keeps and the reasons behind them, move
 - The results bulk save is **delete-all-then-insert-all within one judge's card**, so two in flight can interleave and lose a score. `useAutosave` keeps one request at a time and queues the next; anything else calling that endpoint on a timer needs the same care. The `judge_id` on the request envelope is what scopes the delete — omit it and the save lands on the unattributed card rather than the judge's, which looks like the placings vanishing.
 - Reading results as staff requires **passing auth headers** — `fetchResults(showId, classId, headers?)`. The endpoint returns `[]` for an unposted class to an anonymous caller, which is the gate working; a staff screen that forgets the headers silently renders an empty card over a real draft.
 - `result_audit`: placing change history (placement classes only — derived placings are not audited, and **only once the class is published**). `new_place`/`old_place` may be NULL since migration 121, which is what an entry moving into or out of a non-placed outcome looks like.
+
+## Finding results: the filters
+
+- **The public Results page and the Show Results report filter the same way, through one module.** Name, Back #, Horse and Class, plus a *My classes* toggle for a signed-in exhibitor, matched by `frontend/lib/results-filter.ts` on both and drawn by `components/ResultsFilterBar.tsx`. Two copies of the matching is how "Back # 14" would come to find 142 in the office and not at the rail.
+- **Every field filled in must match the same placing.** The Results page had one search box matched against everything in a class, so "reed dusty" found a class where Reed rode one horse and somebody else rode Dusty Gold. A field per question is the only way to say "this person on this horse".
+- **A back number is matched whole** (`matchesWhole`: 14 does not find 142; a typed `#` is ignored), and **a number typed in any other field matches a whole number** (`matchesWords`: class "12" finds 12 and 12A, not 112). Substring matching listed every class with the digit in it.
+- **My classes is the reader's own entries, read off the dashboard endpoint** (`fetchMyShowEntries` in `lib/my-class-ids.ts`), minus `WITHDRAWN` ones. It lists every class they are in, posted or not — which of mine are still to come is half the question — and under each posted one their own placing, one line per judge's card. It matches on `entry_id`, carried on `results-index` for this (already public on the class results payload), never on a name, which two exhibitors can share. Offered only to an account with an exhibitor record, like the schedule's Registered filter: anybody else has no classes, so the toggle would be dead.
+- **A report's filters are declared by the registry, beside its columns** (`show_reports._filter`, served as `ReportOut.filters`), so a renamed column cannot leave a filter matching nothing (`test_every_results_filter_reads_keys_the_rows_carry`). A filter may read a row key that is not a column: the results rows carry `class_id` and `entry_id` for *My classes* without printing two UUIDs on a sheet the office forwards. `components/FilteredReport.tsx` renders any show report and offers whatever it declares — none, for every report but Show Results.
+- **A filter narrows the page, not the report.** The report is built and served whole; CSV and Print take the rows on screen, because printing one exhibitor's results is the reason to filter. **A filtered copy says it is one** — a *Filtered —* line above the table that prints, a `Filtered:` line in the CSV and `-filtered` in its file name — since a part of the show's record forwarded as the whole of it is the failure the publish gate and the report notes exist to prevent.
 
 ## Patterns
 
