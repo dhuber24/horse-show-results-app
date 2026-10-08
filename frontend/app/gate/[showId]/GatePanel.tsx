@@ -789,14 +789,22 @@ export default function GatePanel({ showId, classes: initialClasses }: { showId:
                       Undo start
                     </button>
                   )}
+                  {/* Finishing a class finishes the classes in the ring ahead
+                      of it, so the last of a group run together closes them all. */}
                   <button
                     onClick={finishClass}
                     disabled={busy}
-                    title="For the last class in the ring, or a break — otherwise starting the next class closes this one"
+                    title={
+                      inRingAhead.length > 0
+                        ? `Marks ${numbers([...inRingAhead, selectedClass])} done together`
+                        : 'For the last class in the ring, or a break — otherwise starting the next class closes this one'
+                    }
                     className="text-xs px-3 py-1 rounded border disabled:opacity-50"
                     style={{ borderColor: 'var(--success-border)', color: 'var(--success-strong)', backgroundColor: 'var(--surface)' }}
                   >
-                    Mark class done
+                    {inRingAhead.length > 0
+                      ? `Mark ${numbers([...inRingAhead, selectedClass])} done`
+                      : 'Mark class done'}
                   </button>
                 </span>
               </div>

@@ -2,6 +2,14 @@
 
 ## October 2026
 
+### Marking the last of a group done finishes the group
+
+- **Mark class done finishes the classes in the ring ahead of it**, the way a
+  start does (`gate_rules.closed_by_finish`). It finished only the class
+  tapped, so marking the second of two classes run together done left the
+  first in the ring. The button now names them: "Mark #4 & #5 done". Marking
+  the first of a group done still leaves the later ones running.
+
 ### The gate checks riders in ahead, takes no-shows, and runs classes together
 
 - **A no-show button** (`entries.gate_no_show`, migration 162). One rider who

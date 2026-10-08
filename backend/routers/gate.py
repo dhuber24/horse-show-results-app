@@ -413,7 +413,9 @@ async def set_gate_class_status(
     Starting a class finishes every class in the ring ahead of it -- the
     steward starts the next class when it goes in, and the one before is over.
     `concurrent` starts it alongside them instead, for classes that run
-    together; the next ordinary start then finishes the whole group.
+    together; the next ordinary start then finishes the whole group. Marking a
+    class done likewise finishes the classes in the ring ahead of it, so the
+    last of a group marked done finishes the group.
 
     Answers with the gate's class list, so the screen sees every class a start
     closed without a second request.
@@ -429,6 +431,9 @@ async def set_gate_class_status(
 
     if body.gate_status == "in_progress" and not gate_rules.started(class_):
         for ahead in gate_rules.closed_by_start(class_, lane, body.concurrent):
+            ahead.gate_status = "done"
+    if body.gate_status == "done" and class_.gate_status == "in_progress":
+        for ahead in gate_rules.closed_by_finish(class_, lane):
             ahead.gate_status = "done"
 
     # Ready is derived, never stored: a class goes back to `pending`.

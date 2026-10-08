@@ -20,7 +20,9 @@ steward may check riders in for any class that has not started.
 ring (two age divisions judged as one go), so a start may instead be
 *concurrent*: it leaves the classes in the ring running, and the next ordinary
 start closes the whole group. Nothing records the group -- it is simply the
-classes in progress in the ring.
+classes in progress in the ring. Marking a class done closes the classes in
+the ring ahead of it the same way, so the last of a group marked done closes
+the group.
 
 Every function takes the ring's day (a *lane*) **already in running order**,
 which is how the router queries it; nothing here sorts.
@@ -185,4 +187,12 @@ def closed_by_start(cls, lane_: Sequence, concurrent: bool) -> list:
     whole group that ran together. A concurrent start finishes none of them."""
     if concurrent:
         return []
+    return in_ring(_ahead(lane_, cls))
+
+
+def closed_by_finish(cls, lane_: Sequence) -> list:
+    """The classes that finish with `cls`: every class in the ring ahead of it
+    still in progress. A ring runs in order, so a later class over means the
+    ones before it are over -- marking the second of two classes run together
+    done finishes the first. Classes after it are left running."""
     return in_ring(_ahead(lane_, cls))

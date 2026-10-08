@@ -18,6 +18,7 @@ from uuid import uuid4
 from gate_rules import (
     Tally,
     check_in_refusal,
+    closed_by_finish,
     closed_by_start,
     gate_status,
     is_ready,
@@ -203,6 +204,17 @@ def test_a_start_never_reaches_into_another_ring():
 def test_a_running_class_can_always_be_marked_done():
     running, later = make_class("12", "in_progress"), make_class("13")
     assert transition_refusal(running, "done", [running, later], READY) is None
+
+
+def test_marking_the_last_of_a_group_done_finishes_the_group():
+    first, second = make_class("12", "in_progress"), make_class("13", "in_progress")
+    done = make_class("11", "done")
+    assert closed_by_finish(second, [done, first, second]) == [first]
+
+
+def test_marking_the_first_of_a_group_done_leaves_the_rest_running():
+    first, second = make_class("12", "in_progress"), make_class("13", "in_progress")
+    assert closed_by_finish(first, [first, second]) == []
 
 
 def test_an_empty_class_on_deck_can_be_skipped():
