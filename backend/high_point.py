@@ -242,9 +242,16 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         Class.results_published_at.isnot(None),
     )
 
+    # Class size is the horses shown: neither a scratch nor a no-show at the
+    # gate (migration 162) went into the ring.
     size_rows = await db.execute(
         select(Class.id, func.count(Entry.id))
-        .outerjoin(Entry, (Entry.class_id == Class.id) & (Entry.status != "WITHDRAWN"))
+        .outerjoin(
+            Entry,
+            (Entry.class_id == Class.id)
+            & (Entry.status != "WITHDRAWN")
+            & Entry.gate_no_show.is_(False),
+        )
         .where(*posted)
         .group_by(Class.id)
     )

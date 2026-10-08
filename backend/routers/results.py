@@ -413,9 +413,13 @@ async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: Async
     if not required:
         return
 
+    # A no-show at the gate (migration 162) is not a horse the card could
+    # place: the scribe screen does not even list one.
     entry_count = await db.scalar(
         select(func.count(Entry.id)).where(
-            Entry.class_id == class_.id, Entry.status == "ENTERED"
+            Entry.class_id == class_.id,
+            Entry.status == "ENTERED",
+            Entry.gate_no_show.is_(False),
         )
     ) or 0
     judge_ids = list((await db.execute(

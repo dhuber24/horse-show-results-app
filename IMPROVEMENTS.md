@@ -2,6 +2,40 @@
 
 ## October 2026
 
+### The gate checks riders in ahead, takes no-shows, and runs classes together
+
+- **A no-show button** (`entries.gate_no_show`, migration 162). One rider who
+  never came to the gate held a class at pending for good: the start button
+  only appeared once everybody was checked in, so the steward checked in
+  somebody who was not there or reset the class. A no-show counts as
+  accounted for. **It is not a scratch** — the entry stays entered and on the
+  bill; scratching stays with the office and the exhibitor.
+- **No-shows and scratches are off the scribe's card**, unless the rider
+  already has a placing (the autosave replaces a whole card, so an unlisted
+  placed rider would lose it). Scratches were listed on the scribe screens
+  until now. Neither counts toward a high-point chart's class size or the APHA
+  placing-depth check before posting.
+- **Riders can be checked in for any class still to run**, not just the one on
+  deck — and any number of classes can be ready. **Ready is worked out from
+  the riders, never stored** (`backend/gate_rules.py`): a rider the office adds
+  to a ready class puts it back to pending, and a scratch of the last rider
+  still to come makes it ready, without anybody touching the gate. It used to
+  be stored by the check-in endpoint, the only thing that recomputed it.
+- **Classes run in order.** Only a ring's on-deck class can start, enforced on
+  the server, which used to accept a start on any class.
+- **Starting a class closes the class ahead of it** — no prompt. **Run with**
+  starts the on-deck class alongside the classes already in the ring, for
+  classes that run as one go, and the next ordinary start closes the whole
+  group. The group is just the classes in progress in the ring, so nothing new
+  is stored. The schedule's live badge shows every one of them *In the ring*
+  (`lib/class-progress.ts`).
+- **The gate screen refreshes itself every 10 seconds** (paused while hidden),
+  without painting over a tap still saving, and **a tap that did not reach the
+  server now says so** — check-in used to fail silently on a dropped signal.
+  Each rider saves on their own, so a line of riders checks in without
+  waiting on each tap. The skip confirmation is inline rather than a modal.
+- New design doc: `docs/design/gate.md`.
+
 ### Results can be filtered by name, back number, horse and class — and to your own classes
 
 - **The public Results page and the Show Results report filter the same way.**

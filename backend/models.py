@@ -1549,6 +1549,11 @@ class Entry(Base):
     is_disqualified = Column(Boolean, nullable=False, server_default="false")
     gate_order = Column(Integer, nullable=True)
     gate_checked_in = Column(Boolean, nullable=False, server_default="false")
+    # The steward called for this rider and they did not come (migration 162).
+    # Not a scratch -- the entry stays ENTERED and on the bill -- but the scribe
+    # does not list it, and it does not count toward class size. Never true
+    # together with `gate_checked_in`; see `backend/gate_rules.py`.
+    gate_no_show = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (

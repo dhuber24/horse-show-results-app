@@ -53,7 +53,7 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 | `SHOW_MANAGER` | Requests and manages hosted shows; can assign show secretaries and scribes |
 | `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration |
 | `SCRIBE` | Enters placings for assigned shows |
-| `GATE_STEWARD` | Runs the warm-up side of the in-gate for assigned shows: per-class order-of-go, exhibitor check-in at the gate, and class gate progression (pending → ready → in progress → done). Admins, Show Managers, and Show Secretaries can also perform gate functions |
+| `GATE_STEWARD` | Runs the warm-up side of the in-gate for assigned shows: per-class order-of-go, checking riders in or marking them no-shows for any class still to run, and starting each class in running order — alone, or alongside the classes in the ring when they run together. Never scratches an entry. Admins, Show Managers, and Show Secretaries can also perform gate functions. See `docs/design/gate.md` |
 | `EXHIBITOR` | Views own entries/results and manages profile/horses |
 | `TRAINER` | Manages a linked trainer registry profile used on horse records |
 

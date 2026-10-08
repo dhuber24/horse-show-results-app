@@ -61,16 +61,28 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
     cls?.judging_system_id ?? null,
   );
 
+  // The scribe sees the riders who went into the ring: a scratch (the office's
+  // or the exhibitor's) and a no-show at the gate (migration 162) are off the
+  // card. Except a rider who already has a placing on some card — the form
+  // autosaves a judge's whole card, so a placed rider it did not list would
+  // have that placing deleted on the next save. Such a rider stays, labelled.
+  const placed = new Set<string>((results ?? []).map((r: any) => String(r.entry_id)));
+  const riders = entries.filter(
+    (entry: any) => (entry.status !== 'WITHDRAWN' && !entry.gate_no_show) || placed.has(String(entry.id)),
+  );
+
   const apiHeaders = { 'X-API-Key': process.env.INTERNAL_API_KEY || '' };
   const enriched = await Promise.all(
-    entries.map(async (entry: any) => {
+    riders.map(async (entry: any) => {
       const [exhibitor, horse] = await Promise.all([
         fetchExhibitor(entry.exhibitor_id, apiHeaders),
         entry.horse_id ? fetchHorse(entry.horse_id, apiHeaders) : Promise.resolve(null),
       ]);
+      const offCard =
+        entry.status === 'WITHDRAWN' ? ' (scratched)' : entry.gate_no_show ? ' (no-show at the gate)' : '';
       return {
         ...entry,
-        exhibitorName: exhibitor.full_name,
+        exhibitorName: `${exhibitor.full_name}${offCard}`,
         horseName: horse?.name ?? '—',
         is_disqualified: entry.is_disqualified ?? false,
       };

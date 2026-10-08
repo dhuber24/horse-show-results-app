@@ -2308,6 +2308,7 @@ class EntryOut(BaseModel):
     is_disqualified: bool = False
     gate_order: Optional[int] = None
     gate_checked_in: bool = False
+    gate_no_show: bool = False
     created_at: datetime
 
     class Config:
@@ -2783,6 +2784,7 @@ class GateEntryOut(BaseModel):
     is_disqualified: bool
     gate_order: Optional[int]
     gate_checked_in: bool
+    gate_no_show: bool = False
 
 
 class GateOrderBody(BaseModel):
@@ -2790,7 +2792,20 @@ class GateOrderBody(BaseModel):
 
 
 class GateCheckInBody(BaseModel):
+    """Where a rider stands at the gate: checked in, a no-show, or neither.
+
+    Both false puts the rider back to waiting. `no_show` defaults to False so a
+    screen that only knows about check-in (a stale service-worker copy) still
+    sends a body this accepts.
+    """
     checked_in: bool
+    no_show: bool = False
+
+    @model_validator(mode="after")
+    def _not_both(self):
+        if self.checked_in and self.no_show:
+            raise ValueError("A rider cannot be both checked in and a no-show.")
+        return self
 
 
 class GateCheckInResult(BaseModel):
@@ -2802,6 +2817,10 @@ class GateCheckInResult(BaseModel):
 
 class GateClassStatusBody(BaseModel):
     gate_status: Literal["pending", "ready", "in_progress", "done"]
+    # Starting a class closes the classes in the ring ahead of it. True starts
+    # it alongside them instead -- two or more classes run together -- and the
+    # next ordinary start closes the whole group.
+    concurrent: bool = False
 
 
 # ── Results ────────────────────────────────────────────────────────────────────

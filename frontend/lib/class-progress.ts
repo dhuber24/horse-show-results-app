@@ -14,14 +14,19 @@
  *
  * - **Done**: the gate marked it done, or its results are posted — the same
  *   test `class_completed` in `backend/self_entry.py` applies — **or a later
- *   class in the same day and ring has started or finished.** A ring runs its
- *   classes in order, so a posted class 7 means classes 1 to 6 are over, posted
- *   or not. That is what keeps the badge moving when the office posts in
- *   batches, and what clears a start the steward never marked done.
- * - **In the ring**: started at the gate, nothing posted, nothing after it
- *   under way. Only the gate says a class has *started*; without one there is
- *   no honest way to know, so no class reads "In the ring" rather than a guess
- *   that sends somebody to the wrong arena.
+ *   class in the same day and ring has finished.** A ring runs its classes in
+ *   order, so a posted class 7 means classes 1 to 6 are over, posted or not.
+ *   That is what keeps the badge moving when the office posts in batches, and
+ *   what clears a start the steward never marked done. A class never started
+ *   at the gate is also done once a later one has *started*.
+ * - **In the ring**: started at the gate, and nothing after it finished.
+ *   **Several classes in one ring can be in the ring at once** — classes that
+ *   run together, which the gate starts alongside each other — so a later
+ *   class *starting* does not end one already going; the gate's own start
+ *   closes the classes ahead of it when they are not running together. Only
+ *   the gate says a class has *started*; without one there is no honest way
+ *   to know, so no class reads "In the ring" rather than a guess that sends
+ *   somebody to the wrong arena.
  * - **Up next**: the first class in its day and ring after everything above.
  *
  * Every lane — a day in one ring — is read in the order it is handed over,
@@ -56,15 +61,19 @@ export function classProgress(classes: ProgressClass[]): Map<string, ClassProgre
 
   const progress = new Map<string, ClassProgress>();
   for (const lane of lanes.values()) {
-    // The furthest class the ring is known to have reached.
+    // The furthest class the ring is known to have reached, and the furthest
+    // it is known to have finished.
     let reached = -1;
+    let lastFinished = -1;
     lane.forEach((c, i) => {
+      if (finished(c)) lastFinished = i;
       if (finished(c) || c.gate_status === 'in_progress') reached = i;
     });
 
     lane.forEach((c, i) => {
-      if (i < reached || finished(c)) progress.set(c.id, 'done');
-      else if (i === reached) progress.set(c.id, 'in_ring');
+      if (finished(c) || i < lastFinished) progress.set(c.id, 'done');
+      else if (c.gate_status === 'in_progress') progress.set(c.id, 'in_ring');
+      else if (i < reached) progress.set(c.id, 'done');
     });
 
     const next = lane[reached + 1];

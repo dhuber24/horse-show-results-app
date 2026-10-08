@@ -1,10 +1,11 @@
 """Gate management — the warm-up side of the in-gate.
 
 A GATE_STEWARD assigned to a show manages the order-of-go for each class
-(who enters the ring next and when), checks exhibitors in at the gate, and
-marks classes done as the show progresses. Waiting / on-deck are class-level
-concepts derived from show order: the first non-done class is in progress,
-the one after it is on deck.
+(who enters the ring next and when), checks riders in or marks them no-shows
+for any class not yet started, and starts each class as it goes in -- which
+closes the classes ahead of it, or runs it alongside them. The rules
+themselves -- ready, on deck, what may start and what a start closes -- are
+in `backend/gate_rules.py`.
 
 Read/write access: ADMIN, or an assigned Gate Steward / Show Secretary /
 Show Manager for the show. Everything here is operational state — it never
@@ -15,10 +16,11 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+import gate_rules
 from backnumbers import ShowBackNumbers, back_numbers_for_show, resolve_back_number, sort_key
 from database import get_db
 from dependencies import INTERNAL_API_KEY, safe_uuid
@@ -28,6 +30,7 @@ from models import (
     Show,
     ShowGateSteward,
 )
+from routers.classes import list_classes
 from show_access import works_show
 from schemas import (
     ClassPatternPost,
@@ -84,7 +87,61 @@ def _serialize_entry(e: Entry, numbers: ShowBackNumbers | None = None) -> dict:
         "is_disqualified": e.is_disqualified,
         "gate_order": e.gate_order,
         "gate_checked_in": e.gate_checked_in,
+        "gate_no_show": e.gate_no_show,
     }
+
+
+async def _tallies(show_id: UUID, db: AsyncSession) -> dict[UUID, gate_rules.Tally]:
+    """Every class's check-in tally, in one query. A class with no riders is
+    absent; read it as an empty `Tally()`."""
+    rows = await db.execute(
+        select(
+            Entry.class_id,
+            func.count(Entry.id),
+            func.count(Entry.id).filter(Entry.gate_checked_in.is_(True), Entry.gate_no_show.is_(False)),
+            func.count(Entry.id).filter(Entry.gate_no_show.is_(True)),
+        )
+        .join(Class, Class.id == Entry.class_id)
+        .where(Class.show_id == show_id, Entry.status != "WITHDRAWN")
+        .group_by(Entry.class_id)
+    )
+    return {
+        class_id: gate_rules.Tally(entries=entries, checked_in=checked_in, no_show=no_show)
+        for class_id, entries, checked_in, no_show in rows.all()
+    }
+
+
+async def _class_tally(class_id: UUID, db: AsyncSession) -> gate_rules.Tally:
+    result = await db.execute(select(Entry).where(Entry.class_id == class_id))
+    return gate_rules.tally(result.scalars().all())
+
+
+async def _show_classes(show_id: UUID, db: AsyncSession) -> list[Class]:
+    """The show's classes in running order -- the order every lane is read in,
+    and the one `GET /shows/{id}/classes/` hands the screens."""
+    result = await db.execute(
+        select(Class)
+        .where(Class.show_id == show_id)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+    return list(result.scalars().all())
+
+
+async def _gate_classes(show_id: UUID, db: AsyncSession) -> list[dict]:
+    """The class list the gate screen reads: the public class payload, with
+    `gate_status` derived (ready is never stored) and the check-in counts."""
+    rows = await list_classes(show_id, db)
+    tallies = await _tallies(show_id, db)
+    out = []
+    for row in rows:
+        t = tallies.get(row["id"], gate_rules.Tally())
+        out.append({
+            **row,
+            "gate_status": gate_rules.gate_status(row["gate_status"], t),
+            "checked_in_count": t.checked_in,
+            "no_show_count": t.no_show,
+        })
+    return out
 
 
 async def _load_class_entries(
@@ -115,6 +172,23 @@ async def _load_class_entries(
         )
     )
     return entries, numbers
+
+
+@router.get("/classes")
+async def list_gate_classes(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The show's classes as the gate sees them: the public class payload, with
+    ready derived and each class's check-in counts. The gate screen polls this,
+    so a rider the office adds or scratches reaches the steward on its own."""
+    await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    if not await db.get(Show, show_id):
+        raise HTTPException(404, "Show not found")
+    return await _gate_classes(show_id, db)
 
 
 @router.get("/classes/{class_id}/entries", response_model=list[GateEntryOut])
@@ -170,36 +244,19 @@ async def set_gate_check_in(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Check an exhibitor in (or undo it). Only allowed for the on-deck
-    class — the first not-yet-started class of the day in its ring. The class
-    flips between pending and ready automatically: checking in the last
-    exhibitor makes it ready, un-checking someone on a ready class drops it
-    back to pending."""
+    """Check a rider in, mark them a no-show, or put them back to waiting.
+
+    Open for every class not yet started -- the steward works down the day as
+    riders arrive, not only the class on deck. Closed once a class is in the
+    ring. Whether the class is ready is derived from these two flags (see
+    `gate_rules`), so nothing here writes the class.
+    """
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
 
-    if class_.gate_status not in ("pending", "ready"):
-        raise HTTPException(409, "Check-in is closed — this class has already started or finished.")
-    ring_cond = (
-        Class.ring_id.is_(None) if class_.ring_id is None else Class.ring_id == class_.ring_id
-    )
-    on_deck_q = await db.execute(
-        select(Class)
-        .where(
-            Class.show_id == show_id,
-            Class.class_date == class_.class_date,
-            ring_cond,
-            Class.gate_status.in_(("pending", "ready")),
-        )
-        .order_by(Class.sort_order.nulls_last(), Class.class_number)
-    )
-    on_deck = on_deck_q.scalars().first()
-    if on_deck is not None and on_deck.id != class_.id:
-        raise HTTPException(
-            409,
-            f"Check-in is only open for the on-deck class "
-            f"(#{on_deck.class_number} {on_deck.class_name}).",
-        )
+    refusal = gate_rules.check_in_refusal(class_)
+    if refusal:
+        raise HTTPException(409, refusal)
 
     result = await db.execute(
         select(Entry)
@@ -210,17 +267,14 @@ async def set_gate_check_in(
     if not entry:
         raise HTTPException(404, "Entry not found")
     entry.gate_checked_in = body.checked_in
-
-    if class_.gate_status in ("pending", "ready"):
-        all_entries, _ = await _load_class_entries(class_id, db, show_id)
-        all_in = len(all_entries) > 0 and all(e.gate_checked_in for e in all_entries)
-        class_.gate_status = "ready" if all_in else "pending"
+    entry.gate_no_show = body.no_show
 
     await db.commit()
+    tally = await _class_tally(class_id, db)
     back_numbers = await back_numbers_for_show(show_id, db)
     return {
         "entry": _serialize_entry(entry, back_numbers),
-        "class_gate_status": class_.gate_status,
+        "class_gate_status": gate_rules.gate_status(class_.gate_status, tally),
     }
 
 
@@ -323,20 +377,26 @@ async def reset_gate_class(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Full gate reset for a class: clears every exhibitor's check-in and
-    returns the class to pending. Recovery hatch for steward mistakes."""
+    """Clears every rider's check-in and no-show on a class not yet started.
+    Recovery hatch for steward mistakes; a started class is put back with
+    undo start or reopen instead, which keep the ring's order."""
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
+    refusal = gate_rules.reset_refusal(class_)
+    if refusal:
+        raise HTTPException(409, refusal)
     entries, _ = await _load_class_entries(class_id, db, show_id)
     for e in entries:
         e.gate_checked_in = False
+        e.gate_no_show = False
+    # Ready is derived now; `pending` also clears a `ready` an older row stored.
     class_.gate_status = "pending"
     await db.commit()
     entries, back_numbers = await _load_class_entries(class_id, db, show_id)
     return [_serialize_entry(e, back_numbers) for e in entries]
 
 
-@router.patch("/classes/{class_id}/status", status_code=204)
+@router.patch("/classes/{class_id}/status")
 async def set_gate_class_status(
     show_id: UUID,
     class_id: UUID,
@@ -346,37 +406,32 @@ async def set_gate_class_status(
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Moves a class through the gate lifecycle. Only one class per ring can
-    be in progress at a time: starting a class while another is running in
-    the same ring returns 409 with the conflicting class so the UI can ask
-    the steward whether the previous class has finished."""
+    """Moves a class through the gate: start, finish, skip, undo a start, or
+    reopen. Which of those a request is follows from where the class is now;
+    what each may do is `gate_rules.transition_refusal`, answered with a 409.
+
+    Starting a class finishes every class in the ring ahead of it -- the
+    steward starts the next class when it goes in, and the one before is over.
+    `concurrent` starts it alongside them instead, for classes that run
+    together; the next ordinary start then finishes the whole group.
+
+    Answers with the gate's class list, so the screen sees every class a start
+    closed without a second request.
+    """
     await _assert_gate_access(show_id, x_api_key, x_user_id, x_user_role, db)
     class_ = await _get_class_or_404(show_id, class_id, db)
 
-    if body.gate_status == "in_progress":
-        if class_.ring_id is None:
-            # Every class needs a ring; older rows may pre-date the default.
-            from routers.classes import _get_or_create_default_ring
-            class_.ring_id = await _get_or_create_default_ring(show_id, db)
-        conflict_q = await db.execute(
-            select(Class).where(
-                Class.show_id == show_id,
-                Class.ring_id == class_.ring_id,
-                Class.gate_status == "in_progress",
-                Class.id != class_.id,
-            )
-        )
-        other = conflict_q.scalars().first()
-        if other:
-            raise HTTPException(409, {
-                "message": (
-                    f"Class #{other.class_number} {other.class_name} is still "
-                    "in progress in this ring."
-                ),
-                "conflict_class_id": str(other.id),
-                "conflict_class_number": other.class_number,
-                "conflict_class_name": other.class_name,
-            })
+    lane = gate_rules.lane(await _show_classes(show_id, db), class_)
+    tally = await _class_tally(class_id, db)
+    refusal = gate_rules.transition_refusal(class_, body.gate_status, lane, tally, body.concurrent)
+    if refusal:
+        raise HTTPException(409, refusal)
 
-    class_.gate_status = body.gate_status
+    if body.gate_status == "in_progress" and not gate_rules.started(class_):
+        for ahead in gate_rules.closed_by_start(class_, lane, body.concurrent):
+            ahead.gate_status = "done"
+
+    # Ready is derived, never stored: a class goes back to `pending`.
+    class_.gate_status = "pending" if body.gate_status == "ready" else body.gate_status
     await db.commit()
+    return await _gate_classes(show_id, db)

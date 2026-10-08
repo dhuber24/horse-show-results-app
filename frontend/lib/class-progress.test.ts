@@ -39,6 +39,31 @@ describe('a show that runs the gate', () => {
   it('puts the first class up next before anything has run', () => {
     expect(badges([cls('1'), cls('2')])).toEqual({ 1: 'up_next', 2: undefined });
   });
+
+  it('shows classes run together as all in the ring', () => {
+    // The steward started class 2 alongside class 1 — one go, two classes.
+    expect(badges([
+      cls('1', { gate_status: 'in_progress' }),
+      cls('2', { gate_status: 'in_progress' }),
+      cls('3'),
+    ])).toEqual({ 1: 'in_ring', 2: 'in_ring', 3: 'up_next' });
+  });
+
+  it('ends the group once one of it is posted after the rest', () => {
+    expect(badges([
+      cls('1', { gate_status: 'in_progress' }),
+      cls('2', { gate_status: 'in_progress', results_published_at: POSTED }),
+      cls('3'),
+    ])).toEqual({ 1: 'done', 2: 'done', 3: 'up_next' });
+  });
+
+  it('counts a class the gate never started as run once a later one starts', () => {
+    expect(badges([
+      cls('1'),
+      cls('2', { gate_status: 'in_progress' }),
+      cls('3'),
+    ])).toEqual({ 1: 'done', 2: 'in_ring', 3: 'up_next' });
+  });
 });
 
 describe('a show that only posts results', () => {
