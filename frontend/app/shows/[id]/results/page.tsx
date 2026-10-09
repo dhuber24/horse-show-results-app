@@ -23,7 +23,12 @@ export default async function ShowResultsPage({ params }: { params: Promise<{ id
       ? fetchMyShowEntries(id, (session!.user as { id: string }).id)
       : Promise.resolve(null),
   ]);
-  const visible = classes.filter((c: any) => c.status !== 'DRAFT');
+  // A class nobody is entered in has no results coming, so it is left off
+  // Awaiting Results rather than sitting there as Pending for the whole show.
+  // A posted class stays even if every entry has since been withdrawn.
+  const visible = classes.filter(
+    (c: any) => c.status !== 'DRAFT' && (c.placed_count > 0 || c.entry_count > 0),
+  );
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
