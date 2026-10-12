@@ -63,8 +63,10 @@ param(
 
     # How long the backup branch lives before Neon deletes it. Long enough to
     # notice a bad migration; short enough that backups do not pile up against
-    # the plan's branch limit.
-    [int]$BackupDays = 14,
+    # the plan's branch limit (10 included on Launch, $1.50/month each past
+    # that). Seven days matches the project's point-in-time restore window:
+    # within a week, history can restore to any moment, not only the release.
+    [int]$BackupDays = 7,
 
     # Release a migration the scanner called backward-incompatible. This means a
     # deliberate outage window; see Step 2b of the release skill first.
