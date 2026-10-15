@@ -1,112 +1,36 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import QrCode from '@/components/QrCode';
 import Ribbon from '@/components/Ribbon';
 import { errorMessage } from '@/lib/api-error';
 import type { Marquee, MarqueeMode } from '@/lib/api';
 import { formatPoints, topStandings, type ShowLeaderboard, type StandingLine } from '@/lib/high-point';
+import {
+  BoardCanvas,
+  BoardControls,
+  BoardHeader,
+  BoardNotice,
+  BoardRoot,
+  CONTROL_BUTTON,
+  ControlRule,
+  FillPrompt,
+} from '../_components/BoardChrome';
+import { BoardSetupPage, HubHeading, ScreenPicker } from '../_components/BoardSetup';
+import { useBoxSize } from '../_components/hooks';
+import { U_VH, clamp, c, u, wrap, type SizeKey } from '../_components/units';
+import { useBoardScreen } from '../_components/useBoardScreen';
 
-/* ───────────────────────────────────────────────────────────────────────────
-   Sizing this for anything from 24" to 75".
+/* Sizing — the two units, the three presets and why the size is asked rather
+   than measured — is shared by every board: `../_components/units.ts`. So is
+   everything a board does as a screen (`useBoardScreen`): full screen, a
+   monitor extended or duplicated, the fade-in controls. What is here is the
+   results themselves. */
 
-   Those two ends want opposite layouts, and what separates them is not
-   something the browser can measure. Both panels are almost always 1920x1080,
-   and a 4K TV usually reports 1920 CSS pixels too. What differs is how far
-   away the reader stands — four feet at a desk, thirty across a lobby — and
-   the sign-maker's rule is about an inch of letter height per ten feet of it.
-   So the same pixel grid needs letters four or five times taller in the hall,
-   which means four or five times fewer of them on screen.
-
-   No API reports a diagonal. So the board asks, on the Results Board page it
-   opens onto, and carries the answer in the URL (`?size=`) — never in the
-   browser's storage. A remembered size skipped the pages in front of the
-   board on every later visit, and those are where the marquee is set and the
-   gate board will be chosen, so the Live Screens button has to land on them
-   every time. The URL still survives a reload of the TV's browser, and a link
-   with `?size=` on it can still be bookmarked for one particular screen.
-   Everything else derives from the answer:
-
-     --u    one unit, for the results. Expressed in `vh` so the layout follows
-            the panel rather than its pixel count — a 1080p and a 4K screen of
-            the same size lay out identically — times the preset's scale.
-     --uc   the same unit compressed for chrome. See `chrome` below.
-
-   Every measurement is a multiple of one of those two: type, badges, gutters,
-   ticker speed, and how large the placings are drawn. One answer re-proportions
-   the whole board together, instead of a dozen font sizes drifting apart.
-   ─────────────────────────────────────────────────────────────────────────── */
-
-const U_VH = 1.7;
-
-type SizeKey = 'desk' | 'room' | 'hall';
-
-const PRESETS: Record<
-  SizeKey,
-  {
-    label: string;
-    inches: string;
-    distance: string;
-    blurb: string;
-    icon: string;
-    /** Multiplier on --u. Tracks viewing distance, not diagonal. */
-    scale: number;
-    /** --uc is --u times this. The show name, the clock and the ticker are
-     *  context a room learns once; the placings are what it is actually
-     *  reading from thirty feet. Scaling both together let the furniture eat
-     *  two thirds of a lobby screen, so the further off the board is, the more
-     *  the chrome gives back to the results. */
-    chrome: number;
-    /** Reading is slower at distance, so each screen is held longer. */
-    dwell: number;
-    /** Percentage inset for TV overscan, which still crops a few percent on
-     *  plenty of sets. A desk monitor has none, so it gets none. */
-    safe: number;
-  }
-> = {
-  desk: {
-    label: 'Desk monitor',
-    inches: '24"–32"',
-    distance: 'Read from 3–8 ft',
-    blurb: 'On a desk, or a wall you can reach. Shows the most.',
-    icon: '🖥️',
-    scale: 1,
-    chrome: 1,
-    dwell: 1,
-    safe: 0,
-  },
-  room: {
-    label: 'Room TV',
-    inches: '40"–55"',
-    distance: 'Read from 8–20 ft',
-    blurb: 'Ring-side, or on the office wall for the room.',
-    icon: '📺',
-    scale: 1.4,
-    chrome: 0.85,
-    dwell: 1.2,
-    safe: 1.5,
-  },
-  hall: {
-    label: 'Lobby TV',
-    inches: '60"–75"+',
-    distance: 'Read from 20–40 ft',
-    blurb: 'Across a lobby or an arena. Few placings, very large.',
-    icon: '🏟️',
-    scale: 1.85,
-    chrome: 0.72,
-    dwell: 1.45,
-    safe: 2.5,
-  },
-};
-
-const SIZE_ORDER: SizeKey[] = ['desk', 'room', 'hall'];
-
-function parseSize(value: string | null): SizeKey | null {
-  return value && value in PRESETS ? (value as SizeKey) : null;
-}
+/** Named, so opening the board a second time reuses its window rather than
+ *  stacking another one onto the TV. Both results boards share it. */
+const BOARD_WINDOW = 'gaitdesk-results-board';
 
 /* Layout constants. ROW_U, JUDGE_HEAD_U and CLASS_HEAD_UC are pinned as
    explicit heights on the elements themselves, so the arithmetic deciding what
@@ -170,13 +94,6 @@ const TOP_PLACES = 5;
 function topPlacings(rows: Placing[]): Placing[] {
   return rows.filter((r) => r.place != null && r.place <= TOP_PLACES);
 }
-
-/** Results sizes: u(2.6) -> calc(var(--u) * 2.6) */
-const u = (n: number) => `calc(var(--u) * ${n})`;
-/** Chrome sizes, off the compressed unit. */
-const c = (n: number) => `calc(var(--uc) * ${n})`;
-
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 interface ClassItem {
   id: string;
@@ -329,31 +246,6 @@ function everyLabel(seconds: number) {
 function parseEvery(value: string | null): number | null {
   const n = Number(value);
   return value && EVERY_CHOICES.includes(n) ? n : null;
-}
-
-/** Observes an element's content box. A callback ref rather than an object
- *  one, because the stage remounts on every slide and the observer has to
- *  follow it. */
-function useBoxSize() {
-  const [box, setBox] = useState({ w: 0, h: 0 });
-  const observer = useRef<ResizeObserver | null>(null);
-
-  const ref = useCallback((node: HTMLElement | null) => {
-    observer.current?.disconnect();
-    observer.current = null;
-    if (!node) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      setBox((prev) =>
-        Math.abs(prev.w - width) < 1 && Math.abs(prev.h - height) < 1 ? prev : { w: width, h: height },
-      );
-    });
-    ro.observe(node);
-    observer.current = ro;
-  }, []);
-
-  useEffect(() => () => observer.current?.disconnect(), []);
-  return [ref, box] as const;
 }
 
 /* ── Pieces ─────────────────────────────────────────────────────────────── */
@@ -640,27 +532,6 @@ function ClassBlock({
         ))}
       </div>
     </section>
-  );
-}
-
-/** Where the stage has nothing to show yet: no class posted, no points. */
-function BoardNotice({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex-1 min-w-0 flex flex-col items-center justify-center text-center">
-      <div className="font-semibold" style={{ fontSize: u(3), color: 'var(--on-slate)' }}>
-        {title}
-      </div>
-      <p
-        style={{
-          fontSize: u(1.6),
-          marginTop: u(0.8),
-          maxWidth: u(34),
-          color: 'var(--on-slate-muted)',
-        }}
-      >
-        {children}
-      </p>
-    </div>
   );
 }
 
@@ -1213,180 +1084,6 @@ function Ticker({ items, ucPx }: { items: TickerItem[]; ucPx: number }) {
   );
 }
 
-/** Browser full screen for the board.
- *
- *  The page is already a `fixed inset-0` panel, so this is not about layout —
- *  it is about the browser's own chrome. A board dragged onto a lobby TV sits
- *  under a tab strip and an address bar until somebody presses this, and
- *  whoever set it up is usually not the person standing next to the TV with a
- *  keyboard to find F11 on. */
-function useFullscreen() {
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  // An iPhone has no full screen for a page at all, and asking somebody to
-  // press a button that cannot work is worse than not asking.
-  const [canFullscreen, setCanFullscreen] = useState(false);
-  // Between asking and the browser answering. A duplicated board asks on the
-  // very press that starts it, and without this the *Fill the screen* prompt
-  // would flash up for the frame or two before the answer arrives.
-  const [requesting, setRequesting] = useState(false);
-
-  useEffect(() => {
-    setCanFullscreen(document.fullscreenEnabled === true);
-    const onChange = () => setIsFullscreen(document.fullscreenElement != null);
-    onChange();
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
-
-  const enter = useCallback(() => {
-    const root = document.documentElement;
-    if (document.fullscreenElement || typeof root.requestFullscreen !== 'function') return;
-    // A refused request — an iframe with no `allow`, a gesture the browser did
-    // not count — rejects rather than throwing, and the board carries on
-    // exactly as it was.
-    setRequesting(true);
-    void Promise.resolve(root.requestFullscreen())
-      .catch(() => {})
-      .finally(() => setRequesting(false));
-  }, []);
-
-  const toggle = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => {});
-    } else {
-      enter();
-    }
-  }, [enter]);
-
-  return { isFullscreen, canFullscreen, requesting, enter, toggle };
-}
-
-/** Keeps the display awake while a duplicated board runs.
- *
- *  A tablet on the back of a monitor locks itself after a couple of minutes of
- *  nobody touching it, and the mirrored monitor goes dark with it — the board
- *  is a page nobody touches, by design. The browser drops the lock whenever
- *  the page is hidden, so it is taken again each time the page comes back.
- *  Refused (battery saver, a browser without the API), the board runs exactly
- *  as before. */
-function useWakeLock(on: boolean) {
-  useEffect(() => {
-    if (!on || !('wakeLock' in navigator)) return;
-    let sentinel: WakeLockSentinel | null = null;
-    let asking = false;
-    let stopped = false;
-
-    const acquire = async () => {
-      if (stopped || asking || document.visibilityState !== 'visible') return;
-      if (sentinel && !sentinel.released) return;
-      asking = true;
-      try {
-        const next = await navigator.wakeLock.request('screen');
-        if (stopped) void next.release().catch(() => {});
-        else sentinel = next;
-      } catch {
-        // Refused. Nothing to do but carry on.
-      } finally {
-        asking = false;
-      }
-    };
-
-    void acquire();
-    document.addEventListener('visibilitychange', acquire);
-    return () => {
-      stopped = true;
-      document.removeEventListener('visibilitychange', acquire);
-      if (sentinel && !sentinel.released) void sentinel.release().catch(() => {});
-    };
-  }, [on]);
-}
-
-/* ── On a monitor ──────────────────────────────────────────────────────────
-   Two ways a monitor plugged into a laptop or tablet can show the board:
-   extended, where the board gets the monitor to itself in a window of its own
-   (`openOnSecondScreen`, `?popout=1`) and this screen stays free; or
-   duplicated, where the monitor mirrors this screen — the only thing a tablet
-   mounted on the back of a TV can do — so the board runs in this tab and fills
-   it (`?duplicate=1`). Either way it is only right full screen, and a browser
-   goes full screen only on a press in that window, so a board that is not
-   asks for one. */
-
-const FILL_PROMPT = {
-  extend: {
-    button: '⛶ Fill this screen',
-    note: 'The results board, on its own screen. The laptop or tablet it came from stays free.',
-    keep: 'Keep it in a window',
-  },
-  duplicate: {
-    button: '⛶ Fill the screen',
-    note: 'The monitor shows this screen, so the board fills both.',
-    keep: 'Keep the browser showing',
-  },
-};
-
-// The Window Management API (Chrome and Edge on desktop), which is what lets a
-// page find a monitor plugged into the laptop and put a window on it. Not in
-// TypeScript's DOM library yet, so the few members used are declared here.
-type ScreenDetailed = {
-  availLeft: number;
-  availTop: number;
-  availWidth: number;
-  availHeight: number;
-  label?: string;
-};
-type ScreenDetails = { screens: ScreenDetailed[]; currentScreen: ScreenDetailed };
-
-/** Named, so opening the board a second time reuses its window rather than
- *  stacking another one onto the TV. */
-const BOARD_WINDOW = 'gaitdesk-results-board';
-
-type SecondScreenResult =
-  | { kind: 'blocked' }
-  | { kind: 'placed'; win: Window; screen: string | null }
-  | { kind: 'window'; win: Window; reason: 'unsupported' | 'refused' | 'no-second-screen' };
-
-/**
- * Open the running board in a window of its own, on the monitor attached to
- * this laptop or tablet where the browser can find one.
- *
- * The window opens **first**, while the press still counts as a user gesture —
- * asking for screen access can put up a permission prompt, and by the time it
- * is answered the gesture has expired and a popup would be blocked. It is then
- * moved onto the other screen and sized to fill it. A browser without the API,
- * a refused permission, or a display set to mirror all leave the window open
- * here to be dragged across.
- */
-async function openOnSecondScreen(url: string): Promise<SecondScreenResult> {
-  const win = window.open(url, BOARD_WINDOW, 'popup,width=1280,height=720');
-  if (!win) return { kind: 'blocked' };
-
-  const getScreenDetails = (window as Window & { getScreenDetails?: () => Promise<ScreenDetails> })
-    .getScreenDetails;
-  if (!getScreenDetails) return { kind: 'window', win, reason: 'unsupported' };
-
-  let details: ScreenDetails;
-  try {
-    details = await getScreenDetails.call(window);
-  } catch {
-    return { kind: 'window', win, reason: 'refused' };
-  }
-  // Any screen but the one this page is on, largest first: with a TV and a
-  // small second monitor both plugged in, the TV is the likelier target.
-  const others = details.screens
-    .filter((s) => s !== details.currentScreen)
-    .sort((a, b) => b.availWidth * b.availHeight - a.availWidth * a.availHeight);
-  const target = others[0];
-  if (!target) return { kind: 'window', win, reason: 'no-second-screen' };
-
-  try {
-    win.moveTo(target.availLeft, target.availTop);
-    win.resizeTo(target.availWidth, target.availHeight);
-  } catch {
-    return { kind: 'window', win, reason: 'refused' };
-  }
-  return { kind: 'placed', win, screen: target.label || null };
-}
-
 const MARQUEE_MODES: { key: MarqueeMode; label: string; hint: string }[] = [
   {
     key: 'results',
@@ -1594,44 +1291,9 @@ function MarqueeEditor({ showId, marquee }: { showId: string; marquee: Marquee }
   );
 }
 
-function HubHeading({ title, note }: { title: string; note?: string }) {
-  return (
-    <div style={{ marginBottom: '1.4vh' }}>
-      <h2 className="font-bold" style={{ fontSize: 'max(18px, 2.8vh)', color: 'var(--on-slate)' }}>
-        {title}
-      </h2>
-      {note && (
-        <p
-          style={{
-            fontSize: 'max(13px, 1.8vh)',
-            color: 'var(--on-slate-muted)',
-          }}
-        >
-          {note}
-        </p>
-      )}
-    </div>
-  );
-}
-
 /** The Results Board page — reached from Live Screens, and where the board
- *  opens onto when it is not running. How big the panel is, and what the
- *  marquee says.
- *
- *  The size question is worded as where the screen is and how far away the
- *  reader stands, not as a diagonal: nobody setting up a lobby TV knows whether
- *  it is 58" or 65", and the distance is what actually decides the layout.
- *
- *  Same dark panel as the board and sized off `vh` like it, because it is
- *  usually opened on the TV's own browser — but it scrolls, and every size has
- *  a px floor, because the marquee is as likely to be changed from a phone in
- *  the office while a board runs somewhere else.
- *
- *  **Or on a monitor plugged in**, duplicated or extended — see the note above
- *  `FILL_PROMPT`. Extended, a laptop or tablet with a TV plugged in does not
- *  have to give its own screen up to the board: choosing *Extend screen* opens
- *  the board in a window of its own on the attached monitor
- *  (`openOnSecondScreen`), and this page stays here, free for the desk. */
+ *  opens onto when it is not running. How big the panel is (the shared
+ *  `ScreenPicker`), and what the marquee says. */
 function ResultsBoardSetup({
   showId,
   showName,
@@ -1652,200 +1314,19 @@ function ResultsBoardSetup({
   initialDuplicate: boolean;
   onPick: (k: SizeKey, duplicate: boolean) => void;
 }) {
-  const card = {
-    padding: '2.4vh',
-    backgroundColor: 'var(--slate-raised)',
-    border: '0.2vh solid var(--on-slate-muted)',
-    color: 'var(--on-slate)',
-  } as const;
-
-  const [target, setTarget] = useState<'here' | 'duplicate' | 'second'>(initialDuplicate ? 'duplicate' : 'here');
-  const [opened, setOpened] = useState<SecondScreenResult | null>(null);
-
-  const pick = async (key: SizeKey) => {
-    if (target !== 'second') {
-      onPick(key, target === 'duplicate');
-      return;
-    }
-    // The screen time and anything else in the query travel with the board.
-    const q = new URLSearchParams(window.location.search);
-    q.set('size', key);
-    q.set('popout', '1');
-    q.delete('duplicate');
-    setOpened(await openOnSecondScreen(`${window.location.pathname}?${q.toString()}`));
-  };
-
-  const openedNote =
-    opened == null
-      ? null
-      : opened.kind === 'blocked'
-        ? 'The browser blocked the board’s window. Allow pop-ups for this site, then pick the size again.'
-        : opened.kind === 'placed'
-          ? `The board is running on ${opened.screen ? `“${opened.screen}”` : 'the second screen'}. Move the mouse onto it and press Fill this screen. This one stays free — close the board’s window to stop it.`
-          : opened.reason === 'no-second-screen'
-            ? 'No second screen was found, so the board opened in a window here. Check the display is set to extend, not mirror, then drag the window across and press Fill this screen.'
-            : 'The board opened in its own window. Drag it onto the second screen and press Fill this screen — this one stays free.';
-
-  const seg = (on: boolean) =>
-    ({
-      fontSize: 'max(14px, 1.9vh)',
-      padding: '0.9vh 1.6vh',
-      backgroundColor: on ? 'var(--accent)' : 'var(--slate-raised)',
-      color: on ? 'var(--accent-foreground)' : 'var(--on-slate-muted)',
-      border: '0.2vh solid var(--on-slate-muted)',
-    }) as const;
-
-  const targets = [
-    { key: 'here', label: 'This screen', title: undefined },
-    {
-      key: 'duplicate',
-      label: 'Duplicate screen',
-      title:
-        'A monitor showing the same picture as this tablet or laptop. The board fills this screen, so it fills the monitor too.',
-    },
-    {
-      key: 'second',
-      label: 'Extend screen',
-      title:
-        'A TV or monitor plugged into this laptop or tablet. The board gets its own window there, and this screen stays free.',
-    },
-  ] as const;
-
   return (
-    <div className="absolute inset-0 overflow-y-auto">
-      <div className="mx-auto flex flex-col" style={{ maxWidth: '150vh', padding: '4vh 16px', gap: '3.6vh' }}>
-        <header className="flex items-end justify-between flex-wrap" style={{ gap: '1.4vh' }}>
-          <div className="min-w-0">
-            <h1 className="font-bold" style={{ fontSize: 'max(24px, 4.2vh)', color: 'var(--on-slate)' }}>
-              {title}
-            </h1>
-            <p className="truncate" style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>
-              {showName}
-            </p>
-          </div>
-          <Link
-            href={`/admin/shows/${showId}/board`}
-            className="hover:underline"
-            style={{ fontSize: 'max(14px, 1.9vh)', color: 'var(--accent-light)' }}
-          >
-            ← Live Screens
-          </Link>
-        </header>
+    <BoardSetupPage showId={showId} showName={showName} title={title} notice={notice}>
+      <ScreenPicker windowName={BOARD_WINDOW} initialDuplicate={initialDuplicate} onPick={onPick} />
 
-        {notice && (
-          <p
-            role="status"
-            className="rounded-lg"
-            style={{
-              fontSize: 'max(14px, 1.9vh)',
-              padding: '1.4vh 1.8vh',
-              backgroundColor: 'var(--slate-raised)',
-              border: '0.2vh solid var(--warning)',
-              color: 'var(--on-slate)',
-            }}
-          >
-            {notice}
-          </p>
-        )}
-
-        <section>
-          <HubHeading
-            title="Where is this screen?"
-            note="A browser is never told how big its screen is, and a lobby TV needs letters several times taller than a desk monitor. Pick one and the board starts."
-          />
-          <div className="flex flex-wrap items-center" style={{ gap: '1vh', marginBottom: '2vh' }} role="group" aria-label="Which screen shows the board">
-            {targets.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => {
-                  setTarget(t.key);
-                  setOpened(null);
-                }}
-                aria-pressed={target === t.key}
-                className="rounded-lg font-semibold"
-                style={seg(target === t.key)}
-                title={t.title}
-              >
-                {t.label}
-              </button>
-            ))}
-            {target !== 'here' && (
-              <span style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--on-slate-muted)' }}>
-                {target === 'duplicate'
-                  ? 'The monitor shows the same picture as this tablet or laptop. Pick the monitor’s size below.'
-                  : 'The one plugged into this laptop or tablet, set to extend the display.'}
-              </span>
-            )}
-          </div>
-          {openedNote && (
-            <p
-              role="status"
-              className="rounded-lg"
-              style={{
-                fontSize: 'max(14px, 1.9vh)',
-                padding: '1.2vh 1.6vh',
-                marginBottom: '2vh',
-                backgroundColor: 'var(--slate-raised)',
-                color: opened?.kind === 'blocked' ? 'var(--warning)' : 'var(--on-slate)',
-              }}
-            >
-              {openedNote}
-            </p>
-          )}
-          <div className="grid grid-cols-1 sm:grid-cols-3" style={{ gap: '2vh' }}>
-            {SIZE_ORDER.map((key, i) => {
-              const p = PRESETS[key];
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => void pick(key)}
-                  className="rounded-xl text-left transition hover:brightness-125"
-                  style={card}
-                >
-                  <div style={{ fontSize: 'max(28px, 4.4vh)' }} aria-hidden>
-                    {p.icon}
-                  </div>
-                  <div className="font-bold" style={{ fontSize: 'max(18px, 2.6vh)', marginTop: '0.8vh' }}>
-                    {p.label}
-                  </div>
-                  <div style={{ fontSize: 'max(14px, 2vh)', color: 'var(--accent-light)' }}>{p.inches}</div>
-                  <div style={{ fontSize: 'max(13px, 1.8vh)', marginTop: '0.6vh', color: 'var(--on-slate-muted)' }}>
-                    {p.distance}
-                  </div>
-                  <div style={{ fontSize: 'max(13px, 1.7vh)', marginTop: '1.1vh', color: 'var(--on-slate-muted)' }}>
-                    {p.blurb}
-                  </div>
-                  <div style={{ fontSize: 'max(12px, 1.5vh)', marginTop: '1.1vh', color: 'var(--on-slate-muted)' }}>
-                    {/* The number keys start the board on this screen, never
-                        duplicated or on the second screen. */}
-                    {target === 'here'
-                      ? `Press ${i + 1}`
-                      : target === 'duplicate'
-                        ? 'Fills this screen and the monitor'
-                        : 'Opens on the second screen'}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        <section>
-          <HubHeading title="Marquee" note="What scrolls along the bottom of the board." />
-          <MarqueeEditor showId={showId} marquee={marquee} />
-        </section>
-      </div>
-    </div>
+      <section>
+        <HubHeading title="Marquee" note="What scrolls along the bottom of the board." />
+        <MarqueeEditor showId={showId} marquee={marquee} />
+      </section>
+    </BoardSetupPage>
   );
 }
 
 /* ── The board ──────────────────────────────────────────────────────────── */
-
-/** `i` wrapped into 0..n-1, negatives included — the rotation's clock only
- *  counts up (or down, stepping back), and each list takes its own turn off it. */
-const wrap = (i: number, n: number) => ((i % n) + n) % n;
 
 export default function LiveBoard({
   showId,
@@ -1870,137 +1351,47 @@ export default function LiveBoard({
 }) {
   const split = layout === 'split';
   const boardName = split ? 'Results & High Point' : 'Results Board';
-  const [now, setNow] = useState(() => new Date());
   // Counts turns and never wraps: the screen is `wrap(tick, turns)`, so a poll
   // that adds a class carries on from about where it was.
   const [tick, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
 
-  // The size is the URL's `?size=` and nothing else — no size, and this is the
-  // Results Board page. See the note at the top of the file for why it is never
-  // kept in the browser's storage. The screen time rides beside it as
-  // `?every=`, for the same reasons: it belongs to this screen, it has to
-  // survive the TV's browser reloading, and it must not follow the office to
-  // the next show.
-  const searchParams = useSearchParams();
-  const size = parseSize(searchParams.get('size'));
-  const every = parseEvery(searchParams.get('every'));
-  // Started for a monitor from the Results Board page: extended, in a window of
-  // its own on the monitor, or duplicated, in this tab on a tablet or laptop
-  // the monitor mirrors. See the note above FILL_PROMPT.
-  const popout = searchParams.get('popout') === '1';
-  const duplicate = searchParams.get('duplicate') === '1';
-  const fillPrompt = popout ? FILL_PROMPT.extend : duplicate ? FILL_PROMPT.duplicate : null;
-  const [keepWindowed, setKeepWindowed] = useState(false);
-
-  // Nothing renders until mounted: the board is laid out from the window's
-  // height and shows a clock, and neither exists on the server. Rendering
-  // them there would be a wrong-scale frame and a hydration mismatch.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
+  const step = useCallback((delta: number) => {
+    setPaused(true); // stepping by hand means you want to look at it
+    setTick((i) => i + delta);
   }, []);
 
-  const [vh, setVh] = useState(0);
-  const [gridRef, gridBox] = useBoxSize();
-
-  const {
-    isFullscreen,
-    canFullscreen,
-    requesting: fullscreenRequested,
-    enter: enterFullscreen,
-    toggle: toggleFullscreen,
-  } = useFullscreen();
-
-  useWakeLock(size !== null && duplicate);
-
-  // Controls and cursor surface on movement and go away again, so the board
-  // spends its life as a board rather than a web page with buttons on it.
-  const [chrome, setChrome] = useState(false);
-  const chromeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Held open while the screen-time menu has focus: the browser draws that
-  // menu itself, so moving the mouse over it reaches no handler here, and the
-  // controls would fade out from under a choice being made.
-  const chromePinned = useRef(false);
-  const wake = useCallback(() => {
-    setChrome(true);
-    if (chromeTimer.current) clearTimeout(chromeTimer.current);
-    chromeTimer.current = setTimeout(() => {
-      if (!chromePinned.current) setChrome(false);
-    }, 3000);
-  }, []);
-
-  // Written with the History API, which Next folds into its router, so
-  // `useSearchParams` follows it with no server round trip. Only the keys
-  // named change; the rest of the query stays, so the screen time survives a
-  // trip to the Results Board page and back.
-  const setQuery = useCallback((changes: Record<string, string | null>, how: 'push' | 'replace') => {
-    const q = new URLSearchParams(window.location.search);
-    for (const [key, value] of Object.entries(changes)) {
-      if (value == null) q.delete(key);
-      else q.set(key, value);
-    }
-    const qs = q.toString();
-    const url = `${window.location.pathname}${qs ? `?${qs}` : ''}`;
-    if (how === 'push') window.history.pushState(null, '', url);
-    else window.history.replaceState(null, '', url);
-  }, []);
-
-  // From the Results Board page, starting the board is a new history entry, so
-  // Back returns to the page. Changing size on a running board replaces the
-  // entry instead, so Back does not step through every size somebody tried.
-  const choose = useCallback(
-    (k: SizeKey, how: 'push' | 'replace') => setQuery({ size: k }, how),
-    [setQuery],
-  );
-
-  // Starting from the Results Board page. Duplicated, full screen is asked for
-  // on the press that starts the board, while the press still counts as one:
-  // this screen *is* the monitor, and a tab strip and address bar across the
-  // top of a lobby TV is the first thing the room would read.
-  const start = useCallback(
-    (k: SizeKey, dup: boolean) => {
-      if (dup) enterFullscreen();
-      setKeepWindowed(false);
-      setQuery({ size: k, duplicate: dup ? '1' : null }, 'push');
+  // Space pauses and the arrows step, on a running board. The keys every
+  // board takes — the sizes and full screen — are `useBoardScreen`'s.
+  const onBoardKey = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        e.preventDefault();
+        setPaused((p) => !p);
+      } else if (e.key === 'ArrowRight') {
+        step(1);
+      } else if (e.key === 'ArrowLeft') {
+        step(-1);
+      }
     },
-    [enterFullscreen, setQuery],
+    [step],
   );
 
-  // `?duplicate=1` stays in the URL, so the page comes back with Duplicate
-  // screen chosen.
-  const toSettings = useCallback(() => setQuery({ size: null }, 'push'), [setQuery]);
+  const { mounted, size, duplicate, preset, uPx, ucPx, fullscreen, fill, keepWindowed, chrome, wake, pinChrome, setQuery, choose, start, toSettings } =
+    useBoardScreen({ noun: 'the results board', onBoardKey });
+
+  // The screen time rides beside `?size=` as `?every=`, for the same reasons
+  // the size does: it belongs to this screen, it has to survive the TV's
+  // browser reloading, and it must not follow the office to the next show.
+  const searchParams = useSearchParams();
+  const every = parseEvery(searchParams.get('every'));
+
+  const [gridRef, gridBox] = useBoxSize();
 
   const chooseEvery = useCallback(
     (seconds: number | null) => setQuery({ every: seconds == null ? null : String(seconds) }, 'replace'),
     [setQuery],
   );
-
-  useEffect(() => {
-    // Lobby TV, not a page the viewer scrolls — the board owns the whole
-    // viewport for as long as it's mounted.
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, []);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    const read = () => setVh(window.innerHeight);
-    read();
-    window.addEventListener('resize', read);
-    return () => window.removeEventListener('resize', read);
-  }, []);
-
-  const preset = size ? PRESETS[size] : PRESETS.room;
-  const uPx = (preset.scale * U_VH * vh) / 100;
-  const ucPx = uPx * preset.chrome;
 
   const postedToday = useMemo(() => {
     const posted = classes.filter((c) => c.results_published_at && c.status !== 'DRAFT');
@@ -2082,46 +1473,6 @@ export default function LiveBoard({
     // on from where it was instead of snapping back to the first class.
   }, [tick, turns, dwellMs, paused]);
 
-  const step = useCallback((delta: number) => {
-    setPaused(true); // stepping by hand means you want to look at it
-    setTick((i) => i + delta);
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Typing a marquee message on the Results Board page is typing, not
-      // commands: a "1" in the message must not open the board. Nor is a
-      // browser shortcut — Ctrl+F is find, not full screen.
-      const target = e.target as HTMLElement | null;
-      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) {
-        return;
-      }
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      wake();
-      if (e.key >= '1' && e.key <= '3') {
-        // From the Results Board page the number keys start the board on this
-        // screen, never duplicated or on the second screen.
-        if (size) choose(SIZE_ORDER[Number(e.key) - 1], 'replace');
-        else start(SIZE_ORDER[Number(e.key) - 1], false);
-      } else if (e.key === 'f' || e.key === 'F') {
-        toggleFullscreen();
-      } else if (!size) {
-        // The rest drive a running board. On the Results Board page, space and
-        // the arrows belong to the page — pressing a focused button, scrolling.
-        return;
-      } else if (e.key === ' ') {
-        e.preventDefault();
-        setPaused((p) => !p);
-      } else if (e.key === 'ArrowRight') {
-        step(1);
-      } else if (e.key === 'ArrowLeft') {
-        step(-1);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [choose, start, step, wake, toggleFullscreen, size]);
-
   const resultLines = useMemo(() => {
     const items: string[] = [];
     postedToday.forEach((cls, ci) => {
@@ -2156,23 +1507,8 @@ export default function LiveBoard({
     [marquee.effective_mode, marquee.message, resultLines, standingLines],
   );
 
-  const btn = {
-    fontSize: c(0.85),
-    padding: `${c(0.25)} ${c(0.6)}`,
-    color: 'var(--on-slate-muted)',
-  } as const;
-
   return (
-    <div
-      className="fixed inset-0 z-50"
-      // The cursor hides only over a running board. The Results Board page is a
-      // page somebody is using, with a text box on it.
-      style={{
-        backgroundColor: 'var(--slate)',
-        cursor: size && !chrome ? 'none' : 'auto',
-      }}
-      onMouseMove={wake}
-    >
+    <BoardRoot running={size !== null} chrome={chrome} onMouseMove={wake}>
       {!mounted ? null : size === null ? (
         <ResultsBoardSetup
           showId={showId}
@@ -2198,173 +1534,23 @@ export default function LiveBoard({
           onPick={start}
         />
       ) : (
-        <div
-          className="absolute inset-0 flex flex-col"
-          style={
-            {
-              '--u': `${(preset.scale * U_VH).toFixed(3)}vh`,
-              '--uc': `${(preset.scale * preset.chrome * U_VH).toFixed(3)}vh`,
-              padding: `${preset.safe}%`,
-              // A board runs ten hours a day on a panel that may well be OLED.
-              // A slow wander of a few pixels keeps the static furniture — the
-              // show name, the ticker rule — off one fixed set of them.
-              animation: 'board-drift 1200s ease-in-out infinite',
-            } as React.CSSProperties
-          }
-        >
-          {fillPrompt && canFullscreen && !isFullscreen && !fullscreenRequested && !keepWindowed && (
-            // A browser only goes full screen on a press in that window, so a
-            // board for a monitor that is not full screen asks for one — big,
-            // because on an extended screen it is being reached for with a
-            // mouse dragged over from the laptop. Duplicated, it comes up after
-            // Esc or a reload, with whoever did that at the keyboard.
-            <div
-              className="absolute inset-0 z-10 flex flex-col items-center justify-center text-center"
-              style={{ backgroundColor: 'var(--slate)', gap: '2vh', padding: '0 16px' }}
-            >
-              <button
-                type="button"
-                onClick={enterFullscreen}
-                className="rounded-2xl font-bold transition hover:brightness-110"
-                style={{
-                  fontSize: 'max(24px, 4.5vh)',
-                  padding: '3vh 6vh',
-                  backgroundColor: 'var(--accent)',
-                  color: 'var(--accent-foreground)',
-                }}
-              >
-                {fillPrompt.button}
-              </button>
-              <p style={{ fontSize: 'max(14px, 2vh)', color: 'var(--on-slate-muted)' }}>{fillPrompt.note}</p>
-              <button
-                type="button"
-                onClick={() => setKeepWindowed(true)}
-                className="hover:underline"
-                style={{ fontSize: 'max(13px, 1.7vh)', color: 'var(--accent-light)' }}
-              >
-                {fillPrompt.keep}
-              </button>
-            </div>
-          )}
-          <header
-            className="flex items-center justify-between flex-none"
-            style={{
-              paddingInline: c(1.8),
-              paddingTop: c(0.6),
-              paddingBottom: c(0.7),
+        <BoardCanvas preset={preset}>
+          {fill && <FillPrompt text={fill} onFill={fullscreen.enter} onKeep={keepWindowed} />}
+          <BoardHeader
+            showId={showId}
+            title={show.name}
+            subtitle={show.venue}
+            status={paused ? 'paused' : 'live'}
+            // The show's public Results page, one scan from anybody watching —
+            // no account needed, which is why that page stays public. Built
+            // from the address the board itself is on, so it points at the
+            // right site in every environment.
+            qr={{
+              value: `${window.location.origin}/shows/${showId}/results`,
+              caption: 'Scan for full results →',
+              label: "QR code: this show's results",
             }}
-          >
-            {/* The way back out of a full-screen board with no chrome. It goes
-                to the show's admin console rather than the public hub, because
-                the only person who can be looking at this is the one who put
-                it up.
-
-                The mark plus the separate 4:1 wordmark, which is the pairing
-                the navbar uses and for the same reason: the full lockup's
-                minimum is 180px wide, and this header's whole job is to stay
-                out of the way of the results. Sized by **width** off the
-                chrome unit, so it gives space back to the placings at the
-                lobby scale like everything else here — with a px floor under
-                each, because the brand minimums (48px mark, 120px wordmark)
-                are the point below which the mane strokes and the tagline
-                close up, and a unit that scales does not know about them. */}
-            <Link
-              href={`/admin/shows/${showId}`}
-              className="opacity-60 hover:opacity-100 transition flex-none flex items-center"
-              style={{ gap: c(0.5) }}
-              aria-label="GaitDesk — back to this show's console"
-            >
-              <Image
-                src="/brand/gaitdesk-mark-on-dark-256w.png"
-                alt=""
-                aria-hidden="true"
-                width={256}
-                height={360}
-                priority
-                style={{ width: `max(48px, ${c(2.4)})`, height: 'auto' }}
-              />
-              <Image
-                src="/brand/gaitdesk-wordmark-on-dark-400w.png"
-                alt="GaitDesk"
-                width={400}
-                height={100}
-                priority
-                style={{ width: `max(120px, ${c(6)})`, height: 'auto' }}
-              />
-            </Link>
-
-            <div className="text-center min-w-0" style={{ paddingInline: c(1) }}>
-              <div className="font-bold truncate" style={{ fontSize: c(1.9), color: 'var(--on-slate)' }}>
-                {show.name}
-              </div>
-              {show.venue && (
-                <div className="truncate" style={{ fontSize: c(1.05), color: 'var(--on-slate-muted)' }}>
-                  {show.venue}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center flex-none" style={{ gap: c(1) }}>
-            <div className="flex flex-col items-end" style={{ gap: c(0.4) }}>
-            <div className="flex items-center" style={{ gap: c(0.5) }}>
-              {paused ? (
-                <span className="font-semibold tracking-wider" style={{ fontSize: c(1.1), color: 'var(--warning)' }}>
-                  ❙❙ PAUSED
-                </span>
-              ) : (
-                <>
-                  <span className="relative flex" style={{ width: c(0.55), height: c(0.55) }}>
-                    <span
-                      className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                      style={{ backgroundColor: 'var(--accent-light)' }}
-                    />
-                    <span
-                      className="relative inline-flex rounded-full h-full w-full"
-                      style={{ backgroundColor: 'var(--accent-light)' }}
-                    />
-                  </span>
-                  <span
-                    className="font-semibold tracking-wider"
-                    style={{ fontSize: c(1.1), color: 'var(--accent-light)' }}
-                  >
-                    LIVE
-                  </span>
-                </>
-              )}
-              <span
-                className="tabular-nums"
-                style={{
-                  fontSize: c(1.25),
-                  marginLeft: c(0.4),
-                  color: 'var(--on-slate-muted)',
-                }}
-              >
-                {now.toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </span>
-            </div>
-            <div
-              className="text-right whitespace-nowrap"
-              style={{ fontSize: c(0.9), lineHeight: 1.25, color: 'var(--on-slate-muted)' }}
-            >
-              Scan for full results →
-            </div>
-            </div>
-            {/* The show's public Results page, one scan from anybody watching —
-                no account needed, which is why that page stays public. Built
-                from the address the board itself is on, so it points at the
-                right site in every environment. Sized off the chrome unit like
-                the rest of the header, with a floor below which a phone at
-                arm's length stops finding it. */}
-            <QrCode
-              value={`${window.location.origin}/shows/${showId}/results`}
-              size={`max(88px, ${c(5.6)})`}
-              label="QR code: this show's results"
-            />
-            </div>
-          </header>
+          />
 
           {/* How long this screen has left. On a board read across a room the
               useful thing is knowing a change is coming, rather than looking up
@@ -2444,87 +1630,25 @@ export default function LiveBoard({
             <Ticker items={tickerItems} ucPx={ucPx} />
           </footer>
 
-          {/* Setup controls. There for whoever is standing at the screen with a
-              mouse, invisible the rest of the time. */}
-          <div
-            className="absolute flex items-center transition-opacity duration-300"
-            style={{
-              bottom: c(3.6),
-              right: c(1.8),
-              gap: c(0.3),
-              padding: c(0.35),
-              borderRadius: c(0.6),
-              backgroundColor: 'var(--slate-raised)',
-              opacity: chrome ? 0.95 : 0,
-              pointerEvents: chrome ? 'auto' : 'none',
-            }}
+          {/* Back to the Results Board page, where the board was started from
+              — the screen sizes and the marquee message. */}
+          <BoardControls
+            visible={chrome}
+            settingsTitle={`${boardName} page — screen size and the marquee message`}
+            size={size}
+            onSettings={toSettings}
+            onSize={(k) => choose(k, 'replace')}
+            isFullscreen={fullscreen.isFullscreen}
+            onToggleFullscreen={fullscreen.toggle}
           >
-            {/* Back to the Results Board page, where the board was started from
-                — the screen sizes and the marquee message. The logo goes
-                further, to the show's console; this is the one to press to
-                change what is scrolling. */}
-            <button
-              type="button"
-              onClick={toSettings}
-              title={`${boardName} page — screen size and the marquee message`}
-              className="rounded whitespace-nowrap"
-              style={btn}
-            >
-              ‹ Settings
-            </button>
-            <span
-              style={{
-                width: c(0.06),
-                height: c(1.2),
-                backgroundColor: 'var(--on-slate-muted)',
-                opacity: 0.4,
-              }}
-            />
-            {SIZE_ORDER.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => choose(k, 'replace')}
-                title={`${PRESETS[k].label} · ${PRESETS[k].inches} · ${PRESETS[k].distance}`}
-                className="rounded transition"
-                style={{
-                  ...btn,
-                  backgroundColor: k === size ? 'var(--accent-light)' : 'transparent',
-                  color: k === size ? 'var(--brand-slate)' : 'var(--on-slate-muted)',
-                }}
-              >
-                {PRESETS[k].inches}
-              </button>
-            ))}
-            <span
-              style={{ width: c(0.06), height: c(1.2), backgroundColor: 'var(--on-slate-muted)', opacity: 0.4 }}
-            />
-            {/* Here rather than in the header, because it belongs with the
-                other things you press once while standing at the screen and
-                never again. */}
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              title={
-                isFullscreen
-                  ? 'Leave full screen (F)'
-                  : 'Fill the screen — hides the tab strip and address bar (F)'
-              }
-              className="rounded whitespace-nowrap"
-              style={btn}
-            >
-              {isFullscreen ? '⤡ Exit full screen' : '⤢ Full screen'}
-            </button>
-            <span
-              style={{ width: c(0.06), height: c(1.2), backgroundColor: 'var(--on-slate-muted)', opacity: 0.4 }}
-            />
+            <ControlRule />
             {/* With the other controls of the rotation, beside pause and step.
                 A menu rather than a stepper, because the useful jump is from
                 "a few seconds" to "a few minutes" and a stepper would make that
                 a dozen presses. */}
             <label
               className="flex items-center whitespace-nowrap"
-              style={{ ...btn, gap: c(0.35) }}
+              style={{ ...CONTROL_BUTTON, gap: c(0.35) }}
               title="How long each screen stays up before the board moves on. Auto holds a screen longer when it carries more placings, and longer again at the room and lobby sizes."
             >
               Screen time
@@ -2536,14 +1660,8 @@ export default function LiveBoard({
                   // take the arrow keys and space that step and pause it.
                   e.currentTarget.blur();
                 }}
-                onFocus={() => {
-                  chromePinned.current = true;
-                  wake();
-                }}
-                onBlur={() => {
-                  chromePinned.current = false;
-                  wake();
-                }}
+                onFocus={() => pinChrome(true)}
+                onBlur={() => pinChrome(false)}
                 className="rounded"
                 style={{
                   fontSize: c(0.85),
@@ -2564,18 +1682,18 @@ export default function LiveBoard({
                 ))}
               </select>
             </label>
-            <button type="button" onClick={() => step(-1)} className="rounded" style={btn}>
+            <button type="button" onClick={() => step(-1)} className="rounded" style={CONTROL_BUTTON}>
               ‹
             </button>
-            <button type="button" onClick={() => setPaused((p) => !p)} className="rounded" style={btn}>
+            <button type="button" onClick={() => setPaused((p) => !p)} className="rounded" style={CONTROL_BUTTON}>
               {paused ? '▶' : '❙❙'}
             </button>
-            <button type="button" onClick={() => step(1)} className="rounded" style={btn}>
+            <button type="button" onClick={() => step(1)} className="rounded" style={CONTROL_BUTTON}>
               ›
             </button>
-          </div>
-        </div>
+          </BoardControls>
+        </BoardCanvas>
       )}
-    </div>
+    </BoardRoot>
   );
 }

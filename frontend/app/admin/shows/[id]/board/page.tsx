@@ -9,7 +9,8 @@ import { fetchShow } from '@/lib/api';
 // Three screens, each its own page behind it: the Results Board
 // (`/board/results`, sizes and the marquee, then the board), Results & High
 // Point (`/board/results-high-point`, the same board split with the high point
-// standings) and the Gate Board, which is not built yet. Each owns its own
+// standings) and the Gate Board (`/board/gate`, the ring and the size, then
+// one ring's gate: in the ring, on deck, in the hole). Each owns its own
 // settings, so this page stays a choice between screens rather than a form
 // that grows a section per board.
 //
@@ -105,15 +106,10 @@ export default async function LiveScreensPage({
             </div>
           </Link>
 
-          {/* Not built yet. On the page now so the gate board arrives as the
-              second card rather than as a rearrangement — disabled, with a
-              title that says why, rather than a link to nothing. */}
-          <button
-            type="button"
-            disabled
-            title="Not available yet — the gate board is still being built"
-            className="rounded-xl text-left flex flex-col items-start justify-start cursor-not-allowed"
-            style={{ ...card, opacity: 0.55 }}
+          <Link
+            href={`/admin/shows/${id}/board/gate`}
+            className="rounded-xl text-left transition hover:brightness-125 block"
+            style={card}
           >
             <div style={{ fontSize: 'max(32px, 5vh)' }} aria-hidden>
               🚪
@@ -121,11 +117,11 @@ export default async function LiveScreensPage({
             <div className="font-bold" style={{ fontSize: 'max(20px, 3vh)', marginTop: '1vh' }}>
               Gate Board
             </div>
-            <div style={{ fontSize: 'max(14px, 2vh)', color: 'var(--accent-light)' }}>Coming soon</div>
             <div style={{ fontSize: 'max(14px, 1.9vh)', marginTop: '1vh', color: 'var(--on-slate-muted)' }}>
-              The order of go and who is on deck, for the riders waiting to go in.
+              One ring’s gate, for the riders waiting to go in: the class in the ring, then the classes on deck and in
+              the hole with their order of go and who is checked in.
             </div>
-          </button>
+          </Link>
         </div>
       </div>
     </div>

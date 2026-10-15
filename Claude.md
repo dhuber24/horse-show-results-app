@@ -49,7 +49,7 @@ Each design doc holds that subsystem's data model notes, its rules, the reasons 
 | The `shows` row, setup wizard steps, the Class Builder, class order and numbers, the show bill and its import | [docs/design/show-setup.md](docs/design/show-setup.md) |
 | Results, scribe screens, the judge's card, card types, posting, patterns, show-record reports | [docs/design/results-and-scoring.md](docs/design/results-and-scoring.md) |
 | The in-gate: check-in, no-shows, starting and finishing classes, classes run together | [docs/design/gate.md](docs/design/gate.md) |
-| Live boards, the marquee, points systems, high-point standings, circuits | [docs/design/live-boards-and-high-point.md](docs/design/live-boards-and-high-point.md) |
+| Live boards (results and gate), the marquee, points systems, high-point standings, circuits | [docs/design/live-boards-and-high-point.md](docs/design/live-boards-and-high-point.md) |
 | Show companies, office access to a show, paid features | [docs/design/companies.md](docs/design/companies.md) |
 | Associations, APHA/AQHA rules, memberships and competition cards, class-code catalogs | [docs/design/associations.md](docs/design/associations.md) |
 | Roles, accounts, `/welcome`, the profile, exhibitor/trainer/judge records, horses, horse documents | [docs/design/accounts.md](docs/design/accounts.md) |

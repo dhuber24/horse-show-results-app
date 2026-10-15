@@ -69,6 +69,9 @@
   --slate-raised: #1d2028;
   --on-slate: #f6f4f0;
   --on-slate-muted: #9da1a9;
+  /* "Checked in" on the dark boards. --success is a paper-ground green and
+     falls under 3:1 on slate; this is about 8:1 on --slate-raised. */
+  --on-slate-success: #5fcf8f;
 
   /* Status */
   --success: #1b7a4f;

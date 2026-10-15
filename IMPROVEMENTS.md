@@ -13,6 +13,26 @@
   `lib/show-hub.ts`): Upcoming Shows for a published show, Past Shows for a
   completed one, Active Shows as before. The two went to the home page.
 
+### The Gate Board
+
+- **A third live screen, for one ring's in-gate**
+  (`/admin/shows/[id]/board/gate`, the card on Live Screens that read *Coming
+  soon*). The class in the ring on one line, with no riders; then the classes
+  on deck and in the hole side by side, each with its riders in the order of
+  go and a **✓ once the gate has them checked in** — the blank beside a number
+  is what tells a rider to report; then the classes coming up. One ring to a
+  board: its page asks which when a show runs more than one.
+- **It follows the gate steward alone** (`lib/gate-board.ts`, tested in
+  `gate-board.test.ts`): in the ring is what the gate started, on deck the
+  first class it has not. Posted results do not move it — it read the
+  schedule's badge at first, and one class posted further down the day closed
+  every class above it, riders still waiting. It polls the steward's own gate
+  endpoints from the browser every 10 seconds — no backend change.
+- **The results board's screen half moved to `board/_components/`** — sizing,
+  full screen, extend and duplicate, the header and controls, the board's page
+  — so the gate board shares it rather than copying it. The results boards
+  behave as before.
+
 ### Marking the last of a group done finishes the group
 
 - **Mark class done finishes the classes in the ring ahead of it**, the way a

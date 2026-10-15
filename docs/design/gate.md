@@ -1,6 +1,6 @@
 # The In-Gate
 
-Read before changing `/gate`, check-in or no-shows, how a class starts and finishes at the gate, `classes.gate_status`, or anything that reads them — the public schedule's live badge (`lib/class-progress.ts`) and exhibitor self-entry (`backend/self_entry.py`) both do. The role itself is in [accounts.md](accounts.md); what a class's placings do afterwards is in [results-and-scoring.md](results-and-scoring.md).
+Read before changing `/gate`, check-in or no-shows, how a class starts and finishes at the gate, `classes.gate_status`, or anything that reads them — the public schedule's live badge (`lib/class-progress.ts`), exhibitor self-entry (`backend/self_entry.py`) and the Gate Board (`lib/gate-board.ts`, which reads nothing but the gate — its statuses and the riders' check-ins — and so moves only when the steward does) all do. The Gate Board's own rules are in [live-boards-and-high-point.md](live-boards-and-high-point.md). The role itself is in [accounts.md](accounts.md); what a class's placings do afterwards is in [results-and-scoring.md](results-and-scoring.md).
 
 These are the rules this part of the app keeps and the reasons behind them. One claim per bullet, the claim first. Add new ones under the heading they belong to.
 
@@ -12,6 +12,7 @@ These are the rules this part of the app keeps and the reasons behind them. One 
 | The gate's endpoints | `backend/routers/gate.py` |
 | The steward's screen | `frontend/app/gate/[showId]/GatePanel.tsx` |
 | The schedule's live badge | `frontend/lib/class-progress.ts` |
+| The Gate Board's in the ring, on deck and in the hole | `frontend/lib/gate-board.ts` |
 
 ## The data
 
