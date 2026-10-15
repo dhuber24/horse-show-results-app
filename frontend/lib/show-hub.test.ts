@@ -68,9 +68,11 @@ describe('the show’s sections', () => {
 
   it('go back to the list the show is found on', () => {
     expect(buildShowHub(SHOW_ID, ACTIVE, visitor).back).toEqual({ href: '/shows/active', label: 'Back to Active Shows' });
-    for (const show of [OPEN, PAST_DEADLINE, COMPLETED]) {
-      expect(buildShowHub(SHOW_ID, show, visitor).back).toEqual({ href: '/', label: 'Back to Shows' });
+    for (const show of [OPEN, PAST_DEADLINE]) {
+      expect(buildShowHub(SHOW_ID, show, visitor).back).toEqual({ href: '/shows/upcoming', label: 'Back to Upcoming Shows' });
     }
+    expect(buildShowHub(SHOW_ID, COMPLETED, visitor).back).toEqual({ href: '/shows/past', label: 'Back to Past Shows' });
+    expect(buildShowHub(SHOW_ID, { status: 'DRAFT' }, staff).back).toEqual({ href: '/', label: 'Back to Shows' });
   });
 });
 

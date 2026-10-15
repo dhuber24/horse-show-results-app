@@ -2,6 +2,17 @@
 
 ## October 2026
 
+### Past Shows on the home page
+
+- **A third button on the home page, Past Shows** (`/shows/past`): completed
+  shows, most recent first, with the same search as Upcoming Shows.
+- **Upcoming Shows lists published shows only.** It listed every show that was
+  not a draft, so a running show and last year's show sat among the ones open
+  for entry. Each status now has its own list: Active, Upcoming, Past.
+- **A show's page goes back to the list it is on** (`backTo` in
+  `lib/show-hub.ts`): Upcoming Shows for a published show, Past Shows for a
+  completed one, Active Shows as before. The two went to the home page.
+
 ### Marking the last of a group done finishes the group
 
 - **Mark class done finishes the classes in the ring ahead of it**, the way a

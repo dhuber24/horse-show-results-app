@@ -51,7 +51,7 @@ export default async function ActiveShowsPage() {
         <div className="rounded-lg border p-6 text-center" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}>
           <p className="text-base font-medium" style={{ color: 'var(--foreground)' }}>No active shows right now</p>
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-            Check the <Link href="/" className="underline" style={{ color: 'var(--accent)' }}>upcoming shows</Link> for events opening soon.
+            Check the <Link href="/shows/upcoming" className="underline" style={{ color: 'var(--accent)' }}>upcoming shows</Link> for events opening soon.
           </p>
         </div>
       ) : (

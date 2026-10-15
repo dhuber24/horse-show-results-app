@@ -7,6 +7,8 @@ export default async function UpcomingShowsPage() {
   const shows = showsResult.status === 'fulfilled' ? showsResult.value : [];
   const showTypes = showTypesResult.status === 'fulfilled' ? showTypesResult.value : [];
   const loadError = showsResult.status === 'rejected' || showTypesResult.status === 'rejected';
+  // Running shows are on Active Shows and finished ones on Past Shows.
+  const upcoming = shows.filter((s: any) => s.status === 'PUBLISHED');
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -22,7 +24,7 @@ export default async function UpcomingShowsPage() {
           Shows are temporarily unavailable while the server finishes starting. Refresh in a moment.
         </div>
       )}
-      <ShowList shows={shows} showTypes={showTypes} />
+      <ShowList shows={upcoming} showTypes={showTypes} />
     </main>
   );
 }

@@ -181,12 +181,9 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
   }
 
   return {
-    // An ACTIVE show is found on Active Shows, which is where the old rail hub
-    // went back to; anything else is found from the home page.
-    back:
-      show.status === 'ACTIVE'
-        ? { href: '/shows/active', label: 'Back to Active Shows' }
-        : { href: '/', label: 'Back to Shows' },
+    // Back to the list the show is found on: each status has its own on the
+    // home page. Anything else (a DRAFT, seen by staff) goes home.
+    back: backTo(show.status),
     statusBanner: exhibitor && (hasStanding || cancelled),
     signUp: wayIn(showId, show, { exhibitor, signedUp, cancelled, entryCount }),
     mine,
@@ -200,6 +197,17 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
       },
     ],
   };
+}
+
+/** The home page's list for each status — Active, Upcoming, Past. */
+const LIST_FOR_STATUS: Record<string, { href: string; label: string }> = {
+  ACTIVE: { href: '/shows/active', label: 'Back to Active Shows' },
+  PUBLISHED: { href: '/shows/upcoming', label: 'Back to Upcoming Shows' },
+  COMPLETED: { href: '/shows/past', label: 'Back to Past Shows' },
+};
+
+function backTo(status: string): { href: string; label: string } {
+  return LIST_FOR_STATUS[status] ?? { href: '/', label: 'Back to Shows' };
 }
 
 /**
