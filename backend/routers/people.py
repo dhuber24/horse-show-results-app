@@ -15,7 +15,7 @@ from dependencies import require_admin, require_admin_or_show_admin, require_aut
 from routers.horse_access import approval_url, build_access_request, notify_request
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
-from staff_certifications import plan_certification_changes
+from staff_certifications import plan_certification_changes, records_aqha_workshop
 from welcome_email import send_welcome_email
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry, ShowCompanyUpgradeRequest
 from schemas import (
@@ -435,10 +435,26 @@ async def list_own_certifications(
     Show staff only in practice, but gated on nothing but a session: the row is
     the caller's own, and a role check here would refuse an ADMIN reading the
     list they are about to edit."""
+    return await _certifications_out(safe_uuid(user_id), db)
+
+
+@users_router.get(
+    "/{user_id}/certifications",
+    response_model=list[StaffCertificationOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_user_certifications(user_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Somebody else's certifications, for the admin user page -- which shows
+    them, and offers the AQHA workshop date only to an AQHA-certified show
+    secretary (`staff_certifications.records_aqha_workshop`)."""
+    return await _certifications_out(user_id, db)
+
+
+async def _certifications_out(uid, db: AsyncSession) -> list[StaffCertificationOut]:
     result = await db.execute(
         select(ShowSecretaryCertification)
         .options(selectinload(ShowSecretaryCertification.association))
-        .where(ShowSecretaryCertification.user_id == safe_uuid(user_id))
+        .where(ShowSecretaryCertification.user_id == uid)
     )
     rows = result.scalars().all()
     rows.sort(key=lambda r: (r.association.association_type, r.association.name))
@@ -608,6 +624,21 @@ async def update_user(user_id: UUID, body: AdminUserProfileUpdate, db: AsyncSess
     if "email" in updates and updates["email"] is not None:
         updates["email"] = _normalize_email(updates["email"])
     _validate_name_parts(updates.get("first_name"), updates.get("last_name"))
+    # The AQHA workshop date belongs on an AQHA-certified show secretary and
+    # nowhere else. Clearing one is always allowed -- that is how a stray date
+    # left on another account is taken off.
+    if updates.get("aqha_management_workshop_completed_at") is not None:
+        certified = await db.execute(
+            select(Association.code)
+            .join(ShowSecretaryCertification, ShowSecretaryCertification.association_id == Association.id)
+            .where(ShowSecretaryCertification.user_id == user.id)
+        )
+        if not records_aqha_workshop(user.role, certified.scalars().all()):
+            raise HTTPException(
+                422,
+                "The AQHA show-management workshop date is recorded only for show secretaries "
+                "certified with AQHA.",
+            )
     # Captured before the edit: the first query below autoflushes the rename,
     # and the flush rewrites full_name.
     old_full_name = user.full_name

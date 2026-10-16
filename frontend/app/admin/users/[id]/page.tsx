@@ -44,6 +44,15 @@ async function getTrainerAffiliations(trainerId: string, headers: Record<string,
   return res.json();
 }
 
+type Certification = { association_code: string; association_name: string };
+
+/** The associations a show manager or secretary said they are carded with. */
+async function getCertifications(userId: string, headers: Record<string, string>): Promise<Certification[]> {
+  const res = await fetch(`${API_URL}/users/${userId}/certifications`, { headers, cache: 'no-store' });
+  if (!res.ok) return [];
+  return res.json();
+}
+
 /** The show companies this account works for -- what its paid features come from. */
 async function getCompanies(userId: string, headers: Record<string, string>): Promise<ShowCompany[]> {
   const res = await fetch(`${API_URL}/show-companies/?user_id=${userId}`, { headers, cache: 'no-store' });
@@ -84,7 +93,14 @@ export default async function UserDetailPage({
   let trainerAffiliations: any[] = [];
   let trainerHorses: any[] = [];
   const isShowOffice = user.role === 'SHOW_MANAGER' || user.role === 'SHOW_SECRETARY';
-  const companies = isShowOffice ? await getCompanies(user.id, headers) : [];
+  const [companies, certifications] = isShowOffice
+    ? await Promise.all([getCompanies(user.id, headers), getCertifications(user.id, headers)])
+    : [[], []];
+  // The AQHA show-management workshop date is kept for an AQHA-certified show
+  // secretary and nobody else -- `staff_certifications.records_aqha_workshop`,
+  // which `PATCH /users/{id}` enforces.
+  const recordsAqhaWorkshop =
+    user.role === 'SHOW_SECRETARY' && certifications.some((c) => c.association_code?.toUpperCase() === 'AQHA');
 
   if (user.role === 'EXHIBITOR') {
     exhibitor = await getExhibitorByUser(user.id, headers);
@@ -118,11 +134,20 @@ export default async function UserDetailPage({
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs" style={{ color: 'var(--text-dimmed)' }}>
           <span>Joined {new Date(user.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
           <span>Last login: {user.last_login_at ? new Date(user.last_login_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Never'}</span>
-          <span>
-            AQHA workshop: {user.aqha_management_workshop_completed_at
-              ? new Date(user.aqha_management_workshop_completed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-              : 'Not recorded'}
-          </span>
+          {isShowOffice && (
+            <span>
+              Certified with: {certifications.length > 0
+                ? certifications.map((c) => c.association_code || c.association_name).join(', ')
+                : 'none recorded'}
+            </span>
+          )}
+          {recordsAqhaWorkshop && (
+            <span>
+              AQHA workshop: {user.aqha_management_workshop_completed_at
+                ? new Date(user.aqha_management_workshop_completed_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                : 'Not recorded'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -144,7 +169,7 @@ export default async function UserDetailPage({
       ) : (
         <section className="p-5 rounded-lg border space-y-1" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
           <h2 className="text-base font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Profile</h2>
-          <EditUserForm user={user} />
+          <EditUserForm user={user} showAqhaWorkshop={recordsAqhaWorkshop} />
         </section>
       )}
 

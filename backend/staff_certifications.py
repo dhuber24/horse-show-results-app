@@ -68,3 +68,20 @@ def plan_certification_changes(
         "remove": {aid for aid in existing if aid not in desired},
         "upsert": desired,
     }
+
+
+def records_aqha_workshop(role: str, certified_codes: Iterable[Optional[str]]) -> bool:
+    """Whether an account carries an AQHA show-management workshop date.
+
+    **A show secretary certified with AQHA, and nobody else** -- the show
+    office's call (2026-10-16): the date is required of the secretaries who run
+    AQHA shows, and on every other account it was a "Not recorded" line on an
+    exhibitor, a scribe or a trainer that meant nothing. The admin user page
+    offers the date only here and `PATCH /users/{id}` refuses one anywhere else.
+
+    The certification is the one the secretary ticked on `/welcome` -- recorded,
+    never verified, like everything in this module. AQHA's own rule (SHW100.11)
+    accepts a show manager as well, and the show's AQHA check still counts a
+    date already on a manager's account; it is only no longer *entered* there.
+    """
+    return role == "SHOW_SECRETARY" and any((code or "").upper() == "AQHA" for code in certified_codes)

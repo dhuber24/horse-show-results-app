@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { errorMessage } from '@/lib/api-error';
 
 interface Props {
   user: {
@@ -12,9 +13,13 @@ interface Props {
     email: string;
     aqha_management_workshop_completed_at: string | null;
   };
+  /** An AQHA-certified show secretary, the one account that carries the
+   *  workshop date. Anywhere else the field is not offered and not sent, so a
+   *  save never touches a date left over from before. */
+  showAqhaWorkshop: boolean;
 }
 
-export default function EditUserForm({ user }: Props) {
+export default function EditUserForm({ user, showAqhaWorkshop }: Props) {
   const router = useRouter();
   const [firstName, setFirstName] = useState(user.first_name);
   const [lastName, setLastName] = useState(user.last_name);
@@ -27,7 +32,7 @@ export default function EditUserForm({ user }: Props) {
     firstName.trim() !== user.first_name ||
     lastName.trim() !== user.last_name ||
     email.trim() !== user.email ||
-    aqhaWorkshopDate !== (user.aqha_management_workshop_completed_at ?? '');
+    (showAqhaWorkshop && aqhaWorkshopDate !== (user.aqha_management_workshop_completed_at ?? ''));
 
   const handleSave = async () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim()) return;
@@ -40,7 +45,7 @@ export default function EditUserForm({ user }: Props) {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         email: email.trim(),
-        aqha_management_workshop_completed_at: aqhaWorkshopDate || null,
+        ...(showAqhaWorkshop ? { aqha_management_workshop_completed_at: aqhaWorkshopDate || null } : {}),
       }),
     });
     setSaving(false);
@@ -48,8 +53,8 @@ export default function EditUserForm({ user }: Props) {
       setMessage({ type: 'success', text: 'Profile updated.' });
       router.refresh();
     } else {
-      const json = await res.json();
-      setMessage({ type: 'error', text: json.detail || 'Failed to update profile.' });
+      const json = await res.json().catch(() => null);
+      setMessage({ type: 'error', text: errorMessage(json, 'Failed to update profile.') });
     }
   };
 
@@ -86,21 +91,23 @@ export default function EditUserForm({ user }: Props) {
           style={inputStyle}
         />
       </div>
-      <div>
-        <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
-          AQHA Show-Management Workshop Date
-        </label>
-        <input
-          type="date"
-          value={aqhaWorkshopDate}
-          onChange={e => setAqhaWorkshopDate(e.target.value)}
-          className={inputClass}
-          style={inputStyle}
-        />
-        <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-          Used by AQHA validation to confirm at least one assigned manager or secretary is workshop-current within 3 years.
-        </p>
-      </div>
+      {showAqhaWorkshop && (
+        <div>
+          <label className="block text-sm font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
+            AQHA Show-Management Workshop Date
+          </label>
+          <input
+            type="date"
+            value={aqhaWorkshopDate}
+            onChange={e => setAqhaWorkshopDate(e.target.value)}
+            className={inputClass}
+            style={inputStyle}
+          />
+          <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+            Used by AQHA validation to confirm the show has a secretary who is workshop-current within 3 years.
+          </p>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <button
           onClick={handleSave}

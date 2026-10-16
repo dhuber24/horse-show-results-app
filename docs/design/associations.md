@@ -23,6 +23,8 @@ These are the rules this part of the app keeps and the reasons behind them, move
 - `class_associations`: association-specific codes for a class, useful for dual-sanctioned shows.
 - `backend/rules`: association-specific validation hooks; AQHA currently enforces the first practical validation slice.
 - `users.aqha_management_workshop_completed_at`: AQHA show-management workshop date used to validate assigned managers/secretaries.
+- **The workshop date is recorded only for a show secretary certified with AQHA** (`staff_certifications.records_aqha_workshop`, the show office's call on 2026-10-16). The admin user page shows and edits it there and nowhere else, and `PATCH /users/{id}` refuses a date on any other account with a 422 — clearing one is always allowed. On every other account it was a "Not recorded" line that meant nothing. The certification is the one the secretary ticked on `/welcome`; the page now prints the account's certifications so the reason the field is or is not there is on screen.
+- **The AQHA check still reads every office user's stored date.** AQHA's rule (SHW100.11) accepts a show manager or a show secretary, and narrowing the check to secretaries would warn about shows AQHA has no complaint with. A date already on a manager's account keeps counting; it is only no longer *entered* there.
 
 ## Memberships and competition cards
 

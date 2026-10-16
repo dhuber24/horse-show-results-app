@@ -105,7 +105,7 @@ The 2026 class-code load produced 1,589 classes: 491 Open, 451 Amateur, 626 Yout
 - Bulk import now supports APHA and AQHA standard-class sources.
 - Results are currently one placing per class entry. AQHA multi-judge / multi-show-number reporting likely needs judge-specific result cards or a show-number dimension.
 - DQ handling exists for APHA-ish fields, but AQHA explicitly requires DQed horses to count as entries while not receiving a placing. That rule should be represented association-neutrally.
-- AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; show validation warns when no assigned show manager or show secretary is current within 3 years of the show start date.
+- AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; show validation warns when no assigned show manager or show secretary is current within 3 years of the show start date. The date is entered only on a show secretary certified with AQHA (see [design/associations.md](design/associations.md)).
 - Show-bill generation is not modeled as an approval artifact. AQHA wants a premium list/show bill/class schedule submitted with approval and containing specific required fields.
 - A read-only AQHA validation endpoint now exists at `GET /shows/{show_id}/aqha-validation` for schedule and existing-entry issues.
 

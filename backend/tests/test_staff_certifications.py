@@ -114,3 +114,26 @@ def test_breed_registries_and_clubs_are_not_told_apart():
 
     assert plan["remove"] == set()
     assert set(plan["upsert"]) == {apha, wsca, mnsphc}
+
+
+# ── Who carries an AQHA show-management workshop date ────────────────────────
+
+
+def test_an_aqha_certified_secretary_carries_the_workshop_date():
+    from staff_certifications import records_aqha_workshop
+
+    assert records_aqha_workshop("SHOW_SECRETARY", ["APHA", "AQHA"])
+    assert records_aqha_workshop("SHOW_SECRETARY", ["aqha"])
+
+
+def test_nobody_else_carries_it():
+    from staff_certifications import records_aqha_workshop
+
+    # A secretary carded only elsewhere, or with nothing ticked.
+    assert not records_aqha_workshop("SHOW_SECRETARY", ["APHA"])
+    assert not records_aqha_workshop("SHOW_SECRETARY", [])
+    assert not records_aqha_workshop("SHOW_SECRETARY", [None])
+    # Every other role, AQHA-certified or not -- a manager included, by the
+    # show office's choice, though AQHA's rule would accept one.
+    for role in ("SHOW_MANAGER", "ADMIN", "EXHIBITOR", "TRAINER", "SCRIBE", "GATE_STEWARD", "JUDGE"):
+        assert not records_aqha_workshop(role, ["AQHA"])
