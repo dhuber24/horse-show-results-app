@@ -48,6 +48,7 @@ company, so a second colleague pressing the button is told the first already
 asked -- and **switching the feature on answers it**, in the same transaction.
 """
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Sequence
@@ -73,6 +74,8 @@ from models import (
     ShowSecretary,
     User,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -713,16 +716,72 @@ async def request_upgrade(
 
 
 async def admin_emails(db: AsyncSession) -> list[str]:
-    """Where an upgrade request is mailed: every GaitDesk admin whose account
-    is not locked."""
+    """Where mail for GaitDesk's admins goes -- an upgrade request, a join
+    request, a contact-form message: the address of every ADMIN account that is
+    not locked (`users.is_approved` is the account lock), each once.
+
+    A locked admin is left out on purpose: locking is how an account is shut
+    off, and a shut-off account should stop receiving customers' messages too.
+    """
     rows = await db.execute(select(User.email).where(User.role == "ADMIN", User.is_approved.is_(True)))
-    return [email for email in rows.scalars().all() if email]
+    return unique_addresses(rows.scalars().all())
 
 
-async def email_admins(recipients: Sequence[str], subject: str, body: str) -> None:
-    """Best-effort, and run after the response: `send_email` never raises, and
-    nothing about the request depends on whether it arrived."""
-    await asyncio.gather(*(send_email(to, subject, body) for to in recipients))
+def unique_addresses(addresses: Iterable[str | None]) -> list[str]:
+    """Each address once, blanks dropped, first spelling kept -- two spellings
+    of one mailbox are one recipient, not two copies of the same email."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for address in addresses:
+        cleaned = (address or "").strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            out.append(cleaned)
+    return out
+
+
+# How long a failed send waits before its one retry. Long enough for a
+# per-second rate limit (Resend's is counted per second) to have moved on.
+ADMIN_EMAIL_RETRY_SECONDS = 2.0
+
+
+async def email_admins(
+    recipients: Sequence[str], subject: str, body: str, reply_to: str | None = None
+) -> dict[str, bool | None]:
+    """Send each admin their own copy, one after another, and retry a failed
+    send once.
+
+    Best-effort, and run after the response: `send_email` never raises, and
+    nothing about the request depends on whether it arrived. But every admin
+    is meant to get it, so two things are guarded against:
+
+    - **A burst.** These went out all at once, and Resend refuses a team's
+      sends past its per-second limit -- so the more admins there were, the
+      likelier the last few were refused. One at a time keeps the rate down.
+    - **One refusal.** A send that fails (`False`: attempted, refused) is tried
+      once more after a pause. `None` -- no SMTP configured -- is not retried;
+      there is nothing to retry against.
+
+    Returns each address's outcome, and logs a line saying how many admins were
+    reached, so a missed admin shows up in the service's logs by address.
+    """
+    results: dict[str, bool | None] = {}
+    for to in unique_addresses(recipients):
+        sent = await send_email(to, subject, body, reply_to)
+        if sent is False:
+            await asyncio.sleep(ADMIN_EMAIL_RETRY_SECONDS)
+            sent = await send_email(to, subject, body, reply_to)
+        results[to] = sent
+
+    failed = [to for to, sent in results.items() if sent is False]
+    if failed:
+        logger.warning(
+            "Admin email %r reached %d of %d admins; not delivered to %s",
+            subject, len(results) - len(failed), len(results), ", ".join(failed),
+        )
+    elif any(sent for sent in results.values()):
+        logger.info("Admin email %r sent to all %d admins", subject, len(results))
+    return results
 
 
 def feature_not_enabled_message(feature: str) -> str:

@@ -93,7 +93,35 @@ export default async function Home() {
           </div>
           <span className="text-xl shrink-0" style={{ color: 'var(--accent)' }} aria-hidden="true">→</span>
         </Link>
+
+        <Link
+          href="/trainers"
+          className="flex items-center justify-between gap-3 p-4 rounded-lg border transition hover:shadow-md"
+          style={{ backgroundColor: 'var(--bg-subtle)', borderColor: 'var(--border)' }}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl" aria-hidden="true">🤠</span>
+            <div>
+              <div className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>Trainer Registry</div>
+              <div className="text-sm" style={{ color: 'var(--muted)' }}>
+                Find a trainer near you, or list your own training services
+              </div>
+            </div>
+          </div>
+          <span className="text-xl shrink-0" style={{ color: 'var(--accent)' }} aria-hidden="true">→</span>
+        </Link>
       </div>
+
+      <p className="text-sm text-center mt-8" style={{ color: 'var(--muted)' }}>
+        New to GaitDesk?{' '}
+        <Link href="/faq" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
+          Read the FAQ
+        </Link>{' '}
+        or{' '}
+        <Link href="/contact" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
+          contact us
+        </Link>
+      </p>
     </main>
   );
 }

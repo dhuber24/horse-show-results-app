@@ -17,6 +17,15 @@ export const MY_COMPANY_TILE: AdminSection = {
   icon: 'S',
 };
 
+// Messages to GaitDesk itself, from the public Contact page (migration 164).
+// ADMIN only; the admin home carries its unread count.
+export const CONTACT_MESSAGES_TILE: AdminSection = {
+  href: '/admin/contact-messages',
+  title: 'Contact Messages',
+  description: 'Messages sent to GaitDesk from the public Contact page.',
+  icon: 'M',
+};
+
 // A show company keeps its own points systems (migration 148), so every
 // manager and secretary -- all of them are in a company -- gets the tile.
 const POINT_SYSTEMS_TILE: AdminSection = {
@@ -38,6 +47,7 @@ const adminTiles: AdminSection[] = [
   { href: '/admin/standard-classes', title: 'Class Codes', description: "Load an association's approved class list from their published file.", icon: 'C' },
   { href: '/admin/point-systems', title: 'Points Systems', description: "Every show company's high-point charts — how a posted placing becomes points.", icon: 'P' },
   { href: '/admin/circuits', title: 'Season Circuits', description: 'Several shows added together for a season high point.', icon: 'O' },
+  CONTACT_MESSAGES_TILE,
 ];
 
 const showSecretaryTiles: AdminSection[] = [

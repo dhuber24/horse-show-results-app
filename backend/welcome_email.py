@@ -80,6 +80,9 @@ ROLE_WELCOMES: dict[str, RoleWelcome] = {
             "its trainer.",
             "Your profile holds your business details, a headshot, and your "
             "SafeSport and background-check dates in one place.",
+            "To advertise your services, tick List in Trainer Registry on My "
+            "Account: a Basic listing is free, and Pro puts you first for "
+            "exhibitors searching near you.",
         ),
         tips=(
             "Add your association memberships under My Account > Affiliations.",

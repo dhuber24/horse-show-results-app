@@ -57,6 +57,8 @@ interface Props {
   initialCompetitionCards: CompetitionCard[];
   initialHorses: MyHorse[];
   trainerProfile: TrainerProfile | null;
+  /** The Trainer Registry's discipline list, from the backend. */
+  trainerDisciplines: string[];
   trainerHorses: TrainerHorse[];
   trainerAffiliations: TrainerAffiliation[];
   showHistory: MyShow[];
@@ -87,6 +89,7 @@ export default function ProfileTabs({
   initialCompetitionCards,
   initialHorses,
   trainerProfile,
+  trainerDisciplines,
   trainerHorses,
   trainerAffiliations,
   showHistory,
@@ -141,7 +144,7 @@ export default function ProfileTabs({
             </div>
           )}
 
-          {isTrainer && <TrainerProfileForm trainer={trainerProfile} />}
+          {isTrainer && <TrainerProfileForm trainer={trainerProfile} disciplines={trainerDisciplines} />}
 
           <div className="rounded-lg border p-5" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
             <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground)' }}>Change Password</h2>

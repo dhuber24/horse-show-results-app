@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import { coatDescription } from '@/lib/horse-coat';
+import type { ProPlan } from '@/lib/trainer-registry';
+import AdminTrainerPro from './AdminTrainerPro';
 
 interface AdminTrainer {
   id: string;
@@ -27,6 +29,12 @@ interface AdminTrainer {
   has_liability_insurance: boolean;
   horse_count: number;
   created_at: string;
+  zip_code: string | null;
+  is_pro: boolean;
+  pro_until: string | null;
+  pro_plan: ProPlan | null;
+  pro_request_plan: ProPlan | null;
+  pro_requested_at: string | null;
 }
 
 interface Affiliation {
@@ -138,10 +146,8 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
     fetch('/api/associations').then((r) => r.json()).then(setAssociations).catch(() => {});
   }, []);
 
-  const publicRequirementsMet =
-    !form.is_public ||
-    (form.first_name.trim() && form.last_name.trim() && form.business_name.trim() && (form.email.trim() || form.phone.trim()));
-
+  // No listing-completeness check here: the trainer's own screens hold that
+  // rule, and an admin may list a registry row however they judge.
   const fieldErrors = {
     email: form.email && !isValidEmail(form.email) ? 'Enter a valid email address' : null,
     website: form.website && !isValidUrl(form.website) ? 'Must start with https:// or http://' : null,
@@ -229,6 +235,8 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
 
   return (
     <div className="space-y-6">
+      <AdminTrainerPro trainer={trainer} />
+
       <div className="rounded-lg border p-5" style={sectionStyle}>
         <SectionHeader title="Profile" open={open.profile} onToggle={() => toggle('profile')} />
         {open.profile && (
@@ -272,14 +280,12 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
                   onChange={(e) => update('is_public', e.target.checked)}
                 />
                 <label htmlFor="is_public" className="text-sm" style={{ color: 'var(--foreground)' }}>
-                  Public profile (ad-listable)
+                  Listed in the{' '}
+                  <Link href="/trainers" target="_blank" rel="noopener" className="underline" style={{ color: 'var(--accent)' }}>
+                    Trainer Registry
+                  </Link>
                 </label>
               </div>
-              {form.is_public && !publicRequirementsMet && (
-                <p className="text-xs text-red-600">
-                  Public profiles require first name, last name, business/barn name, and at least a public phone or email.
-                </p>
-              )}
             </div>
           </div>
         )}
@@ -329,12 +335,10 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
 
       <button
         onClick={handleSave}
-        disabled={saving || !form.first_name.trim() || !form.last_name.trim() || !publicRequirementsMet || hasFieldErrors}
+        disabled={saving || !form.first_name.trim() || !form.last_name.trim() || hasFieldErrors}
         title={
           !form.first_name.trim() || !form.last_name.trim()
             ? 'First name and last name are required'
-            : !publicRequirementsMet
-            ? 'Public profiles require first name, last name, business/barn name, and at least a public phone or email'
             : hasFieldErrors
             ? 'Fix the highlighted field errors before saving'
             : undefined

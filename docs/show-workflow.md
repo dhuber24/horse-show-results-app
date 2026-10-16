@@ -313,7 +313,7 @@ Someone arrives at the desk with a horse that was never added to their profile. 
 - Errors block entry create/update; warnings are shown in validation summaries but do not block saving today.
 - Current AQHA validation is limited to fields the app stores. Owner/lessee membership, AQHA amateur status, Level 1 eligibility, and per-judge show identities still need additional modeling.
 - Horse and exhibitor AQHA registration checks match on `associations` (`reg.association_id`), not on the show's `show_type_id` — registration rows have only carried `association_id` since migration 080. The rules layer has no DB access, so callers resolve the id with `get_aqha_association_id()` in `backend/routers/shows.py` and pass it as `context["aqha_association_id"]`. Any new code path that calls `validate_entry` for an AQHA show must supply that key; without it the registration checks are skipped rather than failing. Note that `class_associations` is the exception — it really does key on `show_type_id`.
-- AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; at least one assigned show manager or show secretary should be current within 3 years of the show start date.
+- AQHA show-management workshop dates are stored on users as `aqha_management_workshop_completed_at`; at least one assigned show manager or show secretary should be current within 3 years of the show start date. The date is entered on a show secretary certified with AQHA, and on no other account.
 
 ## Exhibitor Self-Service Flow
 
@@ -357,6 +357,16 @@ Someone browsing shows before they have an account sees the same `/shows/[id]` a
 - **Everything the sender types is self-reported and unverified.** Never treat `sender_email` as an identity — the feature exists for people who have no account.
 - **A signed-in sender is stamped, not gated** (migration 103). When the route handler forwards a session, the backend writes `sender_user_id` / `sender_exhibitor_id` from it — never from the body, since a caller able to name the exhibitor they were sending "as" could attach their question to someone else's back number. The inbox then badges the message *Back #42* when they hold one at this show, *Entered here* when they are on the roster without a number yet, and *Has an account* when they are signed in but not entered. No badge is the ordinary case, not a suspicious one.
 - **Exhibitors have a way in now.** The form used to be linked only from the signed-out show view, so signing in took the contact form away. It is a tile on the show menu for everybody — which each My Shows button opens, past shows included ("you charged me for four stalls" arrives after the weekend) — and a link from Show Details, the show bill, and the per-show bill page.
+
+### Contacting GaitDesk
+
+`/contact` is the same door one level up: a message to **GaitDesk itself**, for a club thinking about running its shows here, somebody locked out of an account, or a problem with the app (migration 164, [backend/routers/gaitdesk_contact.py](../backend/routers/gaitdesk_contact.py)). It lands in `gaitdesk_contact_messages` and GaitDesk's admins read it at `/admin/contact-messages`, an ADMIN-only tile on the admin home that carries the unread count. It is linked from the FAQ (its closing box and the answers about pricing, getting started, passwords and problems), and the home page.
+
+- **It keeps every rule of the show form**: no session needed, a signed-in sender stamped from the session and never the body (the inbox badges the account's role), stored rather than only emailed, rate limited to 5/minute, and replies sent from the reader's own mail client.
+- **Stored first, then emailed to every admin** — every ADMIN account that is not locked gets its own copy after the response (`show_companies.admin_emails` / `email_admins`, the same path as an upgrade request), with **Reply-To set to the sender**, so an admin answers by pressing Reply. The row is still the notification: the email does nothing without SMTP.
+- **The page sends show questions to the show first.** GaitDesk does not run the shows listed here, so the first thing on the page is *Asking about a particular show?* with a link to find it — a stall question sent to GaitDesk is one somebody waits on for nothing.
+- **Every message has a topic**, required, from `TOPICS` in the router. The form reads them from `GET /gaitdesk-contact/topics` rather than keeping a copy, so a new topic is one line in one place and no migration (`topic` carries no CHECK). `/contact?topic=pricing` preselects one, which is how the FAQ's pricing answer arrives framed.
+- **A hidden `website` field catches form-filling bots.** No person can see or tab to it; a message that fills it in is answered as if sent and neither stored nor mailed, since telling a bot it failed only teaches it to retry. This form is linked from public pages, so it draws more of them than a show's does.
 
 ## Exhibitor Self-Registration
 

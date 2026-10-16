@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
+import { listingProblem } from '@/lib/trainer-registry';
+import { errorMessage } from '@/lib/api-error';
 
 export interface TrainerProfile {
   id: string;
@@ -27,10 +30,15 @@ export interface TrainerProfile {
   background_check_expires_at: string | null;
   has_liability_insurance: boolean;
   has_headshot: boolean;
+  zip_code: string | null;
+  disciplines: string[];
+  is_pro: boolean;
 }
 
 interface Props {
   trainer: TrainerProfile | null;
+  /** The Trainer Registry's discipline list, from the backend. */
+  disciplines: string[];
 }
 
 const inputClass = 'w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-1';
@@ -89,10 +97,12 @@ function isCurrentBackground(value: string | null): boolean {
   return new Date(value + 'T00:00:00') >= new Date();
 }
 
-export default function TrainerProfileForm({ trainer }: Props) {
+export default function TrainerProfileForm({ trainer, disciplines }: Props) {
   const router = useRouter();
 
   const [form, setForm] = useState({
+    zip_code: trainer?.zip_code ?? '',
+    disciplines: trainer?.disciplines ?? [],
     first_name: trainer?.first_name ?? '',
     last_name: trainer?.last_name ?? '',
     private_email: trainer?.private_email ?? '',
@@ -132,10 +142,11 @@ export default function TrainerProfileForm({ trainer }: Props) {
     setHasHeadshot(trainer?.has_headshot ?? false);
   }, [trainer?.has_headshot]);
 
-  const publicRequirementsMet =
-    !form.is_public ||
-    (form.first_name.trim() && form.last_name.trim() && form.business_name.trim() &&
-      (form.public_email.trim() || form.public_phone.trim()));
+  // The backend's rule too (trainer_registry.listing_problem).
+  const listingIssue = form.is_public
+    ? listingProblem({ city: form.city, state: form.state, zip_code: form.zip_code, disciplines: form.disciplines })
+    : null;
+  const publicRequirementsMet = !listingIssue;
 
   const fieldErrors = {
     private_email: form.private_email && !isValidEmail(form.private_email) ? 'Enter a valid email address' : null,
@@ -183,6 +194,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
       social_instagram: form.social_instagram || null,
       social_tiktok: form.social_tiktok || null,
       is_public: form.is_public,
+      zip_code: form.zip_code.trim() || null,
+      disciplines: form.disciplines,
       has_liability_insurance: form.has_liability_insurance,
       current_password: privateEmailChanged ? form.current_password : undefined,
     };
@@ -208,8 +221,8 @@ export default function TrainerProfileForm({ trainer }: Props) {
       setMessage({ type: 'success', text: 'Trainer profile updated.' });
       router.refresh();
     } else {
-      const json = await res.json().catch(() => ({}));
-      setMessage({ type: 'error', text: json.detail || 'Failed to update trainer profile.' });
+      const json = await res.json().catch(() => null);
+      setMessage({ type: 'error', text: errorMessage(json, 'Failed to update trainer profile.') });
     }
   };
 
@@ -291,19 +304,65 @@ export default function TrainerProfileForm({ trainer }: Props) {
               checked={form.is_public}
               onChange={(e) => update('is_public', e.target.checked)}
             />
-            Show publicly
+            List in Trainer Registry
           </label>
         </div>
-        {form.is_public && !publicRequirementsMet && (
-          <p className="text-xs mt-2 text-red-600">
-            Public profiles require first name, last name, business/barn name, and at least a public phone or email.
-          </p>
-        )}
+        {listingIssue && <p className="text-xs mt-2" style={{ color: 'var(--error-strong)' }}>{listingIssue}</p>}
         {open.public && (
           <>
             <p className="text-xs mt-2 mb-4" style={{ color: 'var(--muted)' }}>
-              Shown to exhibitors browsing trainers and, in the future, on ad surfaces.
+              Advertise your services to exhibitors browsing the{' '}
+              <Link href="/trainers" className="underline" style={{ color: 'var(--accent)' }}>Trainer Registry</Link>.
+              A Basic listing shows your name, business, disciplines and town;{' '}
+              {trainer.is_pro ? 'you’re on Pro, so everything here is shown.' : 'the rest of this section is shown on Pro.'}{' '}
+              <Link href="/profile/registry" className="underline" style={{ color: 'var(--accent)' }}>
+                {trainer.is_pro ? 'Manage your listing' : 'Plans, photos and rates'}
+              </Link>
+              {trainer.is_public && (
+                <>
+                  {' · '}
+                  <Link href={`/trainers/${trainer.id}`} className="underline" style={{ color: 'var(--accent)' }}>
+                    View your listing
+                  </Link>
+                </>
+              )}
             </p>
+            <div className="mb-4 space-y-3">
+              <div className="w-32">
+                <Field label="Zip Code" hint="Places you in near-me searches. Never shown.">
+                  <input
+                    inputMode="numeric"
+                    value={form.zip_code}
+                    onChange={(e) => update('zip_code', e.target.value)}
+                    maxLength={10}
+                    className={inputClass}
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+              <fieldset>
+                <legend className="block text-sm font-medium mb-1" style={labelStyle}>What do you train?</legend>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
+                  {disciplines.map((name) => (
+                    <label key={name} className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-deep)' }}>
+                      <input
+                        type="checkbox"
+                        checked={form.disciplines.includes(name)}
+                        onChange={() =>
+                          update(
+                            'disciplines',
+                            form.disciplines.includes(name)
+                              ? form.disciplines.filter((d) => d !== name)
+                              : [...form.disciplines, name],
+                          )
+                        }
+                      />
+                      {name}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Business / Barn Name">
                 <input value={form.business_name} onChange={(e) => update('business_name', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
@@ -468,7 +527,7 @@ export default function TrainerProfileForm({ trainer }: Props) {
         disabled={saving || !publicRequirementsMet || hasFieldErrors}
         title={
           !publicRequirementsMet
-            ? 'Public profiles require first name, last name, business/barn name, and at least a public phone or email'
+            ? listingIssue ?? undefined
             : hasFieldErrors
             ? 'Fix the highlighted field errors before saving'
             : undefined

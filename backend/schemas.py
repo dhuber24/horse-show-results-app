@@ -1662,6 +1662,32 @@ class TrainerProfileUpdate(BaseModel):
     background_check_expires_at: Optional[date] = None
     clear_background_check_expires_at: bool = False
     has_liability_insurance: Optional[bool] = None
+    # Trainer Registry (migration 165). Checked against trainer_registry's
+    # catalogue and limits by the router, which says which value it refused.
+    zip_code: Optional[str] = Field(default=None, max_length=10)
+    disciplines: Optional[list[str]] = Field(default=None, max_length=40)
+    video_urls: Optional[list[str]] = None
+    rate_sheet: Optional[list["TrainerRateLine"]] = None
+
+
+class TrainerRateLine(BaseModel):
+    """One line of a trainer's advertised rate sheet, in their own words. An
+    advertised price, not a charge: nothing in billing reads it."""
+    service: str = Field(min_length=1, max_length=120)
+    price: str = Field(min_length=1, max_length=60)
+    details: Optional[str] = Field(default=None, max_length=300)
+
+    @field_validator("service", "price", "details", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+
+TrainerProfileUpdate.model_rebuild()
+
 
 class TrainerOut(BaseModel):
     id: UUID
@@ -1684,6 +1710,13 @@ class TrainerOut(BaseModel):
     has_liability_insurance: bool = False
     horse_count: int = 0
     created_at: datetime
+    # Trainer Registry plan (migration 165), for the admin's screens.
+    zip_code: Optional[str] = None
+    is_pro: bool = False
+    pro_until: Optional[date] = None
+    pro_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_request_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_requested_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -3139,15 +3172,38 @@ class TrainerProfileOut(BaseModel):
     has_liability_insurance: bool = False
     has_headshot: bool = False
     created_at: datetime
+    # Trainer Registry (migration 165).
+    zip_code: Optional[str] = None
+    disciplines: list[str] = []
+    video_urls: list[str] = []
+    rate_sheet: list[TrainerRateLine] = []
+    is_pro: bool = False
+    pro_until: Optional[date] = None
+    pro_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_request_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_requested_at: Optional[datetime] = None
 
     @model_validator(mode='before')
     @classmethod
     def from_trainer(cls, v):
         if isinstance(v, dict):
             return v
+        # Imported here: trainer_registry imports this module.
+        from trainer_registry import is_pro
+
         user = getattr(v, 'user', None)
         docs = getattr(v, 'documents', None) or []
+        request = getattr(v, 'pro_request', None)
         return {
+            'zip_code': getattr(v, 'zip_code', None),
+            'disciplines': list(getattr(v, 'disciplines', None) or []),
+            'video_urls': list(getattr(v, 'video_urls', None) or []),
+            'rate_sheet': list(getattr(v, 'rate_sheet', None) or []),
+            'is_pro': is_pro(v),
+            'pro_until': getattr(v, 'pro_until', None),
+            'pro_plan': getattr(v, 'pro_plan', None),
+            'pro_request_plan': request.plan if request else None,
+            'pro_requested_at': request.created_at if request else None,
             'id': v.id,
             'user_id': getattr(v, 'user_id', None),
             'first_name': getattr(v, 'first_name', ''),
@@ -3176,10 +3232,12 @@ class TrainerProfileOut(BaseModel):
 
 
 class TrainerPublicOut(BaseModel):
-    """Ad-facing trainer card. Returned only when is_public is True.
+    """One Trainer Registry listing, as the public sees it. Built only by
+    `trainer_registry.public_card`, which decides what each plan shows.
 
-    Raw compliance dates and policy details stay out; consumers see boolean
-    badges that summarize current status.
+    Basic: the first block and nothing else. Pro: everything. Raw compliance
+    dates, the zip code and every private contact detail stay out on both; the
+    public email stays out too -- the Contact Trainer form routes to it.
     """
     id: UUID
     first_name: str
@@ -3189,21 +3247,77 @@ class TrainerPublicOut(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     country: Optional[str] = None
-    website: Optional[str] = None
+    disciplines: list[str] = []
+    tier: Literal["basic", "pro"] = "basic"
+    # How far from the visitor's search, for a Pro listing in a near-me search.
+    distance_miles: Optional[float] = None
+    # ── Pro only ──
     bio: Optional[str] = None
-    public_email: Optional[str] = None
+    website: Optional[str] = None
     public_phone: Optional[str] = None
     social_facebook: Optional[str] = None
     social_instagram: Optional[str] = None
     social_tiktok: Optional[str] = None
-    has_headshot: bool = False
+    headshot_id: Optional[UUID] = None
+    logo_id: Optional[UUID] = None
+    photo_ids: list[UUID] = []
+    video_urls: list[str] = []
+    rate_sheet: list[TrainerRateLine] = []
+    can_contact: bool = False
     safesport_current: bool = False
     background_check_current: bool = False
     has_liability_insurance: bool = False
     affiliations: list[TrainerRegistrationOut] = []
 
+
+class TrainerRegistryNear(BaseModel):
+    """Where a near-me search was centred. `located` is false for a zip the
+    table does not know, so the page can say so instead of quietly unranking."""
+    zip: Optional[str] = None
+    located: bool = False
+
+
+class TrainerRegistryOut(BaseModel):
+    listings: list[TrainerPublicOut]
+    near: Optional[TrainerRegistryNear] = None
+
+
+class TrainerLeadCreate(BaseModel):
+    """The Contact Trainer form. `website` is a honeypot: hidden on the page,
+    so only a bot fills it in (as on the GaitDesk contact form)."""
+    sender_name: str = Field(min_length=1, max_length=120)
+    sender_email: EmailStr
+    sender_phone: Optional[str] = Field(default=None, max_length=30)
+    message: str = Field(min_length=1, max_length=4000)
+    website: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("sender_name", "message", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class TrainerLeadOut(BaseModel):
+    id: UUID
+    sender_name: str
+    sender_email: str
+    sender_phone: Optional[str] = None
+    message: str
+    created_at: datetime
+
     class Config:
         from_attributes = True
+
+
+class TrainerProRequestCreate(BaseModel):
+    plan: Literal["monthly", "annual"]
+
+
+class TrainerProUpdate(BaseModel):
+    """An admin recording what a trainer has paid for. A null `pro_until`
+    ends Pro."""
+    pro_until: Optional[date] = None
+    pro_plan: Optional[Literal["monthly", "annual"]] = None
 
 
 class AqhaStandardClassOut(BaseModel):

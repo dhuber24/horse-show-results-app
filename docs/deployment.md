@@ -518,6 +518,12 @@ nobody receives a welcome, a horse-access request or an upgrade request.
   reach the daily one. A failed send is logged on `gaitdesk-api` as "Failed to
   send email to …" with the SMTP error under it; Resend's **Emails** page lists
   every message it accepted.
+- **Mail to the admins says how far it got.** A contact-form message, an
+  upgrade request or a join request goes to every unlocked ADMIN, one copy
+  each, sent in turn with one retry. Each is logged as `Admin email '…' sent to
+  all N admins`, or `reached X of N admins; not delivered to …` naming the
+  addresses missed — search the service log for "Admin email". Every admin
+  copy counts against the daily cap.
 
 ## Google Analytics
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
-import { MY_COMPANY_TILE, ROLE_LABELS, adminSections } from './sections';
+import { CONTACT_MESSAGES_TILE, MY_COMPANY_TILE, ROLE_LABELS, adminSections } from './sections';
 
 /**
  * What is waiting on a GaitDesk admin at Show Companies — a request to join,
@@ -53,6 +53,24 @@ async function pendingJoinRequests(): Promise<string | null> {
   }
 }
 
+/**
+ * Unread messages to GaitDesk from the public Contact page (migration 164).
+ * The count on the tile is how an admin hears of one when mail is not set up;
+ * like the counts above, anything short of a clean answer shows no badge.
+ */
+async function unreadContactMessages(): Promise<string | null> {
+  const headers = await getAuthHeaders();
+  if (!headers) return null;
+  try {
+    const res = await fetch(`${API_URL}/gaitdesk-contact/messages/unread-count`, { headers, cache: 'no-store' });
+    if (!res.ok) return null;
+    const unread = (await readJsonBody(res))?.unread;
+    return typeof unread === 'number' && unread > 0 ? `${unread} unread` : null;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AdminPage() {
   const session = await auth();
   const role = (session?.user as any)?.role;
@@ -61,10 +79,13 @@ export default async function AdminPage() {
   if (role !== 'ADMIN' && role !== 'SHOW_SECRETARY' && role !== 'SHOW_MANAGER') redirect('/');
 
   const tiles = adminSections(role);
-  const waiting: Record<string, string | null> =
-    role === 'ADMIN'
-      ? { '/admin/companies': await pendingCompanyRequests() }
-      : { [MY_COMPANY_TILE.href]: await pendingJoinRequests() };
+  let waiting: Record<string, string | null>;
+  if (role === 'ADMIN') {
+    const [companies, contact] = await Promise.all([pendingCompanyRequests(), unreadContactMessages()]);
+    waiting = { '/admin/companies': companies, [CONTACT_MESSAGES_TILE.href]: contact };
+  } else {
+    waiting = { [MY_COMPANY_TILE.href]: await pendingJoinRequests() };
+  }
 
   return (
     <main className="max-w-4xl mx-auto p-4 md:p-6">

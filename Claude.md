@@ -15,6 +15,7 @@ It does:
 - Publish results live.
 - Read a show's own printed show bill into a draft show for staff to check and create (migration 141) — a **paid feature**, switched on per show company by a GaitDesk admin (migration 142).
 - Track horses, exhibitors, show staff, documents, and association registration data.
+- Run a public Trainer Registry: a free Basic listing, and a paid Pro listing ranked nearest-first that a GaitDesk admin records once billed (migration 165).
 - Provide limited association compliance validation where the app stores enough data, including AQHA class-code, registration, membership-number, workshop-date, and age checks.
 
 It does not:
@@ -52,7 +53,7 @@ Each design doc holds that subsystem's data model notes, its rules, the reasons 
 | Live boards (results and gate), the marquee, points systems, high-point standings, circuits | [docs/design/live-boards-and-high-point.md](docs/design/live-boards-and-high-point.md) |
 | Show companies, office access to a show, paid features | [docs/design/companies.md](docs/design/companies.md) |
 | Associations, APHA/AQHA rules, memberships and competition cards, class-code catalogs | [docs/design/associations.md](docs/design/associations.md) |
-| Roles, accounts, `/welcome`, the profile, exhibitor/trainer/judge records, horses, horse documents | [docs/design/accounts.md](docs/design/accounts.md) |
+| Roles, accounts, `/welcome`, the profile, exhibitor/trainer/judge records, the Trainer Registry and its plans, horses, horse documents | [docs/design/accounts.md](docs/design/accounts.md) |
 | A migration, or a release to production | [docs/design/operations.md](docs/design/operations.md) and the `release` skill |
 
 Background and narrative:

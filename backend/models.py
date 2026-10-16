@@ -955,6 +955,25 @@ class Trainer(Base):
     background_check_expires_at = Column(Date, nullable=True)
     has_liability_insurance = Column(Boolean, nullable=False, server_default="false")
 
+    # Trainer Registry (migration 165). Where they work, for the near-me search
+    # -- never shown publicly -- and what they train (trainer_registry
+    # .TRAINER_DISCIPLINES).
+    zip_code = Column(Text, nullable=True)
+    disciplines = Column(ARRAY(Text), nullable=False, server_default="{}")
+    # Pro listing content: anybody may fill it in, only a Pro listing shows it.
+    video_urls = Column(ARRAY(Text), nullable=False, server_default="{}")
+    # [{"service": ..., "price": ..., "details": ...}] -- the trainer's own
+    # words, shown as typed. Advertised prices, not charges: nothing bills off it.
+    rate_sheet = Column(JSONB, nullable=False, server_default="[]")
+    # Pro is on through this date and Basic after it (trainer_registry.is_pro);
+    # an admin sets it once the trainer has paid. `pro_plan` is what they pay for.
+    pro_until = Column(Date, nullable=True)
+    pro_plan = Column(
+        Text,
+        CheckConstraint("pro_plan IS NULL OR pro_plan IN ('monthly', 'annual')", name="ck_trainers_pro_plan"),
+        nullable=True,
+    )
+
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="trainer_profile")
@@ -965,6 +984,45 @@ class Trainer(Base):
     documents = relationship(
         "TrainerDocument", back_populates="trainer", cascade="all, delete-orphan"
     )
+    pro_request = relationship(
+        "TrainerProRequest", back_populates="trainer", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class TrainerProRequest(Base):
+    """A trainer asking for Trainer Registry Pro (migration 165). One per
+    trainer; an admin recording a paid-through date deletes it, as switching a
+    company's feature on deletes its upgrade request."""
+    __tablename__ = "trainer_pro_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
+    plan = Column(
+        Text,
+        CheckConstraint("plan IN ('monthly', 'annual')", name="ck_trainer_pro_requests_plan"),
+        nullable=False,
+    )
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("trainer_id", name="uq_trainer_pro_requests_trainer"),)
+
+    trainer = relationship("Trainer", back_populates="pro_request")
+
+
+class TrainerLead(Base):
+    """A message from the Contact Trainer button on a Pro listing (migration
+    165). Stored, then emailed to the trainer best-effort. Everything in it is
+    whatever the visitor typed."""
+    __tablename__ = "trainer_leads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
+    sender_name = Column(Text, nullable=False)
+    sender_email = Column(Text, nullable=False)
+    sender_phone = Column(Text, nullable=True)
+    message = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 
 @event.listens_for(User, "before_insert")
@@ -1014,7 +1072,10 @@ class TrainerDocument(Base):
     trainer_id = Column(UUID(as_uuid=True), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
     document_type = Column(
         Text,
-        CheckConstraint("document_type IN ('HEADSHOT')"),
+        CheckConstraint(
+            "document_type IN ('HEADSHOT', 'LOGO', 'PHOTO')",
+            name="trainer_documents_document_type_check",
+        ),
         nullable=False,
     )
     original_filename = Column(Text, nullable=False)
@@ -2560,6 +2621,48 @@ class ShowContactMessage(Base):
     handled_by = relationship("User", foreign_keys=[handled_by_user_id])
     sender_user = relationship("User", foreign_keys=[sender_user_id])
     sender_exhibitor = relationship("Exhibitor", foreign_keys=[sender_exhibitor_id])
+
+
+class GaitDeskContactMessage(Base):
+    """A message to GaitDesk itself, from `/contact` (migration 164).
+
+    The show inbox's counterpart one level up: stored first and then emailed to
+    GaitDesk's admins best-effort, because `mailer.py` does nothing without
+    SMTP. Everything about the sender is self-reported except `sender_user_id`,
+    which the backend writes from the session. `topic` is a key of `TOPICS` in
+    `routers/gaitdesk_contact.py`.
+    """
+    __tablename__ = "gaitdesk_contact_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    topic = Column(Text, nullable=False)
+    sender_name = Column(Text, nullable=False)
+    sender_email = Column(Text, nullable=False)
+    sender_phone = Column(Text, nullable=True)
+    organization = Column(Text, nullable=True)
+    subject = Column(Text, nullable=True)
+    message = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, server_default="new")
+    sender_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    handled_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    handled_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Named to match the migration, for the create_all race (migration 089).
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('new', 'read', 'archived')",
+            name="ck_gaitdesk_contact_messages_status",
+        ),
+    )
+
+    # Two FKs to `users`, so foreign_keys is required (see ShowContactMessage).
+    sender_user = relationship("User", foreign_keys=[sender_user_id])
+    handled_by = relationship("User", foreign_keys=[handled_by_user_id])
 
 
 class ShowSecretaryCertification(Base):

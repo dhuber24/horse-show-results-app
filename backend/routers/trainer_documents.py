@@ -1,17 +1,22 @@
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, Form
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.orm import defer, selectinload
 from uuid import UUID
 
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
 from models import Trainer, TrainerDocument
 from schemas import TrainerDocumentOut
+from trainer_registry import MAX_PHOTOS, is_listed, is_pro
 
-MAX_HEADSHOT_BYTES = 5 * 1024 * 1024  # 5 MB — headshots are small
+MAX_HEADSHOT_BYTES = 5 * 1024 * 1024  # 5 MB — every trainer picture is a photo or a logo
 
-VALID_DOC_TYPES = {"HEADSHOT"}
+VALID_DOC_TYPES = {"HEADSHOT", "LOGO", "PHOTO"}
+# One of each of these per trainer: a new upload replaces the old. PHOTO is a
+# gallery, up to trainer_registry.MAX_PHOTOS.
+SINGLE_DOC_TYPES = {"HEADSHOT", "LOGO"}
 
 
 def _detect_image_mime(data: bytes) -> str | None:
@@ -50,6 +55,8 @@ async def list_trainer_documents(
     await _load_trainer_for_management(trainer_id, user_id, x_user_role, db)
     result = await db.execute(
         select(TrainerDocument)
+        # Everything but the bytes: a gallery is up to 40 MB, and a list needs none of it.
+        .options(defer(TrainerDocument.file_data))
         .where(TrainerDocument.trainer_id == trainer_id)
         .order_by(TrainerDocument.created_at)
     )
@@ -84,20 +91,30 @@ async def upload_trainer_document(
     if mime is None:
         raise HTTPException(400, "Unsupported file type. Upload a JPEG, PNG, or WebP image.")
 
-    # One headshot per trainer — replace any existing row.
-    existing = await db.execute(
-        select(TrainerDocument).where(
-            TrainerDocument.trainer_id == trainer_id,
-            TrainerDocument.document_type == document_type,
+    if document_type in SINGLE_DOC_TYPES:
+        # One headshot and one logo per trainer — replace any existing row.
+        existing = await db.execute(
+            select(TrainerDocument).where(
+                TrainerDocument.trainer_id == trainer_id,
+                TrainerDocument.document_type == document_type,
+            )
         )
-    )
-    for doc in existing.scalars().all():
-        await db.delete(doc)
+        for doc in existing.scalars().all():
+            await db.delete(doc)
+    else:
+        count = await db.execute(
+            select(func.count()).select_from(TrainerDocument).where(
+                TrainerDocument.trainer_id == trainer_id,
+                TrainerDocument.document_type == document_type,
+            )
+        )
+        if (count.scalar_one() or 0) >= MAX_PHOTOS:
+            raise HTTPException(400, f"Up to {MAX_PHOTOS} photos. Remove one to add another.")
 
     doc = TrainerDocument(
         trainer_id=trainer_id,
         document_type=document_type,
-        original_filename=file.filename or "headshot",
+        original_filename=file.filename or document_type.lower(),
         file_data=content,
         mime_type=mime,
         file_size=len(content),
@@ -187,14 +204,41 @@ async def get_my_headshot(
     return Response(content=doc.file_data, media_type=doc.mime_type)
 
 
-# ── Public headshot endpoint (no auth) ─────────────────────────────────────────
-# Returns the trainer's headshot only when the trainer's profile is marked public.
-# Used by ad/listing surfaces; unauthenticated to keep image rendering simple.
+# ── Public pictures (no auth) ──────────────────────────────────────────────────
+# A trainer's pictures are Pro listing content, so they are served only while
+# the trainer is listed in the Trainer Registry *and* on Pro
+# (trainer_registry.is_listed / is_pro) -- the same rule public_card applies.
+# Unauthenticated to keep image rendering simple.
+
+
+async def _public_pictures_allowed(trainer_id: UUID, db: AsyncSession) -> bool:
+    trainer = await db.get(Trainer, trainer_id, options=[selectinload(Trainer.user)])
+    return bool(trainer and is_listed(trainer) and is_pro(trainer))
+
+
+@router.get("/{trainer_id}/media/{doc_id}")
+async def public_trainer_media(trainer_id: UUID, doc_id: UUID, db: AsyncSession = Depends(get_db)):
+    if not await _public_pictures_allowed(trainer_id, db):
+        raise HTTPException(404, "Picture not available")
+    result = await db.execute(
+        select(TrainerDocument).where(
+            TrainerDocument.id == doc_id,
+            TrainerDocument.trainer_id == trainer_id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404, "Picture not available")
+    return Response(
+        content=doc.file_data,
+        media_type=doc.mime_type,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
 
 @router.get("/{trainer_id}/headshot")
 async def public_trainer_headshot(trainer_id: UUID, db: AsyncSession = Depends(get_db)):
-    trainer = await db.get(Trainer, trainer_id)
-    if not trainer or not trainer.is_public:
+    if not await _public_pictures_allowed(trainer_id, db):
         raise HTTPException(404, "Headshot not available")
 
     result = await db.execute(

@@ -61,6 +61,7 @@ from routers.gate import router as gate_router
 from routers.horse_access import router as horse_access_router
 from routers.my_shows import router as my_shows_router
 from routers.show_contact import router as show_contact_router
+from routers.gaitdesk_contact import router as gaitdesk_contact_router
 from routers.my_messages import router as my_messages_router
 from routers.show_office import router as show_office_router
 from routers.show_financials import router as show_financials_router
@@ -222,6 +223,7 @@ app.include_router(gate_router)
 app.include_router(horse_access_router)
 app.include_router(my_shows_router)
 app.include_router(show_contact_router)
+app.include_router(gaitdesk_contact_router)
 app.include_router(my_messages_router)
 app.include_router(show_office_router)
 app.include_router(show_financials_router)

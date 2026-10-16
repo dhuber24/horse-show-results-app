@@ -61,6 +61,12 @@ export default async function LoginPage({
               Register here
             </Link>
           </p>
+          <p className="pt-2" style={{ color: 'var(--muted)' }}>
+            Questions?{' '}
+            <Link href="/faq" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
+              Read the FAQ
+            </Link>
+          </p>
         </div>
       </div>
     </main>

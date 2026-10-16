@@ -1,7 +1,20 @@
 import Link from 'next/link';
+import { API_URL, readJsonBody } from '@/lib/backend-fetch';
 import TrainerRegisterForm from './TrainerRegisterForm';
 
-export default function TrainerRegisterPage() {
+/** The discipline list the registry offers — the backend's, so there is one copy. */
+async function loadDisciplines(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_URL}/trainers/registry/options`, { cache: 'no-store' });
+    const body = await readJsonBody(res);
+    return res.ok && Array.isArray(body?.disciplines) ? body.disciplines : [];
+  } catch {
+    return [];
+  }
+}
+
+export default async function TrainerRegisterPage() {
+  const disciplines = await loadDisciplines();
   return (
     <main
       className="min-h-screen flex items-center justify-center p-4"
@@ -15,7 +28,7 @@ export default function TrainerRegisterPage() {
           </p>
         </div>
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
-          <TrainerRegisterForm />
+          <TrainerRegisterForm disciplines={disciplines} />
         </div>
         <div className="text-center text-sm mt-4">
           <p style={{ color: 'var(--muted)' }}>

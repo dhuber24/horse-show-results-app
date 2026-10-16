@@ -1,6 +1,6 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
-import { getAuthHeaders, API_URL } from '@/lib/backend-fetch';
+import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import type { MyShow } from '@/lib/my-shows';
 import { loadExhibitor } from '@/lib/exhibitor-access';
 import ProfileTabs from './ProfileTabs';
@@ -29,6 +29,7 @@ export default async function ProfilePage({
   let trainerProfile: any = null;
   let trainerHorses: any[] = [];
   let trainerAffiliations: any[] = [];
+  let trainerDisciplines: string[] = [];
   let showHistory: MyShow[] = [];
 
   // Memoised per request, and the same lookup the navbar above this page made.
@@ -85,14 +86,16 @@ export default async function ProfilePage({
   }
 
   if (role === 'TRAINER') {
-    const [trainerRes, trainerHorsesRes, trainerAffiliationsRes] = await Promise.all([
+    const [trainerRes, trainerHorsesRes, trainerAffiliationsRes, registryOptionsRes] = await Promise.all([
       fetch(`${API_URL}/trainers/me`, { headers: headers!, cache: 'no-store' }),
       fetch(`${API_URL}/trainers/me/horses`, { headers: headers!, cache: 'no-store' }),
       fetch(`${API_URL}/trainers/me/registrations`, { headers: headers!, cache: 'no-store' }),
+      fetch(`${API_URL}/trainers/registry/options`, { cache: 'no-store' }),
     ]);
     if (trainerRes.ok) trainerProfile = await trainerRes.json();
     if (trainerHorsesRes.ok) trainerHorses = await trainerHorsesRes.json();
     if (trainerAffiliationsRes.ok) trainerAffiliations = await trainerAffiliationsRes.json();
+    if (registryOptionsRes.ok) trainerDisciplines = (await readJsonBody(registryOptionsRes))?.disciplines ?? [];
   }
 
   return (
@@ -110,6 +113,7 @@ export default async function ProfilePage({
         initialCompetitionCards={exhibitorCards}
         initialHorses={horses}
         trainerProfile={trainerProfile}
+        trainerDisciplines={trainerDisciplines}
         trainerHorses={trainerHorses}
         trainerAffiliations={trainerAffiliations}
         showHistory={showHistory}

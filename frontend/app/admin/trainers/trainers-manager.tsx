@@ -13,6 +13,19 @@ interface Trainer {
   user_email: string | null;
   horse_count: number;
   created_at: string;
+  is_public: boolean;
+  is_pro: boolean;
+  pro_request_plan: 'monthly' | 'annual' | null;
+}
+
+function Tag({ children, tone }: { children: React.ReactNode; tone: 'accent' | 'warning' | 'muted' }) {
+  const style =
+    tone === 'accent'
+      ? { backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }
+      : tone === 'warning'
+      ? { backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)', border: '1px solid var(--warning-border)' }
+      : { backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)', border: '1px solid var(--border)' };
+  return <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded" style={style}>{children}</span>;
 }
 
 interface FormState {
@@ -161,6 +174,11 @@ export default function TrainersManager({ initialTrainers }: Props) {
 
       <section className="space-y-2">
         <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>All Trainers ({sorted.length})</h2>
+        {sorted.some((t) => t.pro_request_plan) && (
+          <p className="text-sm" style={{ color: 'var(--warning-strong)' }}>
+            {sorted.filter((t) => t.pro_request_plan).length} asking for Trainer Registry Pro — open each to record what they&apos;ve paid for.
+          </p>
+        )}
         {sorted.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>No trainers yet.</p>
         ) : (
@@ -169,7 +187,12 @@ export default function TrainersManager({ initialTrainers }: Props) {
               <li key={trainer.id} className="border rounded p-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
-                    <p className="font-medium" style={{ color: 'var(--foreground)' }}>{trainer.name}</p>
+                    <p className="font-medium flex items-center gap-2 flex-wrap" style={{ color: 'var(--foreground)' }}>
+                      {trainer.name}
+                      {trainer.is_public && <Tag tone="muted">Listed</Tag>}
+                      {trainer.is_pro && <Tag tone="accent">Pro</Tag>}
+                      {trainer.pro_request_plan && <Tag tone="warning">Asked for Pro</Tag>}
+                    </p>
                     <dl className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1" style={{ color: 'var(--text-deep)' }}>
                       <div>
                         <dt className="inline text-xs uppercase tracking-wide mr-1" style={{ color: 'var(--muted)' }}>Public phone:</dt>

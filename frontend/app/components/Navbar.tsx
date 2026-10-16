@@ -90,11 +90,20 @@ export default async function Navbar() {
             <SignOutButton />
           </>
         ) : (
-          <Link href="/login"
-            className="text-sm px-4 py-2 rounded font-medium transition"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}>
-            Sign In
-          </Link>
+          <>
+            {/* Signed-out only: a visitor deciding whether to sign up is who
+                asks. Everybody else reaches it from the home page. */}
+            <Link href="/faq"
+              className="text-sm px-3 py-2 rounded font-medium transition"
+              style={{ color: 'var(--on-slate)' }}>
+              FAQ
+            </Link>
+            <Link href="/login"
+              className="text-sm px-4 py-2 rounded font-medium transition"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}>
+              Sign In
+            </Link>
+          </>
         )}
       </div>
     </nav>

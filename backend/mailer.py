@@ -32,7 +32,7 @@ def smtp_configured() -> bool:
     return bool(os.getenv("SMTP_HOST"))
 
 
-def _send_sync(to: str, subject: str, body: str) -> None:
+def _send_sync(to: str, subject: str, body: str, reply_to: str | None = None) -> None:
     host = os.getenv("SMTP_HOST", "")
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER") or None
@@ -44,6 +44,12 @@ def _send_sync(to: str, subject: str, body: str) -> None:
     message["From"] = sender
     message["To"] = to
     message["Subject"] = subject
+    # Where the recipient's Reply goes, when it should not be the no-reply
+    # sender -- a contact-form message to the admins replies to whoever wrote
+    # it. `EmailMessage` refuses a value with a line break in it, so an address
+    # cannot smuggle in a header of its own.
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
 
     with smtplib.SMTP(host, port, timeout=15) as smtp:
@@ -54,8 +60,10 @@ def _send_sync(to: str, subject: str, body: str) -> None:
         smtp.send_message(message)
 
 
-async def send_email(to: str | None, subject: str, body: str) -> bool | None:
-    """Send one plain-text message.
+async def send_email(
+    to: str | None, subject: str, body: str, reply_to: str | None = None
+) -> bool | None:
+    """Send one plain-text message, with an optional Reply-To.
 
     Returns True on success, False if sending was attempted and failed, and
     None if there was nothing to attempt (no SMTP configured, or no address).
@@ -65,7 +73,7 @@ async def send_email(to: str | None, subject: str, body: str) -> bool | None:
         logger.info("Email not sent (no SMTP configured or no recipient): %s", subject)
         return None
     try:
-        await asyncio.to_thread(_send_sync, to, subject, body)
+        await asyncio.to_thread(_send_sync, to, subject, body, reply_to)
         return True
     except Exception:
         logger.exception("Failed to send email to %s: %s", to, subject)

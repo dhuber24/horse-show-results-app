@@ -3,7 +3,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -12,7 +12,9 @@ import logging
 
 from database import get_db
 from models import User, Exhibitor, ShowSecretaryCertification, Association, Trainer
-from show_companies import place_in_company
+from show_companies import admin_emails, email_admins, place_in_company
+from trainer_registry import clean_disciplines, listing_email, listing_problem, unknown_disciplines
+from zip_locations import normalize_zip
 from welcome_email import send_welcome_email
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,25 @@ class TrainerRegister(BaseModel):
     private_phone: str
     public_email: Optional[EmailStr] = None
     public_phone: Optional[str] = None
+    # "List me in the Trainer Registry" -- sets trainers.is_public, on Basic.
+    # A listing needs a town, state, zip and a discipline (trainer_registry.py).
+    list_in_registry: bool = False
+    business_name: Optional[str] = Field(default=None, max_length=200)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=50)
+    zip_code: Optional[str] = Field(default=None, max_length=10)
+    disciplines: list[str] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def _listing_is_complete(self):
+        unknown = unknown_disciplines(self.disciplines)
+        if unknown:
+            raise ValueError(f"Not a discipline on the list: {', '.join(unknown)}")
+        if self.list_in_registry:
+            problem = listing_problem(self.city, self.state, self.zip_code, self.disciplines)
+            if problem:
+                raise ValueError(problem)
+        return self
 
 
 def normalize_email(email: str) -> str:
@@ -460,6 +481,13 @@ async def register_trainer(
     validate_name_parts(body.first_name, body.last_name)
     email = normalize_email(body.email)
     public_email = normalize_email(body.public_email) if body.public_email else None
+    business_name = (body.business_name or "").strip() or None
+    listing = {
+        "city": (body.city or "").strip() or None,
+        "state": (body.state or "").strip() or None,
+        "zip_code": normalize_zip(body.zip_code),
+        "disciplines": clean_disciplines(body.disciplines),
+    }
 
     existing_user = await db.execute(select(User).where(func.lower(User.email) == email))
     if existing_user.scalar_one_or_none():
@@ -509,19 +537,37 @@ async def register_trainer(
         existing_trainer.phone = existing_trainer.phone or (body.public_phone.strip() if body.public_phone else None)
         if not existing_trainer.email and public_email:
             existing_trainer.email = public_email
+        if body.list_in_registry:
+            # What they typed now is where they work now; a row somebody else
+            # created from a horse form only ever guessed at it.
+            existing_trainer.business_name = existing_trainer.business_name or business_name
+            existing_trainer.city = listing["city"]
+            existing_trainer.state = listing["state"]
+            existing_trainer.zip_code = listing["zip_code"]
+            existing_trainer.disciplines = listing["disciplines"]
+            existing_trainer.is_public = True
+        trainer = existing_trainer
     else:
-        db.add(Trainer(
+        trainer = Trainer(
             user_id=user.id,
             first_name=body.first_name.strip(),
             last_name=body.last_name.strip(),
             private_phone=body.private_phone.strip(),
             phone=body.public_phone.strip() if body.public_phone else None,
             email=public_email,
-        ))
+            business_name=business_name,
+            is_public=body.list_in_registry,
+            **listing,
+        )
+        db.add(trainer)
 
+    recipients = await admin_emails(db) if body.list_in_registry else []
     await db.commit()
     await db.refresh(user)
     background.add_task(send_welcome_email, user.email, user.first_name, user.role)
+    if recipients:
+        subject, mail_body = listing_email(trainer, user.email, at_signup=True)
+        background.add_task(email_admins, recipients, subject, mail_body, user.email)
 
     return {
         "id": str(user.id),
