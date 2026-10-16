@@ -35,10 +35,12 @@ nothing to do with the actual fault, which is a genuinely hard error to trace ba
   `!res.ok || json === null` as the error case and fall back to the page's own message.
 
 **This is now enforced, not aspirational.** Every route handler in `frontend/app/api/` goes through
-`safeFetchBackend()`, and a CI step fails the build if a new one calls `fetch()` directly. The five
+`safeFetchBackend()`, and a CI step fails the build if a new one calls `fetch()` directly. The
 exceptions are allowlisted in `.github/workflows/ci.yml`: they stream a non-JSON body (a CSV export,
-a document download, a headshot) and so cannot use a JSON helper, and each guards its own error path.
-If you are adding a handler that returns JSON, there is no reason to reach for `fetch()`.
+a document download, a headshot, a Trainer Registry picture) and so cannot use a JSON helper, and each
+guards its own error path. **Only the streaming call is exempt** — a JSON lookup inside the same
+handler (the trainer's own id, say) still goes through `safeFetchBackend()`. If you are adding a
+handler that returns JSON, there is no reason to reach for `fetch()`.
 
 **And never put `detail` straight into a form's error state.** The guard above stops a 500 throwing a
 parse error; this is the other half. The backend answers with `detail` in **two shapes** — a string

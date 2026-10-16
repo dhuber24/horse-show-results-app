@@ -16,10 +16,13 @@ export async function POST(request: NextRequest) {
   const authHeaders = await getAuthHeaders();
   if (!session?.user || !authHeaders) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const meRes = await fetch(`${API_URL}/trainers/me`, { headers: authHeaders, cache: 'no-store' });
-  if (!meRes.ok) return NextResponse.json({ error: 'Trainer profile not found' }, { status: meRes.status });
-  const me = await meRes.json().catch(() => null);
-  if (!me?.id) return NextResponse.json({ error: 'Trainer profile not found' }, { status: 404 });
+  const { json: me, status: meStatus } = await safeFetchBackend(`${API_URL}/trainers/me`, {
+    headers: authHeaders,
+    cache: 'no-store',
+  });
+  if (meStatus !== 200 || typeof me?.id !== 'string') {
+    return NextResponse.json({ error: 'Trainer profile not found' }, { status: meStatus === 200 ? 404 : meStatus });
+  }
 
   const incoming = await request.formData();
   const file = incoming.get('file');

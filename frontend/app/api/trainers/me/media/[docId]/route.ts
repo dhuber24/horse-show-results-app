@@ -5,15 +5,15 @@ import { errorMessage } from '@/lib/api-error';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function myTrainerId(headers: Record<string, string>): Promise<string | null> {
-  const res = await fetch(`${API_URL}/trainers/me`, { headers, cache: 'no-store' });
-  if (!res.ok) return null;
-  const me = await res.json().catch(() => null);
-  return me?.id ?? null;
+  const { json, status } = await safeFetchBackend(`${API_URL}/trainers/me`, { headers, cache: 'no-store' });
+  return status === 200 && typeof json?.id === 'string' ? json.id : null;
 }
 
 /**
  * The signed-in trainer's own picture — previewed whatever their plan, so a
- * Basic trainer can see the Pro profile they are putting together.
+ * Basic trainer can see the Pro profile they are putting together. Streams
+ * image bytes, so it is on CI's allow-list for raw fetch(); its error path
+ * never parses the body.
  */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ docId: string }> }) {
   const headers = await getAuthHeaders();
@@ -23,8 +23,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const trainerId = await myTrainerId(headers);
   if (!trainerId) return NextResponse.json({ error: 'Trainer profile not found' }, { status: 404 });
 
-  const res = await fetch(`${API_URL}/trainers/${trainerId}/documents/${docId}/download`, { headers, cache: 'no-store' });
-  if (!res.ok) return NextResponse.json({ error: 'Picture not found' }, { status: res.status });
+  const res = await fetch(`${API_URL}/trainers/${trainerId}/documents/${docId}/download`, { headers, cache: 'no-store' }).catch(() => null);
+  if (!res || !res.ok) return NextResponse.json({ error: 'Picture not found' }, { status: res?.status ?? 502 });
   return new NextResponse(await res.arrayBuffer(), {
     status: 200,
     headers: {
