@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function CreateVenueForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', address: '', city: '', state: '' });
+  const [form, setForm] = useState({ name: '', address: '', city: '', state: '', zip: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,11 +39,14 @@ export default function CreateVenueForm() {
         className="w-full border rounded px-3 py-2" />
       <input name="address" placeholder="Address" value={form.address} onChange={handleChange}
         className="w-full border rounded px-3 py-2" />
-      <div className="flex gap-3">
+      {/* Wraps on a phone: city on its own line, state and zip under it. */}
+      <div className="flex flex-wrap gap-3">
         <input name="city" placeholder="City" value={form.city} onChange={handleChange}
-          className="flex-1 border rounded px-3 py-2" />
+          className="flex-1 min-w-[12rem] border rounded px-3 py-2" />
         <input name="state" placeholder="State" value={form.state} onChange={handleChange}
           className="w-24 border rounded px-3 py-2" />
+        <input name="zip" placeholder="Zip" value={form.zip} onChange={handleChange} maxLength={20}
+          className="w-28 border rounded px-3 py-2" />
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <button onClick={handleSubmit} disabled={saving}

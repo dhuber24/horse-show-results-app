@@ -147,6 +147,14 @@ Pressing the step's own **Save & continue** with a required box empty outlines e
 
 **The button is never disabled.** A disabled button with nothing pointing at the reason is the same dead end read a different way, which is the reasoning behind the `title`-on-disabled convention taken one step further: where a control can explain itself by acting, let it act.
 
+### The Venue Pin Opens A Maps App
+
+Every 📍 beside a show is `components/VenueMapLink`: the pin and the venue's name as one link to a maps search for the name and `venue_address` (the one-line street address the show payload carries, built in `routers/shows._venue_address`). A new place that prints a show's venue uses it rather than a bare `📍 {show.venue}`.
+
+- **The pin and the name are one link, not the pin alone.** An emoji is too small a target on a phone, and a phone on the way to the barns is where it gets pressed.
+- **It is Google's cross-platform search URL** (`lib/venue.venueMapUrl`), which opens the Google Maps app where a phone has it and the website everywhere else. A `geo:` or Apple Maps link works on some devices and not others.
+- **Inside a card that is already a link, stretch the card's link instead of wrapping the card in it.** A link inside a link is not valid HTML. The show lists (`app/ShowList.tsx`, `app/shows/active/page.tsx`) put `after:absolute after:inset-0` on the show name's link inside a `relative` box and pass the pin `relative z-10`, the way the patterns page does for View and Download. The `relative` box is the card's top half, not the `<li>`, so the stretch stops short of the sign-up link under it.
+
 ## Colour And Brand
 
 The app is **GaitDesk**. The supplied brand package arrives as a
@@ -434,7 +442,7 @@ first installs v3, whose activate drops v2's cache).
 | `/admin/companies/[id]` | One company: **Paid features** (the same switch as the list, with the plan, who turned it on and when), **Accounts** (add a show manager or secretary from a picker, remove), the name and billing notes, and delete. See `backend/show_companies.py`. **Asked to join** (sign-ups that typed this company's name) comes first, with *Add to company* and *Decline*. An independent's own company says so, and offers no Remove on its owner |
 | `/register/show-manager`, `/register/show-secretary` | Show-office account registration: name, email, password and an optional **Company / Organization** (migration 143). Blank gives the account a company of its own under the person's name; a new name creates that organization; an existing one becomes a request to join it for a GaitDesk admin to approve. Both redirect to `/welcome` |
 | `/register/trainer` | Trainer account registration |
-| `/admin/venues` | Venue management |
+| `/admin/venues` | Venue management: name, street address, city, state and zip (migration 163). A venue carries no staff — a secretary works a show through the show or its company, never through where it is held, so Edit Venue's *Show Secretaries for this Venue* list (which nothing read) is gone |
 
 ## Association Readiness Panels
 

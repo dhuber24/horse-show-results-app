@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { signUpLink } from '@/lib/show-signup';
+import VenueMapLink from '@/components/VenueMapLink';
 
 interface Show {
   id: string;
   name: string;
   venue: string;
+  venue_address?: string | null;
   start_date: string;
   end_date: string;
   status: string;
@@ -155,9 +157,14 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
             return (
             <li key={show.id} className="rounded-lg border overflow-hidden transition hover:shadow-md"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
-              <Link href={`/shows/${show.id}`} className="block p-4">
+              {/* The whole card opens the show, but the pin opens a maps app,
+                  and a link inside a link is not valid HTML. So the name's link
+                  is stretched over the card (`after:inset-0`, bounded by this
+                  `relative` box so it stops short of the sign-up link below)
+                  and the pin sits above it (`z-10`). */}
+              <div className="relative p-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{show.name}</span>
+                  <Link href={`/shows/${show.id}`} className="font-semibold text-lg after:absolute after:inset-0" style={{ color: 'var(--foreground)' }}>{show.name}</Link>
                   {show.show_type_code && (
                     <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                       {show.show_type_code}
@@ -173,9 +180,15 @@ export default function ShowList({ shows, showTypes = [] }: { shows: Show[]; sho
                   )}
                 </div>
                 <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-                  📍 {show.venue} &nbsp;·&nbsp; 📅 {show.start_date} – {show.end_date}
+                  {show.venue ? (
+                    <>
+                      <VenueMapLink venue={show.venue} address={show.venue_address} className="relative z-10" />
+                      {' '}&nbsp;·&nbsp;{' '}
+                    </>
+                  ) : null}
+                  📅 {show.start_date} – {show.end_date}
                 </div>
-              </Link>
+              </div>
               {signUp && (
                 // Its own link below the card rather than inside it: a link
                 // inside a link is not one a phone or a screen reader can

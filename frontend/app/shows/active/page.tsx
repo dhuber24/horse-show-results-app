@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { fetchShows } from '@/lib/api';
 import { signUpLink } from '@/lib/show-signup';
+import VenueMapLink from '@/components/VenueMapLink';
 
 function formatDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -13,6 +14,7 @@ interface Show {
   id: string;
   name: string;
   venue?: string | null;
+  venue_address?: string | null;
   start_date: string;
   end_date: string;
   status: string;
@@ -61,9 +63,11 @@ export default async function ActiveShowsPage() {
             return (
             <li key={show.id} className="rounded-lg border overflow-hidden transition hover:shadow-md"
               style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
-              <Link href={`/shows/${show.id}/live`} className="block p-4">
+              {/* The name's link stretched over the card, with the pin above it:
+                  see `app/ShowList.tsx`. */}
+              <div className="relative p-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg" style={{ color: 'var(--foreground)' }}>{show.name}</span>
+                  <Link href={`/shows/${show.id}/live`} className="font-semibold text-lg after:absolute after:inset-0" style={{ color: 'var(--foreground)' }}>{show.name}</Link>
                   {show.show_type_code && (
                     <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                       {show.show_type_code}
@@ -75,10 +79,15 @@ export default async function ActiveShowsPage() {
                   </span>
                 </div>
                 <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-                  {show.venue ? <>📍 {show.venue} &nbsp;·&nbsp; </> : null}
+                  {show.venue ? (
+                    <>
+                      <VenueMapLink venue={show.venue} address={show.venue_address} className="relative z-10" />
+                      {' '}&nbsp;·&nbsp;{' '}
+                    </>
+                  ) : null}
                   📅 {formatDate(show.start_date)} – {formatDate(show.end_date)}
                 </div>
-              </Link>
+              </div>
               {signUp && (
                 // Its own link below the card rather than inside it: a link
                 // inside a link is not one a phone or a screen reader can

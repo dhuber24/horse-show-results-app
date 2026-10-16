@@ -2,6 +2,27 @@
 
 ## October 2026
 
+### Venues: a zip code, a pin that opens a map, and no secretaries per venue
+
+- **A venue has a zip code** (`venues.zip`, migration 163) — on Add Venue,
+  Edit Venue, the read-only details and the venue list's address line.
+- **The 📍 beside a show opens the venue in a maps app**
+  (`components/VenueMapLink`, `lib/venue.ts`), everywhere it appears: the home
+  page's show lists, Active Shows, the show menu's header on every show page,
+  Show Details, the scribe's show page and the admin show dashboard. It searches
+  for the venue's name and its one-line address, which the show payload now
+  carries as `venue_address` (`routers/shows._venue_address`). Show Details
+  prints the address under the name as well.
+- **On the two show lists the card's link is stretched over the card**
+  (`after:inset-0`) rather than wrapping it, so the pin can be a link of its
+  own above it — a link inside a link is not valid HTML.
+- **Edit Venue no longer lists Show Secretaries for this venue.** Nothing ever
+  read that list: a secretary works a show through `show_secretaries` or the
+  show's company. The panel, its three `/venues/{id}/admins` endpoints, their
+  route handlers and the `VenueAdmin` model are gone. The `venue_admins` table
+  stays until a later migration drops it, because the release still running
+  maps it.
+
 ### Past Shows on the home page
 
 - **A third button on the home page, Past Shows** (`/shows/past`): completed

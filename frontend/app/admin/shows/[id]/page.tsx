@@ -5,6 +5,7 @@ import { API_URL } from '@/lib/backend-fetch';
 import ShowStatusControl from './ShowStatusControl';
 import { registrationAnswered } from '@/lib/registration-window';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import VenueMapLink from '@/components/VenueMapLink';
 import ValidationIssues, { ValidationResult } from '@/components/ValidationIssues';
 import AphaMinimums from './AphaMinimums';
 import { featureDeclined, featureStepHref } from '../_wizard/steps';
@@ -195,7 +196,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
           )}
         </div>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          📍 {show.venue} · 📅 {show.start_date} – {show.end_date}
+          {show.venue ? (
+            <>
+              <VenueMapLink venue={show.venue} address={show.venue_address} />
+              {' · '}
+            </>
+          ) : null}
+          📅 {show.start_date} – {show.end_date}
         </p>
         <div className="mt-2">
           <ShowStatusControl

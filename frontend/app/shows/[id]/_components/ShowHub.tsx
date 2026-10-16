@@ -31,6 +31,7 @@ export default function ShowHub({
   show: {
     name: string;
     venue?: string | null;
+    venue_address?: string | null;
     start_date: string;
     end_date: string;
     status: string;

@@ -67,12 +67,30 @@ from show_companies import default_show_company_for
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
 
+def _venue_address(venue) -> str | None:
+    """The venue's street address on one line -- "1421 3rd Ave SE, Rochester,
+    MN 55904" -- or None.
+
+    The pin beside a show opens the venue in a maps app, searching for its name
+    and this. Any part may be missing on a venue typed in by hand, and what is
+    there still reads; the name alone still finds most fairgrounds.
+    """
+    if venue is None:
+        return None
+    state_zip = " ".join(p.strip() for p in (venue.state, venue.zip) if p and p.strip())
+    parts = [p.strip() for p in (venue.address, venue.city) if p and p.strip()]
+    if state_zip:
+        parts.append(state_zip)
+    return ", ".join(parts) or None
+
+
 def _serialize(show: Show) -> dict:
     return {
         "id": show.id,
         "name": show.name,
         "venue": show.venue_rel.name if show.venue_rel else None,
         "venue_id": show.venue_id,
+        "venue_address": _venue_address(show.venue_rel),
         "show_type_id": show.show_type_id,
         "show_type_code": show.show_type.code if show.show_type else None,
         "show_type_name": show.show_type.name if show.show_type else None,

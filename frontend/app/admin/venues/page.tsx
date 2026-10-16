@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { auth } from '@/auth';
 import { API_URL } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import { venueAddressLine } from '@/lib/venue';
 import VenueList from './VenueList';
 
 async function fetchVenuesForUser(headers: Record<string, string>) {
@@ -63,7 +64,7 @@ export default async function AdminVenuesPage() {
               >
                 <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{venue.name}</div>
                 <div className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
-                  {[venue.address, venue.city, venue.state].filter(Boolean).join(', ') || 'No address'}
+                  {venueAddressLine(venue) || 'No address'}
                 </div>
               </Link>
             </li>

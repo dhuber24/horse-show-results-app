@@ -73,12 +73,14 @@ class VenueCreate(BaseModel):
     address: Optional[str] = Field(default=None, max_length=300)
     city: Optional[str] = Field(default=None, max_length=100)
     state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
 
 class VenueUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=200)
     address: Optional[str] = Field(default=None, max_length=300)
     city: Optional[str] = Field(default=None, max_length=100)
     state: Optional[str] = Field(default=None, max_length=50)
+    zip: Optional[str] = Field(default=None, max_length=20)
 
 class VenueOut(BaseModel):
     id: UUID
@@ -86,6 +88,7 @@ class VenueOut(BaseModel):
     address: Optional[str]
     city: Optional[str]
     state: Optional[str]
+    zip: Optional[str] = None
     created_by_user_id: Optional[UUID] = None
     created_at: datetime
 
@@ -234,6 +237,10 @@ class ShowOut(BaseModel):
     name: str
     venue: Optional[str]
     venue_id: Optional[UUID]
+    # The venue's street address on one line, for the pin that opens it in a
+    # maps app. Built in `routers/shows._venue_address` -- `_serialize` builds
+    # this payload by hand, so it is set there too.
+    venue_address: Optional[str] = None
     show_type_id: UUID
     show_type_code: Optional[str] = None
     show_type_name: Optional[str] = None

@@ -126,11 +126,17 @@ class Venue(Base):
     address = Column(Text)
     city = Column(Text)
     state = Column(Text)
+    # Migration 163. Sent in the show payload's one-line address so the pin
+    # beside a show can open the venue in a maps app (`shows._venue_address`).
+    zip = Column(Text)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     shows = relationship("Show", back_populates="venue_rel")
-    venue_admins = relationship("VenueAdmin", back_populates="venue", cascade="all, delete")
+    # `venue_admins` (migration 003) is no longer mapped: a list of secretaries
+    # per venue that nothing ever read. A secretary works a show through
+    # `show_secretaries` or the show's company (`show_access.py`). The table is
+    # dropped in a later release, once no running build maps it.
 
 
 class Show(Base):
@@ -835,23 +841,8 @@ class User(Base):
     scribe_shows = relationship("ShowScribe", back_populates="user", cascade="all, delete")
     gate_steward_shows = relationship("ShowGateSteward", back_populates="user", cascade="all, delete")
     manager_shows = relationship("ShowManager", back_populates="user", cascade="all, delete")
-    admin_venues = relationship("VenueAdmin", back_populates="user", cascade="all, delete")
     secretary_certifications = relationship("ShowSecretaryCertification", back_populates="user", cascade="all, delete")
     trainer_profile = relationship("Trainer", back_populates="user", uselist=False, passive_deletes=True)
-
-
-class VenueAdmin(Base):
-    __tablename__ = "venue_admins"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    venue_id = Column(UUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-
-    __table_args__ = (UniqueConstraint("venue_id", "user_id"),)
-
-    venue = relationship("Venue", back_populates="venue_admins")
-    user = relationship("User", back_populates="admin_venues")
 
 
 class ShowSecretary(Base):

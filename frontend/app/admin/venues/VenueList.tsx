@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { venueAddressLine } from '@/lib/venue';
 
 interface Venue {
   id: string;
@@ -9,6 +10,7 @@ interface Venue {
   address: string | null;
   city: string | null;
   state: string | null;
+  zip?: string | null;
   created_by_user_id?: string | null;
 }
 
@@ -59,7 +61,7 @@ export default function VenueList({ initialVenues, currentUserId, role }: VenueL
           <div>
             <div className="font-semibold" style={{ color: 'var(--foreground)' }}>{venue.name}</div>
             <div className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
-              {[venue.address, venue.city, venue.state].filter(Boolean).join(', ') || 'No address'}
+              {venueAddressLine(venue) || 'No address'}
             </div>
             {deleteError?.id === venue.id && (
               <p className="text-xs text-red-600 mt-1">{deleteError.message}</p>

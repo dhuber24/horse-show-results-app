@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import VenueMapLink from '@/components/VenueMapLink';
 
 const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
   PUBLISHED: { label: 'Open for Registration', bg: 'var(--accent-bg)', text: 'var(--accent-hover)' },
@@ -26,6 +27,7 @@ interface Affiliation {
 interface Show {
   name: string;
   venue?: string | null;
+  venue_address?: string | null;
   start_date: string;
   end_date: string;
   status: string;
@@ -62,7 +64,12 @@ export default function ShowHubHeader({
           )}
         </div>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          {show.venue ? <>📍 {show.venue} &nbsp;·&nbsp; </> : null}
+          {show.venue ? (
+            <>
+              <VenueMapLink venue={show.venue} address={show.venue_address} />
+              {' '}&nbsp;·&nbsp;{' '}
+            </>
+          ) : null}
           📅 {formatDate(show.start_date)} – {formatDate(show.end_date)}
         </p>
         {show.affiliations && show.affiliations.length > 0 && (

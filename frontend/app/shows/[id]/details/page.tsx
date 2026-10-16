@@ -5,6 +5,7 @@ import { classEntryText, signupClosedText, signupDeadlineText } from '@/lib/regi
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import BackToShow from '../_components/BackToShow';
+import VenueMapLink from '@/components/VenueMapLink';
 
 /**
  * The show, described.
@@ -86,7 +87,14 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
 
       <div className="rounded-lg border px-4" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
         <Row label="Show name">{show.name}</Row>
-        {show.venue && <Row label="Location">📍 {show.venue}</Row>}
+        {show.venue && (
+          <Row label="Location">
+            <VenueMapLink venue={show.venue} address={show.venue_address} />
+            {show.venue_address && (
+              <div className="mt-0.5" style={{ color: 'var(--muted)' }}>{show.venue_address}</div>
+            )}
+          </Row>
+        )}
         <Row label="Dates">
           {formatDate(show.start_date)}
           {show.end_date !== show.start_date && <> – {formatDate(show.end_date)}</>}

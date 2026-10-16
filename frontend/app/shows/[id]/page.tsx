@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import ShowHub from './_components/ShowHub';
 import { loadShowHub } from './_components/loadShowHub';
 import AutoRefresh from '@/components/AutoRefresh';
+import VenueMapLink from '@/components/VenueMapLink';
 
 function formatClassDate(dateStr: string): string {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -44,7 +45,13 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
       <div className="mt-4 mb-6 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          📍 {show.venue} &nbsp;·&nbsp; 📅 {show.start_date} – {show.end_date}
+          {show.venue ? (
+            <>
+              <VenueMapLink venue={show.venue} address={show.venue_address} />
+              {' '}&nbsp;·&nbsp;{' '}
+            </>
+          ) : null}
+          📅 {show.start_date} – {show.end_date}
         </p>
         {show.affiliations?.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">

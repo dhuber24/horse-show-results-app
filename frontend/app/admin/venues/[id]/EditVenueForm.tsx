@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { errorMessage } from '@/lib/api-error';
 
 interface Venue {
   id: string;
@@ -9,6 +10,7 @@ interface Venue {
   address: string | null;
   city: string | null;
   state: string | null;
+  zip?: string | null;
 }
 
 export default function EditVenueForm({ venue }: { venue: Venue }) {
@@ -18,6 +20,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
     address: venue.address ?? '',
     city: venue.city ?? '',
     state: venue.state ?? '',
+    zip: venue.zip ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -44,7 +47,7 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
     if (res.ok) {
       router.refresh();
     } else {
-      setError('Failed to update venue.');
+      setError(errorMessage(await res.json().catch(() => null), 'Failed to update venue.'));
     }
   };
 
@@ -56,8 +59,10 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
       router.push('/admin');
     } else {
       setConfirmDelete(false);
-      const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? 'Failed to delete venue. It may be linked to existing shows.');
+      setError(errorMessage(
+        await res.json().catch(() => null),
+        'Failed to delete venue. It may be linked to existing shows.',
+      ));
     }
   };
 
@@ -67,11 +72,14 @@ export default function EditVenueForm({ venue }: { venue: Venue }) {
         className="w-full border rounded px-3 py-2" placeholder="Venue name *" />
       <input name="address" value={form.address} onChange={handleChange}
         className="w-full border rounded px-3 py-2" placeholder="Address" />
-      <div className="flex gap-3">
+      {/* Wraps on a phone: city on its own line, state and zip under it. */}
+      <div className="flex flex-wrap gap-3">
         <input name="city" value={form.city} onChange={handleChange}
-          className="flex-1 border rounded px-3 py-2" placeholder="City" />
+          className="flex-1 min-w-[12rem] border rounded px-3 py-2" placeholder="City" />
         <input name="state" value={form.state} onChange={handleChange}
           className="w-24 border rounded px-3 py-2" placeholder="State" />
+        <input name="zip" value={form.zip} onChange={handleChange} maxLength={20}
+          className="w-28 border rounded px-3 py-2" placeholder="Zip" />
       </div>
       {error && <p className="text-red-600 text-sm">{error}</p>}
       <div className="flex items-center justify-between pt-2">
