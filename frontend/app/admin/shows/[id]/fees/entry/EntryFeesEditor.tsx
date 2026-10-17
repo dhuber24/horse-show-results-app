@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ShowChargesEditor, { type ShowCharge } from '@/components/ShowChargesEditor';
+import { errorMessage } from '@/lib/api-error';
 
 /**
  * Entry Fees: everything a class fee can mean, in one "Class Fees" box —
@@ -43,6 +44,10 @@ interface ClassItem {
    *  fill must not be the thing that quietly doubles a futurity entrant's
    *  bill. */
   is_futurity_class: boolean;
+  /** The office made it free (migration 166): $0 on purpose, where any other
+   *  $0 class may simply not be priced yet. Billing waives every charge on it
+   *  — see `billing.is_free_class`. */
+  is_free: boolean;
 }
 
 interface Props {
@@ -67,21 +72,24 @@ function centsFromDollars(input: string): number | null {
 
 /** Whether the default-fill button may set this class's price.
  *
- * Excludes three things that all look the same from here — "$0, not priced
+ * Excludes four things that all look the same from here — "$0, not priced
  * yet" — but are not the same absence:
  * - a club-sanctioned class (`sanctioning_codes`), which already has its own
  *   price set by that club;
  * - a Grand & Reserve callback (`entered_by_qualification`), which nobody
  *   enters directly and so has nothing to price;
  * - a futurity class (`is_futurity_class`), which is priced by the
- *   futurity's own fee tier and would be billed twice if this filled it in.
+ *   futurity's own fee tier and would be billed twice if this filled it in;
+ * - a free class (`is_free`), which is $0 because the office said so — the
+ *   fill used to price these the first time anybody pressed it.
  */
 function isDefaultFillable(cls: ClassItem): boolean {
   return (
     cls.entry_fee_cents === 0 &&
     cls.sanctioning_codes.length === 0 &&
     !cls.entered_by_qualification &&
-    !cls.is_futurity_class
+    !cls.is_futurity_class &&
+    !cls.is_free
   );
 }
 
@@ -110,8 +118,34 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
       setClasses((prev) => prev.map((c) => (c.id === cls.id ? { ...c, entry_fee_cents: cents } : c)));
       router.refresh();
     } else {
-      const err = await res.json().catch(() => ({}));
-      setError(err.detail ?? `Failed to save fee for class ${cls.class_number}.`);
+      const err = await res.json().catch(() => null);
+      setError(errorMessage(err, `Failed to save fee for class ${cls.class_number}.`));
+    }
+  };
+
+  // Free (migration 166): ticking it zeroes the price in the same write, and
+  // unticking leaves the class at $0 for a price to be typed. The backend
+  // refuses a price on a free class, so the box is shut while it is ticked.
+  const setFree = async (cls: ClassItem, isFree: boolean) => {
+    setSavingId(cls.id);
+    setError(null);
+    const res = await fetch('/api/classes', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ showId, classId: cls.id, is_free: isFree }),
+    });
+    setSavingId(null);
+    if (res.ok) {
+      setClasses((prev) =>
+        prev.map((c) =>
+          c.id === cls.id ? { ...c, is_free: isFree, entry_fee_cents: isFree ? 0 : c.entry_fee_cents } : c,
+        ),
+      );
+      if (isFree) setDrafts((prev) => ({ ...prev, [cls.id]: dollarsFromCents(0) }));
+      router.refresh();
+    } else {
+      const err = await res.json().catch(() => null);
+      setError(errorMessage(err, `Could not change class ${cls.class_number}.`));
     }
   };
 
@@ -188,7 +222,10 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
       <p className="text-xs" style={{ color: 'var(--muted)' }}>
         Charged once per entry (per class per horse). A class a club sanctions outright — WSCA,
         MNSPHC and the like — carries that club&apos;s own price and is not touched by the
-        default below; each association charges its own.
+        default below; each association charges its own.{' '}
+        <span title="No class fee, no per-class or club fee on it, and it counts toward no per-horse or office charge — somebody entered only in free classes owes nothing. A side pot buy-in still applies.">
+          Tick <strong>Free</strong> for a class that costs nothing to enter.
+        </span>
       </p>
 
       {unpricedBreedCount > 0 && (
@@ -282,23 +319,57 @@ function ClassFeesTable({ showId, initialClasses }: { showId: string; initialCla
                   </span>
                 )}
               </div>
+              {/* Free is a fact about the class, not a price of $0: it keeps
+                  the default fill off the class and keeps every charge off
+                  its entries. A futurity class is priced by its futurity, so
+                  the tick is not offered there. */}
+              <label
+                className="flex items-center gap-1 text-xs shrink-0"
+                style={{ color: cls.is_futurity_class ? 'var(--muted)' : 'var(--text-deep)' }}
+                title={
+                  cls.is_futurity_class
+                    ? "Priced by its futurity's categories — change what it costs on the futurity"
+                    : savingId === cls.id
+                      ? 'Saving, please wait…'
+                      : 'Free to enter: no fee, and no per-class, office or club charge on it'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={cls.is_free}
+                  onChange={(e) => void setFree(cls, e.target.checked)}
+                  disabled={cls.is_futurity_class || savingId === cls.id}
+                  aria-label={`Class ${cls.class_number} is free to enter`}
+                />
+                Free
+              </label>
               <div className="relative w-24">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: 'var(--muted)' }}>$</span>
                 <input
                   inputMode="decimal"
                   value={draft}
                   onChange={(e) => setDrafts((prev) => ({ ...prev, [cls.id]: e.target.value }))}
+                  disabled={cls.is_free}
                   aria-label={`Entry fee for class ${cls.class_number}`}
-                  className="w-full border rounded pl-5 pr-2 py-1 text-sm"
+                  title={cls.is_free ? 'This class is free — untick Free to give it a price' : undefined}
+                  className="w-full border rounded pl-5 pr-2 py-1 text-sm disabled:opacity-50"
                   style={{ borderColor: invalid ? 'var(--error-border)' : 'var(--border)' }}
                 />
               </div>
               <button
                 onClick={() => saveClass(cls)}
-                disabled={savingId === cls.id || invalid || !dirty}
+                disabled={cls.is_free || savingId === cls.id || invalid || !dirty}
                 className="text-xs px-2 py-1 rounded font-medium disabled:opacity-40"
                 style={{ color: 'var(--accent)' }}
-                title={!dirty ? 'No change' : invalid ? 'Invalid amount' : 'Save'}
+                title={
+                  cls.is_free
+                    ? 'This class is free — untick Free to give it a price'
+                    : !dirty
+                      ? 'No change'
+                      : invalid
+                        ? 'Invalid amount'
+                        : 'Save'
+                }
               >
                 {savingId === cls.id ? 'Saving…' : 'Save'}
               </button>

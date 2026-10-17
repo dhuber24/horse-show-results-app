@@ -316,6 +316,7 @@ async def get_desk(
                 "status": cls.status,
                 "score_type": cls.score_type,
                 "entry_fee_cents": cls.entry_fee_cents,
+                "is_free": cls.is_free,
                 "discipline_name": cls.discipline.name if cls.discipline else None,
                 "division_name": cls.division.name if cls.division else None,
                 # The APHA division an entry in this class is filed under — the

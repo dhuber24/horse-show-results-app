@@ -69,6 +69,9 @@ export type BillClassLine = {
    *  before the field existed. */
   charge_cents?: number;
   charges?: BillClassCharge[];
+  /** The office made the class free (migration 166): nothing on the line is
+   *  owed. Optional for a payload built before the field existed. */
+  is_free?: boolean;
 };
 
 /** One per-class charge, as it lands on one class entry. */

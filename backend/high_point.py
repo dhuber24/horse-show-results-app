@@ -26,6 +26,13 @@ The decisions, settled once so the two cannot disagree:
   discipline** -- points from Amateur Halter and Amateur Western Pleasure add
   into one Amateur standing. Divisions are matched by name across a circuit's
   shows, since each show has its own division rows.
+* **A class the office left out earns nothing** (`classes.high_point_eligible`,
+  migration 167). Its placings stand and are posted like any other; they are
+  simply not added in -- at the show, and in every circuit it counts toward.
+* **What a class is worth is the same chart, read for that class**
+  (`class_points`): the band for its size, one card per judge on the panel.
+  The leaderboard and the High Point page print it beside each class, so the
+  standings can be checked against what each class put up for grabs.
 """
 
 from __future__ import annotations
@@ -38,7 +45,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Class, Division, Entry, Exhibitor, Horse, Result
+from models import Class, Division, Entry, Exhibitor, Horse, Result, ShowJudge
 from placings import is_placed
 
 Chart = dict[int, dict[int, Decimal]]
@@ -133,6 +140,46 @@ def points_for(chart: Chart, place: Optional[int], class_size: int) -> Decimal:
     if not bands:
         return Decimal(0)
     return chart[max(bands)].get(place, Decimal(0))
+
+
+def class_points(chart: Chart, class_size: int) -> list[Decimal]:
+    """What each place earns on one judge's card in a class of `class_size`,
+    first place first -- the band `points_for` reads, as a list.
+
+    No deeper than the class: a 5-9 row may pay down to 9th, but a class of six
+    has no 7th place to earn it. Empty for a class smaller than every band.
+    """
+    bands = [minimum for minimum in chart if minimum <= class_size]
+    if not bands:
+        return []
+    band = chart[max(bands)]
+    deepest = min(max(band, default=0), class_size)
+    return [band.get(place, Decimal(0)) for place in range(1, deepest + 1)]
+
+
+def summarize_class(chart: Chart, class_size: int, cards: int, eligible: bool) -> dict:
+    """How many points one class put up for grabs (migration 167's leaderboard
+    table), from the same chart the standings are added up on.
+
+    `points_by_place` and `first_place_points` are one judge's card;
+    `points_available` is every card together, since each judge's card earns
+    its own points. A class the office left out of high point puts nothing up,
+    though its chart reading is still reported so the table can say what it
+    would have been worth. A tie is not anticipated: two horses tied for second
+    both earn second, which is the standings' rule, not this one's.
+    """
+    by_place = class_points(chart, class_size)
+    per_card = sum(by_place, Decimal(0))
+    cards = max(cards, 1)
+    return {
+        "entries": class_size,
+        "cards": cards,
+        "points_by_place": [float(points) for points in by_place],
+        "first_place_points": float(by_place[0]) if by_place else 0.0,
+        "places_paid": sum(1 for points in by_place if points > 0),
+        "points_per_card": float(per_card),
+        "points_available": float(per_card * cards) if eligible else 0.0,
+    }
 
 
 @dataclass(frozen=True)
@@ -230,9 +277,20 @@ def tally(cards: Iterable[Card], chart: Chart) -> list[dict]:
 _UNSORTED = 10**6
 
 
+def _shown(entry_class_id):
+    """The entries a class's size counts: the horses shown. Neither a scratch
+    nor a no-show at the gate (migration 162) went into the ring."""
+    return (
+        (Entry.class_id == entry_class_id)
+        & (Entry.status != "WITHDRAWN")
+        & Entry.gate_no_show.is_(False)
+    )
+
+
 async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card], int]:
-    """Every placed-or-not card in the shows' posted classes, and how many
-    posted classes there were."""
+    """Every placed-or-not card in the shows' posted classes that count toward
+    high point, and how many posted classes there were -- counted or not, since
+    the results pages list every one of them."""
     if not show_ids:
         return [], 0
 
@@ -242,16 +300,9 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         Class.results_published_at.isnot(None),
     )
 
-    # Class size is the horses shown: neither a scratch nor a no-show at the
-    # gate (migration 162) went into the ring.
     size_rows = await db.execute(
         select(Class.id, func.count(Entry.id))
-        .outerjoin(
-            Entry,
-            (Entry.class_id == Class.id)
-            & (Entry.status != "WITHDRAWN")
-            & Entry.gate_no_show.is_(False),
-        )
+        .outerjoin(Entry, _shown(Class.id))
         .where(*posted)
         .group_by(Class.id)
     )
@@ -275,7 +326,9 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         .join(Exhibitor, Exhibitor.id == Entry.exhibitor_id)
         .join(Division, Division.id == Class.division_id)
         .outerjoin(Horse, Horse.id == Entry.horse_id)
-        .where(*posted, Entry.status != "WITHDRAWN")
+        # A class the office left out of high point (migration 167) is posted
+        # and on every results page; it adds nothing here.
+        .where(*posted, Class.high_point_eligible.is_(True), Entry.status != "WITHDRAWN")
     )
     cards = [
         Card(
@@ -297,3 +350,102 @@ async def load_cards(db: AsyncSession, show_ids: list[UUID]) -> tuple[list[Card]
         ) in rows.all()
     ]
     return cards, len(sizes)
+
+
+# The points fields a class row carries, all None where the show has no chart:
+# there is nothing to read a class's worth off, and 0 would claim there were.
+_NO_POINTS = {
+    "points_by_place": None,
+    "first_place_points": None,
+    "places_paid": None,
+    "points_per_card": None,
+    "points_available": None,
+}
+
+
+async def load_class_summaries(
+    db: AsyncSession,
+    show_id: UUID,
+    chart: Optional[Chart],
+    posted_only: bool,
+) -> list[dict]:
+    """One show's classes, in schedule order, each with its entries and -- where
+    the show has a chart -- what it puts up for grabs (`summarize_class`).
+
+    `posted_only` is the public leaderboard's view: the classes whose placings
+    are official, the same ones the standings add up. The show office's High
+    Point page reads every class, so which ones count can be settled before the
+    show starts and the points read off as entries come in.
+
+    Entries are the horses shown, the standings' own class size (`_shown`).
+    Cards are the judges on the panel -- the scribe screens deal every class
+    one card per show judge -- or the cards actually filed where there are
+    more, an unattributed card beside the panel's.
+    """
+    conditions = [Class.show_id == show_id]
+    if posted_only:
+        conditions += [Class.status != "DRAFT", Class.results_published_at.isnot(None)]
+
+    size = (
+        select(func.count(Entry.id))
+        .where(_shown(Class.id))
+        .correlate(Class)
+        .scalar_subquery()
+    )
+    rows = await db.execute(
+        select(
+            Class.id,
+            Class.class_number,
+            Class.class_name,
+            Class.class_date,
+            Class.status,
+            Class.results_published_at,
+            Class.high_point_eligible,
+            Division.name,
+            size.label("size"),
+        )
+        .outerjoin(Division, Division.id == Class.division_id)
+        .where(*conditions)
+        .order_by(Class.class_date, Class.sort_order.nullslast(), Class.class_number)
+    )
+
+    panel = (
+        await db.execute(
+            select(func.count(ShowJudge.id)).where(ShowJudge.show_id == show_id)
+        )
+    ).scalar_one()
+    # Distinct (class, judge) pairs, a NULL judge counting once: one per card.
+    filed: dict[UUID, int] = {}
+    pairs = await db.execute(
+        select(Result.class_id, Result.judge_id)
+        .join(Class, Class.id == Result.class_id)
+        .where(Class.show_id == show_id)
+        .distinct()
+    )
+    for class_id, _judge_id in pairs.all():
+        filed[class_id] = filed.get(class_id, 0) + 1
+
+    out = []
+    for (
+        class_id, class_number, class_name, class_date, status,
+        published_at, eligible, division_name, class_size,
+    ) in rows.all():
+        cards = max(panel, filed.get(class_id, 0), 1)
+        row = {
+            "class_id": str(class_id),
+            "class_number": class_number,
+            "class_name": class_name,
+            "class_date": class_date,
+            "division_name": division_name,
+            "posted": published_at is not None and status != "DRAFT",
+            "eligible": bool(eligible),
+            "entries": class_size or 0,
+            "cards": cards,
+        }
+        row.update(
+            summarize_class(chart, class_size or 0, cards, bool(eligible))
+            if chart is not None
+            else _NO_POINTS
+        )
+        out.append(row)
+    return out

@@ -683,6 +683,15 @@ class Class(Base):
     # refuses these; the desk still enters them, because the office knows who
     # was called back and the app does not.
     entered_by_qualification = Column(Boolean, nullable=False, server_default="false")
+    # The show office's word that entering this class costs nothing (migration
+    # 166). `entry_fee_cents` is held at 0 while it is set (a CHECK), and
+    # `billing.is_free_class` keeps the entry out of every per-class, per-horse,
+    # per-exhibitor and club charge -- see `billing.fee_counts_class`.
+    is_free = Column(Boolean, nullable=False, server_default="false")
+    # Whether this class's placings earn high-point points (migration 167).
+    # True for every class unless the office leaves it out; `high_point.load_cards`
+    # reads it, so the show's leaderboard and every circuit agree.
+    high_point_eligible = Column(Boolean, nullable=False, server_default="true")
     gate_status = Column(Text, nullable=False, server_default="pending")
     # NULL = results are a staff-only draft; timestamp = posted to the public
     # /live and /results screens. See migration 094.

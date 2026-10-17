@@ -39,6 +39,7 @@ from dependencies import INTERNAL_API_KEY, require_admin_or_show_admin, safe_uui
 from high_point import (
     build_chart,
     load_cards,
+    load_class_summaries,
     may_edit_point_system,
     may_use_point_system,
     place_limits,
@@ -49,6 +50,7 @@ from models import (
     Association,
     Circuit,
     CircuitShow,
+    Class,
     PointSystem,
     PointSystemAward,
     Show,
@@ -94,6 +96,15 @@ class ShowChartIn(BaseModel):
     association_id: Optional[UUID] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
     awards: list[AwardIn]
+
+
+class HighPointClassesIn(BaseModel):
+    """Whether these classes count toward the show's high point (migration
+    167). One class, or a division's worth in one call -- the screen sets a
+    division at a time."""
+
+    class_ids: list[UUID] = Field(min_length=1, max_length=1000)
+    eligible: bool
 
 
 class CircuitIn(BaseModel):
@@ -462,9 +473,16 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
     ).scalars().all()
 
     divisions: list[dict] = []
+    classes: list[dict] = []
     cards, posted = await load_cards(db, [show_id])
     if system is not None:
-        divisions = tally(cards, build_chart(system.awards))
+        chart = build_chart(system.awards)
+        divisions = tally(cards, chart)
+        # What each posted class put up for grabs, and how many it was shown
+        # to, printed under the standings so a total can be checked against
+        # the classes that made it. A class left out of high point is listed
+        # and marked, so a placing in it is not read as points gone missing.
+        classes = await load_class_summaries(db, show_id, chart, posted_only=True)
         # The number worn at this show, for the results board -- the
         # exhibitor's, or the horse's where the show numbers horses. Here
         # rather than in `tally`, which a circuit shares: across several shows
@@ -482,6 +500,7 @@ async def show_leaderboard(show_id: UUID, db: AsyncSession = Depends(get_db)):
         "point_system": _system_payload(system) if system else None,
         "posted_class_count": posted,
         "divisions": divisions,
+        "classes": classes,
         "circuits": [_circuit_summary(c) for c in circuits],
     }
 
@@ -516,6 +535,67 @@ async def get_show_point_system(
     choice = await db.get(ShowPointSystem, show_id)
     system = await _get_system_or_404(choice.point_system_id, db) if choice else None
     return {"point_system": _system_payload(system) if system else None}
+
+
+async def _high_point_classes(show_id: UUID, db: AsyncSession) -> dict:
+    choice = await db.get(ShowPointSystem, show_id)
+    system = await _get_system_or_404(choice.point_system_id, db) if choice else None
+    chart = build_chart(system.awards) if system else None
+    return {
+        "point_system": _system_payload(system) if system else None,
+        "classes": await load_class_summaries(db, show_id, chart, posted_only=False),
+    }
+
+
+@router.get("/shows/{show_id}/high-point/classes", dependencies=[Depends(require_admin_or_show_admin)])
+async def get_high_point_classes(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every class with its entries, whether it counts toward high point, and --
+    once the show has a chart -- what it puts up for grabs (migration 167).
+
+    Posted or not, unlike the public leaderboard's table: the office settles
+    which classes count before the show, and reads what each is worth as the
+    entries come in.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    return await _high_point_classes(show_id, db)
+
+
+@router.put("/shows/{show_id}/high-point/classes", dependencies=[Depends(require_admin_or_show_admin)])
+async def set_high_point_classes(
+    show_id: UUID,
+    body: HighPointClassesIn,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Count classes toward the show's high point, or leave them out.
+
+    A posted class moves the standings the moment this changes -- they are
+    derived on every read -- which is the point of it: leaving a class out is
+    the office saying its points should not be in the totals. The class's
+    placings are untouched and stay on every results page. All or nothing: a
+    class from another show refuses the lot.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+    wanted = set(body.class_ids)
+    found = (
+        await db.execute(select(Class).where(Class.show_id == show_id, Class.id.in_(wanted)))
+    ).scalars().all()
+    if len(found) != len(wanted):
+        raise HTTPException(422, "One or more of those classes are not on this show.")
+    for cls in found:
+        cls.high_point_eligible = body.eligible
+    await db.commit()
+    return await _high_point_classes(show_id, db)
 
 
 @router.put("/shows/{show_id}/high-point", dependencies=[Depends(require_admin_or_show_admin)])

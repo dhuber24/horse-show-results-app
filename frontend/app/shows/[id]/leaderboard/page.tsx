@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { fetchShow, fetchShowLeaderboard } from '@/lib/api';
 import AutoRefresh from '@/components/AutoRefresh';
+import HighPointClassPoints from '@/components/HighPointClassPoints';
 import HighPointStandings from '@/components/HighPointStandings';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
@@ -62,6 +63,20 @@ export default async function ShowLeaderboardPage({ params }: { params: Promise<
         </Notice>
       ) : (
         <HighPointStandings divisions={board.divisions} pointSystem={board.point_system} />
+      )}
+
+      {/* The classes the standings are added up from: how many each was shown
+          to, and what it put up for grabs. A class the office left out is
+          listed and marked, so a placing in it is not read as points gone
+          missing. */}
+      {board?.point_system && (board.classes ?? []).length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Points by class</h2>
+          <p className="text-xs mt-1 mb-3" style={{ color: 'var(--muted)' }}>
+            Every posted class, the horses shown in it, and the points it put up for grabs on this chart.
+          </p>
+          <HighPointClassPoints classes={board.classes ?? []} />
+        </section>
       )}
 
       {board && board.circuits.length > 0 && (

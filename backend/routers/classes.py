@@ -769,6 +769,41 @@ async def get_class(show_id: UUID, class_id: UUID, db: AsyncSession = Depends(ge
     return class_
 
 
+def _apply_free(class_: Class, update_fields: dict) -> None:
+    """A free class (migration 166) costs nothing to enter, so its price is held
+    at 0 -- the CHECK on `classes` says the same.
+
+    Ticking Free zeroes the price in the same write. A price sent for a class
+    that is, or is becoming, free is refused rather than taken as un-freeing
+    it: the office ticked Free on purpose, and the default fill or a stray
+    keystroke in the fee table must not be what quietly undoes it. A futurity
+    class is refused outright -- the futurity's categories price it (Step 6),
+    and a free tick here could not waive what the futurity charges.
+    """
+    if "is_free" in update_fields and update_fields["is_free"] is None:
+        update_fields.pop("is_free")
+    if not update_fields.get("is_free", class_.is_free):
+        return
+    label = f"Class {class_.class_number} ({class_.class_name})"
+    if update_fields.get("is_free") and class_.is_futurity_class:
+        raise HTTPException(
+            409,
+            {
+                "code": "FUTURITY_CLASS_PRICED",
+                "message": (
+                    f"{label} is priced by its futurity, so it cannot be made free "
+                    "here. Its futurity's categories set what it costs."
+                ),
+            },
+        )
+    if (update_fields.get("entry_fee_cents") or 0) > 0:
+        raise HTTPException(
+            422,
+            f"{label} is free. Untick Free before giving it a price.",
+        )
+    update_fields["entry_fee_cents"] = 0
+
+
 @router.patch("/{class_id}", response_model=ClassOut, dependencies=[Depends(require_admin_or_show_admin)])
 async def update_class(
     show_id: UUID,
@@ -820,6 +855,7 @@ async def update_class(
             "Selected division is not part of the selected discipline. "
             "Add the membership on the Setup page first.",
         )
+    _apply_free(class_, update_fields)
     for k, v in update_fields.items():
         setattr(class_, k, v)
     try:

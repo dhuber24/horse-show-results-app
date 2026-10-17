@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import TouchScorePad from './TouchScorePad';
 import PublishBar from './PublishBar';
@@ -232,7 +232,13 @@ export default function ScoredScribeForm({
   const [openCardFor, setOpenCardFor] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(resultsPublishedAt);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  // The row being scored, by entry — not by position, because the rows re-sort
+  // as scores go in. `held` is that row's cell as it was when it was picked:
+  // it keeps the row where it stood while its score is typed or stepped, so
+  // the row under the scribe's finger never jumps on a keystroke, and it moves
+  // to its place once the scribe moves on.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [held, setHeld] = useState<{ id: string; cell: Cell } | null>(null);
 
   const activeCard = cards.find((c) => c.key === activeKey) ?? cards[0];
   // Memoised: see ScribeForm — a fresh `{}` each render would invalidate every
@@ -339,7 +345,7 @@ export default function ScoredScribeForm({
   const selectCard = async (key: string) => {
     if (key === activeKey) return;
     await flush();
-    setSelectedIndex(null);
+    select(null);
     setActiveKey(key);
   };
 
@@ -348,10 +354,52 @@ export default function ScoredScribeForm({
       ...prev,
       [activeKey]: Object.fromEntries(entries.map((e) => [e.id, { ...EMPTY_CELL }])),
     }));
-    setSelectedIndex(null);
+    select(null);
   };
 
-  const selectedEntry = selectedIndex !== null ? activeEntries[selectedIndex] : null;
+  /** Pick a row to score, or none. Picking the row already picked changes
+   *  nothing, so focusing its box again does not re-take what it holds. */
+  function select(id: string | null) {
+    if (id === selectedId) return;
+    setSelectedId(id);
+    setHeld(id ? { id, cell: cells[id] ?? EMPTY_CELL } : null);
+  }
+
+  const selectedEntry = selectedId ? activeEntries.find((e) => e.id === selectedId) ?? null : null;
+
+  /**
+   * The order the rows are drawn in: by place as the scores go in — the
+   * standings forming at the top, the horses still to go under them in
+   * back-number order, and the ones that were not scored (no score,
+   * disqualified, eliminated) last. The row being scored is read as it was
+   * when it was picked (`held`), so it holds its place until the scribe moves
+   * on. Display only: the backend ranks every card itself on save.
+   */
+  const orderedEntries = useMemo(() => {
+    const view = held ? { ...cells, [held.id]: held.cell } : cells;
+    const { places: shown } = derivePlaces(scoreType, view);
+    const base = new Map(activeEntries.map((entry, i) => [entry.id, i]));
+    const group = (id: string) => (shown[id] !== undefined ? 0 : isAnswered(view[id]) ? 2 : 1);
+    return [...activeEntries].sort(
+      (a, b) =>
+        group(a.id) - group(b.id) ||
+        (shown[a.id] ?? 0) - (shown[b.id] ?? 0) ||
+        (base.get(a.id) ?? 0) - (base.get(b.id) ?? 0),
+    );
+  }, [activeEntries, cells, held, scoreType]);
+
+  /** The next horse still to score after this one, in back-number order —
+   *  then any still to score before it. None left closes the pad. A position
+   *  in a list that re-sorts as scores go in says nothing about who is next. */
+  const nextToScore = (id: string | null): string | null => {
+    const from = activeEntries.findIndex((e) => e.id === id);
+    const waiting = (e: Entry) => e.id !== id && !isAnswered(cells[e.id]);
+    return (
+      activeEntries.slice(from + 1).find(waiting)?.id ??
+      activeEntries.slice(0, Math.max(from, 0)).find(waiting)?.id ??
+      null
+    );
+  };
 
   const cardFor = (entryId: string) =>
     cardsByEntry[cardKeyFor(activeCard.judgeId ?? 'unattributed', entryId)] ?? null;
@@ -373,11 +421,25 @@ export default function ScoredScribeForm({
 
   // The pad is docked over the bottom of the page, so the row being scored can
   // end up behind it — especially when "Next horse" walks down the list.
-  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   useEffect(() => {
-    if (selectedIndex === null) return;
-    rowRefs.current[selectedIndex]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [selectedIndex]);
+    if (selectedId === null) return;
+    rowRefs.current[selectedId]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [selectedId]);
+
+  // Picking a row by its score box lets go of the row before it, which may move
+  // to its place above this one — and moving a focused box in the DOM drops its
+  // focus. So the box that was focused to pick its row gets it back, once,
+  // right after that re-sort.
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const refocus = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = refocus.current;
+    if (!id) return;
+    refocus.current = null;
+    const input = inputRefs.current[id];
+    if (input && document.activeElement !== input) input.focus({ preventScroll: true });
+  });
 
   return (
     <div className={selectedEntry ? 'pb-72' : undefined}>
@@ -520,17 +582,17 @@ export default function ScoredScribeForm({
           </tr>
         </thead>
         <tbody>
-          {activeEntries.map((entry, i) => {
+          {orderedEntries.map((entry) => {
             const cell = cells[entry.id] ?? EMPTY_CELL;
             const place = places[entry.id];
             const isTied = place !== undefined && tied.has(place);
-            const isSelected = selectedIndex === i;
+            const isSelected = selectedId === entry.id;
             const ranked = isRanked(cell.outcome);
             return (
               <tr
                 key={entry.id}
-                ref={(el) => { rowRefs.current[i] = el; }}
-                onClick={() => setSelectedIndex(i)}
+                ref={(el) => { rowRefs.current[entry.id] = el; }}
+                onClick={() => select(entry.id)}
                 style={{
                   borderBottom: '1px solid var(--border-subtle)',
                   backgroundColor: isSelected
@@ -583,8 +645,13 @@ export default function ScoredScribeForm({
                     step={scoreType === 'time' ? '0.001' : '0.01'}
                     // Suppress the OS keyboard — the docked pad drives entry.
                     inputMode="none"
+                    ref={(el) => { inputRefs.current[entry.id] = el; }}
                     value={cell.score}
-                    onFocus={() => setSelectedIndex(i)}
+                    onFocus={() => {
+                      if (selectedId === entry.id) return;
+                      refocus.current = entry.id;
+                      select(entry.id);
+                    }}
                     onChange={(e) => setScore(entry.id, e.target.value)}
                     disabled={cell.outcome !== 'placed'}
                     title={
@@ -725,12 +792,8 @@ export default function ScoredScribeForm({
         }
         value={selectedEntry ? cells[selectedEntry.id]?.score ?? '' : ''}
         onChange={(next) => selectedEntry && setScore(selectedEntry.id, next)}
-        onNext={() =>
-          setSelectedIndex((i) =>
-            i !== null && i < activeEntries.length - 1 ? i + 1 : null,
-          )
-        }
-        onClose={() => setSelectedIndex(null)}
+        onNext={() => select(nextToScore(selectedId))}
+        onClose={() => select(null)}
       />
       )}
     </div>

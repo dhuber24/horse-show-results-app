@@ -2,6 +2,43 @@
 
 ## October 2026
 
+### Several classes per horse, free classes, high point by class
+
+- **One horse, several classes, one press** — on the exhibitor's class page
+  (`AddClassEntry`) and the desk's Add entry form with the exhibitor pinned
+  (`AddEntryForm`): pick the horse, tick the classes it can still enter, and
+  press *Enter N classes*. Side pots, the Novice declaration and futurity
+  enrollment are asked once for everything ticked. The exhibitor's batch
+  commits together or not at all; the desk enters one class at a time and
+  stops at the first refusal, leaving the rest ticked.
+- **A class can be made free** (`classes.is_free`, migration 166) with a
+  *Free* tick in the per-class pricing. A free class charges no class fee, no
+  club fee, and counts toward no per-class, per-horse or office charge, so an
+  entry only in free classes owes nothing; side pot buy-ins still apply. The
+  default price fill leaves free classes alone, and bills, the show bill and
+  both entry pickers say *Free*.
+- **Classes can be left out of high point** (`classes.high_point_eligible`,
+  migration 167), a tick per class or a division at a time, on the High Point
+  page and in setup Step 8. A class left out is still judged and posted; its
+  placings add nothing to the standings, at the show or in a circuit.
+- **Points by class**: the public leaderboard and the High Point page list
+  each class's entries, what first place earns and the points it put up for
+  grabs, from the same chart the standings use.
+- **The Results & High Point board heads both halves alike**: *Class Results*
+  with the Top 5 badge and the class name beneath, across from *High Point*
+  with the badge and the division beneath. Classes left out of high point take
+  their turns last, beside a notice that they do not count.
+- **The scribe screens re-sort as placings and scores go in**: the card forming
+  at the top, horses still to go below, unplaced outcomes last. The row being
+  entered holds still until the scribe moves on, and *Next horse* goes to the
+  next horse still to score.
+- **Trainer Registry plans are shown to trainers only.** `/trainers/plans`
+  needs a trainer account (or an admin); the public registry, the sign-up form
+  and the FAQ no longer link to the comparison or print the Pro price.
+- **A Pro listing is tagged *Featured* on the public registry**, on its card,
+  its own page and the near-me line. The plan is still Pro to the trainer, and
+  the comparison now lists the Featured tag among what Pro adds.
+
 ### Venues: a zip code, a pin that opens a map, and no secretaries per venue
 
 - **A venue has a zip code** (`venues.zip`, migration 163) — on Add Venue,

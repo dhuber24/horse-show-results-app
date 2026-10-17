@@ -175,6 +175,9 @@ def make_class(**overrides) -> SimpleNamespace:
         # rather than omitted so a class built here behaves like one the ORM
         # loaded — `sanctioning` is `lazy="selectin"` and is never absent.
         sanctioning=[],
+        # Not free unless a test says so (migration 166), as every class is
+        # until the office ticks it.
+        is_free=False,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

@@ -34,6 +34,9 @@ export type ShowbillClassRow = {
   division_name: string | null;
   ring_name: string | null;
   entry_fee_cents: number;
+  /** Free to enter (migration 166) — printed as "Free", where a blank price
+   *  would read as one the show has not set. */
+  is_free?: boolean;
   /** Codes of the clubs that sanction this class. Printed against the row
    *  because a per-class sanction fee is only owed on the classes the club
    *  approves — "NSBA, $3.00 per class" over a schedule with no per-class
@@ -482,7 +485,7 @@ export default function ShowbillDocument({
                           )}
                         </td>
                         <td className="py-1.5 align-top text-right whitespace-nowrap">
-                          {cls.entry_fee_cents > 0 ? formatMoney(cls.entry_fee_cents) : '—'}
+                          {cls.is_free ? 'Free' : cls.entry_fee_cents > 0 ? formatMoney(cls.entry_fee_cents) : '—'}
                         </td>
                       </tr>
                     ))}

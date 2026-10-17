@@ -273,6 +273,25 @@ def sanction_rates(show) -> dict:
     }
 
 
+def is_free_class(cls) -> bool:
+    """Whether the show office made this class free to enter (migration 166).
+
+    Free means the entry costs nothing, and this is the one place that says
+    what "nothing" covers: the class's own fee (held at 0 on the row), a
+    club's sanction fee on it (`class_sanction_cents`, `sanction_charge_lines`)
+    and every one of the show's automatic charges (`fee_counts_class`) -- so an
+    entry here counts toward no per-class, per-horse, per-exhibitor or
+    per-judge charge, and somebody entered only in free classes owes nothing.
+    A $0 class is not the same thing: it may be unpriced, and it still counts
+    toward the office charge.
+
+    A side pot buy-in is not a fee and is not waived; a futurity class cannot
+    be made free, because the futurity prices it. `getattr` for the reason
+    `sanction_fee_unit` uses one: a stub written before the column has none.
+    """
+    return bool(getattr(cls, "is_free", False))
+
+
 def class_sanction_cents(cls, rates: dict) -> int:
     """The club sanction fees one entry in this class owes.
 
@@ -280,13 +299,16 @@ def class_sanction_cents(cls, rates: dict) -> int:
     (`class_sanctioning`, migration 113) rather than applied to every class at a
     sanctioned show — an NSBA show runs plenty of classes NSBA has nothing to do
     with, and the exhibitor entering one of those owes nothing on it. A
-    dual-sanctioned class legitimately carries both clubs' fees.
+    dual-sanctioned class legitimately carries both clubs' fees. A free class
+    (`is_free_class`) owes neither.
 
     `rates` comes from `sanction_rates(show)` and is passed in rather than
     re-derived per class: the caller is already looping entries, and re-reading
     `show.sanctioning` inside the loop is how a bill ends up quoting a different
     number than the screen it was opened from.
     """
+    if is_free_class(cls):
+        return 0
     total = 0
     for row in (getattr(cls, "sanctioning", None) or []):
         total += rates.get(row.association_id, 0)
@@ -321,8 +343,12 @@ def sanction_charge_lines(
 
     A per-judge club fee multiplies by **that club's judges** -- the panel
     judges carded with it -- not by the whole panel. See `carded_judge_count`.
+
+    An entry in a free class (`is_free_class`) is in nobody's count: the show
+    office made it free, and a club's per-horse fee reaching it would bill the
+    one entry the office said costs nothing.
     """
-    entry_list = [e for e in entries if e.class_ is not None]
+    entry_list = [e for e in entries if e.class_ is not None and not is_free_class(e.class_)]
 
     lines: list[dict] = []
     total = 0
@@ -497,11 +523,13 @@ def fee_counts_class(fee, cls) -> bool:
 
     The scoping `charge_lines` applies, for one class, so a screen quoting a
     class before it is entered (`per_class_charges`) and the bill charging it
-    afterwards cannot disagree: never a club-sanctioned class, only the fee's
+    afterwards cannot disagree: never a club-sanctioned class, never a free one
+    (migration 166 -- no fee of any unit counts it, so an exhibitor entered only
+    in free classes owes no office or per-horse charge either), only the fee's
     own classes where it names some (migration 137), and a per-class fee never
     a futurity class, which the futurity prices.
     """
-    if cls is None or is_club_sanctioned_class(cls):
+    if cls is None or is_club_sanctioned_class(cls) or is_free_class(cls):
         return False
     scoped = scoped_class_ids(fee)
     if scoped is not None and cls.id not in scoped:
@@ -845,6 +873,9 @@ def build_bill(
         if cls is None:
             continue
         sanction = class_sanction_cents(cls, rates)
+        # Held at 0 on the row while the class is free (a CHECK, migration
+        # 166); read through the flag as well, so a bill can never charge one.
+        fee = 0 if is_free_class(cls) else cls.entry_fee_cents
         class_lines.append(
             {
                 "entry_id": entry.id,
@@ -853,11 +884,14 @@ def build_bill(
                 "class_name": cls.class_name,
                 "class_date": cls.class_date,
                 "horse_name": entry.horse.name if getattr(entry, "horse", None) else None,
-                "fee_cents": cls.entry_fee_cents,
+                "fee_cents": fee,
                 "sanction_cents": sanction,
+                # So a bill can say "Free" rather than leave a blank that reads
+                # as a price nobody has set.
+                "is_free": is_free_class(cls),
             }
         )
-        class_fee_total += cls.entry_fee_cents
+        class_fee_total += fee
         class_sanction_total += sanction
 
     reservation_lines: list[dict] = []

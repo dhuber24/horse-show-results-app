@@ -19,12 +19,14 @@ from fastapi import HTTPException
 from high_point import (
     Card,
     build_chart,
+    class_points,
     may_edit_point_system,
     may_use_point_system,
     place_limits,
     points_for,
     range_label,
     rank,
+    summarize_class,
     tally,
 )
 from routers.high_point import AwardIn, Caller, _validated_awards, owning_company
@@ -281,3 +283,49 @@ def test_nobody_keeps_a_system_under_somebody_elses_company():
 def test_an_admin_may_keep_one_under_any_company_or_none():
     assert owning_company(Caller(ALICE, "ADMIN", []), OTHER_CLUB) == OTHER_CLUB
     assert owning_company(Caller(ALICE, "ADMIN", []), None) is None
+
+
+# ── What a class puts up for grabs (migration 167) ──────────────────────────
+
+
+def test_a_class_is_worth_its_band_one_place_per_horse():
+    assert class_points(SCALED, 4) == [Decimal("1"), Decimal("0.5")]
+    assert class_points(SCALED, 7) == [Decimal("3"), Decimal("2"), Decimal("1")]
+
+
+def test_a_class_is_worth_no_deeper_than_its_size():
+    """A 5-9 row may pay down to 9th, but a class of six has no 7th place."""
+    deep = build_chart([
+        {"min_entries": 5, "place": place, "points": 10 - place} for place in range(1, 10)
+    ])
+    assert len(class_points(deep, 6)) == 6
+    assert len(class_points(deep, 9)) == 9
+
+
+def test_a_class_smaller_than_every_band_is_worth_nothing():
+    small = build_chart([{"min_entries": 3, "place": 1, "points": 1}])
+    assert class_points(small, 2) == []
+    assert summarize_class(small, 2, cards=1, eligible=True)["points_available"] == 0
+
+
+def test_every_judges_card_puts_its_own_points_up():
+    summary = summarize_class(SCALED, 7, cards=3, eligible=True)
+
+    assert summary["first_place_points"] == 3
+    assert summary["points_per_card"] == 6
+    assert summary["points_available"] == 18
+    assert summary["places_paid"] == 3
+    assert summary["entries"] == 7
+
+
+def test_a_class_left_out_of_high_point_puts_nothing_up():
+    """Its chart reading is still reported, so the table can say what it would
+    have been worth -- but nothing is available to earn."""
+    summary = summarize_class(SCALED, 7, cards=2, eligible=False)
+
+    assert summary["points_available"] == 0
+    assert summary["first_place_points"] == 3
+
+
+def test_a_class_with_no_panel_is_one_card():
+    assert summarize_class(FLAT, 6, cards=0, eligible=True)["cards"] == 1

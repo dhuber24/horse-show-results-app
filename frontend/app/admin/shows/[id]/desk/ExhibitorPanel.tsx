@@ -1168,6 +1168,8 @@ export default function ExhibitorPanel({
                               not enrolled
                             </span>
                           )
+                        ) : line?.is_free || (!line && cls?.is_free) ? (
+                          <span title="The show office made this class free — nothing on it is owed">Free</span>
                         ) : line ? (
                           <span title={classFeeBreakdown(line)}>
                             {formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}

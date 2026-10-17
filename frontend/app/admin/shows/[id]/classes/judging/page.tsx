@@ -1,11 +1,12 @@
 import { auth } from '@/auth';
-import { fetchAssociations, fetchClasses, fetchPointSystems, fetchShow } from '@/lib/api';
+import { fetchAssociations, fetchClasses, fetchHighPointClasses, fetchPointSystems, fetchShow } from '@/lib/api';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import type { PointSystem } from '@/lib/high-point';
 import StepLayout from '../../setup/_lib/StepLayout';
 import { fetchStepCounts } from '../../setup/_lib/fetchStepCounts';
 import { DeclineFeature } from '../../setup/_lib/SkipStep';
 import { buildSteps, featureDeclined } from '../../../_wizard/steps';
+import HighPointClasses from '../../high-point/HighPointClasses';
 import ShowPointChart, { type AssociationOption } from '../../high-point/ShowPointChart';
 import ClassScoringClient, { type ScoringClass, type SheetOption } from './ClassScoringClient';
 
@@ -65,13 +66,14 @@ export default async function ScoringStepPage({
   const session = await auth();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'ADMIN';
   const headers = (await getAuthHeaders()) || {};
-  const [show, classes, stepsInput, templates, current, associations] = await Promise.all([
+  const [show, classes, stepsInput, templates, current, associations, pointClasses] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchStepCounts(id),
     fetchPointSystems(headers),
     fetchShowPointSystem(id, headers),
     fetchAssociations(headers).catch(() => [] as AssociationOption[]),
+    fetchHighPointClasses(id, headers),
   ]);
   const sheets = await fetchJudgingSystems(show.show_type_code ?? null, headers);
 
@@ -124,6 +126,20 @@ export default async function ScoringStepPage({
             associations={(associations as AssociationOption[]).map((a) => ({ id: a.id, code: a.code, name: a.name }))}
             isAdmin={isAdmin}
           />
+          {/* Which classes count (migration 167) — the same list as the High
+              Point page. Folded, because it is one row per class and most
+              shows leave every class in. */}
+          {current != null && pointClasses.length > 0 && (
+            <details className="rounded border" style={{ borderColor: 'var(--border-subtle)' }}>
+              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                Which classes count toward high point —{' '}
+                {pointClasses.filter((c) => c.eligible).length} of {pointClasses.length}
+              </summary>
+              <div className="px-3 pb-3">
+                <HighPointClasses showId={id} initialClasses={pointClasses} />
+              </div>
+            </details>
+          )}
         </section>
 
         <section className="border rounded-lg p-4 space-y-4" style={card}>

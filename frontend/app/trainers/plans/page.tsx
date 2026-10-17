@@ -1,16 +1,80 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { API_URL, readJsonBody } from '@/lib/backend-fetch';
+import { auth } from '@/auth';
+import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import { DEFAULT_REGISTRY_OPTIONS, type RegistryOptions } from '@/lib/trainer-registry';
 import PlanMatrix from '../_components/PlanMatrix';
 
 export const metadata: Metadata = {
   title: 'Trainer Registry plans',
-  description: 'List your training services on GaitDesk free, or go Pro to come first for exhibitors near you.',
+  description: 'The Trainer Registry plans, for trainers with a GaitDesk trainer account.',
 };
 
-/** Basic and Pro side by side, for a trainer deciding — before or after signing up. */
+/**
+ * Whether the plans may be shown to this reader: a signed-in trainer — the
+ * caller has a `trainers` row, the same test `/profile/registry` makes — or a
+ * GaitDesk admin, who sells Pro and links here from a trainer's admin page.
+ */
+async function mayCompare(): Promise<{ signedIn: boolean; allowed: boolean; isAdmin: boolean }> {
+  const session = await auth();
+  if (!session?.user) return { signedIn: false, allowed: false, isAdmin: false };
+  if ((session.user as { role?: string }).role === 'ADMIN') return { signedIn: true, allowed: true, isAdmin: true };
+  const headers = await getAuthHeaders();
+  try {
+    const res = await fetch(`${API_URL}/trainers/me`, { headers: headers!, cache: 'no-store' });
+    return { signedIn: true, allowed: res.ok && Boolean(await readJsonBody(res)), isAdmin: false };
+  } catch {
+    return { signedIn: true, allowed: false, isAdmin: false };
+  }
+}
+
+/**
+ * Basic and Pro side by side, for a trainer who has signed up — **and nobody
+ * else**. The registry is read by the people trainers are advertising to, and a
+ * price list for being advertised, a click away from the listings, is how a
+ * client finds out who paid to come first; it read as tacky to the trainers
+ * paying. So the comparison is shown once somebody has a trainer account (the
+ * sign-up form lands on `/profile/registry`, which draws it too), and everybody
+ * else is told it is for trainers rather than shown it.
+ */
 export default async function TrainerPlansPage() {
+  const { signedIn, allowed, isAdmin } = await mayCompare();
+
+  if (!allowed) {
+    return (
+      <main className="max-w-2xl mx-auto p-4 md:p-6">
+        <Link href="/trainers" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
+          ← Trainer Registry
+        </Link>
+        <h1 className="text-2xl font-bold mt-4" style={{ color: 'var(--foreground)' }}>Trainer Registry plans</h1>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-deep)' }}>
+          The plans are shown to trainers.{' '}
+          {signedIn
+            ? 'This account isn’t a trainer account — create one to list your services and see them.'
+            : 'Sign in to your trainer account to see them, or create one to list your services.'}
+        </p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Link
+            href="/register/trainer"
+            className="font-medium px-4 py-2 rounded text-sm"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+          >
+            Create a trainer account
+          </Link>
+          {!signedIn && (
+            <Link
+              href="/login?callbackUrl=/trainers/plans"
+              className="font-medium px-4 py-2 rounded border text-sm"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--accent)' }}
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+      </main>
+    );
+  }
+
   let options: RegistryOptions = DEFAULT_REGISTRY_OPTIONS;
   try {
     const res = await fetch(`${API_URL}/trainers/registry/options`, { cache: 'no-store' });
@@ -22,8 +86,12 @@ export default async function TrainerPlansPage() {
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href="/trainers" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-        ← Trainer Registry
+      <Link
+        href={isAdmin ? '/admin/trainers' : '/profile/registry'}
+        className="text-sm hover:underline"
+        style={{ color: 'var(--accent)' }}
+      >
+        {isAdmin ? '← Trainers' : '← My Trainer Registry listing'}
       </Link>
       <div className="mt-4 mb-5">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Trainer Registry plans</h1>
@@ -44,22 +112,17 @@ export default async function TrainerPlansPage() {
         </p>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        <Link
-          href="/register/trainer"
-          className="font-medium px-4 py-2 rounded text-sm"
-          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
-        >
-          Create a trainer account
-        </Link>
-        <Link
-          href="/profile/registry"
-          className="font-medium px-4 py-2 rounded border text-sm"
-          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--accent)' }}
-        >
-          I already have one
-        </Link>
-      </div>
+      {!isAdmin && (
+        <div className="mt-6">
+          <Link
+            href="/profile/registry"
+            className="font-medium px-4 py-2 rounded text-sm inline-block"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+          >
+            Go to my Trainer Registry page
+          </Link>
+        </div>
+      )}
     </main>
   );
 }

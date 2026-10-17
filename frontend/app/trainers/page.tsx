@@ -92,25 +92,25 @@ export default async function TrainerRegistryPage({ searchParams }: { searchPara
         className="rounded-lg border p-4 mt-10 text-sm"
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
       >
+        {/* An invitation, not a price list: this page is read by the clients
+            trainers advertise to, so the plans are shown only once somebody
+            has a trainer account (`/trainers/plans`, `/profile/registry`). */}
         <p className="font-semibold" style={{ color: 'var(--foreground)' }}>Are you a trainer?</p>
-        <p className="mt-1">
-          List your services here. A Basic listing is free; Pro puts you first for exhibitors near you, with photos,
-          videos, your rates and a Contact Trainer button.
-        </p>
+        <p className="mt-1">List your training services here, where exhibitors near you are looking.</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link
-            href="/trainers/plans"
+            href="/register/trainer"
             className="font-medium px-3 py-2 rounded"
             style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
           >
-            Compare plans
+            Create a trainer account
           </Link>
           <Link
-            href="/register/trainer"
+            href="/profile/registry"
             className="font-medium px-3 py-2 rounded border"
             style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--accent)' }}
           >
-            Create a trainer account
+            I already have one
           </Link>
         </div>
       </div>

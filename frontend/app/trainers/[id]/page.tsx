@@ -10,7 +10,7 @@ import {
   videoLabel,
   type TrainerListing,
 } from '@/lib/trainer-registry';
-import { ContactLinks, DisciplineList, ListingBadges, ProBadge, TrainerAvatar } from '../_components/ListingParts';
+import { ContactLinks, DisciplineList, ListingBadges, FeaturedBadge, TrainerAvatar } from '../_components/ListingParts';
 import ContactTrainerForm from './ContactTrainerForm';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -91,7 +91,7 @@ function TrainerListingView({ trainer }: { trainer: TrainerListing }) {
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{trainer.name}</h1>
-            {pro && <ProBadge />}
+            {pro && <FeaturedBadge />}
           </div>
           {trainer.business_name && <p className="text-base" style={{ color: 'var(--text-deep)' }}>{trainer.business_name}</p>}
           {location && <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>📍 {location}</p>}

@@ -11,7 +11,7 @@ import {
   registryStates,
   type TrainerListing,
 } from '@/lib/trainer-registry';
-import { ContactLinks, DisciplineList, ListingBadges, ProBadge, TrainerAvatar, linkButtonClass, linkButtonStyle } from './_components/ListingParts';
+import { ContactLinks, DisciplineList, ListingBadges, FeaturedBadge, TrainerAvatar, linkButtonClass, linkButtonStyle } from './_components/ListingParts';
 
 export interface NearSearch {
   zip: string;
@@ -34,7 +34,7 @@ function ProCard({ t }: { t: TrainerListing }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-lg group-hover:underline" style={{ color: 'var(--foreground)' }}>{t.name}</span>
-            <ProBadge />
+            <FeaturedBadge />
           </div>
           {t.business_name && <div className="text-sm" style={{ color: 'var(--text-deep)' }}>{t.business_name}</div>}
           {(location || distance) && (
@@ -247,7 +247,7 @@ export default function TrainerRegistryBrowser({
         <>
           <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
             {filtering ? `${shown.length} of ${listings.length}` : listings.length} trainer{listings.length === 1 ? '' : 's'}
-            {searchingNear && located && proCount > 0 ? ' · Pro trainers nearest first' : ''}
+            {searchingNear && located && proCount > 0 ? ' · Featured trainers nearest first' : ''}
           </p>
           <ul className="space-y-3">
             {shown.map((t) => (t.tier === 'pro' ? <ProCard key={t.id} t={t} /> : <BasicCard key={t.id} t={t} />))}

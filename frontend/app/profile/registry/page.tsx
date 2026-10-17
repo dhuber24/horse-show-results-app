@@ -27,8 +27,9 @@ export default async function MyRegistryPage() {
       <main className="max-w-2xl mx-auto p-4 md:p-6">
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>Trainer Registry</h1>
         <p className="text-sm mt-2" style={{ color: 'var(--muted)' }}>
-          The Trainer Registry is for trainer accounts. <Link href="/trainers/plans" className="underline" style={{ color: 'var(--accent)' }}>See the plans</Link>, or{' '}
-          <Link href="/register/trainer" className="underline" style={{ color: 'var(--accent)' }}>create a trainer account</Link>.
+          The Trainer Registry is for trainer accounts —{' '}
+          <Link href="/register/trainer" className="underline" style={{ color: 'var(--accent)' }}>create a trainer account</Link>{' '}
+          to list your services and see the plans.
         </p>
       </main>
     );

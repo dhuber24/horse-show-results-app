@@ -39,13 +39,17 @@ export function TrainerAvatar({ trainer, size }: { trainer: TrainerListing; size
   );
 }
 
-export function ProBadge() {
+/** The tag on a Pro listing. It says **Featured**, not Pro: the registry is
+ *  read by the clients trainers advertise to, and "Pro" read as the name of
+ *  what the trainer pays for. The plan is still Pro to the trainer who buys it
+ *  (`/trainers/plans`, `/profile/registry`). */
+export function FeaturedBadge() {
   return (
     <span
       className="inline-block text-[11px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
       style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
     >
-      Pro
+      Featured
     </span>
   );
 }

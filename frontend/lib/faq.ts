@@ -247,7 +247,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'find-a-trainer',
         q: 'How do I find a trainer?',
         a: [
-          'Open the [Trainer Registry](/trainers) and enter your zip code, or choose Use my location, to see trainers near you — Pro trainers first, nearest first. You can also search by name, barn, town or discipline.',
+          'Open the [Trainer Registry](/trainers) and enter your zip code, or choose Use my location, to see trainers near you — featured trainers first, nearest first. You can also search by name, barn, town or discipline.',
           'Contact a trainer directly from their listing. GaitDesk doesn\'t book or vet trainers.',
         ],
       },
@@ -373,7 +373,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'public-profile',
         q: 'What goes on my public profile?',
         a: [
-          'It\'s public only while you\'re listed in the [Trainer Registry](/trainers). A Basic listing shows your name, business, town and the disciplines you train. On Pro it also shows your bio, headshot, logo, photos, video links, rate sheet, website, social links, association cards and SafeSport, background-check and insurance badges, with a Call button and a Contact Trainer form.',
+          'It\'s public only while you\'re listed in the [Trainer Registry](/trainers). A Basic listing shows your name, business, town and the disciplines you train. On Pro it carries a Featured tag and also shows your bio, headshot, logo, photos, video links, rate sheet, website, social links, association cards and SafeSport, background-check and insurance badges, with a Call button and a Contact Trainer form.',
           'Your login email, private phone and zip code are never on it, and nor is your public email — the Contact Trainer form sends messages to it without showing it.',
         ],
       },
@@ -389,7 +389,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'trainer-registry-pro',
         q: 'What do I get with Trainer Registry Pro, and how do I pay?',
         a: [
-          'Basic is free. Pro is $10 a month or $100 a year, and puts you above Basic listings and nearest-first for exhibitors searching near you, with your distance shown. It adds photos, video links, your rate sheet and a Contact Trainer button whose messages are emailed to you and kept on your registry page. [Compare the plans](/trainers/plans).',
+          'Basic is free. Pro puts you above Basic listings and nearest-first for exhibitors searching near you, with your distance shown, and adds photos, video links, your rate sheet and a Contact Trainer button whose messages are emailed to you and kept on your registry page. Sign in to your trainer account to compare the plans and their prices on your [Trainer Registry page](/profile/registry).',
           'GaitDesk doesn\'t take payment in the app. Choose Upgrade to Pro on your [Trainer Registry page](/profile/registry), and GaitDesk gets in touch to arrange it. Your listing switches to Pro once it\'s set up, and back to Basic if Pro runs out — nothing you added is lost.',
         ],
       },

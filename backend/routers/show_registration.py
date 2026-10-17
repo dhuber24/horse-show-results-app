@@ -1742,6 +1742,9 @@ async def preview_registration(
                 # once per exhibitor and the POST enforces that.
                 "score_type": c.score_type,
                 "entry_fee_cents": c.entry_fee_cents,
+                # The office made it free (migration 166), so the picker says
+                # "Free" rather than leaving the price blank.
+                "is_free": c.is_free,
                 # Where the ring has got to (`self_entry.py`). A class under way
                 # or completed is not offered for entry; a completed one cannot
                 # be scratched from here either.

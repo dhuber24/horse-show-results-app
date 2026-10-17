@@ -129,6 +129,7 @@ export function planFeatures(limits: Pick<RegistryOptions, 'max_photos' | 'max_v
     { label: 'Listed in the Trainer Registry', basic: true, pro: true },
     { label: 'Your name, business, disciplines and town', basic: true, pro: true },
     { label: 'Shows up in near-me searches', basic: 'Below Pro', pro: 'Above Basic' },
+    { label: 'A Featured tag on your listing', basic: false, pro: true },
     { label: 'Ranked nearest-first for clients near you', basic: false, pro: true },
     { label: 'Your distance shown to the client', basic: false, pro: true },
     { label: 'Bio', basic: false, pro: true },

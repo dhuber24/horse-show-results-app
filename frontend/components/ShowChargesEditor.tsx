@@ -72,6 +72,8 @@ export type ScopeClass = {
   class_name: string;
   sanctioning_codes?: string[];
   is_futurity_class?: boolean;
+  /** Ticked Free in the per-class pricing (migration 166). */
+  is_free?: boolean;
 };
 
 /**
@@ -79,11 +81,12 @@ export type ScopeClass = {
  *
  * A club-sanctioned class is priced by that club (Step 5) and a futurity class
  * by its futurity's categories (Step 6), so neither is the show's to charge
- * per class — and billing leaves both out of every per-class fee, so "Select
- * all" means what the list shows.
+ * per class; a free class is charged nothing at all (migration 166). Billing
+ * leaves all three out of every per-class fee, so "Select all" means what the
+ * list shows.
  */
 function offeredForScope(cls: ScopeClass): boolean {
-  return !cls.is_futurity_class && (cls.sanctioning_codes ?? []).length === 0;
+  return !cls.is_futurity_class && !cls.is_free && (cls.sanctioning_codes ?? []).length === 0;
 }
 
 /**
@@ -399,9 +402,12 @@ function ClassScopePicker({
           style={{ borderColor: COLORS.border, backgroundColor: 'var(--background)' }}
         >
           {leftOut > 0 && (
-            <p style={{ color: COLORS.muted }}>
-              {leftOut} club-sanctioned or futurity class{leftOut === 1 ? ' is' : 'es are'} not
-              listed — the club or the futurity prices {leftOut === 1 ? 'it' : 'them'}.
+            <p
+              style={{ color: COLORS.muted }}
+              title="A club prices its own classes and a futurity its classes; a class ticked Free carries no fee at all."
+            >
+              {leftOut} club-sanctioned, futurity or free class{leftOut === 1 ? ' is' : 'es are'} not
+              listed — no show fee charges {leftOut === 1 ? 'it' : 'them'}.
             </p>
           )}
           {classes.length === 0 ? (

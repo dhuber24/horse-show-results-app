@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import Link from 'next/link';
 import TouchScorePad from './TouchScorePad';
 import PublishBar from './PublishBar';
@@ -131,7 +131,12 @@ export default function ScribeForm({
   const [activeKey, setActiveKey] = useState(cards[0].key);
   const [publishedAt, setPublishedAt] = useState<string | null>(resultsPublishedAt);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  // The row being placed, by entry — not by position, because the rows re-sort
+  // as placings go in. `held` is what that row carried when it was picked: it
+  // keeps the row where it stood while its place is typed, and the row moves
+  // to its place once the scribe moves on.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [held, setHeld] = useState<{ id: string; place: string; outcome: ResultOutcome } | null>(null);
 
   const activeCard = cards.find((c) => c.key === activeKey) ?? cards[0];
   // Memoised: the `?? {}` fallback would otherwise be a fresh object every
@@ -275,7 +280,7 @@ export default function ScribeForm({
   const selectCard = async (key: string) => {
     if (key === activeKey) return;
     await flush();
-    setSelectedIndex(null);
+    select(null);
     setActiveKey(key);
   };
 
@@ -288,29 +293,91 @@ export default function ScribeForm({
       ...prev,
       [activeKey]: Object.fromEntries(entries.map((e) => [e.id, 'placed' as ResultOutcome])),
     }));
-    setSelectedIndex(null);
+    select(null);
   };
 
-  const selectedEntry = selectedIndex !== null ? activeEntries[selectedIndex] : null;
+  /** Pick a row to place, or none. Picking the row already picked changes
+   *  nothing, so focusing its box again does not re-take what it holds. */
+  function select(id: string | null) {
+    if (id === selectedId) return;
+    setSelectedId(id);
+    setHeld(id ? { id, place: places[id] ?? '', outcome: outcomeOf(id) } : null);
+  }
+
+  const selectedEntry = selectedId ? activeEntries.find((e) => e.id === selectedId) ?? null : null;
+
+  /**
+   * The order the rows are drawn in: by place as the placings go in — the card
+   * forming at the top, the horses not yet placed under it in back-number
+   * order, and the ones the judge did not place (disqualified, excused) last.
+   * An elimination the judge still placed (a ride-off, AM-111.D) sorts by its
+   * place like any other. The row being placed is read as it was when it was
+   * picked (`held`), so it holds still until the scribe moves on. Display only.
+   */
+  const orderedEntries = useMemo(() => {
+    const base = new Map(activeEntries.map((entry, i) => [entry.id, i]));
+    const placeOf = (id: string) => {
+      const p = parseInt(held?.id === id ? held.place : places[id]);
+      return !isNaN(p) && p >= 1 ? p : null;
+    };
+    const outcome = (id: string) => (held?.id === id ? held.outcome : outcomeOf(id));
+    const group = (id: string) => (placeOf(id) !== null ? 0 : outcome(id) === 'placed' ? 1 : 2);
+    return [...activeEntries].sort(
+      (a, b) =>
+        group(a.id) - group(b.id) ||
+        (placeOf(a.id) ?? 0) - (placeOf(b.id) ?? 0) ||
+        (base.get(a.id) ?? 0) - (base.get(b.id) ?? 0),
+    );
+  }, [activeEntries, places, held, outcomeOf]);
+
+  /** The next horse still to place after this one, in back-number order — then
+   *  any still to place before it. None left closes the pad. */
+  const nextToPlace = (id: string | null): string | null => {
+    const from = activeEntries.findIndex((e) => e.id === id);
+    const waiting = (e: Entry) => {
+      if (e.id === id || outcomeOf(e.id) !== 'placed') return false;
+      const p = parseInt(places[e.id]);
+      return isNaN(p) || p < 1;
+    };
+    return (
+      activeEntries.slice(from + 1).find(waiting)?.id ??
+      activeEntries.slice(0, Math.max(from, 0)).find(waiting)?.id ??
+      null
+    );
+  };
 
   /** Places held by rows other than the selected one — shown as used on the pad. */
   const takenPlaces = useMemo(() => {
     const taken = new Set<number>();
-    activeEntries.forEach((e, i) => {
-      if (i === selectedIndex) return;
+    activeEntries.forEach((e) => {
+      if (e.id === selectedId) return;
       const p = parseInt(places[e.id]);
       if (!isNaN(p) && p >= 1) taken.add(p);
     });
     return taken;
-  }, [activeEntries, places, selectedIndex]);
+  }, [activeEntries, places, selectedId]);
 
   // The pad is docked over the bottom of the page, so the row being placed can
-  // end up behind it — especially when "Next horse" walks down the list.
-  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  // end up behind it — especially when "Next horse" moves down the list.
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   useEffect(() => {
-    if (selectedIndex === null) return;
-    rowRefs.current[selectedIndex]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, [selectedIndex]);
+    if (selectedId === null) return;
+    rowRefs.current[selectedId]?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [selectedId]);
+
+  // Picking a row by its place box lets go of the row before it, which may move
+  // to its place above this one — and moving a focused box in the DOM drops its
+  // focus. So the box that was focused to pick its row gets it back, once,
+  // right after that re-sort.
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const refocus = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = refocus.current;
+    if (!id) return;
+    refocus.current = null;
+    const input = inputRefs.current[id];
+    if (input && document.activeElement !== input) input.focus({ preventScroll: true });
+  });
 
   return (
     <div className={selectedEntry ? 'pb-72' : undefined}>
@@ -400,15 +467,15 @@ export default function ScribeForm({
           </tr>
         </thead>
         <tbody>
-          {activeEntries.map((entry, i) => {
+          {orderedEntries.map((entry) => {
             const tied = isTie(entry.id);
-            const isSelected = selectedIndex === i;
+            const isSelected = selectedId === entry.id;
             const outcome = outcomeOf(entry.id);
             return (
               <tr
                 key={entry.id}
-                ref={(el) => { rowRefs.current[i] = el; }}
-                onClick={() => setSelectedIndex(i)}
+                ref={(el) => { rowRefs.current[entry.id] = el; }}
+                onClick={() => select(entry.id)}
                 style={{
                   borderBottom: '1px solid var(--border-subtle)',
                   backgroundColor: isSelected ? 'var(--bg-subtle)' : tied ? 'var(--warning-bg)' : undefined,
@@ -453,8 +520,13 @@ export default function ScribeForm({
                       // type into it — it is a real input, just not one that
                       // summons a 50%-of-screen keypad.
                       inputMode="none"
+                      ref={(el) => { inputRefs.current[entry.id] = el; }}
                       value={places[entry.id] ?? ''}
-                      onFocus={() => setSelectedIndex(i)}
+                      onFocus={() => {
+                        if (selectedId === entry.id) return;
+                        refocus.current = entry.id;
+                        select(entry.id);
+                      }}
                       onChange={(e) => setPlace(entry.id, e.target.value)}
                       title={
                         outcome === 'placed'
@@ -518,12 +590,8 @@ export default function ScribeForm({
         }
         value={selectedEntry ? places[selectedEntry.id] ?? '' : ''}
         onChange={(next) => selectedEntry && setPlace(selectedEntry.id, next)}
-        onNext={() =>
-          setSelectedIndex((i) =>
-            i !== null && i < activeEntries.length - 1 ? i + 1 : null
-          )
-        }
-        onClose={() => setSelectedIndex(null)}
+        onNext={() => select(nextToPlace(selectedId))}
+        onClose={() => select(null)}
         maxPlace={activeEntries.length}
         takenPlaces={takenPlaces}
       />

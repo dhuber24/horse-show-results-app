@@ -1,5 +1,12 @@
 import type { ShowPattern } from './patterns';
-import type { Circuit, CircuitLeaderboard, PointSystem, PointSystemOwner, ShowLeaderboard } from './high-point';
+import type {
+  Circuit,
+  CircuitLeaderboard,
+  HighPointClass,
+  PointSystem,
+  PointSystemOwner,
+  ShowLeaderboard,
+} from './high-point';
 
 const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://backend:8000';
 
@@ -426,6 +433,21 @@ export async function fetchPointSystems(headers: HeadersInit | null): Promise<Po
     const res = await fetch(`${API_URL}/point-systems`, { headers, cache: 'no-store' });
     if (!res.ok) return [];
     return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+/** Every class of a show with its entries, whether it counts toward high point,
+ *  and what it puts up for grabs (migration 167). Show office only; empty on a
+ *  failure, so the chart beside it still loads. */
+export async function fetchHighPointClasses(showId: string, headers: HeadersInit | null): Promise<HighPointClass[]> {
+  if (!headers) return [];
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/high-point/classes`, { headers, cache: 'no-store' });
+    if (!res.ok) return [];
+    const body = (await res.json().catch(() => null)) as { classes?: HighPointClass[] } | null;
+    return body?.classes ?? [];
   } catch {
     return [];
   }

@@ -53,6 +53,12 @@ const JUDGE_HEAD_U = 2.4; // "Judge Delgado" and its margin
    thing that differed was the judge — and each copy was height taken from the
    placings. */
 const CLASS_HEAD_UC = 4.6;
+/* The split board's two headers, both this height so the boxes under them start
+   on one line: "Class Results" or "High Point" with the Top 5 badge, and the
+   class or the division named on the line beneath — up to two lines of class
+   name, which a half-width header needs more often than a full one. */
+const SPLIT_HEAD_UC = 5.4;
+const SPLIT_NAME_UC = 1.35; // the class or division name under the heading
 const CLASS_HEAD_GAP_UC = 0.5; // between a class's header and the boxes under it
 const PANE_PAD_U = 1.4; // a judge box's own top and bottom padding, together
 const GRID_GAP_U = 1.6; // between boxes and between classes, both ways
@@ -106,6 +112,10 @@ interface ClassItem {
   division_name?: string | null;
   results_published_at: string | null;
   entry_count?: number;
+  /** Whether its placings earn high-point points (migration 167). The split
+   *  board does not set a class the office left out beside a division's
+   *  standings it adds nothing to. Optional for an older backend: counts. */
+  high_point_eligible?: boolean;
 }
 
 interface Placing {
@@ -397,35 +407,41 @@ function ClassHeader({ block, split = false }: { block: Block; split?: boolean }
   const context = [cls.ring_name, cls.division_name, cls.discipline_name, turn].filter(Boolean).join(' · ');
   const placed = block.cards.some((card) => card.rows.length > 0);
 
+  // The split board heads its two halves alike — "Class Results" across from
+  // "High Point", the name of the class or division under each. Ring, division
+  // and discipline are left off: the division is the other half's title, and
+  // which judges of the panel this is is the one thing the name does not say.
+  if (split) {
+    return (
+      <SplitHeader
+        heading="Class Results"
+        name={`#${cls.class_number} · ${cls.class_name}`}
+        badge={placed}
+        aside={turn}
+      />
+    );
+  }
+
   return (
     <header
-      className={`flex-none min-w-0 flex flex-col justify-center${split ? ' items-center text-center' : ''}`}
+      className="flex-none min-w-0 flex flex-col justify-center"
       style={{
         height: c(CLASS_HEAD_UC),
         marginBottom: c(CLASS_HEAD_GAP_UC),
         paddingInline: u(0.3),
       }}
     >
-      {/* Not on the split board, where the half is headed by the class name
-          alone: ring, division and discipline over it repeated what the name
-          already says. The header keeps its pinned height either way, which
-          the fit arithmetic in `scaleFor` counts on. */}
-      {!split && (
-        <div
-          className="font-medium tracking-wide truncate max-w-full"
-          style={{
-            fontSize: c(0.95),
-            color: 'var(--on-slate-muted)',
-          }}
-        >
-          {context || 'Class results'}
-        </div>
-      )}
-
       <div
-        className={`flex items-center min-w-0 max-w-full${split ? ' justify-center' : ''}`}
-        style={{ gap: c(0.8) }}
+        className="font-medium tracking-wide truncate max-w-full"
+        style={{
+          fontSize: c(0.95),
+          color: 'var(--on-slate-muted)',
+        }}
       >
+        {context || 'Class results'}
+      </div>
+
+      <div className="flex items-center min-w-0 max-w-full" style={{ gap: c(0.8) }}>
         <h2
           className="font-bold min-w-0"
           style={{
@@ -449,18 +465,67 @@ function ClassHeader({ block, split = false }: { block: Block; split?: boolean }
             and beside the name, so it reads as part of what this class is
             showing. The QR code's "Scan for full results" is the rest. */}
         {placed && <TopBadge />}
+      </div>
+    </header>
+  );
+}
 
-        {/* On the split board the context line is gone, and which judges of
-            the panel this is is the one thing on it the name does not say. */}
-        {split && turn && (
-          <span
-            className="flex-none font-medium whitespace-nowrap"
-            style={{ fontSize: c(1.05), color: 'var(--on-slate-muted)' }}
-          >
-            {turn}
+/** One half's header on the split board: what the half is — "Class Results"
+ *  or "High Point" — with the Top 5 badge beside it, and which class or which
+ *  division on the line beneath, in the accent colour. Both halves are drawn by
+ *  this, at one pinned height (SPLIT_HEAD_UC, which `scaleFor` counts), so a
+ *  room reads the same two lines across the screen and the boxes under them
+ *  start level. The name may take two lines, then ellipsis: a clipped class
+ *  name leaves the room guessing which class it is looking at. */
+function SplitHeader({
+  heading,
+  name,
+  badge = true,
+  aside = null,
+}: {
+  heading: string;
+  name: string | null;
+  badge?: boolean;
+  /** Beside the badge: which judges of a panel this turn shows. */
+  aside?: string | null;
+}) {
+  return (
+    <header
+      className="flex-none min-w-0 flex flex-col justify-center items-center text-center"
+      style={{
+        height: c(SPLIT_HEAD_UC),
+        marginBottom: c(CLASS_HEAD_GAP_UC),
+        paddingInline: u(0.3),
+      }}
+    >
+      <div className="flex items-center justify-center min-w-0 max-w-full" style={{ gap: c(0.8) }}>
+        <h2 className="font-bold truncate min-w-0" style={{ fontSize: c(1.5), lineHeight: 1.05, color: 'var(--on-slate)' }}>
+          {heading}
+        </h2>
+        {badge && <TopBadge />}
+        {aside && (
+          <span className="flex-none font-medium whitespace-nowrap" style={{ fontSize: c(1.05), color: 'var(--on-slate-muted)' }}>
+            {aside}
           </span>
         )}
       </div>
+      {name && (
+        <div
+          className="font-semibold min-w-0 max-w-full"
+          style={{
+            fontSize: c(SPLIT_NAME_UC),
+            lineHeight: 1.05,
+            marginTop: c(0.15),
+            color: 'var(--accent-light)',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {name}
+        </div>
+      )}
     </header>
   );
 }
@@ -499,9 +564,10 @@ function ClassBlock({
   stageU: number;
   unitVh: number;
   scale: number;
-  /** On the split board: the header is centred over its half, so the two
-   *  read as two sections of one screen, and carries the class name alone
-   *  (see ClassHeader). The Results Board keeps it left, with its context. */
+  /** On the split board: the header is centred over its half and reads
+   *  "Class Results", with the class named under it, as the other half reads
+   *  "High Point" over its division (`SplitHeader`). The Results Board keeps
+   *  it left, with its context line. */
   split?: boolean;
 }) {
   const judges = block.cards.length;
@@ -602,8 +668,6 @@ const STANDING_ROWS = TOP_PLACES + 1;
    exhibitor's name: the points are what the high point half is showing. */
 const POINTS_U = 2.35;
 const POINTS_UNIT_U = 1.1;
-/** A standings box's title, "Amateur" — a judge's name is 1.15. */
-const DIVISION_TITLE_U = 1.4;
 /** One dot of a leader and the space after it; a leader is never narrower. */
 const LEADER_DOT_U = 0.6;
 
@@ -628,7 +692,14 @@ type SplitTurn = {
   block: Block | null;
   /** Null for a division that has earned no points yet, or no division. */
   pane: DivisionPane | null;
+  /** False for the classes the office left out of high point (migration 167),
+   *  which take their turns together at the end beside a notice saying so. */
+  counts: boolean;
 };
+
+/** The group the classes left out of high point go in — never a division's
+ *  key, which is a division name made lower case. */
+const NOT_COUNTED = '\u0000not-counted';
 
 /** The split board's rotation, a division at a time. Divisions come in the
  *  show's own order — the order the standings arrive in — then any division
@@ -639,7 +710,12 @@ type SplitTurn = {
  *  A division with standings and no class posted today still gets one turn,
  *  its table beside a notice: the points are the whole show's and the classes
  *  only the day's, and leaving it out would take its standings off the board
- *  for the rest of the show. */
+ *  for the rest of the show.
+ *
+ *  A class the office left out of high point is not set beside its division's
+ *  standings, which it adds nothing to — a room would read its winner as
+ *  having earned the points in the table. Those classes come last of all,
+ *  beside a notice saying they do not count. */
 function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
   type Group = { key: string; name: string | null; pane: DivisionPane | null; blocks: Block[] };
   const groups: Group[] = [];
@@ -651,19 +727,23 @@ function buildSplitTurns(blocks: Block[], panes: DivisionPane[]): SplitTurn[] {
   };
   for (const pane of panes) add({ key: divisionKey(pane.name), name: pane.name, pane, blocks: [] });
   for (const block of blocks) {
-    const key = divisionKey(block.cls.division_name);
-    const group =
-      byKey.get(key) ?? add({ key, name: block.cls.division_name?.trim() || null, pane: null, blocks: [] });
+    const counts = block.cls.high_point_eligible !== false;
+    const key = counts ? divisionKey(block.cls.division_name) : NOT_COUNTED;
+    const name = counts ? block.cls.division_name?.trim() || null : null;
+    const group = byKey.get(key) ?? add({ key, name, pane: null, blocks: [] });
     group.blocks.push(block);
   }
-  // Classes in no division after every division (a stable sort keeps the rest).
-  groups.sort((a, b) => Number(a.key === '') - Number(b.key === ''));
+  // Every division, then classes in no division, then the classes that do not
+  // count (a stable sort keeps the rest in order).
+  const last = (key: string) => (key === NOT_COUNTED ? 2 : key === '' ? 1 : 0);
+  groups.sort((a, b) => last(a.key) - last(b.key));
   return groups.flatMap((group, division) =>
     (group.blocks.length ? group.blocks : [null]).map((block) => ({
       division,
       divisionName: group.name,
       block,
       pane: group.pane,
+      counts: group.key !== NOT_COUNTED,
     })),
   );
 }
@@ -804,22 +884,15 @@ function StandingRow({ line, compact }: { line: StandingLine; compact: boolean }
   );
 }
 
-/** One division's standings, shaped like a judge's card beside it: "Amateur"
- *  where the judge's name goes, and the rows at the same height. */
+/** One division's standings, shaped like a judge's card beside it, the rows at
+ *  the same height. The division is named in the header over it ("High Point",
+ *  then "Amateur"), the way the class beside it is named under "Class
+ *  Results" — so the box carries no title of its own. Its rows sit in the
+ *  middle of the box, as a card's do, and JUDGE_HEAD_U that `scaleFor` still
+ *  counts for it is slack, never overflow. */
 function DivisionBox({ pane, compact }: { pane: DivisionPane; compact: boolean }) {
   return (
     <div className="flex flex-col min-h-0 min-w-0 overflow-hidden" style={PANE_STYLE}>
-      {/* Larger than a judge's name and centred in the box: it is the title of
-          the table under it, where a judge's name is a label on a card. Still
-          one line inside JUDGE_HEAD_U, which the fit arithmetic counts. The
-          ellipsis is on the inner span — on the flex box itself it would
-          never show, the text being an anonymous flex item. */}
-      <div
-        className="font-semibold flex-none flex items-center justify-center min-w-0"
-        style={{ fontSize: u(DIVISION_TITLE_U), height: u(JUDGE_HEAD_U), color: 'var(--accent-light)' }}
-      >
-        <span className="truncate min-w-0">{pane.name}</span>
-      </div>
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col" style={{ justifyContent: 'safe center' }}>
         <ul className="min-w-0">
           {pane.lines.map((line, i) => (
@@ -831,30 +904,6 @@ function DivisionBox({ pane, compact }: { pane: DivisionPane; compact: boolean }
   );
 }
 
-/** The high point half's header, the same pinned height as a class's so the
- *  boxes under both start on one line, and centred over its half as the
- *  class's is over the other. "High Point" and the badge alone: the points
- *  system and the posted-class count over it only restated the heading. */
-function HighPointHeader() {
-  return (
-    <header
-      className="flex-none min-w-0 flex flex-col justify-center items-center text-center"
-      style={{
-        height: c(CLASS_HEAD_UC),
-        marginBottom: c(CLASS_HEAD_GAP_UC),
-        paddingInline: u(0.3),
-      }}
-    >
-      <div className="flex items-center justify-center min-w-0 max-w-full" style={{ gap: c(0.8) }}>
-        <h2 className="font-bold truncate min-w-0" style={{ fontSize: c(1.5), lineHeight: 1.05, color: 'var(--on-slate)' }}>
-          High Point
-        </h2>
-        <TopBadge />
-      </div>
-    </header>
-  );
-}
-
 /** The right half: the division's standings table, or why there is none —
  *  said without the header, so it sits level with "Waiting on results" beside
  *  it. */
@@ -862,6 +911,7 @@ function HighPointBlock({
   leaderboard,
   pane,
   divisionName,
+  counts = true,
   stageU,
   unitVh,
   scale,
@@ -871,6 +921,8 @@ function HighPointBlock({
   /** The division this screen is on, for saying why it has no table. Null for
    *  classes in no division; undefined when the board has nothing to turn. */
   divisionName?: string | null;
+  /** False beside the classes the office left out of high point. */
+  counts?: boolean;
   /** The half's width in the board's --u, which decides the compact row
    *  exactly as it does for the judges' cards beside it. */
   stageU: number;
@@ -880,9 +932,18 @@ function HighPointBlock({
   const compact = stageU > 0 && stageU / scale < COMPACT_CARD_U;
   return (
     <section className="w-full h-full flex flex-col min-h-0 min-w-0 animate-[board-fade-in_0.4s_ease-out]">
-      {pane && leaderboard?.point_system ? (
+      {!counts && leaderboard?.point_system ? (
+        <BoardNotice title="High Point">
+          {/* Said rather than left blank: a room reading a winner beside an
+              empty half would wonder where the points went. */}
+          This class does not count toward high point.
+        </BoardNotice>
+      ) : pane && leaderboard?.point_system ? (
         <>
-          <HighPointHeader />
+          {/* The same two lines as the class across from it: what this half
+              is, and which division — the split board's two headers are one
+              component (`SplitHeader`) so they cannot drift apart. */}
+          <SplitHeader heading="High Point" name={pane.name} />
           <div
             className="flex-1 min-h-0 grid"
             style={{ '--u': `${(unitVh * scale).toFixed(3)}vh` } as React.CSSProperties}
@@ -965,6 +1026,7 @@ function SplitStage({
           leaderboard={leaderboard}
           pane={turn?.pane ?? null}
           divisionName={turn ? turn.divisionName : undefined}
+          counts={turn?.counts ?? true}
           stageU={halfU}
           unitVh={unitVh}
           scale={scale}
@@ -1423,14 +1485,17 @@ export default function LiveBoard({
   // couple of pixels are held back so rounding never slices the last row.
   const scaleFor = useMemo(() => {
     if (!uPx || !gridBox.h) return () => 1;
-    const available = gridBox.h - (CLASS_HEAD_UC + CLASS_HEAD_GAP_UC) * ucPx - 2;
+    // The split board's headers carry a second line, the class or division
+    // under its heading, and are pinned taller (SPLIT_HEAD_UC).
+    const headUc = split ? SPLIT_HEAD_UC : CLASS_HEAD_UC;
+    const available = gridBox.h - (headUc + CLASS_HEAD_GAP_UC) * ucPx - 2;
     return (judges: number, rows: number) => {
       const g = screenGrid(judges);
       const box = PANE_PAD_U + (judges > 1 ? JUDGE_HEAD_U : 0) + Math.max(rows, 1) * ROW_U;
       const needU = box * g.rows + GRID_GAP_U * (g.rows - 1);
       return Math.min(1, available / (needU * uPx));
     };
-  }, [uPx, ucPx, gridBox.h]);
+  }, [uPx, ucPx, gridBox.h, split]);
 
   const slides = useMemo(() => {
     const blocks = buildBlocks(postedToday, groups);

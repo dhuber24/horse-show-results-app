@@ -773,6 +773,9 @@ class ClassUpdate(BaseModel):
     # Entered by placing rather than by signing up (migration 129). Derived
     # from the class name at creation; this is how it is corrected.
     entered_by_qualification: Optional[bool] = None
+    # Free to enter (migration 166). Setting it holds `entry_fee_cents` at 0;
+    # pricing a free class is refused until it is unset.
+    is_free: Optional[bool] = None
     # Which pattern, in the judge’s words (migration 120). The file exhibitors
     # read ahead is assigned through `show_pattern_classes` (migration 146).
     pattern_notes: Optional[str] = Field(default=None, max_length=2000)
@@ -896,6 +899,11 @@ class ClassOut(BaseModel):
     # Entered by placing in a qualifying class rather than by signing up
     # (migration 129). The exhibitor picker drops these; the desk keeps them.
     entered_by_qualification: bool = False
+    # Free to enter (migration 166): no fee, and no per-class, per-horse,
+    # office or club charge counts it. See `billing.is_free_class`.
+    is_free: bool = False
+    # Whether its placings earn high-point points (migration 167).
+    high_point_eligible: bool = True
     gate_status: str = "pending"
     results_published_at: Optional[datetime] = None
     pattern_posted_at: Optional[datetime] = None
@@ -4126,6 +4134,9 @@ class BillClassLineOut(BaseModel):
     #: a class that costs $5. See `billing.build_bill`.
     charge_cents: int = 0
     charges: list[BillClassChargeOut] = Field(default_factory=list)
+    #: The office made this class free (migration 166): nothing on this line
+    #: is owed, and the bill says "Free" rather than a blank.
+    is_free: bool = False
 
 
 class BillReservationLineOut(BaseModel):
@@ -4477,6 +4488,8 @@ class ShowDeskClassOut(BaseModel):
     status: str
     score_type: str
     entry_fee_cents: int = 0
+    # The office made it free (migration 166); the picker says so.
+    is_free: bool = False
     # Riding style and age/skill bracket — the two axes the picker groups by.
     discipline_name: Optional[str] = None
     division_name: Optional[str] = None

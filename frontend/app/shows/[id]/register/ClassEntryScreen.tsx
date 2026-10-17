@@ -90,8 +90,9 @@ function EnteredRow({
         {/* Everything charged on this class — its entry fee, a club's per-class
             fee, and the show's per-class fees the bill counted on it — the same
             figure the desk prints, so a $0 class carrying a $5 per-class fee
-            reads $5.00 here rather than $0.00. */}
-        {formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}
+            reads $5.00 here rather than $0.00. A class the office made free
+            says so. */}
+        {line.is_free ? 'Free' : formatMoney(line.fee_cents + line.sanction_cents + (line.charge_cents ?? 0))}
       </td>
       <td className="py-1.5 text-right whitespace-nowrap">
         {lockedReason ? (

@@ -58,11 +58,41 @@ export type DivisionStandings = {
 
 export type CircuitSummary = { id: string; name: string; season: string | null };
 
+/**
+ * One class and what it puts up for grabs (migration 167), read off the same
+ * chart the standings are added up on — `summarize_class` in
+ * `backend/high_point.py`. The points are null where the show has no chart.
+ */
+export type HighPointClass = {
+  class_id: string;
+  class_number: string;
+  class_name: string;
+  class_date: string;
+  division_name: string | null;
+  posted: boolean;
+  /** Whether its placings earn high-point points; the office may leave a class out. */
+  eligible: boolean;
+  /** The horses shown: scratches and no-shows at the gate left out. */
+  entries: number;
+  /** Judges' cards — each earns its own points. */
+  cards: number;
+  /** One card's points by place, first place first. */
+  points_by_place: number[] | null;
+  first_place_points: number | null;
+  places_paid: number | null;
+  points_per_card: number | null;
+  /** Every card together; 0 for a class left out of high point. */
+  points_available: number | null;
+};
+
 export type ShowLeaderboard = {
   show_id: string;
   point_system: PointSystem | null;
   posted_class_count: number;
   divisions: DivisionStandings[];
+  /** Every posted class with its entries and points. Optional for a frontend
+   *  deployed ahead of the backend that sends it. */
+  classes?: HighPointClass[];
   circuits: CircuitSummary[];
 };
 

@@ -16,7 +16,7 @@ import {
   potsForClass,
   unmetPotsForClass,
 } from './types';
-import type { Desk, DeskClass, DeskExhibitor, ProfileHorse } from './types';
+import type { Desk, DeskClass, DeskExhibitor, DeskFuturity, DeskSidePot, ProfileHorse } from './types';
 import { formatMoney } from '@/lib/financials';
 import {
   ATTESTATION_REQUIRED_DIVISIONS,
@@ -25,37 +25,45 @@ import {
 } from '@/lib/apha';
 
 /**
- * Adding one class entry, from either end.
+ * Adding class entries, from either end.
  *
- * The desk asks this question two ways — "what else is this person riding?" on
- * their panel, and "who else is in this class?" from the by-class view — and
- * they are the same form with one side pinned. Writing it twice would have
- * meant two copies of the Novice declaration and the horse lookup, which is
- * exactly the kind of pair that drifts.
+ * The desk asks this question two ways — "what is this horse showing in?" on an
+ * exhibitor's panel, and "who else is in this class?" from the by-class view —
+ * and they are the same form with one side pinned. Writing it twice would have
+ * meant two copies of the Novice declaration, the side pot buy-in and the
+ * futurity enrollment, which is exactly the kind of pair that drifts.
  *
- * Pin the exhibitor by passing `exhibitor`, or the class by passing `cls`. The
- * other side gets a picker.
+ * Pin the exhibitor by passing `exhibitor`: pick the horse, then tick its
+ * classes — **several in one press**, the way an entry blank is filled in. It
+ * was one class per press, which made the desk pick the same horse for every
+ * class of a six-class entry. Pin the class by passing `cls`: pick the exhibitor
+ * and the horse, one entry.
  *
  * **No division picker and no relationship picker**, the same as the
  * exhibitor's own form. The division was chosen when the class was built — its
  * bracket says Amateur or Youth 14-18 — so the class is the answer and the
  * screen states it. How the exhibitor is related to the horse's owner is
- * derived from ownership or read off their horse link, which is where the
- * profile keeps it. `POST .../entries` fills both from those same sources, so
- * sending nothing here stores exactly what a picker with one right answer
- * would have.
+ * derived from ownership or read off their horse link. `POST .../entries` fills
+ * both from those same sources.
  *
- * **A futurity class asks for the futurity enrollment in the same press.** The
- * class carries no fee of its own — the enrollment's category is its price — so
- * entering the class without enrolling the horse billed nothing and left the
- * desk's total short with nothing on screen to say why.
+ * **A futurity class asks for the futurity enrollment in the same press**, once
+ * per futurity however many of its classes are ticked. The class carries no fee
+ * of its own — the enrollment's category is its price — so entering the class
+ * without enrolling the horse billed nothing and left the desk's total short.
  *
  * **A class in a side pot asks for the buy-in the same way, and this one is
  * required.** The pot bundles the class, so entering it is buying in — the
- * endpoint refuses the entry otherwise (`SIDE_POT_REQUIRED`) and sends the
+ * endpoint refuses the entry otherwise (`SIDE_POT_REQUIRED`) and takes the
  * buy-in in the same request so the two land together. One covering pot is
- * ticked for you, since there is nothing to decide; several are a choice, and
- * the exhibitor picks which they are in.
+ * ticked for you; several are a choice.
+ *
+ * **Several classes go in one request each, in order, and stop at the first
+ * refusal.** The desk's endpoint takes one class, and a refused class is
+ * reported by name with the classes before it entered and the rest still
+ * ticked — the same "the entry stands whatever happens next" rule the futurity
+ * enrollment has always followed here. The exhibitor's own form commits a batch
+ * all or nothing, because there nobody is standing at the counter to sort out
+ * half of one.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -67,6 +75,25 @@ function backendMessage(detail: unknown, fallback: string): string {
   return d?.message ?? fallback;
 }
 
+function plural(n: number, one: string, many = `${one}es`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function formatDay(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function unique<T extends { id: string }>(items: (T | undefined)[]): T[] {
+  const byId = new Map<string, T>();
+  for (const item of items) if (item) byId.set(item.id, item);
+  return Array.from(byId.values());
+}
+
 export default function AddEntryForm({
   showId,
   desk,
@@ -76,104 +103,39 @@ export default function AddEntryForm({
 }: {
   showId: string;
   desk: Desk;
-  /** Pin the exhibitor and pick the class. */
+  /** Pin the exhibitor: pick a horse and tick its classes. */
   exhibitor?: DeskExhibitor;
   /** Pin the class and pick the exhibitor. */
   cls?: DeskClass;
   onAdded: () => Promise<void>;
 }) {
-  const [pickedClassId, setPickedClassId] = useState('');
   const [pickedExhibitorId, setPickedExhibitorId] = useState('');
   const [horseId, setHorseId] = useState('');
+  const [ticked, setTicked] = useState<string[]>([]);
+  const [filter, setFilter] = useState('');
   const [noviceDeclared, setNoviceDeclared] = useState(false);
   const [horses, setHorses] = useState<ProfileHorse[]>([]);
   const [horsesLoading, setHorsesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enroll, setEnroll] = useState(true);
-  const [enrollment, setEnrollment] = useState<EnrollmentChoice>(EMPTY_CHOICE);
-  // Which of the class's side pots this entry is buying into. Only ever the
-  // pots that cover the class being entered — the desk panel's own Side pots
-  // section is where somebody joins a pot for its own sake.
+  const [notice, setNotice] = useState<string | null>(null);
+  // Futurities the desk chose not to enroll the horse in, and the category
+  // picked for each one it will.
+  const [enrollOff, setEnrollOff] = useState<string[]>([]);
+  const [enrollments, setEnrollments] = useState<Record<string, EnrollmentChoice>>({});
+  // Which side pots these entries are buying into. Only ever pots that cover a
+  // class being entered — the desk panel's own Side pots section is where
+  // somebody joins a pot for its own sake.
   const [potIds, setPotIds] = useState<string[]>([]);
 
   const isApha = desk.show_type_code === 'APHA';
   const exhibitorId = exhibitor?.exhibitor_id ?? pickedExhibitorId;
-  const classId = cls?.id ?? pickedClassId;
-  const activeClass = cls ?? desk.classes.find((c) => c.id === pickedClassId);
   const person = exhibitor ?? desk.exhibitors.find((e) => e.exhibitor_id === pickedExhibitorId);
-
-  // The futurity that prices this class, when the horse is not in it yet.
-  const futurity = classId ? futurityForClass(desk, classId) : undefined;
-  const existingEnrollment = futurity ? futurityEnrollment(person, futurity.id, horseId) : undefined;
-  const offerEnrollment = Boolean(futurity && horseId && !existingEnrollment);
-  const enrolling = offerEnrollment && enroll;
-  const enrollmentIncomplete = enrolling && futurity !== undefined && !choiceIsComplete(futurity, enrollment);
-
-  // The side pots this class is bundled into, and the ones this exhibitor has
-  // to be in before the entry will be taken. `covering` is what the form lists
-  // (including a pot they are already in, so the row explains why nothing is
-  // being asked for); `unmetPots` is what makes the buy-in required.
-  const coveringPots = classId ? potsForClass(desk, classId) : [];
-  const unmetPots = classId ? unmetPotsForClass(desk, person, classId) : [];
-  const potRequired = unmetPots.length > 0;
-  const missingPotChoice = potRequired && !unmetPots.some((pot) => potIds.includes(pot.id));
-
-  // One pot to choose from is not a choice — tick it. Several is, and picking
-  // for somebody would be picking which buy-in they pay. Re-runs when the class
-  // changes, which is what clears a pot chosen for the previous one.
-  useEffect(() => {
-    setPotIds(unmetPots.length === 1 ? [unmetPots[0].id] : []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classId, unmetPots.length, unmetPots[0]?.id]);
-
-  // Who and what is already in the class being filled — a horse can only be in
-  // a class once (`entries_class_horse_uniq`), and only pattern classes let one
-  // exhibitor ride several. Filtering here is the friendly half of rules the
-  // backend enforces anyway.
-  const takenInClass = useMemo(() => {
-    const exhibitors = new Set<string>();
-    const horseIds = new Set<string>();
-    if (!classId) return { exhibitors, horseIds };
-    for (const person of desk.exhibitors) {
-      for (const entry of person.entries) {
-        if (entry.class_id !== classId) continue;
-        exhibitors.add(person.exhibitor_id);
-        if (entry.horse_id) horseIds.add(entry.horse_id);
-      }
-    }
-    return { exhibitors, horseIds };
-  }, [desk.exhibitors, classId]);
-
-  // What is still worth offering this exhibitor. Being entered finishes a
-  // class for them — except a pattern class, the one kind they may ride twice
-  // on different horses, and even that only holds while they still have a
-  // horse that is not already in it. Offering a class whose horse picker will
-  // then read "All their horses are already in" is the full list wearing a
-  // filter. An unloaded horse list means offer it: hiding a class the desk
-  // could legitimately enter is the worse failure of the two.
-  const selectableClasses = useMemo(() => {
-    if (cls) return [];
-    const entries = exhibitor?.entries ?? [];
-    return desk.classes.filter((c) => {
-      if (c.status === 'CLOSED') return false;
-      const entered = entries.filter((e) => e.class_id === c.id);
-      if (entered.length === 0) return true;
-      if (c.score_type !== 'pattern') return false;
-      if (horses.length === 0) return true;
-      const takenHorseIds = new Set(entered.map((e) => e.horse_id));
-      return horses.some((h) => !takenHorseIds.has(h.id));
-    });
-  }, [cls, desk.classes, exhibitor, horses]);
-
-  const selectableExhibitors = useMemo(() => {
-    if (exhibitor) return [];
-    const allowRepeat = activeClass?.score_type === 'pattern';
-    return desk.exhibitors.filter((e) => allowRepeat || !takenInClass.exhibitors.has(e.exhibitor_id));
-  }, [exhibitor, desk.exhibitors, activeClass, takenInClass]);
+  const selectedHorse = horses.find((h) => h.id === horseId);
 
   useEffect(() => {
     setHorseId('');
+    setTicked([]);
     if (!exhibitorId) {
       setHorses([]);
       return;
@@ -183,7 +145,12 @@ export default function AddEntryForm({
     fetch(`/api/exhibitors/${exhibitorId}/my-horses`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => {
-        if (!cancelled) setHorses(Array.isArray(data) ? data : []);
+        if (cancelled) return;
+        const list: ProfileHorse[] = Array.isArray(data) ? data : [];
+        setHorses(list);
+        // One horse is not a choice — on the exhibitor's panel, where the
+        // horse comes first.
+        if (exhibitor && list.length === 1) setHorseId(list[0].id);
       })
       .catch(() => {
         if (!cancelled) setHorses([]);
@@ -194,91 +161,236 @@ export default function AddEntryForm({
     return () => {
       cancelled = true;
     };
+    // `exhibitor` is read only to know which side is pinned, which never
+    // changes for one mounted form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exhibitorId]);
 
+  // ── The pinned class: who may still go in it ──────────────────────────────
+
+  // Who and what is already in the pinned class — a horse can only be in a
+  // class once (`entries_class_horse_uniq`), and only pattern classes let one
+  // exhibitor ride several. Filtering here is the friendly half of rules the
+  // backend enforces anyway.
+  const takenInClass = useMemo(() => {
+    const exhibitors = new Set<string>();
+    const horseIds = new Set<string>();
+    if (!cls) return { exhibitors, horseIds };
+    for (const p of desk.exhibitors) {
+      for (const entry of p.entries) {
+        if (entry.class_id !== cls.id) continue;
+        exhibitors.add(p.exhibitor_id);
+        if (entry.horse_id) horseIds.add(entry.horse_id);
+      }
+    }
+    return { exhibitors, horseIds };
+  }, [desk.exhibitors, cls]);
+
+  const selectableExhibitors = useMemo(() => {
+    if (exhibitor) return [];
+    const allowRepeat = cls?.score_type === 'pattern';
+    return desk.exhibitors.filter((e) => allowRepeat || !takenInClass.exhibitors.has(e.exhibitor_id));
+  }, [exhibitor, desk.exhibitors, cls, takenInClass]);
+
   const selectableHorses = useMemo(
-    () => horses.filter((h) => !takenInClass.horseIds.has(h.id)),
-    [horses, takenInClass],
+    () => (cls ? horses.filter((h) => !takenInClass.horseIds.has(h.id)) : horses),
+    [cls, horses, takenInClass],
   );
 
+  // ── The pinned exhibitor: what this horse may still enter ─────────────────
+
+  // Every class this horse is in, whoever is riding it: one horse cannot run
+  // the same class twice.
+  const horseClassIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!horseId) return ids;
+    for (const p of desk.exhibitors) for (const e of p.entries) if (e.horse_id === horseId) ids.add(e.class_id);
+    return ids;
+  }, [desk.exhibitors, horseId]);
+
+  // What is still worth offering. Being entered finishes a class for this
+  // exhibitor — except a pattern class, the one kind they may ride twice on
+  // different horses — and the horse's own entry finishes it outright.
+  const offeredClasses = useMemo(() => {
+    if (cls || !selectedHorse) return [];
+    const entries = exhibitor?.entries ?? [];
+    return desk.classes.filter((c) => {
+      if (c.status === 'CLOSED' || horseClassIds.has(c.id)) return false;
+      return c.score_type === 'pattern' || !entries.some((e) => e.class_id === c.id);
+    });
+  }, [cls, selectedHorse, exhibitor, desk.classes, horseClassIds]);
+
+  const needle = filter.trim().toLowerCase();
+  const shownByDay = useMemo(() => {
+    const shown = needle
+      ? offeredClasses.filter(
+          (c) =>
+            c.class_number.toLowerCase().startsWith(needle) ||
+            c.class_name.toLowerCase().includes(needle) ||
+            ticked.includes(c.id),
+        )
+      : offeredClasses;
+    const grouped = new Map<string, DeskClass[]>();
+    for (const c of shown) grouped.set(c.class_date, [...(grouped.get(c.class_date) ?? []), c]);
+    return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [offeredClasses, needle, ticked]);
+
+  // ── What is being entered, from either end ────────────────────────────────
+
+  const targetClasses: DeskClass[] = useMemo(
+    () => (cls ? [cls] : offeredClasses.filter((c) => ticked.includes(c.id))),
+    [cls, offeredClasses, ticked],
+  );
+
+  // The side pots these classes are bundled into, and whether each class's
+  // buy-in is chosen. `coveringPots` is what the form lists (including a pot
+  // they are already in, so the row explains why nothing is being asked for).
+  const coveringPots: DeskSidePot[] = unique(targetClasses.flatMap((c) => potsForClass(desk, c.id)));
+  const unmetByClass = targetClasses.map((c) => unmetPotsForClass(desk, person, c.id));
+  const potRequired = unmetByClass.some((unmet) => unmet.length > 0);
+  const missingPotChoice = unmetByClass.some(
+    (unmet) => unmet.length > 0 && !unmet.some((pot) => potIds.includes(pot.id)),
+  );
+
+  // One pot to choose from is not a choice — tick it. Several is, and picking
+  // for somebody would be picking which buy-in they pay. Choices already made
+  // stay while a class being entered still needs the pot.
+  const targetKey = `${targetClasses.map((c) => c.id).join(',')}|${person?.exhibitor_id ?? ''}`;
+  useEffect(() => {
+    setPotIds((prev) => {
+      const needed = new Set(unmetByClass.flatMap((unmet) => unmet.map((pot) => pot.id)));
+      const next = prev.filter((id) => needed.has(id));
+      for (const unmet of unmetByClass) {
+        if (unmet.length === 1 && !next.includes(unmet[0].id)) next.push(unmet[0].id);
+      }
+      return next;
+    });
+    // Keyed on what is being entered, by whom: `unmetByClass` is rebuilt on
+    // every render and would re-run this forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetKey]);
+
+  // The futurities that price these classes. One enrollment per futurity covers
+  // every class in it, so a futurity is asked about once.
+  const futurities: DeskFuturity[] = unique(targetClasses.map((c) => futurityForClass(desk, c.id)));
+  const toEnroll = horseId ? futurities.filter((f) => !futurityEnrollment(person, f.id, horseId)) : [];
+  const enrolledIn = horseId ? futurities.filter((f) => futurityEnrollment(person, f.id, horseId)) : [];
+  const enrolling = toEnroll.filter((f) => !enrollOff.includes(f.id));
+  const enrollmentIncomplete = enrolling.some((f) => !choiceIsComplete(f, enrollments[f.id] ?? EMPTY_CHOICE));
+
   // Off the class, never off a picker — the same `division_for_class` answer
-  // the entry endpoint files. Empty means the class does not say, and the entry
-  // goes in with no division.
-  const aphaDivision = (isApha && activeClass?.apha_division) || '';
+  // the entry endpoint files. Empty means the class does not say.
+  const divisionOf = (c: DeskClass) => (isApha && c.apha_division) || '';
 
   // The Novice divisions turn on points and earnings the app does not hold, so
   // the entry carries a declaration instead of a check. The backend enforces it;
   // blocking here keeps the desk from posting an entry it knows will 422.
-  const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
+  const needsNoviceDeclaration = targetClasses.some((c) => ATTESTATION_REQUIRED_DIVISIONS.has(divisionOf(c)));
   const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
 
   const submit = async () => {
-    if (!classId || !exhibitorId || !horseId) {
-      setError('Pick a class, an exhibitor, and a horse.');
+    if (targetClasses.length === 0 || !exhibitorId || !horseId) {
+      setError(cls ? 'Pick an exhibitor and a horse.' : 'Pick a horse and tick at least one class.');
       return;
     }
     setSaving(true);
     setError(null);
+    setNotice(null);
 
-    const body: Record<string, unknown> = {
-      showId,
-      classId,
-      exhibitor_id: exhibitorId,
-      horse_id: horseId,
-      is_disqualified: false,
-    };
-    // Neither the division nor the relationship to the owner is sent: the
-    // endpoint fills both from the class and the horse link.
-    if (needsNoviceDeclaration && noviceDeclared) body.attestations = ['novice_eligibility'];
-    // The buy-in rides on the entry so the two commit together: a pot joined by
-    // a separate call before a rejected entry would be money owed for a class
-    // nobody is in.
-    if (potIds.length > 0) body.side_pot_ids = potIds;
+    const entered: DeskClass[] = [];
+    let refusal: { cls: DeskClass; message: string } | null = null;
+    for (const c of targetClasses) {
+      const body: Record<string, unknown> = {
+        showId,
+        classId: c.id,
+        exhibitor_id: exhibitorId,
+        horse_id: horseId,
+        is_disqualified: false,
+      };
+      // Neither the division nor the relationship to the owner is sent: the
+      // endpoint fills both from the class and the horse link.
+      if (noviceDeclared && ATTESTATION_REQUIRED_DIVISIONS.has(divisionOf(c))) {
+        body.attestations = ['novice_eligibility'];
+      }
+      // The buy-in rides on each entry it covers, so the two commit together:
+      // a pot joined by a separate call before a refused entry would be money
+      // owed for a class nobody is in. Joining twice is joining once.
+      const pots = potIds.filter((id) => potsForClass(desk, c.id).some((pot) => pot.id === id));
+      if (pots.length > 0) body.side_pot_ids = pots;
 
-    const res = await fetch('/api/entries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      setSaving(false);
-      const payload = await res.json().catch(() => ({}));
-      setError(backendMessage(payload?.detail ?? payload?.error, 'Could not add that entry.'));
-      return;
+      try {
+        const res = await fetch('/api/entries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          refusal = { cls: c, message: backendMessage(payload?.detail ?? payload?.error, 'Could not add that entry.') };
+          break;
+        }
+        entered.push(c);
+      } catch {
+        refusal = { cls: c, message: 'Network error — please try again.' };
+        break;
+      }
     }
 
-    // The class entry stands whatever happens next. A failed enrollment is
-    // reported against it rather than rolled back, and the panel goes on
-    // offering the enrollment until it is made.
-    let enrollmentProblem: string | null = null;
-    if (enrolling && futurity && person) {
-      enrollmentProblem = await enrollHorse({
-        showId,
-        futurity,
-        exhibitor: person,
-        horseId,
-        choice: enrollment,
-      });
+    // The class entries stand whatever happens next. A failed enrollment is
+    // reported against them rather than rolled back, and the panel goes on
+    // offering the enrollment until it is made. Only a futurity one of the
+    // entered classes belongs to: enrolling for a class that was refused would
+    // be a charge for nothing entered.
+    const enrollmentProblems: string[] = [];
+    if (person) {
+      for (const futurity of enrolling) {
+        if (!entered.some((c) => futurityForClass(desk, c.id)?.id === futurity.id)) continue;
+        const problem = await enrollHorse({
+          showId,
+          futurity,
+          exhibitor: person,
+          horseId,
+          choice: enrollments[futurity.id] ?? EMPTY_CHOICE,
+        });
+        if (problem) enrollmentProblems.push(`${futurity.name}: ${problem}`);
+      }
     }
     setSaving(false);
 
-    // Clear only the side that was being chosen; the pinned side is still the
-    // job in hand — six classes on one horse, or a queue of riders for class 14.
-    if (exhibitor) setPickedClassId('');
-    else {
-      setPickedExhibitorId('');
-      setHorseId('');
+    // Clear only what went in; the pinned side is still the job in hand — the
+    // rest of this horse's classes, or a queue of riders for class 14.
+    if (entered.length > 0) {
+      if (exhibitor) {
+        const done = new Set(entered.map((c) => c.id));
+        setTicked((prev) => prev.filter((id) => !done.has(id)));
+      } else {
+        setPickedExhibitorId('');
+        setHorseId('');
+      }
+      setEnrollments({});
+      setEnrollOff([]);
+      setNoviceDeclared(false);
     }
-    setEnrollment(EMPTY_CHOICE);
-    setEnroll(true);
-    // The reload brings the buy-in back as a pot they are in, so the next class
-    // in the same pot asks for nothing.
-    setPotIds([]);
-    if (enrollmentProblem) {
-      setError(`Entered in the class, but the futurity enrollment did not save: ${enrollmentProblem}`);
+
+    const horseName = selectedHorse?.name ?? 'The horse';
+    const messages: string[] = [];
+    if (refusal) {
+      const which = `Class ${refusal.cls.class_number} (${refusal.cls.class_name})`;
+      messages.push(
+        entered.length > 0
+          ? `Entered ${entered.length} of ${targetClasses.length}. ${which} was refused: ${refusal.message} The classes still ticked were not entered.`
+          : targetClasses.length > 1
+            ? `${which} was refused: ${refusal.message} Nothing was entered.`
+            : refusal.message,
+      );
     }
-    await onAdded();
+    if (enrollmentProblems.length > 0) {
+      messages.push(`Entered in the class, but the futurity enrollment did not save — ${enrollmentProblems.join('; ')}`);
+    }
+    setError(messages.length > 0 ? messages.join(' ') : null);
+    if (!refusal && entered.length > 1) setNotice(`${horseName} is entered in ${plural(entered.length, 'class')}.`);
+
+    if (entered.length > 0) await onAdded();
   };
 
   const horsePlaceholder = !exhibitorId
@@ -289,41 +401,72 @@ export default function AddEntryForm({
         ? 'No horses on file'
         : selectableHorses.length === 0
           ? 'All their horses are already in'
-          : 'On which horse…';
+          : exhibitor
+            ? 'Enter classes on which horse…'
+            : 'On which horse…';
+
+  const horsePicker = (
+    <select
+      value={horseId}
+      onChange={(e) => {
+        setHorseId(e.target.value);
+        setTicked([]);
+        setError(null);
+        setNotice(null);
+      }}
+      disabled={!exhibitorId || horsesLoading || selectableHorses.length === 0}
+      aria-label="Horse"
+      title={
+        !exhibitorId
+          ? 'Pick an exhibitor first'
+          : !horsesLoading && horses.length === 0
+            ? 'This exhibitor has no horses on file — add one from their desk panel'
+            : horsesLoading
+              ? 'Loading horses…'
+              : undefined
+      }
+      className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm disabled:opacity-50"
+      style={{ borderColor: COLORS.border }}
+    >
+      <option value="">{horsePlaceholder}</option>
+      {selectableHorses.map((h) => (
+        <option key={h.id} value={h.id}>
+          {h.name}
+        </option>
+      ))}
+    </select>
+  );
+
+  const blocked = !exhibitorId || !horseId
+    ? cls
+      ? 'Pick an exhibitor and a horse first'
+      : 'Pick a horse first'
+    : targetClasses.length === 0
+      ? 'Tick the classes to enter'
+      : missingNoviceDeclaration
+        ? 'Novice entries need the eligibility declaration ticked'
+        : missingPotChoice
+          ? 'A class is in a side pot — tick the pot they are buying into'
+          : enrollmentIncomplete
+            ? 'Pick the futurity category, or untick the enrollment'
+            : null;
+
+  const count = targetClasses.length;
+  const extra = enrolling.length > 0 ? ' & enroll' : potIds.length > 0 ? ' & buy in' : '';
+  const buttonLabel = saving
+    ? 'Adding…'
+    : cls || count === 1
+      ? `Enter class${extra}`
+      : count === 0
+        ? 'Enter classes'
+        : `Enter ${plural(count, 'class')}${extra}`;
 
   return (
     <div className="rounded border p-3 space-y-2" style={{ borderColor: COLORS.borderSoft, backgroundColor: 'var(--surface)' }}>
-      <div className="flex flex-wrap gap-2">
-        {exhibitor ? (
-          <select
-            value={pickedClassId}
-            onChange={(e) => setPickedClassId(e.target.value)}
-            aria-label="Class"
-            className="flex-1 min-w-[220px] border rounded px-3 py-2 text-sm"
-            style={{ borderColor: COLORS.border }}
-          >
-            <option value="">
-              {selectableClasses.length === 0 ? 'No classes left to enter' : 'Add a class…'}
-            </option>
-            {selectableClasses.map((c) => {
-              // The only rows left that they are already in are pattern
-              // classes with a horse to spare. Say so, or the entry reads as
-              // the filter having missed one.
-              const ridingAlready = (exhibitor?.entries ?? []).some((e) => e.class_id === c.id);
-              return (
-                <option key={c.id} value={c.id}>
-                  {c.class_number} — {c.class_name}
-                  {futurityForClass(desk, c.id)
-                    ? ' (priced by the futurity)'
-                    : c.entry_fee_cents > 0
-                      ? ` (${formatMoney(c.entry_fee_cents)})`
-                      : ''}
-                  {ridingAlready ? ' · another horse' : ''}
-                </option>
-              );
-            })}
-          </select>
-        ) : (
+      {exhibitor ? (
+        <div className="flex flex-wrap gap-2">{horsePicker}</div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
           <select
             value={pickedExhibitorId}
             onChange={(e) => setPickedExhibitorId(e.target.value)}
@@ -332,9 +475,7 @@ export default function AddEntryForm({
             style={{ borderColor: COLORS.border }}
           >
             <option value="">
-              {selectableExhibitors.length === 0
-                ? 'Everyone on the roster is already in'
-                : 'Add an exhibitor…'}
+              {selectableExhibitors.length === 0 ? 'Everyone on the roster is already in' : 'Add an exhibitor…'}
             </option>
             {selectableExhibitors.map((e) => (
               <option key={e.exhibitor_id} value={e.exhibitor_id}>
@@ -343,42 +484,105 @@ export default function AddEntryForm({
               </option>
             ))}
           </select>
-        )}
+          {horsePicker}
+        </div>
+      )}
 
-        <select
-          value={horseId}
-          onChange={(e) => setHorseId(e.target.value)}
-          disabled={!exhibitorId || horsesLoading || selectableHorses.length === 0}
-          aria-label="Horse"
-          title={
-            !exhibitorId
-              ? 'Pick an exhibitor first'
-              : !horsesLoading && horses.length === 0
-                ? 'This exhibitor has no horses on file — add one from their desk panel'
-                : undefined
-          }
-          className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm disabled:opacity-50"
-          style={{ borderColor: COLORS.border }}
-        >
-          <option value="">{horsePlaceholder}</option>
-          {selectableHorses.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* The pinned exhibitor's horse, and every class it can still enter. */}
+      {exhibitor && selectedHorse && (
+        offeredClasses.length === 0 ? (
+          <p className="text-sm" style={{ color: COLORS.muted }}>
+            {selectedHorse.name} is entered in every class still open to it.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {offeredClasses.length > 12 && (
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Find a class by number or name"
+                aria-label="Find a class"
+                className="w-full border rounded px-3 py-2 text-sm"
+                style={{ borderColor: COLORS.border }}
+              />
+            )}
+            {shownByDay.length === 0 && (
+              <p className="text-sm" style={{ color: COLORS.muted }}>No class matches &ldquo;{filter.trim()}&rdquo;.</p>
+            )}
+            <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+              {shownByDay.map(([day, dayClasses]) => (
+                <fieldset key={day} className="space-y-0.5">
+                  <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: COLORS.muted }}>
+                    {formatDay(day)}
+                  </legend>
+                  {dayClasses.map((c) => {
+                    const on = ticked.includes(c.id);
+                    // The only rows left that they are already in are pattern
+                    // classes with another horse. Say so, or the entry reads
+                    // as the filter having missed one.
+                    const ridingAlready = (exhibitor.entries ?? []).some((e) => e.class_id === c.id);
+                    const futurity = futurityForClass(desk, c.id);
+                    const division = on ? divisionOf(c) : '';
+                    const meta = [
+                      potsForClass(desk, c.id).length > 0 ? 'side pot' : null,
+                      ridingAlready ? 'another horse' : null,
+                      division ? `Division: ${divisionLabel(division)}` : null,
+                    ].filter(Boolean);
+                    const price = futurity
+                      ? 'priced by the futurity'
+                      : c.is_free
+                        ? 'Free'
+                        : c.entry_fee_cents > 0
+                          ? formatMoney(c.entry_fee_cents)
+                          : null;
+                    return (
+                      <label
+                        key={c.id}
+                        className="flex items-start gap-2 rounded px-2 py-1 text-sm cursor-pointer"
+                        style={{ backgroundColor: on ? 'var(--accent-bg)' : undefined }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => {
+                            setError(null);
+                            setNotice(null);
+                            setTicked((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)));
+                          }}
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                        />
+                        <span className="flex-1 min-w-0">
+                          <span style={{ color: COLORS.text }}>
+                            <span className="font-mono" style={{ color: COLORS.accent }}>{c.class_number}</span> {c.class_name}
+                          </span>
+                          {meta.length > 0 && (
+                            <span className="block text-xs" style={{ color: COLORS.muted }}>{meta.join(' · ')}</span>
+                          )}
+                        </span>
+                        {price && (
+                          <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-deep)' }}>{price}</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </fieldset>
+              ))}
+            </div>
+          </div>
+        )
+      )}
 
       {/* Stated, not asked: it goes on the entry and is reported to APHA, so
           the desk should see what is being filed — but it follows from the
           class, and a control with one correct answer is not a question. */}
-      {isApha && activeClass && aphaDivision && (
+      {cls && divisionOf(cls) && (
         <p
           className="text-xs"
           style={{ color: 'var(--text-deep)' }}
           title="Filed on the entry and reported to APHA. It follows from the class's bracket, set when the class was built."
         >
-          Division: <strong>{divisionLabel(aphaDivision)}</strong>
+          Division: <strong>{divisionLabel(divisionOf(cls))}</strong>
           <span style={{ color: COLORS.muted }}> — from the class.</span>
         </p>
       )}
@@ -395,10 +599,10 @@ export default function AddEntryForm({
         </label>
       )}
 
-      {/* The buy-in that comes with this class. Listed whether or not anything
-          is being asked for: a pot they are already in is the answer to "why
-          is this class not asking me for $50", and a pot that is settled is
-          not offered at all because nobody can be added to it. */}
+      {/* The buy-ins that come with these classes. Listed whether or not
+          anything is being asked for: a pot they are already in is the answer
+          to "why is this class not asking for $50", and a settled pot is not
+          offered at all because nobody can be added to it. */}
       {coveringPots.length > 0 && (
         <div
           className="rounded border p-2 space-y-1.5"
@@ -411,28 +615,20 @@ export default function AddEntryForm({
           <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
             {potRequired
               ? coveringPots.length === 1
-                ? 'This class is in a side pot — the buy-in comes with it'
-                : 'This class is in side pots — pick the one they are buying into'
-              : 'This class is in a side pot'}
+                ? `${count > 1 ? 'A class here is' : 'This class is'} in a side pot — the buy-in comes with it`
+                : 'These classes are in side pots — pick the ones they are buying into'
+              : `${count > 1 ? 'A class here is' : 'This class is'} in a side pot`}
           </p>
           {coveringPots.map((pot) => {
             const alreadyIn = (person?.side_pot_ids ?? []).includes(pot.id);
             return (
-              <label
-                key={pot.id}
-                className="flex items-start gap-2 text-xs"
-                style={{ color: 'var(--text-deep)' }}
-              >
+              <label key={pot.id} className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-deep)' }}>
                 <input
                   type="checkbox"
                   checked={alreadyIn || potIds.includes(pot.id)}
                   disabled={alreadyIn}
                   onChange={(e) =>
-                    setPotIds((prev) =>
-                      e.target.checked
-                        ? [...prev, pot.id]
-                        : prev.filter((id) => id !== pot.id),
-                    )
+                    setPotIds((prev) => (e.target.checked ? [...prev, pot.id] : prev.filter((id) => id !== pot.id)))
                   }
                   className="mt-0.5 h-4 w-4 shrink-0"
                 />
@@ -441,10 +637,7 @@ export default function AddEntryForm({
                   {alreadyIn ? (
                     <span style={{ color: COLORS.muted }}> · already in, nothing more to pay</span>
                   ) : (
-                    <span style={{ color: COLORS.muted }}>
-                      {' '}
-                      · one buy-in covers every class in the pot
-                    </span>
+                    <span style={{ color: COLORS.muted }}> · one buy-in covers every class in the pot</span>
                   )}
                 </span>
               </label>
@@ -453,81 +646,71 @@ export default function AddEntryForm({
         </div>
       )}
 
-      {futurity && horseId && existingEnrollment && (
-        <p className="text-xs" style={{ color: COLORS.muted }}>
-          Priced by {futurity.name}:{' '}
-          {existingEnrollment.fee_tier_name ?? 'enrolled'}
-          {existingEnrollment.tier_amount_cents > 0 &&
-            ` — ${formatMoney(existingEnrollment.tier_amount_cents)} per class`}
-          .
+      {enrolledIn.map((futurity) => {
+        const existing = futurityEnrollment(person, futurity.id, horseId);
+        return (
+          <p key={futurity.id} className="text-xs" style={{ color: COLORS.muted }}>
+            Priced by {futurity.name}: {existing?.fee_tier_name ?? 'enrolled'}
+            {existing && existing.tier_amount_cents > 0 && ` — ${formatMoney(existing.tier_amount_cents)} per class`}.
+          </p>
+        );
+      })}
+
+      {toEnroll.map((futurity) => {
+        const on = !enrollOff.includes(futurity.id);
+        return (
+          <div
+            key={futurity.id}
+            className="rounded border p-2 space-y-2"
+            style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
+          >
+            <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-deep)' }}>
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={(e) =>
+                  setEnrollOff((prev) =>
+                    e.target.checked ? prev.filter((id) => id !== futurity.id) : [...prev, futurity.id],
+                  )
+                }
+                className="mt-0.5 h-4 w-4 shrink-0"
+              />
+              <span>
+                Enroll this horse in <strong>{futurity.name}</strong> too. Its classes have no fee of their own —
+                the futurity category prices them, so without the enrollment nothing is billed for them.
+              </span>
+            </label>
+            {on && (
+              <EnrollmentFields
+                futurity={futurity}
+                value={enrollments[futurity.id] ?? EMPTY_CHOICE}
+                onChange={(choice) => setEnrollments((prev) => ({ ...prev, [futurity.id]: choice }))}
+                idPrefix={`add-entry-${futurity.id}`}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      {notice && !error && (
+        <p className="text-sm" role="status" style={{ color: 'var(--success-strong)' }}>
+          {notice}
         </p>
       )}
 
-      {offerEnrollment && futurity && (
-        <div
-          className="rounded border p-2 space-y-2"
-          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }}
+      {(cls || selectedHorse) && (
+        <button
+          type="button"
+          onClick={submit}
+          disabled={Boolean(blocked) || saving}
+          title={saving ? 'Adding, please wait…' : blocked ?? undefined}
+          className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+          style={{ backgroundColor: COLORS.dark, color: COLORS.onDark }}
         >
-          <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-deep)' }}>
-            <input
-              type="checkbox"
-              checked={enroll}
-              onChange={(e) => setEnroll(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0"
-            />
-            <span>
-              Enroll this horse in <strong>{futurity.name}</strong> too. This class has no fee of
-              its own — the futurity category prices it, so without the enrollment nothing is
-              billed for it.
-            </span>
-          </label>
-          {enroll && (
-            <EnrollmentFields
-              futurity={futurity}
-              value={enrollment}
-              onChange={setEnrollment}
-              idPrefix={`add-entry-${futurity.id}`}
-            />
-          )}
-        </div>
+          {buttonLabel}
+        </button>
       )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <button
-        type="button"
-        onClick={submit}
-        disabled={
-          !classId ||
-          !exhibitorId ||
-          !horseId ||
-          missingNoviceDeclaration ||
-          missingPotChoice ||
-          enrollmentIncomplete ||
-          saving
-        }
-        title={
-          !classId || !exhibitorId || !horseId
-            ? 'Pick an exhibitor and a horse first'
-            : missingNoviceDeclaration
-              ? 'Novice entries need the eligibility declaration ticked'
-              : missingPotChoice
-                ? 'This class is in a side pot — tick the pot they are buying into'
-                : enrollmentIncomplete
-                  ? 'Pick the futurity category, or untick the enrollment'
-                  : undefined
-        }
-        className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-        style={{ backgroundColor: COLORS.dark, color: COLORS.onDark }}
-      >
-        {saving
-          ? 'Adding…'
-          : enrolling
-            ? 'Enter class & enroll'
-            : potIds.length > 0
-              ? 'Enter class & buy in'
-              : 'Enter class'}
-      </button>
     </div>
   );
 }

@@ -15,54 +15,45 @@ import {
   type ExistingEntry,
   type PreviewClass,
   type PreviewHorse,
+  type PreviewSidePot,
 } from './types';
 
 /**
- * Enter one class, then the next.
+ * Enter one horse in several classes in one press.
  *
- * This is the show office's own entry form with the exhibitor pinned — the same
- * shape as `admin/shows/[id]/desk/AddEntryForm`: pick what is left to enter,
- * pick the horse, press the button, done. It replaced a page-long list of every
- * class in the show with a horse select on each row and one Submit at the
- * bottom, which asked people to hold a whole registration in their head and
- * then reported a clash — a closed class, a horse already in — only once they
- * had filled the lot in and pressed the button.
+ * Pick the horse, tick its classes, press the button. The desk's form
+ * (`admin/shows/[id]/desk/AddEntryForm`) is the same shape with the exhibitor
+ * chosen by staff. It was one class per press, which made somebody entering
+ * eight classes on the same horse pick the horse eight times; a horse is how
+ * an entry blank is filled in, so the horse comes first and its classes are a
+ * checklist.
  *
- * The dropdown carries the same filtering the desk applies, for the same
- * reason: a class you cannot enter is not worth offering, and a class you *can*
- * enter twice is. Pattern classes are judged run by run, so one exhibitor may
- * show two horses in them — and only while a horse is left that is not already
- * in it.
+ * **Not the page-long batch form this replaced before that**, which listed
+ * every class with a horse select on each row and reported a clash — a closed
+ * class, a horse already in — only after the lot was filled in. The checklist
+ * offers only what this horse can still enter, filtered the way the desk
+ * filters: a class this horse is in is gone, a class the exhibitor is in on
+ * another horse is gone unless it is a pattern class (judged run by run, so
+ * one exhibitor may show two horses in it), and a class under way or already
+ * run is gone. So what is ticked is what goes in, and the press is all or
+ * nothing: `POST /shows/{id}/register` commits the batch together or refuses
+ * it naming the class.
  *
  * Championship classes are left out entirely, and that one is not a filter on
  * this exhibitor: a Grand & Reserve Champion class calls back the top two from
  * each qualifying class, so nobody enters it and the POST refuses it from
- * anybody. Counted and explained separately from "you are already in it" below,
+ * anybody. Counted and explained apart from "you are already in it" below,
  * because the two read completely differently to the person reading the list.
  *
- * It posts to the exhibitor's own endpoint, not the staff one. Same form, same
- * rules, different door: `POST /shows/{id}/register` derives the exhibitor from
- * the session, so this cannot be pointed at anybody else.
+ * It posts to the exhibitor's own endpoint, not the staff one. Same rules,
+ * different door: `POST /shows/{id}/register` derives the exhibitor from the
+ * session, so this cannot be pointed at anybody else.
  *
- * **Two questions it no longer asks. Pick a class, pick a horse, press the
- * button — that is the whole form.**
- *
- * There was an APHA division picker offering all nine divisions on every class,
- * so a class the show had already named "56 - Youth WT Showmanship 5-10" could
- * be entered as Amateur. That is not a class the show runs, and nothing
- * downstream would have caught it: `apha_division` is stored data and every
- * rule that reads it takes the entry at its word. It is gone entirely, because
- * **the class already answers it** — `divisions_for_bracket` reads the division
- * off the bracket, which is the column that exists for exactly that, and every
- * bracket it matches resolves to one division. A class whose bracket says
- * nothing is filed with no division, which is what every entry did before the
- * picker existed and what `validate_entry` handles by design.
- *
- * The relationship to the horse's owner is answered once, per horse, on the
- * wizard's horses step — and usually not even there, since somebody showing
- * their own horse is "Self" and the horse's record already says so. Asking it
- * per class from a list of twenty-five meant entering eight classes on one
- * horse produced the same answer eight times, or a different one on the eighth.
+ * **No division picker and no relationship picker.** The class already answers
+ * the APHA division — `divisions_for_bracket` reads it off the bracket — so a
+ * ticked class states it. The relationship to the horse's owner is answered
+ * once, per horse, on the wizard's horses step, and usually not even there: a
+ * horse the exhibitor owns is "Self", and the horse's record already says so.
  */
 
 function backendMessage(detail: unknown, fallback: string): string {
@@ -73,7 +64,10 @@ function backendMessage(detail: unknown, fallback: string): string {
     issues?: { severity: string; message: string }[];
   };
   if (d?.code === 'ASSOCIATION_VALIDATION_FAILED' && Array.isArray(d.issues)) {
-    return d.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' ');
+    const issues = d.issues.filter((i) => i.severity === 'error').map((i) => i.message).join(' ');
+    // The batch is refused whole, so the class it was refused over is the
+    // first thing to say: that is the one to untick.
+    return d.message ? `${d.message}: ${issues}` : issues;
   }
   return d?.message ?? fallback;
 }
@@ -89,10 +83,38 @@ function formatDay(dateStr: string): string {
 
 /** What one entry in this class adds to the bill: its entry fee, a club's
  *  per-class fee, and the show's per-class fees — the figure the class then
- *  shows on the bill. Side pot buy-ins are quoted apart. */
+ *  shows on the bill. Side pot buy-ins are quoted apart. A free class is
+ *  nothing, whatever else is configured. */
 function classCostCents(cls: PreviewClass): number {
+  if (cls.is_free) return 0;
   const perClass = (cls.per_class_charges ?? []).reduce((sum, charge) => sum + charge.cents, 0);
   return cls.entry_fee_cents + cls.sanction_cents + perClass;
+}
+
+function priceLabel(cls: PreviewClass): string | null {
+  if (cls.is_free) return 'Free';
+  const cents = classCostCents(cls);
+  return cents > 0 ? formatMoney(cents) : null;
+}
+
+function plural(n: number, one: string, many = `${one}es`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * The buy-ins the ticked classes oblige. A class an open pot bundles has to
+ * come with a buy-in to one of its pots; one covering pot is not a choice, so
+ * it is ticked, and several are, so they are left for the exhibitor. Choices
+ * already made are kept while a ticked class still needs the pot.
+ */
+function reconcilePots(classes: PreviewClass[], chosen: string[]): string[] {
+  const covering = new Set(classes.flatMap((c) => unmetSidePots(c).map((pot) => pot.id)));
+  const next = chosen.filter((id) => covering.has(id));
+  for (const cls of classes) {
+    const unmet = unmetSidePots(cls);
+    if (unmet.length === 1 && !next.includes(unmet[0].id)) next.push(unmet[0].id);
+  }
+  return next;
 }
 
 export default function AddClassEntry({
@@ -112,16 +134,20 @@ export default function AddClassEntry({
    *  remaining-classes list all move together. */
   onAdded: () => void;
 }) {
-  const [classId, setClassId] = useState('');
-  const [horseId, setHorseId] = useState('');
+  // One horse is not a choice.
+  const [horseId, setHorseId] = useState(horses.length === 1 ? horses[0].id : '');
+  const [ticked, setTicked] = useState<string[]>([]);
+  const [filter, setFilter] = useState('');
   const [noviceDeclared, setNoviceDeclared] = useState(false);
+  const [potIds, setPotIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The side pot buy-in that comes with the picked class, when the show has
-  // bundled it into one. Cleared with the class, below.
-  const [potIds, setPotIds] = useState<string[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const isApha = showTypeCode === 'APHA';
+  const selectedHorse = horses.find((h) => h.id === horseId);
+  // A horse taken off the registration since it was picked is no horse.
+  const activeHorseId = selectedHorse ? horseId : '';
 
   const horseIdsByClass = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -133,13 +159,13 @@ export default function AddClassEntry({
     return map;
   }, [existingEntries]);
 
-  // Two reasons a class is not on offer, and they read differently to the
-  // exhibitor, so they are counted apart.
+  // Two reasons a class is not on offer to anybody, and they read differently
+  // to the exhibitor, so they are counted apart.
   //
-  // A Grand & Reserve Champion class is never enterable by anybody: the top two
-  // from each qualifying class are called back to it once those classes have
-  // been judged. Leaving it in the dropdown offers something the POST refuses,
-  // and the exhibitor has no way to work out why from the class name alone.
+  // A Grand & Reserve Champion class is never enterable: the top two from each
+  // qualifying class are called back to it once those classes have been
+  // judged. Leaving it in the list offers something the POST refuses, and the
+  // exhibitor has no way to work out why from the class name alone.
   const qualificationClasses = useMemo(
     () => classes.filter((c) => c.entered_by_qualification),
     [classes],
@@ -153,107 +179,158 @@ export default function AddClassEntry({
     [classes],
   );
 
-  // Being entered finishes a class — except a pattern class, and even that only
-  // while a horse is left to put in it. Mirrors `selectableClasses` on the desk
-  // form; the backend 409s on the rest either way.
-  const selectableClasses = useMemo(
-    () =>
-      classes.filter((c) => {
-        if (c.entered_by_qualification) return false;
-        if (c.under_way || c.completed) return false;
-        const taken = horseIdsByClass.get(c.id);
-        if (!taken || taken.length === 0) return true;
-        if (c.score_type !== 'pattern') return false;
-        return horses.some((h) => !taken.includes(h.id));
-      }),
-    [classes, horseIdsByClass, horses],
+  const openClasses = useMemo(
+    () => classes.filter((c) => !c.entered_by_qualification && !c.under_way && !c.completed),
+    [classes],
   );
 
-  const activeClass = selectableClasses.find((c) => c.id === classId);
+  // What this horse can still enter. Mirrors `selectableClasses` on the desk
+  // form; the backend 409s on the rest either way. Being entered finishes a
+  // class — the horse's own entry always (`entries_class_horse_uniq`), the
+  // exhibitor's entry on another horse unless it is a pattern class.
+  const offered = useMemo(() => {
+    if (!activeHorseId) return [];
+    return openClasses.filter((c) => {
+      const taken = horseIdsByClass.get(c.id) ?? [];
+      if (taken.includes(activeHorseId)) return false;
+      return taken.length === 0 || c.score_type === 'pattern';
+    });
+  }, [openClasses, horseIdsByClass, activeHorseId]);
 
-  // One horse cannot run the same class twice (`entries_class_horse_uniq`).
-  const selectableHorses = useMemo(() => {
-    const taken = horseIdsByClass.get(classId) ?? [];
-    return horses.filter((h) => !taken.includes(h.id));
-  }, [horses, horseIdsByClass, classId]);
+  // Classes dropped from the list because this exhibitor is done with them.
+  // Worth saying out loud: somebody looking for a class they entered an hour
+  // ago should not be left wondering whether the show pulled it.
+  const enteredCount = activeHorseId ? openClasses.length - offered.length : 0;
 
-  // Grouped by day, which the desk's form does not do — staff are handed a
-  // class number, an exhibitor is reading a schedule and picking a Saturday.
-  const classesByDay = useMemo(() => {
+  const needle = filter.trim().toLowerCase();
+  const shown = useMemo(
+    () =>
+      needle
+        ? offered.filter(
+            (c) =>
+              c.class_number.toLowerCase().startsWith(needle) ||
+              c.class_name.toLowerCase().includes(needle) ||
+              ticked.includes(c.id),
+          )
+        : offered,
+    [offered, needle, ticked],
+  );
+
+  // Grouped by day — an exhibitor is reading a schedule and picking a Saturday.
+  const byDay = useMemo(() => {
     const grouped = new Map<string, PreviewClass[]>();
-    for (const c of selectableClasses) {
+    for (const c of shown) {
       const list = grouped.get(c.class_date) ?? [];
       list.push(c);
       grouped.set(c.class_date, list);
     }
     return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [selectableClasses]);
+  }, [shown]);
 
-  // The division comes off the class, never off a picker. `apha_divisions` is
-  // what `divisions_for_bracket` read out of the class's bracket, and every
-  // bracket it matches resolves to one — so there is nothing to choose. Empty
-  // means the class does not say, and the entry is filed without a division,
-  // exactly as every entry was before the picker existed.
-  const aphaDivision = (isApha && activeClass?.apha_divisions?.[0]) || '';
+  // Only what is still on offer counts as ticked: a reload that brings a class
+  // back as entered must not leave it in the next press.
+  const tickedClasses = useMemo(
+    () => offered.filter((c) => ticked.includes(c.id)),
+    [offered, ticked],
+  );
 
-  const selectedHorse = horses.find((h) => h.id === horseId);
+  // The division comes off the class, never off a picker — see the header.
+  const aphaDivisionOf = (cls: PreviewClass) => (isApha && cls.apha_divisions?.[0]) || '';
 
-  const needsRelationship = isApha && RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivision);
-  // Answered on the horses step. Missing is a prompt with a destination, never
-  // a block: the backend takes the entry either way and the office chases it,
-  // the same way it chases a membership card.
-  const missingRelationship = needsRelationship && !selectedHorse?.relationship_to_owner;
-  // Novice eligibility is the exhibitor’s own declaration to make (AM-205), and
-  // this is the door where they are the one making it.
-  const needsNoviceDeclaration = isApha && ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivision);
+  const needsNoviceDeclaration = tickedClasses.some((c) => ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivisionOf(c)));
   const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
+  // Answered on the horses step. Missing is a prompt with a destination, never
+  // a block: the backend takes the entry either way and the office chases it.
+  const missingRelationship =
+    Boolean(selectedHorse) &&
+    !selectedHorse?.relationship_to_owner &&
+    tickedClasses.some((c) => RELATIONSHIP_REQUIRED_DIVISIONS.has(aphaDivisionOf(c)));
 
-  // The side pots this class is in, and the buy-in it obliges. A pot already
-  // bought into is listed and ticked but costs nothing more — one buy-in covers
-  // every class the pot names.
-  const coveringPots = activeClass?.side_pots ?? [];
-  const unmetPots = unmetSidePots(activeClass);
-  const missingPotChoice = unmetPots.length > 0 && !unmetPots.some((p) => potIds.includes(p.id));
+  // The side pots the ticked classes are in, once each however many of their
+  // classes are ticked: one buy-in covers every class the pot names.
+  const coveringPots = useMemo(() => {
+    const byId = new Map<string, PreviewSidePot>();
+    for (const cls of tickedClasses) for (const pot of cls.side_pots ?? []) byId.set(pot.id, pot);
+    return Array.from(byId.values());
+  }, [tickedClasses]);
+  const unmetPotIds = new Set(tickedClasses.flatMap((c) => unmetSidePots(c).map((pot) => pot.id)));
+  const missingPotChoice = tickedClasses.some((c) => {
+    const unmet = unmetSidePots(c);
+    return unmet.length > 0 && !unmet.some((pot) => potIds.includes(pot.id));
+  });
   const potTotalCents = coveringPots
     .filter((pot) => !pot.joined && potIds.includes(pot.id))
     .reduce((sum, pot) => sum + pot.entry_fee_cents, 0);
+  const classTotalCents = tickedClasses.reduce((sum, c) => sum + classCostCents(c), 0);
+
+  const setTicks = (next: string[]) => {
+    setTicked(next);
+    setError(null);
+    setNotice(null);
+    setPotIds((prev) => reconcilePots(offered.filter((c) => next.includes(c.id)), prev));
+  };
+
+  const toggle = (classId: string, on: boolean) =>
+    setTicks(on ? [...ticked, classId] : ticked.filter((id) => id !== classId));
+
+  const chooseHorse = (id: string) => {
+    setHorseId(id);
+    setTicked([]);
+    setPotIds([]);
+    setError(null);
+    setNotice(null);
+  };
 
   const submit = async () => {
-    if (!classId || !horseId) {
-      setError('Pick a class and a horse.');
+    if (!selectedHorse || tickedClasses.length === 0) {
+      setError('Pick a horse and tick at least one class.');
       return;
     }
     setSaving(true);
     setError(null);
+    setNotice(null);
 
-    const entry: Record<string, unknown> = { class_id: classId, horse_id: horseId };
-    if (isApha && aphaDivision) entry.apha_division = aphaDivision;
-    // `relationship_to_owner` is deliberately not sent. The backend reads it
-    // off `exhibitor_horses`, which is where the horses step wrote it.
-    if (needsNoviceDeclaration && noviceDeclared) entry.attestations = ['novice_eligibility'];
-    // Sent with the entry so the buy-in and the class it belongs to commit
-    // together, rather than leaving somebody in a pot for a class that was
-    // then refused.
-    if (potIds.length > 0) entry.side_pot_ids = potIds;
+    const entries = tickedClasses.map((cls) => {
+      const entry: Record<string, unknown> = { class_id: cls.id, horse_id: selectedHorse.id };
+      const division = aphaDivisionOf(cls);
+      if (division) entry.apha_division = division;
+      // `relationship_to_owner` is deliberately not sent. The backend reads it
+      // off this show's registration, which is where the horses step wrote it.
+      if (noviceDeclared && ATTESTATION_REQUIRED_DIVISIONS.has(division)) {
+        entry.attestations = ['novice_eligibility'];
+      }
+      // Each buy-in rides on the classes it covers, so the pot and the entries
+      // it was bought for commit together or not at all.
+      const pots = potIds.filter((id) => (cls.side_pots ?? []).some((pot) => pot.id === id));
+      if (pots.length > 0) entry.side_pot_ids = pots;
+      return entry;
+    });
 
     try {
       const res = await fetch(`/api/shows/${showId}/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: [entry] }),
+        body: JSON.stringify({ entries }),
       });
       setSaving(false);
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        setError(backendMessage(payload?.detail ?? payload?.error, 'Could not enter that class.'));
+        setError(
+          backendMessage(
+            payload?.detail ?? payload?.error,
+            entries.length === 1 ? 'Could not enter that class.' : 'Could not enter those classes — none were entered.',
+          ),
+        );
         return;
       }
-      // The horse carries over — somebody entering six classes is usually
-      // entering them on the same horse — so only the class is cleared.
-      setClassId('');
-      // The reload brings the buy-in back as a pot already joined, so the next
-      // class in it asks for nothing.
+      // The horse carries over — somebody entering a second horse picks it —
+      // and the ticks clear, because those classes are entered now.
+      setNotice(`${selectedHorse.name} is entered in ${plural(entries.length, 'class')}.`);
+      setTicked([]);
+      // The reload brings each buy-in back as a pot already joined, so the
+      // next class in it asks for nothing.
       setPotIds([]);
+      setNoviceDeclared(false);
       onAdded();
     } catch {
       setSaving(false);
@@ -261,91 +338,124 @@ export default function AddClassEntry({
     }
   };
 
-  // Nothing left to put in the picked class. Reachable on a pattern class,
-  // which stays on offer while a horse is spare and stops the moment the last
-  // one goes in: the box says why rather than sitting empty and enabled.
-  const allHorsesEntered = Boolean(classId) && selectableHorses.length === 0;
-  const horsePlaceholder = !classId
-    ? 'Pick a class first'
-    : allHorsesEntered
-      ? 'All your available horses are entered in the class already'
-      : 'On which horse…';
-
-  const nothingLeft = selectableClasses.length === 0;
-  // Classes dropped from the picker because this exhibitor is done with them.
-  // Worth saying out loud: somebody looking for a class they entered an hour
-  // ago should not be left wondering whether the show pulled it.
-  const enteredCount =
-    classes.length - qualificationClasses.length - startedClasses.length - selectableClasses.length;
+  const nothingLeft = Boolean(activeHorseId) && offered.length === 0;
+  const blocked = !activeHorseId
+    ? 'Pick a horse first'
+    : tickedClasses.length === 0
+      ? 'Tick the classes to enter'
+      : missingNoviceDeclaration
+        ? 'Tick the eligibility declaration to enter a Novice class'
+        : missingPotChoice
+          ? 'A ticked class comes with a side pot — tick the pot you are buying into'
+          : null;
 
   return (
     <div
-      className="rounded border p-3 space-y-2"
+      className="rounded border p-3 space-y-3"
       style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface)' }}
     >
-      <div className="flex flex-wrap gap-2">
-        <select
-          value={classId}
-          onChange={(e) => {
-            setClassId(e.target.value);
-            setError(null);
-            // One covering pot is not a choice, so it is ticked; several is,
-            // and picking for somebody would be picking which buy-in they pay.
-            const pots = unmetSidePots(classes.find((c) => c.id === e.target.value));
-            setPotIds(pots.length === 1 ? [pots[0].id] : []);
-          }}
-          disabled={nothingLeft}
-          aria-label="Class"
-          title={nothingLeft ? 'You are already entered in every class at this show' : undefined}
-          className="flex-1 min-w-[220px] border rounded px-3 py-2 text-sm disabled:opacity-50"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <option value="">{nothingLeft ? 'No classes left to enter' : 'Add a class…'}</option>
-          {classesByDay.map(([day, dayClasses]) => (
-            <optgroup key={day} label={formatDay(day)}>
-              {dayClasses.map((c) => {
-                // The only rows left that they are already in are pattern
-                // classes with a horse to spare. Say so, or the entry reads as
-                // the filter having missed one.
-                const ridingAlready = (horseIdsByClass.get(c.id) ?? []).length > 0;
-                return (
-                  <option key={c.id} value={c.id}>
-                    {c.class_number} — {c.class_name}
-                    {classCostCents(c) > 0 ? ` (${formatMoney(classCostCents(c))})` : ''}
-                    {c.sanctioning_codes.length > 0 ? ` · ${c.sanctioning_codes.join(', ')}` : ''}
-                    {ridingAlready ? ' · another horse' : ''}
-                  </option>
-                );
-              })}
-            </optgroup>
-          ))}
-        </select>
+      <select
+        value={horseId}
+        onChange={(e) => chooseHorse(e.target.value)}
+        aria-label="Horse"
+        className="w-full sm:w-auto sm:min-w-[260px] border rounded px-3 py-2 text-sm"
+        style={{ borderColor: 'var(--border)' }}
+      >
+        <option value="">Enter classes on which horse…</option>
+        {horses.map((h) => (
+          <option key={h.id} value={h.id}>
+            {h.name}
+            {/* Marked, never enforced — the panel above says what is due. */}
+            {healthWarnings(h).length > 0 ? ' ⚠ records due' : ''}
+          </option>
+        ))}
+      </select>
 
-        <select
-          value={horseId}
-          onChange={(e) => setHorseId(e.target.value)}
-          disabled={!classId || allHorsesEntered}
-          aria-label="Horse"
-          title={
-            allHorsesEntered
-              ? 'All your available horses are entered in the class already'
-              : !classId
-                ? 'Pick a class first'
-                : undefined
-          }
-          className="flex-1 min-w-[180px] border rounded px-3 py-2 text-sm disabled:opacity-50"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <option value="">{horsePlaceholder}</option>
-          {selectableHorses.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.name}
-              {/* Marked, never enforced — the panel above says what is due. */}
-              {healthWarnings(h).length > 0 ? ' ⚠ records due' : ''}
-            </option>
-          ))}
-        </select>
-      </div>
+      {activeHorseId && nothingLeft && (
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
+          {selectedHorse?.name} is entered in every class still open to it.
+        </p>
+      )}
+
+      {activeHorseId && !nothingLeft && (
+        <>
+          {offered.length > 12 && (
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Find a class by number or name"
+              aria-label="Find a class"
+              className="w-full border rounded px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--border)' }}
+            />
+          )}
+
+          <div className="space-y-3">
+            {byDay.length === 0 && (
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                No class matches &ldquo;{filter.trim()}&rdquo;.
+              </p>
+            )}
+            {byDay.map(([day, dayClasses]) => (
+              <fieldset key={day} className="space-y-1">
+                <legend className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
+                  {formatDay(day)}
+                </legend>
+                {dayClasses.map((c) => {
+                  const on = ticked.includes(c.id);
+                  const price = priceLabel(c);
+                  // The only classes left that the exhibitor is already in are
+                  // pattern classes on another horse. Say so, or the row reads
+                  // as the filter having missed one.
+                  const ridingAlready = (horseIdsByClass.get(c.id) ?? []).length > 0;
+                  const division = on ? aphaDivisionOf(c) : '';
+                  const meta = [
+                    c.sanctioning_codes.length > 0 ? c.sanctioning_codes.join(', ') : null,
+                    (c.side_pots ?? []).length > 0 ? 'side pot' : null,
+                    ridingAlready ? 'another horse' : null,
+                    division ? `Division: ${divisionLabel(division)}` : null,
+                  ].filter(Boolean);
+                  return (
+                    <label
+                      key={c.id}
+                      className="flex items-start gap-2 rounded px-2 py-1.5 text-sm cursor-pointer"
+                      style={{ backgroundColor: on ? 'var(--accent-bg)' : undefined }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => toggle(c.id, e.target.checked)}
+                        className="mt-0.5 h-4 w-4 shrink-0"
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span style={{ color: 'var(--foreground)' }}>
+                          <span className="font-mono" style={{ color: 'var(--accent)' }}>{c.class_number}</span>{' '}
+                          {c.class_name}
+                        </span>
+                        {meta.length > 0 && (
+                          <span
+                            className="block text-xs"
+                            style={{ color: 'var(--muted)' }}
+                            title={division ? "Filed on the entry and reported to APHA. It follows from the class's bracket, so there is nothing to choose." : undefined}
+                          >
+                            {meta.join(' · ')}
+                          </span>
+                        )}
+                      </span>
+                      {price && (
+                        <span className="text-xs whitespace-nowrap" style={{ color: 'var(--text-deep)' }}>
+                          {price}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </fieldset>
+            ))}
+          </div>
+        </>
+      )}
 
       {enteredCount > 0 && !nothingLeft && (
         <p className="text-xs" style={{ color: 'var(--muted)' }}>
@@ -362,11 +472,10 @@ export default function AddClassEntry({
         </p>
       )}
 
-      {/* Said once, under the picker, rather than as an error after somebody
-          picks one — because they cannot pick one: the class is not in the
-          list. Without this line a Grand & Reserve class simply is not there,
-          and an exhibitor reading the printed show bill beside the screen has
-          no way to tell a rule from a missing class. */}
+      {/* Said once, under the list, rather than as an error — because nobody can
+          tick one: the class is not there. Without this line a Grand & Reserve
+          class simply is missing, and an exhibitor reading the printed show
+          bill beside the screen has no way to tell a rule from a lost class. */}
       {qualificationClasses.length > 0 && (
         <p
           className="text-xs"
@@ -377,21 +486,6 @@ export default function AddClassEntry({
             ? '1 championship class is'
             : `${qualificationClasses.length} championship classes are`}{' '}
           not listed — the show calls back the top two from each qualifying class.
-        </p>
-      )}
-
-      {/* Stated, not asked. It goes on the entry and is reported to APHA, so
-          the exhibitor should be able to see what is being filed for them —
-          but it follows from the class they just picked, and a control with
-          one correct answer is not a question. */}
-      {isApha && activeClass && aphaDivision && (
-        <p
-          className="text-xs"
-          style={{ color: 'var(--text-deep)' }}
-          title="Filed on your entry and reported to APHA. It follows from the class's bracket, so there is nothing to choose."
-        >
-          Division: <strong>{divisionLabel(aphaDivision)}</strong>
-          <span style={{ color: 'var(--muted)' }}> — from the class bracket.</span>
         </p>
       )}
 
@@ -410,40 +504,32 @@ export default function AddClassEntry({
         </p>
       )}
 
-      {/* The buy-in that comes with this class. Shown with its price before
-          the press: this is money, and finding out from a refusal is the worst
-          way to be told. A pot already bought into is listed too — it is the
-          answer to why this class is not asking for another $50. */}
+      {/* The buy-ins that come with the ticked classes, with their prices,
+          before the press: this is money, and finding out from a refusal is the
+          worst way to be told. A pot already bought into is listed too — it is
+          the answer to why its classes are not asking for another $50. */}
       {coveringPots.length > 0 && (
         <div
           className="rounded border p-2 space-y-1.5"
           style={
-            unmetPots.length > 0
+            unmetPotIds.size > 0
               ? { borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)' }
               : { borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }
           }
         >
           <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
-            {unmetPots.length === 0
-              ? 'This class is in a side pot you have already bought into'
-              : coveringPots.length === 1
-                ? 'This class is part of a side pot — the buy-in comes with it'
-                : 'This class is in more than one side pot — pick the one you want'}
+            {unmetPotIds.size === 0
+              ? 'Your ticked classes are in a side pot you have already bought into'
+              : 'Ticked classes are part of a side pot — the buy-in comes with them'}
           </p>
           {coveringPots.map((pot) => (
-            <label
-              key={pot.id}
-              className="flex items-start gap-2 text-xs"
-              style={{ color: 'var(--text-deep)' }}
-            >
+            <label key={pot.id} className="flex items-start gap-2 text-xs" style={{ color: 'var(--text-deep)' }}>
               <input
                 type="checkbox"
                 checked={pot.joined || potIds.includes(pot.id)}
                 disabled={pot.joined}
                 onChange={(e) =>
-                  setPotIds((prev) =>
-                    e.target.checked ? [...prev, pot.id] : prev.filter((id) => id !== pot.id),
-                  )
+                  setPotIds((prev) => (e.target.checked ? [...prev, pot.id] : prev.filter((id) => id !== pot.id)))
                 }
                 className="mt-0.5 h-4 w-4 shrink-0"
               />
@@ -464,7 +550,10 @@ export default function AddClassEntry({
       )}
 
       {needsNoviceDeclaration && (
-        <label className="flex items-start gap-2 text-xs rounded border p-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+        <label
+          className="flex items-start gap-2 text-xs rounded border p-2"
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+        >
           <input
             type="checkbox"
             checked={noviceDeclared}
@@ -475,44 +564,64 @@ export default function AddClassEntry({
         </label>
       )}
 
-      {error && <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>}
+      {/* Said where the press is: in the bar below while it is on screen, in
+          its place here once a horse has nothing left to enter. */}
+      {!(activeHorseId && !nothingLeft) && <Outcome error={error} notice={notice} />}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={submit}
-          disabled={
-            !classId || !horseId || missingNoviceDeclaration || missingPotChoice || saving
-          }
-          title={
-            !classId || !horseId
-              ? 'Pick a class and a horse first'
-              : missingNoviceDeclaration
-                ? 'Tick the eligibility declaration to enter a Novice class'
-                : missingPotChoice
-                  ? 'This class comes with a side pot — tick the pot you are buying into'
-                  : undefined
-          }
-          className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-          style={{ backgroundColor: 'var(--accent)' }}
+      {/* The press rides the bottom of the screen while the list is in view: a
+          show runs a hundred and fifty classes, and the button that uses the
+          ticks must not be eight screens down from the class just ticked. Why
+          it is shut is said in the bar, since a phone has no tooltip. */}
+      {activeHorseId && !nothingLeft && (
+        <div
+          className="sticky bottom-0 z-10 -mx-3 -mb-3 px-3 py-2 border-t rounded-b space-y-1"
+          style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border-subtle)' }}
         >
-          {saving ? 'Entering…' : potTotalCents > 0 ? 'Enter class & buy in' : 'Enter class'}
-        </button>
-        {activeClass && horseId && (
-          <span className="text-xs" style={{ color: 'var(--muted)' }}>
-            {/* The pot buy-in is named apart from the class fee rather than
-                folded into one number: it is a different thing being bought,
-                it covers more than this class, and it settles separately. */}
-            {/* Everything this entry adds, per-class fees included: a $0 class
-                carrying a $5 per-class fee used to read "No entry fee" here
-                and then bill $5. */}
-            {classCostCents(activeClass) > 0
-              ? `${formatMoney(classCostCents(activeClass))} added to your bill`
-              : 'No entry fee'}
-            {potTotalCents > 0 ? ` · ${formatMoney(potTotalCents)} side pot buy-in` : ''}
-          </span>
-        )}
-      </div>
+          <Outcome error={error} notice={notice} />
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={Boolean(blocked) || saving}
+              title={saving ? 'Entering, please wait…' : blocked ?? undefined}
+              className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+              style={{ backgroundColor: 'var(--accent)' }}
+            >
+              {saving
+                ? 'Entering…'
+                : tickedClasses.length === 0
+                  ? 'Enter classes'
+                  : `Enter ${tickedClasses.length === 1 ? 'class' : plural(tickedClasses.length, 'class')}${
+                      potTotalCents > 0 ? ' & buy in' : ''
+                    }`}
+            </button>
+            {tickedClasses.length > 0 && (
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                {/* Everything these entries add, per-class fees included. The pot
+                    buy-in is named apart: it is a different thing being bought,
+                    it covers more than these classes, and it settles separately. */}
+                {classTotalCents > 0 ? `${formatMoney(classTotalCents)} added to your bill` : 'No entry fee'}
+                {potTotalCents > 0 ? ` · ${formatMoney(potTotalCents)} side pot buy-in` : ''}
+              </span>
+            )}
+          </div>
+          {tickedClasses.length > 0 && blocked && (missingNoviceDeclaration || missingPotChoice) && (
+            <p className="text-xs" style={{ color: 'var(--warning)' }}>
+              {blocked} — under the class list.
+            </p>
+          )}
+        </div>
+      )}
     </div>
+  );
+}
+
+function Outcome({ error, notice }: { error: string | null; notice: string | null }) {
+  if (error) return <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>;
+  if (!notice) return null;
+  return (
+    <p className="text-sm" role="status" style={{ color: 'var(--success-strong)' }}>
+      {notice}
+    </p>
   );
 }

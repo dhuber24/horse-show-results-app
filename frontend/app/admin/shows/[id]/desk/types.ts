@@ -120,6 +120,8 @@ export interface DeskClass {
   status: string;
   score_type: string;
   entry_fee_cents: number;
+  /** The office made it free (migration 166): nothing is owed on an entry. */
+  is_free?: boolean;
   discipline_name: string | null;
   division_name: string | null;
   /** The APHA division an entry in this class is filed under, read off its

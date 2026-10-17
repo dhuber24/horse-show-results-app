@@ -21,6 +21,9 @@ export type PreviewClass = {
    *  horses in them. Everything else is once per exhibitor. */
   score_type: string;
   entry_fee_cents: number;
+  /** The office made it free (migration 166): nothing at all is owed on an
+   *  entry. Optional for a frontend deployed ahead of the backend. */
+  is_free?: boolean;
   /** In the ring now, and finished (gate done or results posted) — see
    *  `backend/self_entry.py`. Neither is offered for entry. Optional for a
    *  frontend deployed ahead of the backend that sends them. */

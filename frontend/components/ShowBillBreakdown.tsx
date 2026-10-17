@@ -184,7 +184,9 @@ function ClassSubLine({ line }: { line: BillClassLine }) {
         )}
       </dt>
       <dd className="text-right text-xs self-start" style={{ color: 'var(--muted)' }}>
-        {formatMoney(total)}
+        {/* A class the office made free owes nothing, and says so: $0.00 is
+            also what an unpriced class reads. */}
+        {line.is_free ? 'Free' : formatMoney(total)}
       </dd>
     </>
   );
