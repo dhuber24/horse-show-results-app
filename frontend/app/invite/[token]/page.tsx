@@ -7,8 +7,18 @@ type InvitePayload = {
   role: string;
   show_id: string | null;
   show_name: string | null;
+  /** An invite from My Company (migration 169). */
+  company_name?: string | null;
   expires_at: string;
   status: string;
+};
+
+/** What the invite asks them to do, by the role it makes them. */
+const INVITE_JOB: Record<string, string> = {
+  SCRIBE: 'scorekeep',
+  GATE_STEWARD: 'run the in-gate',
+  SHOW_SECRETARY: 'be a show secretary',
+  SHOW_MANAGER: 'be a show manager',
 };
 
 async function fetchInvite(token: string): Promise<InvitePayload | { error: string }> {
@@ -87,9 +97,9 @@ export default async function AcceptInvitePage({
         Welcome, {result.first_name}.
       </h1>
       <p className="text-sm" style={{ color: COLORS.muted }}>
-        You&apos;ve been invited to scorekeep
-        {result.show_name ? ` for ${result.show_name}` : ''}. Set a password to
-        finish creating your account.
+        You&apos;ve been invited to {INVITE_JOB[result.role] ?? 'join GaitDesk'}
+        {result.show_name ? ` for ${result.show_name}` : result.company_name ? ` for ${result.company_name}` : ''}. Set a
+        password to finish creating your account.
       </p>
       <div
         className="rounded border p-3 text-sm space-y-1"

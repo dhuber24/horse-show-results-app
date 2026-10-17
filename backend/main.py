@@ -11,9 +11,10 @@ from slowapi.errors import RateLimitExceeded
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from database import engine, Base
+from database import AsyncSessionLocal, engine, Base
 from dependencies import INTERNAL_API_KEY
 from schema_drift import schema_drift
+from show_companies import renewal_reminder_loop
 import models  # noqa: F401 — ensure all models are registered before create_all
 from routers.shows import router as shows_router
 from routers.rings import router as rings_router
@@ -97,7 +98,11 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("INTERNAL_API_KEY environment variable is not set — refusing to start")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Pro+ renewal reminders, a month before each year ends (migration 169).
+    # Claimed row by row, so several workers running it send each one once.
+    reminders = asyncio.create_task(renewal_reminder_loop(AsyncSessionLocal))
     yield
+    reminders.cancel()
 
 
 limiter = Limiter(key_func=get_remote_address)

@@ -6,7 +6,16 @@ from pydantic import BaseModel
 
 from database import get_db
 from dependencies import require_admin, safe_uuid, INTERNAL_API_KEY
-from models import Show, User, ShowCompanyMember, ShowSecretary, ShowScribe, ShowManager, ShowGateSteward
+from models import (
+    Show,
+    User,
+    ShowCompanyCrew,
+    ShowCompanyMember,
+    ShowSecretary,
+    ShowScribe,
+    ShowManager,
+    ShowGateSteward,
+)
 from schemas import UserOut
 from show_access import works_show
 
@@ -48,6 +57,42 @@ async def _company_staffed(show_id: UUID, db: AsyncSession) -> bool:
         .limit(1)
     )
     return row.first() is not None
+
+
+async def _on_show_company_crew(show_id: UUID, user_id: UUID, db: AsyncSession) -> bool:
+    """Whether this person is on the crew of the company that runs the show
+    (migration 169) -- the list its office picks scribes and stewards from."""
+    row = await db.execute(
+        select(ShowCompanyCrew.id)
+        .join(Show, Show.company_id == ShowCompanyCrew.company_id)
+        .where(Show.id == show_id, ShowCompanyCrew.user_id == user_id)
+    )
+    return row.first() is not None
+
+
+@router.get("/shows/{show_id}/company-crew", response_model=list[UserOut])
+async def list_show_company_crew(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The scribes and gate stewards on the crew of the company that runs this
+    show (migration 169): who Step 1 offers to assign. Empty for a show with
+    no company."""
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    await _get_show_or_404(show_id, db)
+    await _assert_show_admin_access(show_id, x_user_id, x_user_role, db)
+    result = await db.execute(
+        select(User)
+        .join(ShowCompanyCrew, ShowCompanyCrew.user_id == User.id)
+        .join(Show, Show.company_id == ShowCompanyCrew.company_id)
+        .where(Show.id == show_id)
+        .order_by(User.full_name)
+    )
+    return result.scalars().all()
 
 
 # ── Show Secretaries ───────────────────────────────────────────────────────────
@@ -169,11 +214,13 @@ async def add_show_scribe(
     if user.role != "SCRIBE":
         raise HTTPException(400, "User must have SCRIBE role")
 
-    if x_user_role == "SHOW_SECRETARY":
+    # A scribe on the company's own crew (migration 169) is the company's to
+    # assign; the restriction is for somebody else's.
+    if x_user_role == "SHOW_SECRETARY" and not await _on_show_company_crew(show_id, user.id, db):
         existing_assignments = await db.execute(
             select(ShowScribe).where(ShowScribe.user_id == user.id)
         )
-        if existing_assignments.scalar_one_or_none():
+        if existing_assignments.scalars().first():
             raise HTTPException(403, "Show Secretaries can only assign scribes they created")
     # SHOW_MANAGER (like ADMIN) can assign any existing scribe — no restriction
 

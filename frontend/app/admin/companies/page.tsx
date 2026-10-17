@@ -4,10 +4,9 @@ import type { ShowCompany } from '@/lib/show-companies';
 import CompaniesManager from './CompaniesManager';
 
 /**
- * Show companies — the business a paid feature is sold to (migration 142).
+ * Show companies — the business a plan is sold to (migrations 142, 168).
  *
- * GaitDesk turns a feature on for a company once the company has paid, and it
- * reaches every account in the company. The app takes no payment itself: the
+ * GaitDesk sets a company's plan, and it reaches every account in the company. The app takes no payment itself: the
  * arrangement is written in the company's notes.
  */
 export default async function AdminCompaniesPage() {
@@ -26,9 +25,10 @@ export default async function AdminCompaniesPage() {
         <Breadcrumbs crumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Show Companies' }]} />
         <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Show Companies</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          The clubs and firms that run shows, the staff accounts that work for them, and the paid
-          features you&apos;ve turned on for them. GaitDesk doesn&apos;t take payment yet, so a
-          feature is on when you turn it on here.
+          The clubs and firms that run shows, the staff accounts that work for them, and the plan
+          each is on — GaitDesk Basic or GaitDesk Pro, both charged per exhibitor registered to a
+          show. GaitDesk doesn&apos;t take payment in the app yet, so a plan is in effect when you
+          set it here; each company&apos;s page has the usage statement to invoice from.
         </p>
       </div>
       {loadFailed ? (

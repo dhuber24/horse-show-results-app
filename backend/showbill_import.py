@@ -63,7 +63,7 @@ from models import (
     Venue,
 )
 from rules.disciplines import DISCIPLINE_KEYWORDS, classify_class_name, entered_by_qualification
-from show_companies import default_show_company_for
+from show_companies import show_setup_company_for
 
 logger = logging.getLogger(__name__)
 
@@ -612,7 +612,8 @@ async def apply_import(
 
     # --- The show, its company, and the caller's staff row (as `POST /shows` does) ---
     s = body.show
-    company_id = await default_show_company_for(db, user_id, user_role)
+    # Refuses a caller whose companies are all on Free (migration 169).
+    company_id = await show_setup_company_for(db, user_id, user_role)
     show = Show(
         name=s.name.strip(),
         venue_id=venue_id,

@@ -1,7 +1,18 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { fetchShow, fetchClasses } from '@/lib/api';
-import { API_URL } from '@/lib/backend-fetch';
+import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import UpgradeToProLink from '@/components/UpgradeToProLink';
+import {
+  ASSOCIATION_EXPORT,
+  NO_FEATURES,
+  fetchMyFeatures,
+  fetchShowPlan,
+  showHasFeature,
+  upgradeScopeForShow,
+  type MyFeatures,
+  type ShowPlan,
+} from '@/lib/show-companies';
 import ShowStatusControl from './ShowStatusControl';
 import { registrationAnswered } from '@/lib/registration-window';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -109,6 +120,25 @@ function ScoringTile({ tile, status }: { tile: Tile; status: string }) {
   );
 }
 
+/**
+ * The APHA export at a show whose company is on GaitDesk Basic (migration 168).
+ * The section stays, so the office knows the export exists and what it needs;
+ * the endpoint refuses a Basic show itself (`require_show_feature`).
+ */
+function AssociationExportLocked({ plan, mine }: { plan: ShowPlan | null; mine: MyFeatures }) {
+  const scope = upgradeScopeForShow(mine, plan);
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+      <p className="text-sm flex-1" style={{ color: 'var(--muted)' }}>
+        Exporting results in APHA&apos;s format is part of GaitDesk Pro
+        {plan?.company_name ? `, and ${plan.company_name} is on ${plan.plan_label}` : ''}.
+        {!scope && ' Ask the show’s manager about upgrading.'}
+      </p>
+      {scope && <UpgradeToProLink mine={scope} feature={ASSOCIATION_EXPORT} compact />}
+    </div>
+  );
+}
+
 // Both readiness endpoints return the same shape, which is why the issue list
 // is one component. APHA adds the SC-090 application window on top, because a
 // countdown is not a finding — it is still true when nothing is wrong.
@@ -163,6 +193,8 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
   let scribeNames: string[] = [];
   let aqhaValidation: ValidationResult | null = null;
   let aphaValidation: AphaValidationData | null = null;
+  let showPlan: ShowPlan | null = null;
+  let mine: MyFeatures = NO_FEATURES;
   if ((isAdmin || isShowAdmin) && user?.id) {
     const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
     const headers = {
@@ -177,6 +209,13 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
     } else if (show.show_type_code === 'APHA') {
       aphaValidation = await getAssociationValidation(id, 'apha', headers);
     }
+  }
+
+  // The APHA export is GaitDesk Pro (migration 168), and the show's plan --
+  // not the caller's -- decides it, for whichever office role is reading.
+  if (show.show_type_code === 'APHA') {
+    const authHeaders = await getAuthHeaders();
+    [showPlan, mine] = await Promise.all([fetchShowPlan(id, authHeaders), fetchMyFeatures(authHeaders)]);
   }
 
   return (
@@ -267,7 +306,9 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
       {show.show_type_code === 'APHA' && (
         <div className="border rounded-lg p-4" style={{ borderColor: 'var(--border)' }}>
           <h2 className="font-semibold mb-2" style={{ color: 'var(--foreground)' }}>APHA Submission</h2>
-          {show.apha_show_number ? (
+          {!showHasFeature(showPlan, ASSOCIATION_EXPORT) ? (
+            <AssociationExportLocked plan={showPlan} mine={mine} />
+          ) : show.apha_show_number ? (
             <div className="flex items-center gap-4">
               <span className="text-sm" style={{ color: 'var(--muted)' }}>
                 Show #: <span className="font-mono font-medium" style={{ color: 'var(--foreground)' }}>{show.apha_show_number}</span>

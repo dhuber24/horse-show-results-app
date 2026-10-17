@@ -31,12 +31,12 @@ bill decides what every exhibitor at the show is charged. So:
 
 Starting a show from its show bill is the first thing in this app a customer
 pays for: every read spends model tokens on a document tens of pages long. It
-is sold to the **show company** — the club or firm that runs the shows — and a
-GaitDesk admin turns it on for that company at `/admin/companies/[id]` once the
-company has paid (migration 142, `backend/show_companies.py`). It then reaches
-every account in the company. An `ADMIN` always has it. **The app takes no
-payment**: the arrangement is written in the company's notes and the switch is
-turned by hand.
+is sold to the **show company** — the club or firm that runs the shows — as
+part of **GaitDesk Pro and Pro+** (migrations 168–170, `backend/show_companies.py`),
+and reaches every account in the company. It is not sold on its own: the
+per-feature switch it started with was retired in migration 170, and a company
+gets it by moving to Pro, which it does itself on My Company. An `ADMIN` always
+has it.
 
 - **Every door but `/availability` is gated**, by
   `Depends(require_feature(SHOWBILL_IMPORT))`: the upload, the list of recent
@@ -51,21 +51,18 @@ turned by hand.
   `/admin/shows` and `/admin/shows/new` for every role that can create a show:
   a one-row strip with the same pitch for everybody, and on its right an
   **Upload show bill** button for a company on the plan, or for one that is
-  not a **Request upgrade** button beside a lock line naming whose company it
+  not an **Upgrade** link (to the plan chooser on My Company) beside a lock line naming whose company it
   is (*"You must upgrade to GaitDesk Pro to enable this feature"* is the
   line's hover and screen-reader text). The plan's name is `plan` on the feature in
   `show_companies.FEATURES`, reaching the page through `GET /users/me/features`
   (`catalog`), so the button, the show-bill pages and the 403 all name the same
   subscription and renaming it is one edit.
-- **The locked door asks for the upgrade itself** (migration 144). On the
-  strip (*Request upgrade*), and on both show-bill pages' upgrade message (**Request
-  upgrade to GaitDesk Pro**), one button (`UpgradeRequestButton`) records a request for
-  the caller's company and emails GaitDesk's admins if mail is configured. It
-  becomes *"Upgrade requested"* with a note that the request is being reviewed
-  and someone from the GaitDesk team will be in contact — naming the colleague
-  who asked first, if it was somebody else, since the request is the company's
-  and GaitDesk answers whoever pressed it — and the admin answers it by switching the
-  feature on at `/admin/companies`, which clears it.
+- **The locked door leads to the plan** (migration 170). On the strip
+  (*Upgrade*) and on both show-bill pages' upgrade message (**Upgrade to GaitDesk
+  Pro**), one link (`UpgradeToProLink`) goes to the plan chooser on My Company,
+  where the company picks Pro and is billed after each show. It replaced a
+  *Request upgrade* button (migration 144) that asked GaitDesk to turn the
+  feature on, from before companies chose their own plan.
 - **The screens only decide what to offer.** Both show-bill pages print the same
   upgrade message instead of a form. The endpoint is the enforcement — a stale
   page costs an offer, never a read.

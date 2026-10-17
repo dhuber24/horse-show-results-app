@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { SHOWBILL_IMPORT, hasFeature, planFor, upgradeText, type MyFeatures } from '@/lib/show-companies';
-import UpgradeRequestButton from './UpgradeRequestButton';
+import UpgradeToProLink from './UpgradeToProLink';
 
 /**
  * The show bill import, sold.
@@ -9,10 +9,9 @@ import UpgradeRequestButton from './UpgradeRequestButton';
  * is one nobody asks to buy. The pitch is identical either way, so the locked
  * strip tells somebody exactly what they are missing; only the action differs.
  * A company that has it (migration 142) gets the upload button. One that does
- * not gets a lock line naming whose company it is, and the way out of it: a
- * Request upgrade button that asks GaitDesk on the company's behalf (migration
- * 144), so "upgrade" is something the office can do from here rather than an
- * instruction to go and find somebody to ask.
+ * not gets a lock line naming whose company it is, and the way out of it: an
+ * Upgrade link to the plan chooser on My Company, since the company picks Pro
+ * itself (migration 170) and is billed after each show.
  *
  * A strip, not a panel: it sits above the show list and above Step 1's form,
  * so it is one row on a desk screen and the pitch is one sentence.
@@ -48,8 +47,8 @@ export default function AutomateShowCard({ mine }: { mine: MyFeatures }) {
           you to check.
         </p>
         {locked && (
-          // The pill and the Request upgrade button already say "upgrade to
-          // GaitDesk Pro", so this line shows only whose company is missing it;
+          // The pill and the Upgrade link already say "upgrade to GaitDesk
+          // Pro", so this line shows only whose company is missing it;
           // the headline stays for a screen reader and on hover.
           <p
             title={locked.headline}
@@ -76,7 +75,7 @@ export default function AutomateShowCard({ mine }: { mine: MyFeatures }) {
             Upload show bill
           </Link>
         ) : (
-          <UpgradeRequestButton mine={mine} feature={SHOWBILL_IMPORT} compact />
+          <UpgradeToProLink mine={mine} feature={SHOWBILL_IMPORT} compact />
         )}
       </div>
     </section>

@@ -180,21 +180,29 @@ SOMEBODY_ELSE = uuid4()
 
 
 def test_an_unused_own_company_goes_when_its_person_joins_an_organization():
-    assert is_spare_personal_company(PERSON, PERSON, feature_count=0, member_ids={PERSON})
+    assert is_spare_personal_company(PERSON, PERSON, paid_years=0, show_count=0, member_ids={PERSON})
 
 
-def test_an_own_company_somebody_paid_for_stays():
-    """A feature switched on is a payment; retiring the company would lose it."""
-    assert not is_spare_personal_company(PERSON, PERSON, feature_count=1, member_ids={PERSON})
+def test_an_own_company_with_a_pro_plus_year_stays():
+    """A Pro+ year is a payment; retiring the company would lose it."""
+    assert not is_spare_personal_company(PERSON, PERSON, paid_years=1, show_count=0, member_ids={PERSON})
+
+
+def test_an_own_company_that_ran_a_show_stays():
+    """The usage statement lists a company's own shows; deleting the company
+    would leave its show on nobody's to invoice."""
+    assert not is_spare_personal_company(PERSON, PERSON, paid_years=0, show_count=1, member_ids={PERSON})
 
 
 def test_an_own_company_other_people_were_added_to_stays():
-    assert not is_spare_personal_company(PERSON, PERSON, feature_count=0, member_ids={PERSON, SOMEBODY_ELSE})
+    assert not is_spare_personal_company(
+        PERSON, PERSON, paid_years=0, show_count=0, member_ids={PERSON, SOMEBODY_ELSE}
+    )
 
 
 def test_nobody_elses_company_and_no_organization_is_ever_spare():
-    assert not is_spare_personal_company(SOMEBODY_ELSE, PERSON, feature_count=0, member_ids={PERSON})
-    assert not is_spare_personal_company(None, PERSON, feature_count=0, member_ids={PERSON})
+    assert not is_spare_personal_company(SOMEBODY_ELSE, PERSON, paid_years=0, show_count=0, member_ids={PERSON})
+    assert not is_spare_personal_company(None, PERSON, paid_years=0, show_count=0, member_ids={PERSON})
 
 
 # ── Asking GaitDesk for a feature (migration 144) ────────────────────────────

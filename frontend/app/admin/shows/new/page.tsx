@@ -4,7 +4,8 @@ import { fetchVenues, fetchShowTypes } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import AutomateShowCard from '@/components/AutomateShowCard';
-import { fetchMyFeatures } from '@/lib/show-companies';
+import ChoosePlanPanel from '@/components/ChoosePlanPanel';
+import { PRO_PLUS, fetchMyFeatures } from '@/lib/show-companies';
 import WizardStepper from '../_wizard/WizardStepper';
 import { buildSteps } from '../_wizard/steps';
 import Step1Client, { type ExistingSecretary } from './Step1Client';
@@ -57,6 +58,38 @@ export default async function NewShowPage() {
     healthPaperCount: 0,
     showbillReady: false,
   }).map((step) => ({ ...step, href: null, done: false }));
+
+  // A company on GaitDesk Free sets up no show (migration 169): the office picks
+  // Basic or Pro here, where it meets the wall, and the page then becomes Step
+  // 1. `POST /shows` refuses it either way; this only decides what to offer.
+  if (role !== 'ADMIN' && !myFeatures.can_set_up_shows) {
+    return (
+      <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
+        <div>
+          <Breadcrumbs
+            crumbs={[
+              { label: 'Admin', href: '/admin' },
+              { label: 'Shows', href: '/admin/shows' },
+              { label: 'New Show' },
+            ]}
+          />
+          <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
+            New Show
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+            Your company is on GaitDesk Free, which lets you build your team but not set up a show yet.
+          </p>
+        </div>
+        <div className="rounded-lg border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <ChoosePlanPanel
+            companies={myFeatures.companies}
+            plans={myFeatures.plans}
+            proPlusRequested={myFeatures.upgrade_requests.some((r) => r.feature === PRO_PLUS)}
+          />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">

@@ -10,12 +10,13 @@ jest.mock('./backend-fetch', () => ({ API_URL: '', readJsonBody: async () => nul
 import {
   NO_FEATURES,
   SHOWBILL_IMPORT,
-  defaultUpgradeCompany,
   foldedOwnCompanies,
-  upgradeRequestFor,
+  formatRate,
+  showHasFeature,
+  upgradeScopeForShow,
   upgradeText,
 } from './show-companies';
-import type { CompanyFeature, MyFeatures, ShowCompany } from './show-companies';
+import type { CompanyFeature, MyFeatures, ShowCompany, ShowPlan } from './show-companies';
 
 const PRO = [{ key: SHOWBILL_IMPORT, label: 'Start a show from its show bill', plan: 'GaitDesk Pro' }];
 const OWN = { id: 'own', name: 'Jane Smith', personal: true };
@@ -45,42 +46,6 @@ describe('upgradeText', () => {
   });
 });
 
-describe('defaultUpgradeCompany', () => {
-  it('asks on behalf of the club ahead of their own account', () => {
-    // A club that pays reaches everyone in it; their own account reaches them.
-    expect(defaultUpgradeCompany(mine({ companies: [OWN, CLUB] }))).toBe(CLUB);
-  });
-
-  it('falls back to their own account when that is all they have', () => {
-    expect(defaultUpgradeCompany(mine({ companies: [OWN] }))).toBe(OWN);
-  });
-
-  it('has nobody to ask for when they are in no company', () => {
-    expect(defaultUpgradeCompany(mine({}))).toBeNull();
-  });
-});
-
-describe('upgradeRequestFor', () => {
-  const request = {
-    feature: SHOWBILL_IMPORT,
-    company_id: CLUB.id,
-    company_name: CLUB.name,
-    requested_at: '2026-09-24T15:00:00Z',
-    requested_by_name: 'Sam Lee',
-    requested_by_me: false,
-  };
-
-  it("finds a colleague's request, so the button is not offered twice", () => {
-    expect(upgradeRequestFor(mine({ companies: [CLUB], upgrade_requests: [request] }), SHOWBILL_IMPORT)).toBe(
-      request,
-    );
-  });
-
-  it('ignores a request for some other feature', () => {
-    expect(upgradeRequestFor(mine({ upgrade_requests: [request] }), 'another_feature')).toBeNull();
-  });
-});
-
 describe('foldedOwnCompanies', () => {
   function member(userId: string) {
     return { user_id: userId, full_name: userId, email: `${userId}@example.com`, role: 'SHOW_SECRETARY', added_at: null };
@@ -91,8 +56,6 @@ describe('foldedOwnCompanies', () => {
     description: '',
     plan: 'GaitDesk Pro',
     enabled: true,
-    enabled_at: '2026-09-01T15:00:00Z',
-    enabled_by_name: 'Admin',
   };
   function company(id: string, ownerUserId: string | null, memberIds: string[], overrides: Partial<ShowCompany> = {}): ShowCompany {
     return {
@@ -102,6 +65,9 @@ describe('foldedOwnCompanies', () => {
       created_at: null,
       owner_user_id: ownerUserId,
       self_cancel_days_before: 0,
+      plan: 'basic',
+      plan_label: 'GaitDesk Basic',
+      plan_rate_cents: 200,
       members: memberIds.map(member),
       features: [],
       join_requests: [],
@@ -150,9 +116,51 @@ describe('foldedOwnCompanies', () => {
   it('keeps an own company with an upgrade request waiting', () => {
     // The admin home counts the request; the list has to show where it is.
     const own = company('Jane Smith', 'jane', ['jane'], {
-      features: [{ ...PAID, enabled: false, enabled_at: null, enabled_by_name: null, requested_at: '2026-09-20T15:00:00Z' }],
+      features: [{ ...PAID, enabled: false, requested_at: '2026-09-20T15:00:00Z' }],
     });
     const club = company('Minnesota Paint Club', null, ['jane']);
     expect(foldedOwnCompanies([own, club]).size).toBe(0);
+  });
+});
+
+describe("a show's plan (migration 168)", () => {
+  const basicShow: ShowPlan = {
+    plan: 'basic',
+    plan_label: 'GaitDesk Basic',
+    features: [],
+    company_id: CLUB.id,
+    company_name: CLUB.name,
+    can_request_upgrade: true,
+  };
+
+  it('reads no answer as locked', () => {
+    expect(showHasFeature(null, 'live_boards')).toBe(false);
+    expect(showHasFeature(basicShow, 'live_boards')).toBe(false);
+    expect(showHasFeature({ ...basicShow, plan: 'pro', features: ['live_boards'] }, 'live_boards')).toBe(true);
+  });
+
+  it("asks for the upgrade for the show's own company, not the caller's other one", () => {
+    const scoped = upgradeScopeForShow(
+      mine({
+        companies: [OWN, CLUB],
+        upgrade_requests: [
+          { feature: 'live_boards', company_id: OWN.id, company_name: OWN.name, requested_at: null, requested_by_name: null, requested_by_me: true },
+        ],
+      }),
+      basicShow,
+    );
+    expect(scoped?.companies).toEqual([CLUB]);
+    // A request made for the caller's own company is not this show's.
+    expect(scoped?.upgrade_requests).toEqual([]);
+  });
+
+  it("offers no button to somebody outside the show's company", () => {
+    expect(upgradeScopeForShow(mine({ companies: [CLUB] }), { ...basicShow, can_request_upgrade: false })).toBeNull();
+    expect(upgradeScopeForShow(mine({ companies: [OWN] }), basicShow)).toBeNull();
+  });
+
+  it('prints a whole-dollar rate without cents', () => {
+    expect(formatRate(200)).toBe('$2');
+    expect(formatRate(450)).toBe('$4.50');
   });
 });

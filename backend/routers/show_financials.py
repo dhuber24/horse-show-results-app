@@ -49,6 +49,7 @@ from billing import build_account, side_pot_money, summarize_accounts
 from cancellations import is_on_roster
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
+from show_companies import FINANCIAL_REPORTS, require_show_feature
 from financial_reports import build_report, list_reports
 from models import (
     Class,
@@ -498,7 +499,12 @@ async def delete_payment(
 # ── Reports ────────────────────────────────────────────────────────────────────
 
 
-@router.get("/financials/reports", response_model=list[ReportDefinitionOut])
+# Migration 168: the reports are GaitDesk Pro. Billing and payment recording
+# above are not -- every show takes money, and only Pro reports on it.
+_PRO_REPORTS = [Depends(require_show_feature(FINANCIAL_REPORTS))]
+
+
+@router.get("/financials/reports", response_model=list[ReportDefinitionOut], dependencies=_PRO_REPORTS)
 async def list_financial_reports(
     show_id: UUID,
     x_api_key: str = Header(...),
@@ -513,7 +519,7 @@ async def list_financial_reports(
     return list_reports()
 
 
-@router.get("/financials/reports/{slug}", response_model=ReportOut)
+@router.get("/financials/reports/{slug}", response_model=ReportOut, dependencies=_PRO_REPORTS)
 async def get_financial_report(
     show_id: UUID,
     slug: str,

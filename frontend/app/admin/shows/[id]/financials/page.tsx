@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { fetchShow } from '@/lib/api';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { formatMoney } from '@/lib/financials';
+import { getAuthHeaders } from '@/lib/backend-fetch';
+import { FINANCIAL_REPORTS, ONLINE_PAYMENTS, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
 import { loadFinancials } from './loadFinancials';
 import AutoRefresh from './AutoRefresh';
 
@@ -61,7 +63,15 @@ export default async function ShowFinancialsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [show, financials] = await Promise.all([fetchShow(id), loadFinancials(id)]);
+  const [show, financials, plan] = await Promise.all([
+    fetchShow(id),
+    loadFinancials(id),
+    getAuthHeaders().then((headers) => fetchShowPlan(id, headers)),
+  ]);
+  // Billing and payment recording are on every plan; the reports are GaitDesk
+  // Pro (migration 168). The tile stays either way -- the Reports page says
+  // what Pro includes and asks for it.
+  const reportsLocked = !showHasFeature(plan, FINANCIAL_REPORTS);
 
   const crumbs = (
     <Breadcrumbs
@@ -158,8 +168,20 @@ export default async function ShowFinancialsPage({
               📈
             </div>
             <div>
-              <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
+              <h2
+                className="text-lg font-semibold flex items-center flex-wrap gap-2"
+                style={{ color: 'var(--foreground)' }}
+              >
                 Reports
+                {reportsLocked && (
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+                    title="Financial reports are part of GaitDesk Pro"
+                  >
+                    Pro
+                  </span>
+                )}
               </h2>
               <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                 Revenue, balances, registrations, payments, and fees sold — with CSV and print.
@@ -173,9 +195,14 @@ export default async function ShowFinancialsPage({
         className="rounded border px-4 py-3 text-sm"
         style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
-        The app doesn&rsquo;t process payments. Amounts billed come from the show&rsquo;s own fee
+        The app doesn&rsquo;t process payments yet. Amounts billed come from the show&rsquo;s own fee
         schedule, and payments are what your office records collecting at the desk — cash,
-        checks, and transfers you write down here.
+        checks, and transfers you write down here.{' '}
+        {/* Sold before it is built (migration 168): nothing takes a card yet. */}
+        <span style={{ color: 'var(--muted)' }}>
+          Online card payments are coming to GaitDesk Pro
+          {showHasFeature(plan, ONLINE_PAYMENTS) ? ', and this show will have them.' : '.'}
+        </span>
       </div>
 
       <section className="space-y-3">

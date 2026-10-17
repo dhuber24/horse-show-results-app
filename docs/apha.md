@@ -1037,7 +1037,7 @@ spotting an error on the owner of record at the time the horse was exhibited.
 
 Backend endpoint:
 
-- `GET /shows/{show_id}/apha-export` → `apha_entries_<show_id>.csv`
+- `GET /shows/{show_id}/apha-export` → `apha_entries_<show_id>.csv` — **GaitDesk Pro** (migration 168, `require_show_feature(ASSOCIATION_EXPORT)`): a show whose company is on Basic gets a 403, and the dashboard's APHA section says so in place of the button
 
 The export requires:
 

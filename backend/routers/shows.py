@@ -23,6 +23,7 @@ from models import (
     ClassAssociation,
     Show,
     ShowAffiliation,
+    ShowCompany,
     ShowSecretary,
     ShowScribe,
     ShowGateSteward,
@@ -47,6 +48,7 @@ from schemas import (
     ShowUpdate,
     ShowOut,
     ShowAffiliationUpdate,
+    ShowPlanOut,
 )
 from apha_context import apha_entry_context
 from registration_profile import exhibitor_views, load_copies_for_show
@@ -62,7 +64,17 @@ from rules.apha import (
 import standard_classes
 from self_entry import signup_open
 from show_access import SHOW_OFFICE_TABLES, show_office_users, worked_show_ids, works_show
-from show_companies import default_show_company_for
+from show_companies import (
+    ALL_FEATURE_ROLES,
+    ASSOCIATION_EXPORT,
+    PLANS,
+    companies_for_user,
+    effective_plans,
+    require_show_feature,
+    show_company_ids,
+    show_features,
+    show_setup_company_for,
+)
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
 
@@ -267,8 +279,10 @@ async def create_show(
 
     creator = safe_uuid(x_user_id)
     # The creator's company runs it, and its staff work it from here on
-    # (migration 156). Somebody in several companies is asked on Step 1.
-    company_id = await default_show_company_for(db, creator, x_user_role)
+    # (migration 156). Somebody in several companies is asked on Step 1. A
+    # company on GaitDesk Free sets up no show (migration 169): this refuses
+    # a caller with no company on Basic, Pro or Pro+.
+    company_id = await show_setup_company_for(db, creator, x_user_role)
     show = Show(**body.model_dump(), created_by_user_id=creator, company_id=company_id)
     db.add(show)
     await db.commit()
@@ -911,7 +925,51 @@ async def apha_validation(
     }
 
 
-@router.get("/{show_id}/apha-export")
+@router.get("/{show_id}/plan", response_model=ShowPlanOut)
+async def get_show_plan(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The plan a show is on, and the Pro features its office may use there
+    (migration 168). What a show's page reads to decide whether to offer a Pro
+    screen; each gated endpoint checks for itself (`require_show_feature`).
+
+    An ADMIN is told the show's real plan but has every feature, so GaitDesk
+    staff can see what the customer sees without being locked out of it.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    company_ids = await show_company_ids(db, show_id)
+    companies = (
+        (await db.execute(select(ShowCompany).where(ShowCompany.id.in_(company_ids)))).scalars().all()
+        if company_ids
+        else []
+    )
+    features = await show_features(db, show_id)
+    # A show on several companies' plans (no company of its own, managers in
+    # more than one) is on the best of them -- the features are their union.
+    # Pro+ while a paid year covers today (migration 169).
+    current = (await effective_plans(db, company_ids)).values()
+    best = max(current, key=lambda key: (PLANS[key].annual_cents, PLANS[key].rate_cents), default="free")
+    plan = PLANS[best]
+    own = companies[0] if len(companies) == 1 else None
+    can_request = False
+    if own is not None and x_user_role not in ALL_FEATURE_ROLES:
+        mine = {c.id for c in await companies_for_user(db, safe_uuid(x_user_id))}
+        can_request = own.id in mine
+    return ShowPlanOut(
+        plan=plan.key,
+        plan_label=plan.label,
+        features=sorted(set(PLANS["pro"].features) if x_user_role in ALL_FEATURE_ROLES else features),
+        company_id=own.id if own else None,
+        company_name=own.name if own else None,
+        can_request_upgrade=can_request,
+    )
+
+
+@router.get("/{show_id}/apha-export", dependencies=[Depends(require_show_feature(ASSOCIATION_EXPORT))])
 async def apha_export(
     show_id: UUID,
     x_api_key: str = Header(...),

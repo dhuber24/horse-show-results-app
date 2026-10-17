@@ -48,12 +48,19 @@ export default async function AdminShowsPage() {
                 Manage Show Types
               </Link>
             )}
+            {/* On GaitDesk Free (migration 169) the button still leads there --
+                the New Show page is where the plan is chosen. */}
             <Link
               href="/admin/shows/new"
               className="text-sm px-4 py-2 rounded font-medium"
               style={{ backgroundColor: 'var(--foreground)', color: 'var(--bg-subtle)' }}
+              title={
+                role !== 'ADMIN' && !myFeatures.can_set_up_shows
+                  ? 'Choose GaitDesk Basic or Pro first — nothing is charged until after the show'
+                  : undefined
+              }
             >
-              + Create New Show
+              {role !== 'ADMIN' && !myFeatures.can_set_up_shows ? '+ Choose a plan to create a show' : '+ Create New Show'}
             </Link>
           </div>
         </div>

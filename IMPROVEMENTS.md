@@ -2,6 +2,69 @@
 
 ## October 2026
 
+### A Pro+ year without a payment
+
+- **A GaitDesk admin can start a Pro+ year whether or not it's paid for**
+  (migration 171): *payment received*, *not yet — invoice later* (in force at
+  once, marked *Unpaid* with a *Mark paid* button), or *complimentary*.
+  Basic, Pro and Free were already the admin's to set by hand.
+
+### Features come only with a plan
+
+- **No more per-feature switches** (migration 170). Every paid feature — the
+  show bill import, financial reports, the association export, the Live
+  Boards — is part of GaitDesk Pro and Pro+, and nothing is sold on its own.
+  Existing switches were removed; a company on Free or Basic that had one gets
+  it back by choosing Pro.
+- **Locked Pro features say *Upgrade to GaitDesk Pro*** and link to the plan
+  chooser on My Company, in place of the *Request upgrade* button.
+- The admin's company page lists each feature as *Included* or *Not on this
+  plan*.
+
+### GaitDesk Free and Pro+, and companies running their own team
+
+- **GaitDesk Free** (migration 169) is where every new company starts. It can
+  add its managers, secretaries, scribes and gate stewards, but can't set up a
+  show until a manager or secretary picks **Basic** or **Pro** on My Company or
+  the New Show page — agreeing to the price, with nothing charged until after
+  the show. Existing companies keep their plan.
+- **GaitDesk Pro+** — $1,499 a year for unlimited shows and exhibitors with
+  every Pro feature. A company asks for it; a GaitDesk admin starts the
+  year. A month before the year ends, the company's show managers are
+  reminded what happens if they don't renew (the company returns to its
+  per-exhibitor plan); My Company shows the same notice.
+- **Each show is priced at the highest plan the company held across its
+  dates**, from a log of every plan change, so moving down mid-show doesn't
+  lower its bill. The usage statement says which plan each show is billed at
+  and lists each Pro+ year.
+- **Companies add their own people.** My Company adds managers and
+  secretaries straight away (no GaitDesk approval), keeps a **crew** of scribes
+  and gate stewards to assign show by show, and sends **invite links** to
+  people without an account. Step 1's scribe and gate steward pickers offer
+  the company's crew.
+- **The company's show managers are emailed** whenever it moves onto a plan.
+
+### GaitDesk Basic and GaitDesk Pro
+
+- **Two plans, both charged per exhibitor registered to a show**
+  (`show_companies.plan`, migration 168): **GaitDesk Basic** at $2 runs the
+  show — registration, back numbers, the gate, scribing, live results,
+  billing and payment recording. **GaitDesk Pro** at $4 adds financial
+  reports, the show bill import, the association results export (APHA's CSV),
+  the Live Boards (monitors not included) and online card payments, which are
+  marked *coming soon* until the processor is built.
+- **Every existing company is grandfathered onto Pro**; new companies start
+  on Basic. A feature switch is now an add-on: one Pro feature for a Basic
+  company.
+- **Pro screens at a show follow the show's company**
+  (`require_show_feature`), not whoever is signed in, since that show is what
+  is billed. A Basic show sees the Reports pages, the Live Screens and the
+  APHA export as a locked panel with *Request upgrade* (`ProLockedPanel`).
+- **Admins set the plan** on `/admin/companies` (a Basic / Pro picker on each
+  row) and the company's page, which also carries the **usage statement**:
+  each show, its exhibitors on the roster, and the amount at the plan's rate
+  (`billing.platform_usage`), to invoice from.
+
 ### Several classes per horse, free classes, high point by class
 
 - **One horse, several classes, one press** — on the exhibitor's class page

@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable, Optional
 
+from cancellations import is_on_roster
+
 # Which `show_fees` rows an exhibitor may reserve a quantity of at sign-up.
 # Keyed on unit rather than a list of codes so a show that adds its own
 # per-stall or per-night fee is offered without a code change here.
@@ -1227,3 +1229,31 @@ def find_fee(fees: Iterable, fee_id) -> Optional[object]:
         if fee.id == fee_id:
             return fee
     return None
+
+
+# ── What GaitDesk charges a show company (migration 168) ──────────────────────
+
+
+def billable_exhibitor_count(show_entries: Iterable) -> int:
+    """The exhibitors a show is charged for: everybody on its roster.
+
+    `cancellations.is_on_roster`: signed up, and not cancelled. A shell row the
+    office made for a late entry and a cancelled registration are nobody the
+    show ran.
+    """
+    return sum(1 for se in show_entries if is_on_roster(se))
+
+
+def platform_usage(exhibitor_count: int, rate_cents: int) -> dict:
+    """One show's line on a company's GaitDesk usage statement: its billable
+    exhibitors at the plan's rate.
+
+    Not on any exhibitor's bill -- this is what GaitDesk invoices the show
+    company, and the app takes no payment for it either.
+    """
+    exhibitors = max(0, int(exhibitor_count))
+    return {
+        "exhibitor_count": exhibitors,
+        "rate_cents": rate_cents,
+        "amount_cents": exhibitors * rate_cents,
+    }

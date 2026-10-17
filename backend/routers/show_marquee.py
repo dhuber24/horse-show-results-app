@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
+from show_companies import LIVE_BOARDS, require_show_feature
 from models import Show, ShowMarquee, ShowPointSystem
 from routers.shows import _assert_show_access
 
@@ -156,7 +157,10 @@ async def get_marquee(show_id: UUID, db: AsyncSession = Depends(get_db)):
 @router.put(
     "/marquee",
     response_model=MarqueeOut,
-    dependencies=[Depends(require_admin_or_show_admin)],
+    # Migration 168: the marquee is the Live Boards' own setting, and the one
+    # endpoint only a board uses -- what a board shows is otherwise the public
+    # results and the gate's own endpoints, which Basic shows use too.
+    dependencies=[Depends(require_admin_or_show_admin), Depends(require_show_feature(LIVE_BOARDS))],
 )
 async def set_marquee(
     show_id: UUID,

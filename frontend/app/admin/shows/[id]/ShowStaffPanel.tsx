@@ -21,6 +21,10 @@ type Props = {
   allUsers: User[];
   isAdmin: boolean;
   initialPendingInvites?: PendingInvite[];
+  /** The scribes and gate stewards on the crew of the company that runs the
+   *  show (migration 169): who its office picks from. An admin picks from
+   *  everybody. */
+  companyCrew?: User[];
 };
 
 const emptyInviteForm = { first_name: '', last_name: '', email: '' };
@@ -28,8 +32,9 @@ const emptyInviteForm = { first_name: '', last_name: '', email: '' };
 /**
  * The staff hired for one show: scribes and gate stewards. Managers and
  * secretaries come from the company that runs the show (`ShowCompanyStaff`,
- * migration 156); these two roles are staffed show by show and are not
- * company members.
+ * migration 156); these two roles are staffed show by show, picked from the
+ * company's crew on My Company (migration 169) or invited here -- an invite
+ * accepted here puts them on the crew too.
  */
 export default function ShowStaffPanel({
   showId,
@@ -38,6 +43,7 @@ export default function ShowStaffPanel({
   allUsers,
   isAdmin,
   initialPendingInvites = [],
+  companyCrew = [],
 }: Props) {
   const [scribes, setScribes] = useState<User[]>(initialScribes);
   const [gateStewards, setGateStewards] = useState<User[]>(initialGateStewards);
@@ -62,10 +68,14 @@ export default function ShowStaffPanel({
 
   const [selectedScribeId, setSelectedScribeId] = useState('');
 
-  const availableScribes = allUsers.filter(
+  // An admin assigns anybody; the show's office assigns its company's crew.
+  const pool = isAdmin ? allUsers : companyCrew;
+  const canAssign = isAdmin || companyCrew.length > 0;
+  const assignFrom = isAdmin ? 'existing' : 'from your crew';
+  const availableScribes = pool.filter(
     u => u.role === 'SCRIBE' && !scribes.find(s => s.id === u.id)
   );
-  const availableGateStewards = allUsers.filter(
+  const availableGateStewards = pool.filter(
     u => u.role === 'GATE_STEWARD' && !gateStewards.find(s => s.id === u.id)
   );
   const scribeInvites = pendingInvites.filter(i => i.role === 'SCRIBE');
@@ -342,10 +352,10 @@ export default function ShowStaffPanel({
         {/* Assign / invite — collapsed behind buttons */}
         {!showAssignForm && !showInviteForm && (
           <div className="flex flex-wrap gap-3">
-            {isAdmin && availableScribes.length > 0 && (
+            {canAssign && availableScribes.length > 0 && (
               <button onClick={() => setShowAssignForm(true)}
                 className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-                + Assign existing scribe
+                + Assign {assignFrom} scribe
               </button>
             )}
             <button onClick={() => setShowInviteForm(true)}
@@ -355,8 +365,8 @@ export default function ShowStaffPanel({
           </div>
         )}
 
-        {/* Assign existing scribe — ADMIN only */}
-        {isAdmin && showAssignForm && (
+        {/* Assign a scribe -- any for an admin, the company's crew otherwise */}
+        {canAssign && showAssignForm && (
           <div className="flex items-center gap-2 mb-3">
             <select value={selectedScribeId} onChange={(e) => setSelectedScribeId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
               <option value="" disabled>Select a scribe…</option>
@@ -518,10 +528,10 @@ export default function ShowStaffPanel({
 
         {!showAssignStewardForm && !showInviteStewardForm && (
           <div className="flex flex-wrap gap-3">
-            {isAdmin && availableGateStewards.length > 0 && (
+            {canAssign && availableGateStewards.length > 0 && (
               <button onClick={() => setShowAssignStewardForm(true)}
                 className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-                + Assign existing gate steward
+                + Assign {assignFrom} gate steward
               </button>
             )}
             <button onClick={() => setShowInviteStewardForm(true)}
@@ -531,7 +541,7 @@ export default function ShowStaffPanel({
           </div>
         )}
 
-        {isAdmin && showAssignStewardForm && (
+        {canAssign && showAssignStewardForm && (
           <div className="flex items-center gap-2 mb-3">
             <select value={selectedStewardId} onChange={(e) => setSelectedStewardId(e.target.value)} className={`${inputClass} flex-1`} style={inputStyle}>
               <option value="" disabled>Select a gate steward…</option>

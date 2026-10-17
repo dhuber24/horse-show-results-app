@@ -31,7 +31,7 @@ from dependencies import (
     require_api_key,
     safe_uuid,
 )
-from models import Show, ShowGateSteward, ShowScribe, User, UserInvite
+from models import Show, ShowCompanyCrew, ShowGateSteward, ShowScribe, User, UserInvite
 from show_access import works_show
 from schemas import (
     UserInviteAcceptBody,
@@ -40,6 +40,8 @@ from schemas import (
     UserInviteCreateResult,
     UserInviteOut,
 )
+from routers.show_companies import _load as _load_company
+from show_companies import SHOW_OFFICE_ROLES, add_company_member
 from welcome_email import send_welcome_email
 
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
@@ -203,7 +205,7 @@ async def get_invite_by_token(
     invite_q = await db.execute(
         select(UserInvite)
         .where(UserInvite.token == token)
-        .options(selectinload(UserInvite.show))
+        .options(selectinload(UserInvite.show), selectinload(UserInvite.company))
     )
     invite = invite_q.scalar_one_or_none()
     if not invite:
@@ -218,6 +220,7 @@ async def get_invite_by_token(
         "role": invite.role,
         "show_id": invite.show_id,
         "show_name": invite.show.name if invite.show else None,
+        "company_name": invite.company.name if invite.company else None,
         "expires_at": invite.expires_at,
         "status": invite.status,
     }
@@ -241,7 +244,7 @@ async def accept_invite(
     invite_q = await db.execute(
         select(UserInvite)
         .where(UserInvite.token == token)
-        .options(selectinload(UserInvite.show))
+        .options(selectinload(UserInvite.show), selectinload(UserInvite.company))
     )
     invite = invite_q.scalar_one_or_none()
     if not invite:
@@ -281,6 +284,26 @@ async def accept_invite(
             db.add(ShowScribe(show_id=invite.show_id, user_id=user.id))
         elif invite.role == "GATE_STEWARD":
             db.add(ShowGateSteward(show_id=invite.show_id, user_id=user.id))
+        # And onto the crew of the company that runs it (migration 169), so the
+        # office can pick them for its next show without inviting them again.
+        if invite.show is not None and invite.show.company_id is not None:
+            db.add(
+                ShowCompanyCrew(
+                    company_id=invite.show.company_id, user_id=user.id, added_by_user_id=invite.invited_by_user_id
+                )
+            )
+
+    if invite.company_id is not None and invite.show_id is None:
+        # An invite from My Company (migration 169): a manager or secretary
+        # joins the company -- which is the company every show manager and
+        # secretary must be in -- and a scribe or gate steward its crew.
+        if invite.role in SHOW_OFFICE_ROLES:
+            company = await _load_company(db, invite.company_id)
+            await add_company_member(company, user, invite.invited_by_user_id, db)
+        else:
+            db.add(
+                ShowCompanyCrew(company_id=invite.company_id, user_id=user.id, added_by_user_id=invite.invited_by_user_id)
+            )
 
     invite.status = "accepted"
     invite.accepted_at = _now()
@@ -290,8 +313,11 @@ async def accept_invite(
     # MissingGreenlet in an async route. The invitee chose their own password,
     # so this is not the set-up-by-staff variant.
     show_name = invite.show.name if invite.show else None
+    company_name = invite.company.name if invite.company else None
 
     await db.commit()
     await db.refresh(invite)
-    background.add_task(send_welcome_email, user.email, user.first_name, user.role, show_name=show_name)
+    background.add_task(
+        send_welcome_email, user.email, user.first_name, user.role, show_name=show_name, company_name=company_name
+    )
     return invite

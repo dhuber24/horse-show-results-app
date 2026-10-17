@@ -500,6 +500,8 @@ class UserInviteOut(BaseModel):
     last_name: str
     role: str
     show_id: Optional[UUID]
+    # Migration 169: an invite from My Company, into the company or its crew.
+    company_id: Optional[UUID] = None
     status: str
     expires_at: datetime
     invited_by_user_id: Optional[UUID]
@@ -522,6 +524,7 @@ class UserInviteByTokenOut(BaseModel):
     role: str
     show_id: Optional[UUID]
     show_name: Optional[str]
+    company_name: Optional[str] = None
     expires_at: datetime
     status: str
 
@@ -1405,6 +1408,9 @@ class ShowCompanyUpdate(BaseModel):
     # Migration 157: days before a show's first day that exhibitors stop being
     # able to cancel their own registration. 0 is until the show starts.
     self_cancel_days_before: Optional[int] = Field(default=None, ge=0, le=90)
+    # Migration 168: GaitDesk Basic or GaitDesk Pro; 169 adds Free. Pro+ is a
+    # paid year, recorded with `ProPlusRecordIn`, not a value here.
+    plan: Optional[Literal["free", "basic", "pro"]] = None
 
 
 class ShowCompanyMemberAdd(BaseModel):
@@ -1420,15 +1426,15 @@ class ShowCompanyMemberOut(BaseModel):
 
 
 class ShowCompanyFeatureOut(BaseModel):
-    """One registered paid feature and whether this company has it -- every
-    feature is listed, so the admin screen can offer the ones that are off."""
+    """One registered paid feature and whether this company's plan includes it
+    today -- every feature is listed, so the admin screen shows what Pro adds.
+    A plan is the only way to a feature since migration 170."""
     key: str
     label: str
     description: str
     plan: str
     enabled: bool
-    enabled_at: Optional[datetime] = None
-    enabled_by_name: Optional[str] = None
+    included_in_plan: bool = False
     # Migration 144: the company has asked for this feature and is waiting on
     # GaitDesk. Cleared by switching it on, or by an admin dismissing it.
     requested_at: Optional[datetime] = None
@@ -1463,6 +1469,20 @@ class ShowCompanyOut(BaseModel):
     # Migration 157: when exhibitors stop cancelling themselves. 0 is until the
     # show starts.
     self_cancel_days_before: int = 0
+    # Migration 168: the plan the company is on, and what it is charged per
+    # exhibitor on a show's roster.
+    plan: str = "basic"
+    plan_label: str = "GaitDesk Basic"
+    plan_rate_cents: int = 0
+    # Migration 169: what it is on today -- Pro+ while a paid year covers it,
+    # else `plan` -- and the years it has paid for, newest last.
+    effective_plan: str = "basic"
+    effective_plan_label: str = "GaitDesk Basic"
+    subscriptions: list["SubscriptionOut"] = Field(default_factory=list)
+    # The company has asked for Pro+ and is waiting on GaitDesk.
+    pro_plus_requested_at: Optional[datetime] = None
+    pro_plus_requested_by_name: Optional[str] = None
+    pro_plus_requested_by_email: Optional[str] = None
     members: list[ShowCompanyMemberOut] = Field(default_factory=list)
     features: list[ShowCompanyFeatureOut] = Field(default_factory=list)
     join_requests: list[ShowCompanyJoinRequestOut] = Field(default_factory=list)
@@ -1480,6 +1500,115 @@ class FeatureInfoOut(BaseModel):
     key: str
     label: str
     plan: str
+    description: str = ""
+
+
+class PlanInfoOut(BaseModel):
+    """One GaitDesk plan (migration 168), as `show_companies.PLANS` has it."""
+    key: str
+    label: str
+    rate_cents: int
+    features: list[str]
+    includes: list[str]
+    # Migration 169.
+    annual_cents: int = 0
+    sets_up_shows: bool = True
+    self_serve: bool = False
+
+
+class SubscriptionOut(BaseModel):
+    """One paid GaitDesk Pro+ year (migration 169)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    plan: str
+    starts_on: date
+    ends_on: date
+    price_cents: int
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
+    # Migration 171: the day it was paid for; NULL while it is owed.
+    payment_received_on: Optional[date] = None
+    created_at: Optional[datetime] = None
+    renewal_reminder_sent_at: Optional[datetime] = None
+
+
+class ProPlusRecordIn(BaseModel):
+    """Start a Pro+ year (migration 169), paid for or not (171). Left out, the
+    dates are the next year (from today, or from the day after the current
+    year ends) and the price is the plan's. A price of 0 is a complimentary
+    year. `payment_received` false starts it now with the price owed."""
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    price_cents: Optional[int] = Field(default=None, ge=0, le=10_000_000)
+    payment_received: bool = True
+    payment_method: Optional[str] = Field(default=None, max_length=100)
+    payment_reference: Optional[str] = Field(default=None, max_length=200)
+
+
+class ProPlusPaymentIn(BaseModel):
+    """A Pro+ year's payment arriving after the year started (migration 171).
+    Left out, it was received today."""
+    payment_received_on: Optional[date] = None
+    payment_method: Optional[str] = Field(default=None, max_length=100)
+    payment_reference: Optional[str] = Field(default=None, max_length=200)
+
+
+class UsageSubscriptionOut(BaseModel):
+    """A Pro+ year on a company's usage statement."""
+    id: UUID
+    starts_on: date
+    ends_on: date
+    price_cents: int
+    # Migration 171: NULL while the year is owed.
+    payment_received_on: Optional[date] = None
+
+
+class ShowPlanOut(BaseModel):
+    """Which plan a show is on and what that lets its office use -- what a
+    show's page reads to decide whether to offer a Pro screen. Never the
+    enforcement: each gated endpoint asks `require_show_feature` itself."""
+    plan: str
+    plan_label: str
+    features: list[str]
+    # The show's own company, when it has one. NULL is a show from before
+    # migration 156 that is on its managers' companies' plans.
+    company_id: Optional[UUID] = None
+    company_name: Optional[str] = None
+    # The caller works for that company, so a locked door can ask for the
+    # upgrade on its behalf; a guest secretary cannot.
+    can_request_upgrade: bool = False
+
+
+class UsageShowOut(BaseModel):
+    """One show's line on a company's usage statement."""
+    show_id: UUID
+    show_name: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    status: str
+    exhibitor_count: int
+    rate_cents: int
+    amount_cents: int
+    # Migration 169: the plan the show is invoiced at -- the highest the
+    # company held across its dates, or Pro+ when a paid year covers its start.
+    billing_plan: str = "basic"
+    billing_plan_label: str = "GaitDesk Basic"
+
+
+class CompanyUsageOut(BaseModel):
+    """What GaitDesk invoices a show company: each of its shows' billable
+    exhibitors at the company's plan rate (migration 168)."""
+    company_id: UUID
+    company_name: str
+    plan: str
+    plan_label: str
+    rate_cents: int
+    shows: list[UsageShowOut]
+    exhibitor_count: int
+    amount_cents: int
+    # Migration 169: the Pro+ years paid for, each its own line.
+    subscriptions: list[UsageSubscriptionOut] = Field(default_factory=list)
 
 
 class UpgradeRequestCreate(BaseModel):
@@ -1516,6 +1645,12 @@ class MyFeaturesOut(BaseModel):
     companies: list[ShowCompanyRef]
     catalog: list[FeatureInfoOut]
     upgrade_requests: list[UpgradeRequestOut] = Field(default_factory=list)
+    # Migration 168: every plan, so a page can say what Pro includes without
+    # spelling it a second time.
+    plans: list[PlanInfoOut] = Field(default_factory=list)
+    # Migration 169: whether any of the caller's companies is on a plan that
+    # sets up shows. What the New Show buttons ask; creating one enforces it.
+    can_set_up_shows: bool = False
 
 
 # ── Breeds ─────────────────────────────────────────────────────────────────────
@@ -4747,3 +4882,6 @@ class StandardClassCatalogOut(BaseModel):
     divisions: list[str] = Field(default_factory=list)
     pdf_supported: bool = False
     last_import: Optional[AssociationClassImportOut] = None
+
+
+ShowCompanyOut.model_rebuild()

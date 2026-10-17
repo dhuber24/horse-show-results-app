@@ -13,7 +13,8 @@ It does:
 - Let authorized scribes manually enter placings.
 - Record a judge's card — maneuver or fence scores and the penalties called — and add it up (migration 122).
 - Publish results live.
-- Read a show's own printed show bill into a draft show for staff to check and create (migration 141) — a **paid feature**, switched on per show company by a GaitDesk admin (migration 142).
+- Read a show's own printed show bill into a draft show for staff to check and create (migration 141) — a **paid feature** (migration 142).
+- Sell show companies a plan (migrations 168, 169): **GaitDesk Free** staffs a company but sets up no show; **Basic** ($2 per exhibitor registered to a show) runs the show; **Pro** ($4) adds financial reports, the show bill import, association results exports, the Live Boards and (coming) online card payments; **Pro+** ($1,499 a year) is Pro with unlimited shows and exhibitors. A company picks Basic or Pro itself and is invoiced after each show; A GaitDesk admin starts a Pro+ year by hand — paid, invoiced later or complimentary — and can set any plan without a payment. The app takes no payment.
 - Track horses, exhibitors, show staff, documents, and association registration data.
 - Run a public Trainer Registry: a free Basic listing, and a paid Pro listing ranked nearest-first that a GaitDesk admin records once billed (migration 165).
 - Provide limited association compliance validation where the app stores enough data, including AQHA class-code, registration, membership-number, workshop-date, and age checks.
@@ -51,7 +52,7 @@ Each design doc holds that subsystem's data model notes, its rules, the reasons 
 | Results, scribe screens, the judge's card, card types, posting, patterns, show-record reports | [docs/design/results-and-scoring.md](docs/design/results-and-scoring.md) |
 | The in-gate: check-in, no-shows, starting and finishing classes, classes run together | [docs/design/gate.md](docs/design/gate.md) |
 | Live boards (results and gate), the marquee, points systems, high-point standings, circuits | [docs/design/live-boards-and-high-point.md](docs/design/live-boards-and-high-point.md) |
-| Show companies, office access to a show, paid features | [docs/design/companies.md](docs/design/companies.md) |
+| Show companies, office access to a show, plans (Basic / Pro) and paid features | [docs/design/companies.md](docs/design/companies.md) |
 | Associations, APHA/AQHA rules, memberships and competition cards, class-code catalogs | [docs/design/associations.md](docs/design/associations.md) |
 | Roles, accounts, `/welcome`, the profile, exhibitor/trainer/judge records, the Trainer Registry and its plans, horses, horse documents | [docs/design/accounts.md](docs/design/accounts.md) |
 | A migration, or a release to production | [docs/design/operations.md](docs/design/operations.md) and the `release` skill |
@@ -100,10 +101,10 @@ Core files only; each design doc lists the files for its subsystem.
 
 ## Roles
 
-- `ADMIN`: everything, including every paid feature; the only role that creates show companies, staffs them and switches their features on.
-- `SHOW_MANAGER`: creates and runs shows (the creator gets the `show_managers` row; removing the last manager is a 409). With `SHOW_SECRETARY`, manages their company's people at My Company Staff — every addition is approved by an ADMIN — and the company's self-cancel cut-off.
+- `ADMIN`: everything, including every paid feature; the only role that creates show companies, sets any company's plan by hand, and starts a Pro+ year.
+- `SHOW_MANAGER`: creates and runs shows (the creator gets the `show_managers` row; removing the last manager is a 409). With `SHOW_SECRETARY`, runs their company at My Company — its plan, its staff and its crew of scribes and gate stewards, added directly (migration 169) — and its self-cancel cut-off.
 - `SHOW_SECRETARY`: runs assigned shows — classes, entries, back numbers, results administration — and, with the two roles above, the registration desk at `/admin/shows/[id]/desk`.
-- `SCRIBE`: enters placings and scores for assigned shows. Not "Ring Steward" — do not rename it.
+- `SCRIBE`: enters placings and scores for assigned shows; may be on a company's crew, which is a list, not access. Not "Ring Steward" — do not rename it.
 - `GATE_STEWARD`: runs the in-gate at `/gate` — order of go, check-in, and each class's gate status.
 - `EXHIBITOR`: their own entries, profile and horses; signs up for a `PUBLISHED` show until `shows.entry_deadline`, and enters and scratches their own classes until each class starts — or until the show starts, where `shows.self_entry_closes` says so.
 - `TRAINER`: a linked trainer registry profile used on horse records.
@@ -123,7 +124,8 @@ Each line is the short form; the linked doc has the reason and the history.
 - **A show reads the exhibitor through `ShowExhibitorView`, and a registration never writes the profile.** Show data goes to that show's own copy. → [registration](docs/design/registration.md)
 - **The exhibitor permission is an `exhibitors` row, not `users.role`.** Read it with `loadExhibitor()` / `canActAsExhibitor()` (`frontend/lib/exhibitor-access.ts`). → [accounts](docs/design/accounts.md)
 - **Every office access check goes through `backend/show_access.py`**: a per-show row or membership of the show's company. → [companies](docs/design/companies.md)
-- **A paid feature is enforced on every endpoint it gates** with `Depends(require_feature(KEY))`; a page only decides whether to offer the door. → [companies](docs/design/companies.md)
+- **A company on GaitDesk Free sets up no show**: every path that creates one goes through `show_companies.show_setup_company_for`. A show is priced at the highest plan its company held across its dates (`show_billing_plan`), so every plan change goes through `set_company_plan`, which logs it. → [companies](docs/design/companies.md)
+- **A paid feature is enforced on every endpoint it gates** with `Depends(require_feature(KEY))`, or `Depends(require_show_feature(KEY))` for one used at a show — that reads the *show's* company plan, since the show is what is billed. A page only decides whether to offer the door. → [companies](docs/design/companies.md)
 - **Flag what the desk can sort out; refuse only what nobody at the counter can produce.** Health paperwork, memberships and a horse's papers are flags, never entry gates. What refuses is the exhibitor's own missing date of birth, or a placing in a class not yet judged. → [desk](docs/design/desk.md), [registration](docs/design/registration.md)
 - **A verified or attested value is never taken from the client.** The backend reads it off the record (paperwork sign-offs, attestation wording). A typed signature is the one exception. → [desk](docs/design/desk.md)
 - **Results land in a draft; `classes.results_published_at` makes them public.** Scribe screens autosave into the draft, the bulk save is the only writer of `results`, and the judge's card never writes it. → [results-and-scoring](docs/design/results-and-scoring.md)

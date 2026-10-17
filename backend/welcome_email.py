@@ -245,6 +245,7 @@ def welcome_message(
     *,
     set_up_by_staff: bool = False,
     show_name: str | None = None,
+    company_name: str | None = None,
 ) -> tuple[str, str]:
     """The subject and plain-text body of one welcome.
 
@@ -253,7 +254,8 @@ def welcome_message(
     than tell them to sign in with a password they don't have. It never
     carries the password itself.
 
-    `show_name` is the show an invite assigned them to.
+    `show_name` is the show an invite assigned them to; `company_name` the
+    company whose staff or crew an invite from My Company put them on.
     """
     url = public_app_url()
     welcome = welcome_for(role)
@@ -263,6 +265,10 @@ def welcome_message(
     lines = [f"Hi {name},", "", f"Welcome to GaitDesk -- your {account} is ready."]
     if show_name:
         lines += ["", f"You've been assigned to {show_name}."]
+    elif company_name and role in ("SHOW_MANAGER", "SHOW_SECRETARY"):
+        lines += ["", f"You're on {company_name}'s staff, and work every show it runs."]
+    elif company_name:
+        lines += ["", f"You're on {company_name}'s crew. A show appears for you once its office assigns you to it."]
     lines += ["", f"Sign in at {url}/login with {email}."]
     if set_up_by_staff:
         lines += [
@@ -296,10 +302,11 @@ async def send_welcome_email(
     *,
     set_up_by_staff: bool = False,
     show_name: str | None = None,
+    company_name: str | None = None,
 ) -> bool | None:
     """Best-effort; never raises. Run it after the account is committed --
     as a background task, so the sign-up response never waits on SMTP."""
     subject, body = welcome_message(
-        first_name, email, role, set_up_by_staff=set_up_by_staff, show_name=show_name
+        first_name, email, role, set_up_by_staff=set_up_by_staff, show_name=show_name, company_name=company_name
     )
     return await send_email(email, subject, body)

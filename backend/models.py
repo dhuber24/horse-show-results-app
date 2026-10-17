@@ -1476,7 +1476,15 @@ class ShowCompany(Base):
     # being able to cancel their own registration. 0 is until the show starts.
     # Read through `cancellations.self_cancel_days_before`.
     self_cancel_days_before = Column(Integer, nullable=False, server_default="0")
+    # Migration 168: GaitDesk Basic or GaitDesk Pro, each charged per exhibitor
+    # registered to a show; since 169 also Free, which sets up no show. What a
+    # plan includes and costs is `show_companies.PLANS`; a `features` row is an
+    # add-on on top of it. Pro+ is a prepaid year in `subscriptions`, not a
+    # value here: this is the plan the company is on when no year covers today.
+    plan = Column(Text, nullable=False, server_default="free", default="free")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (CheckConstraint("plan IN ('free', 'basic', 'pro')", name="ck_show_companies_plan"),)
 
     members = relationship("ShowCompanyMember", back_populates="company", cascade="all, delete-orphan")
     features = relationship("ShowCompanyFeature", back_populates="company", cascade="all, delete-orphan")
@@ -1485,6 +1493,80 @@ class ShowCompany(Base):
         "ShowCompanyUpgradeRequest", back_populates="company", cascade="all, delete-orphan"
     )
     owner = relationship("User", foreign_keys=[owner_user_id])
+    plan_changes = relationship(
+        "ShowCompanyPlanChange", back_populates="company", cascade="all, delete-orphan",
+        order_by="ShowCompanyPlanChange.changed_at",
+    )
+    subscriptions = relationship(
+        "ShowCompanySubscription", back_populates="company", cascade="all, delete-orphan",
+        order_by="ShowCompanySubscription.starts_on",
+    )
+    crew = relationship("ShowCompanyCrew", back_populates="company", cascade="all, delete-orphan")
+
+
+class ShowCompanyPlanChange(Base):
+    """Every change of a company's `plan` (migration 169), so a show is priced
+    at the plans the company was on across its dates rather than whatever it
+    is on the day it is invoiced. See `show_companies.show_billing_plan`."""
+    __tablename__ = "show_company_plan_changes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    plan = Column(Text, nullable=False)
+    changed_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    changed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    company = relationship("ShowCompany", back_populates="plan_changes")
+    changed_by = relationship("User", foreign_keys=[changed_by_user_id])
+
+
+class ShowCompanySubscription(Base):
+    """A GaitDesk Pro+ year (migration 169): every Pro feature, and no
+    per-exhibitor charge for a show that starts within it. In force from
+    `starts_on` whether or not it is paid for -- `payment_received_on` is the
+    day it was, NULL while it is owed (migration 171); a complimentary year is
+    a price of 0. `renewal_reminder_sent_at` marks the one reminder sent a
+    month before `ends_on`."""
+    __tablename__ = "show_company_subscriptions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    plan = Column(Text, nullable=False, server_default="pro_plus", default="pro_plus")
+    starts_on = Column(Date, nullable=False)
+    ends_on = Column(Date, nullable=False)
+    price_cents = Column(Integer, nullable=False)
+    payment_method = Column(Text, nullable=True)
+    payment_reference = Column(Text, nullable=True)
+    payment_received_on = Column(Date, nullable=True)
+    recorded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    renewal_reminder_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("ends_on >= starts_on", name="ck_show_company_subscriptions_dates"),
+        CheckConstraint("plan IN ('pro_plus')", name="ck_show_company_subscriptions_plan"),
+        CheckConstraint("price_cents >= 0", name="ck_show_company_subscriptions_price"),
+    )
+
+    company = relationship("ShowCompany", back_populates="subscriptions")
+    recorded_by = relationship("User", foreign_keys=[recorded_by_user_id])
+
+
+class ShowCompanyCrew(Base):
+    """A scribe or gate steward on a company's own list (migration 169). The
+    list is the company's; each show still assigns who works it."""
+    __tablename__ = "show_company_crew"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    added_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("company_id", "user_id", name="uq_show_company_crew"),)
+
+    company = relationship("ShowCompany", back_populates="crew")
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ShowCompanyMember(Base):
@@ -1505,9 +1587,10 @@ class ShowCompanyMember(Base):
 
 
 class ShowCompanyFeature(Base):
-    """A paid feature switched on for a company. The row is the switch: present
-    is on, and turning it off deletes it. `feature` is a key of
-    `show_companies.FEATURES`, checked there rather than by a CHECK."""
+    """Retired (migration 170): a paid feature switched on for one company, from
+    when features were sold one at a time. Every feature is now in GaitDesk Pro
+    and Pro+, nothing reads or writes this table, and the migration emptied it.
+    Kept mapped only until a later release drops the table."""
     __tablename__ = "show_company_features"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -3300,6 +3383,11 @@ class UserInvite(Base):
     show_id = Column(
         UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True
     )
+    # Migration 169: an invite from My Company, into the company (a manager or
+    # secretary) or onto its crew (a scribe or gate steward).
+    company_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=True
+    )
     status = Column(Text, nullable=False, server_default="pending")
     expires_at = Column(TIMESTAMP(timezone=True), nullable=False)
     invited_by_user_id = Column(
@@ -3312,6 +3400,7 @@ class UserInvite(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     show = relationship("Show", foreign_keys=[show_id])
+    company = relationship("ShowCompany", foreign_keys=[company_id])
     invited_by = relationship("User", foreign_keys=[invited_by_user_id])
     accepted_user = relationship("User", foreign_keys=[accepted_user_id])
 

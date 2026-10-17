@@ -4,17 +4,18 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
-import { foldedOwnCompanies, type ShowCompany } from '@/lib/show-companies';
-import FeatureToggle from './FeatureToggle';
+import { foldedOwnCompanies, formatDay, type ShowCompany } from '@/lib/show-companies';
+import PlanPicker from './PlanPicker';
 
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 const labelStyle = { color: 'var(--text-deep)' } as const;
 
 type Filter = 'all' | 'organizations' | 'independent' | 'requests' | 'upgrades';
 
-/** Whether the company has asked for a feature it does not have (migration 144). */
+/** Whether the company has asked for a feature it does not have (migration 144),
+ *  or for Pro+ (migration 169). */
 function asksForUpgrade(company: ShowCompany): boolean {
-  return company.features.some((f) => f.requested_at && !f.enabled);
+  return company.features.some((f) => f.requested_at && !f.enabled) || Boolean(company.pro_plus_requested_at);
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -283,43 +284,61 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                       </p>
                     )}
                   </div>
-                  {/* The switch sits on the row so a feature can be turned on
-                      without opening the company. */}
-                  <div className="flex flex-col gap-2 sm:items-end">
-                    {company.features.map((feature) => (
-                      <div key={feature.key} className="flex items-center gap-2 sm:flex-row-reverse">
-                        <FeatureToggle
-                          companyId={company.id}
-                          companyName={company.name}
-                          feature={feature}
-                          onChange={(updated) =>
-                            setCompanies((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
-                          }
-                          onError={setToggleError}
-                        />
-                        <span className="text-sm" style={{ color: 'var(--text-deep)' }}>
-                          {feature.label}
-                          {feature.enabled && company.members.length === 0 && (
-                            <span className="block text-xs" style={{ color: 'var(--warning)' }}>
-                              On, but reaches nobody yet — add an account
-                            </span>
-                          )}
-                          {/* Switching it on answers the request, so the note
-                              sits against the switch that does. */}
-                          {feature.requested_at && !feature.enabled && (
-                            <Link
-                              href={`/admin/companies/${company.id}`}
-                              className="mt-1 block w-fit sm:ml-auto text-xs px-1.5 py-0.5 rounded font-medium"
-                              style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
-                              suppressHydrationWarning
-                            >
-                              Requested {formatDate(feature.requested_at)}
-                              {feature.requested_by_name ? ` by ${feature.requested_by_name}` : ''}
-                            </Link>
-                          )}
-                        </span>
-                      </div>
-                    ))}
+                  {/* The plan sits on the row so a company can be moved without
+                      opening it (migration 168). A plan is the only way to a
+                      feature (migration 170). */}
+                  <div className="flex flex-col gap-1.5 sm:items-end">
+                    <PlanPicker
+                      company={company}
+                      onChange={(updated) =>
+                        setCompanies((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+                      }
+                      onError={setToggleError}
+                    />
+                    {company.effective_plan === 'pro_plus' && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded font-medium"
+                        style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
+                        title={`Paid year; then ${company.plan_label}`}
+                      >
+                        Pro+ through{' '}
+                        {formatDay(
+                          [...(company.subscriptions ?? [])].sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0]?.ends_on,
+                        )}
+                      </span>
+                    )}
+                    {company.pro_plus_requested_at && company.effective_plan !== 'pro_plus' && (
+                      <Link
+                        href={`/admin/companies/${company.id}`}
+                        className="block w-fit text-xs px-1.5 py-0.5 rounded font-medium"
+                        style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+                        suppressHydrationWarning
+                      >
+                        Asked for Pro+ {formatDate(company.pro_plus_requested_at)}
+                      </Link>
+                    )}
+                    {company.plan === 'pro' && company.members.length === 0 && (
+                      <span className="text-xs" style={{ color: 'var(--warning)' }}>
+                        On Pro, but reaches nobody yet — add an account
+                      </span>
+                    )}
+                    {/* Moving to Pro answers every request, so the note sits
+                        against the control that does. */}
+                    {company.features
+                      .filter((f) => f.requested_at && !f.enabled)
+                      .slice(0, 1)
+                      .map((f) => (
+                        <Link
+                          key={f.key}
+                          href={`/admin/companies/${company.id}`}
+                          className="block w-fit text-xs px-1.5 py-0.5 rounded font-medium"
+                          style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+                          suppressHydrationWarning
+                        >
+                          Asked for {f.plan} {formatDate(f.requested_at)}
+                          {f.requested_by_name ? ` · ${f.requested_by_name}` : ''}
+                        </Link>
+                      ))}
                   </div>
                 </li>
               );

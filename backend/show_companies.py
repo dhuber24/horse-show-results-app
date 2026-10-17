@@ -38,6 +38,21 @@ with `Depends(require_feature(KEY))` and a page by reading `GET
 /users/me/features`; the endpoint is the enforcement and the page only decides
 what to offer, the same split as every screen lock in this app.
 
+**A company is on a plan, and the plan carries the features** (migration 168).
+GaitDesk Basic runs the show; GaitDesk Pro adds the back office (`PLANS`). Both
+are charged per exhibitor registered to a show, which GaitDesk invoices off the
+usage statement (`billing.platform_usage`). **A company has a feature through
+its plan and no other way** (migration 170): the per-feature switches of
+migrations 142 and 168 are retired, since every paid feature is in Pro and
+Pro+, and a company moves itself to Pro from My Company.
+
+**A feature is read off the caller or off the show** -- whichever the screen
+belongs to. The show bill import is used before the show exists, so it asks
+the caller's companies (`require_feature`). Everything else Pro sells is used
+*at* a show and billed *for* that show, so it asks the show's own company
+(`require_show_feature`, `show_features`): a freelance secretary whose other
+club is on Pro does not bring Pro reports to a Basic club's show.
+
 **A locked door asks for the upgrade itself** (migration 144). The button
 beside it writes a `show_company_upgrade_requests` row for the company, which
 GaitDesk's admins find on the Show Companies screens and as a count on the
@@ -50,12 +65,12 @@ asked -- and **switching the feature on answers it**, in the same transaction.
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Sequence
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -66,14 +81,16 @@ from mailer import public_app_url, send_email
 from models import (
     Show,
     ShowCompany,
-    ShowCompanyFeature,
     ShowCompanyJoinRequest,
     ShowCompanyMember,
+    ShowCompanyPlanChange,
+    ShowCompanySubscription,
     ShowCompanyUpgradeRequest,
     ShowManager,
     ShowSecretary,
     User,
 )
+from schemas import PlanInfoOut
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +105,13 @@ class Feature:
     plan: str
 
 
+PRO_LABEL = "GaitDesk Pro"
+
 SHOWBILL_IMPORT = "showbill_import"
+FINANCIAL_REPORTS = "financial_reports"
+ASSOCIATION_EXPORT = "association_export"
+LIVE_BOARDS = "live_boards"
+ONLINE_PAYMENTS = "online_payments"
 
 FEATURES: dict[str, Feature] = {
     SHOWBILL_IMPORT: Feature(
@@ -98,9 +121,248 @@ FEATURES: dict[str, Feature] = {
             "Upload the printed show bill and GaitDesk reads the dates, venue, judges, "
             "clubs, classes and fees into a draft show for the office to check."
         ),
-        plan="GaitDesk Pro",
+        plan=PRO_LABEL,
+    ),
+    FINANCIAL_REPORTS: Feature(
+        key=FINANCIAL_REPORTS,
+        label="Financial reports",
+        description=(
+            "Revenue by category, registration counts, balances, stalls and the rest of "
+            "the show's money reports, ready to print or export."
+        ),
+        plan=PRO_LABEL,
+    ),
+    ASSOCIATION_EXPORT: Feature(
+        key=ASSOCIATION_EXPORT,
+        label="Association results export",
+        description=(
+            "Export the show's results in the file format a breed association asks for, "
+            "such as APHA's results CSV."
+        ),
+        plan=PRO_LABEL,
+    ),
+    LIVE_BOARDS: Feature(
+        key=LIVE_BOARDS,
+        label="Live Boards",
+        description=(
+            "The Results Board, Results & High Point and the Gate Board, full screen on "
+            "a lobby or ring-side TV for exhibitors and spectators. Monitors not included."
+        ),
+        plan=PRO_LABEL,
+    ),
+    # Sold before it is built: nothing gates on it yet, and the financials page
+    # says "coming soon". The card processor is its own project.
+    ONLINE_PAYMENTS: Feature(
+        key=ONLINE_PAYMENTS,
+        label="Online card payments",
+        description="Exhibitors pay their show bill by card, online. Coming soon.",
+        plan=PRO_LABEL,
     ),
 }
+
+
+@dataclass(frozen=True)
+class Plan:
+    key: str
+    label: str
+    # What GaitDesk charges the show company for each exhibitor on a show's
+    # roster. Priced through `billing.platform_usage`.
+    rate_cents: int
+    features: frozenset[str]
+    # One line each, for the plan's card on the admin screens and My Company.
+    includes: tuple[str, ...]
+    # Migration 169. Free sets up no show; every other plan does.
+    sets_up_shows: bool = True
+    # A prepaid year's price; 0 for the plans billed per exhibitor.
+    annual_cents: int = 0
+    # A company may move itself onto it from My Company. Pro+ is billed for
+    # up front, so a GaitDesk admin starts it (paid or not, migration 171).
+    self_serve: bool = False
+
+
+FREE = "free"
+BASIC = "basic"
+PRO = "pro"
+PRO_PLUS = "pro_plus"
+
+PLANS: dict[str, Plan] = {
+    FREE: Plan(
+        key=FREE,
+        label="GaitDesk Free",
+        rate_cents=0,
+        features=frozenset(),
+        includes=(
+            "Your company's managers, secretaries, scribes and gate stewards",
+            "Choose GaitDesk Basic or Pro to set up a show -- nothing is charged until after it",
+        ),
+        sets_up_shows=False,
+    ),
+    BASIC: Plan(
+        key=BASIC,
+        label="GaitDesk Basic",
+        rate_cents=200,
+        features=frozenset(),
+        includes=(
+            "Registration, back numbers, the gate, scribing and judge's cards",
+            "Live results on the show's public pages",
+            "Billing and payment recording",
+        ),
+        self_serve=True,
+    ),
+    PRO: Plan(
+        key=PRO,
+        label=PRO_LABEL,
+        rate_cents=400,
+        features=frozenset(FEATURES),
+        includes=(
+            "Everything in GaitDesk Basic",
+            "Financial reports",
+            "Start a show from its show bill",
+            "Association results export",
+            "Live Boards for exhibitors and spectators (monitors not included)",
+            "Online card payments (coming soon)",
+        ),
+        self_serve=True,
+    ),
+    PRO_PLUS: Plan(
+        key=PRO_PLUS,
+        label="GaitDesk Pro+",
+        rate_cents=0,
+        features=frozenset(FEATURES),
+        includes=(
+            "Everything in GaitDesk Pro",
+            "Unlimited shows and exhibitors for a year, billed once",
+            "Made for companies running more than one mid-sized show a year",
+        ),
+        annual_cents=149900,
+    ),
+}
+
+# The values `show_companies.plan` takes -- the plans billed per exhibitor, and
+# Free. Pro+ is a prepaid year on top (`show_company_subscriptions`).
+COLUMN_PLANS = (FREE, BASIC, PRO)
+
+# What a company made from now on starts on -- the column's default.
+DEFAULT_PLAN = FREE
+
+# How long before a Pro+ year ends its company's managers are reminded.
+RENEWAL_NOTICE_DAYS = 30
+
+# What a company may ask GaitDesk for from a locked door: a feature, or Pro+.
+REQUESTABLE = frozenset(FEATURES) | {PRO_PLUS}
+
+
+def plan_catalog() -> list[PlanInfoOut]:
+    """Every plan, for a page that says what each includes."""
+    return [
+        PlanInfoOut(
+            key=p.key,
+            label=p.label,
+            rate_cents=p.rate_cents,
+            annual_cents=p.annual_cents,
+            sets_up_shows=p.sets_up_shows,
+            self_serve=p.self_serve,
+            features=sorted(p.features),
+            includes=list(p.includes),
+        )
+        for p in PLANS.values()
+    ]
+
+
+def plan_features(plan: str | None) -> frozenset[str]:
+    """The features a plan includes. An unknown plan includes nothing."""
+    entry = PLANS.get(plan or "")
+    return entry.features if entry else frozenset()
+
+
+def plan_label(plan: str | None) -> str:
+    entry = PLANS.get(plan or "")
+    return entry.label if entry else PLANS[FREE].label
+
+
+def covering_subscription(subscriptions: Iterable, on: date):
+    """The Pro+ year that covers a day, or None. Overlapping years (a renewal
+    recorded early) are one cover; the one running longest is returned."""
+    covering = [s for s in subscriptions if s.starts_on <= on <= s.ends_on]
+    return max(covering, key=lambda s: s.ends_on) if covering else None
+
+
+def effective_plan(plan: str | None, subscriptions: Iterable, on: date) -> str:
+    """The plan a company is on today: Pro+ while a paid year covers the day,
+    otherwise its per-exhibitor plan -- which is what it returns to when a year
+    runs out unrenewed."""
+    if covering_subscription(subscriptions, on) is not None:
+        return PRO_PLUS
+    return plan if plan in PLANS else FREE
+
+
+def sets_up_shows(plan: str | None) -> bool:
+    entry = PLANS.get(plan or "")
+    return bool(entry and entry.sets_up_shows)
+
+
+def show_billing_plan(changes: Iterable, subscriptions: Iterable, start: date, end: date) -> str:
+    """The plan one show is invoiced at (migration 169).
+
+    **Pro+ when a paid year covers the show's first day** -- the year is
+    unlimited, so a show that starts inside it costs nothing per exhibitor.
+    Otherwise **the highest-priced plan the company was on at any point across
+    the show's dates**: a company picks its own plan, and pricing the show at
+    whatever it is on the day it is invoiced would let it run Pro and move to
+    Basic the night the show closed. Free counts as Basic -- no show is free.
+
+    `changes` are `(changed_at, plan)` pairs, or rows with those attributes;
+    each is in effect from the UTC day it was made. With no change on or
+    before the first day, the earliest one is taken as the start.
+    """
+    if covering_subscription(subscriptions, start) is not None:
+        return PRO_PLUS
+    ordered = sorted(((_change_day(c), _change_plan(c)) for c in changes), key=lambda pair: pair[0])
+    if not ordered:
+        return BASIC
+    before = [plan for day, plan in ordered if day <= start]
+    held = [before[-1] if before else ordered[0][1]]
+    held += [plan for day, plan in ordered if start < day <= end]
+    priced = [BASIC if plan == FREE or plan not in PLANS else plan for plan in held]
+    return max(priced, key=lambda plan: PLANS[plan].rate_cents)
+
+
+def _change_day(change) -> date:
+    when = change[0] if isinstance(change, tuple) else change.changed_at
+    return when.astimezone(timezone.utc).date() if isinstance(when, datetime) else when
+
+
+def _change_plan(change) -> str:
+    return change[1] if isinstance(change, tuple) else change.plan
+
+
+def next_pro_plus_term(latest_end: date | None, today: date) -> tuple[date, date]:
+    """The year a new Pro+ payment buys: from today, or from the day after the
+    current year ends when it is a renewal paid early -- so paying a month
+    ahead never loses the month. A year runs to the day before its anniversary."""
+    starts = today if latest_end is None or latest_end < today else latest_end + timedelta(days=1)
+    try:
+        anniversary = starts.replace(year=starts.year + 1)
+    except ValueError:  # 29 February
+        anniversary = starts.replace(year=starts.year + 1, day=28)
+    return starts, anniversary - timedelta(days=1)
+
+
+def renewal_reminder_due(subscription, terms: Iterable, today: date) -> bool:
+    """Whether a Pro+ year's one renewal reminder should go today: within
+    `RENEWAL_NOTICE_DAYS` of its end, not yet sent, and not already renewed by
+    another year that picks up by the day after it ends."""
+    if subscription.renewal_reminder_sent_at is not None:
+        return False
+    if not (subscription.ends_on - timedelta(days=RENEWAL_NOTICE_DAYS) <= today <= subscription.ends_on):
+        return False
+    return not any(
+        t is not subscription
+        and t.starts_on <= subscription.ends_on + timedelta(days=1)
+        and t.ends_on > subscription.ends_on
+        for t in terms
+    )
+
 
 # Roles that have every feature without belonging to a company.
 ALL_FEATURE_ROLES = frozenset({"ADMIN"})
@@ -111,7 +373,7 @@ SHOW_OFFICE_ROLES = frozenset({"SHOW_MANAGER", "SHOW_SECRETARY"})
 
 FEATURE_NOT_ENABLED = (
     "{label} needs the {plan} subscription, and your show company isn't on it yet. "
-    "Ask GaitDesk about upgrading."
+    "Choose GaitDesk Pro on My Company -- nothing is charged until after the show."
 )
 
 
@@ -260,14 +522,17 @@ async def place_in_company(user: User, db: AsyncSession, organization_name: str 
 def is_spare_personal_company(
     owner_user_id: UUID | None,
     user_id: UUID,
-    feature_count: int,
+    paid_years: int,
+    show_count: int,
     member_ids: set[UUID],
 ) -> bool:
     """Whether somebody's own company can go now that they work for an
-    organization: it is theirs, nothing has been switched on for it, and nobody
-    else is in it. A company with a feature on is one somebody paid for, and one
-    with other people in it is no longer only theirs -- both stay."""
-    return owner_user_id == user_id and feature_count == 0 and member_ids <= {user_id}
+    organization: it is theirs, nobody else is in it, it has no Pro+ year, and
+    it runs no show. A Pro+ year is something paid for, and a show is something
+    to invoice -- the usage statement lists a company's own shows, so deleting
+    the company would leave the show on nobody's (migration 170, which retired
+    the feature switches that used to mark a company as paid for)."""
+    return owner_user_id == user_id and paid_years == 0 and show_count == 0 and member_ids <= {user_id}
 
 
 async def retire_spare_personal_company(user_id: UUID, joined_company_id: UUID, db: AsyncSession) -> bool:
@@ -283,15 +548,16 @@ async def retire_spare_personal_company(user_id: UUID, joined_company_id: UUID, 
     ).scalar_one_or_none()
     if own is None:
         return False
-    feature_count = len(
-        (await db.execute(select(ShowCompanyFeature.id).where(ShowCompanyFeature.company_id == own.id))).all()
+    paid_years = await db.scalar(
+        select(func.count()).select_from(ShowCompanySubscription).where(ShowCompanySubscription.company_id == own.id)
     )
+    show_count = await db.scalar(select(func.count()).select_from(Show).where(Show.company_id == own.id))
     member_ids = set(
         (
             await db.execute(select(ShowCompanyMember.user_id).where(ShowCompanyMember.company_id == own.id))
         ).scalars().all()
     )
-    if not is_spare_personal_company(own.owner_user_id, user_id, feature_count, member_ids):
+    if not is_spare_personal_company(own.owner_user_id, user_id, paid_years or 0, show_count or 0, member_ids):
         return False
     # The shows they ran on their own stay theirs: they move to no company, and
     # the owner keeps them through a row each (migration 156). Which company
@@ -458,21 +724,6 @@ def default_show_company(companies: Sequence[tuple[UUID, UUID | None]]) -> UUID 
     return None
 
 
-async def default_show_company_for(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
-    """`default_show_company` for the account creating a show. An ADMIN is in
-    no company and chooses on Step 1."""
-    if role not in SHOW_OFFICE_ROLES:
-        return None
-    rows = (
-        await db.execute(
-            select(ShowCompany.id, ShowCompany.owner_user_id)
-            .join(ShowCompanyMember, ShowCompanyMember.company_id == ShowCompany.id)
-            .where(ShowCompanyMember.user_id == user_id)
-        )
-    ).all()
-    return default_show_company([(cid, owner) for cid, owner in rows])
-
-
 def vouch_for_member(company: ShowCompany, user: User, voucher_id: UUID) -> bool:
     """A company member asks for somebody to be added (migration 149).
 
@@ -571,14 +822,88 @@ async def sync_personal_company_name(user: User, old_full_name: str, db: AsyncSe
 
 
 async def company_features_for_user(db: AsyncSession, user_id: UUID) -> set[str]:
-    """Every feature switched on for any company this account belongs to."""
+    """Every feature any company this account belongs to has -- through its
+    plan or through an add-on switch."""
+    company_ids = (
+        await db.execute(select(ShowCompanyMember.company_id).where(ShowCompanyMember.user_id == user_id))
+    ).scalars().all()
+    if not company_ids:
+        return set()
+    return combined_features((await effective_plans(db, company_ids)).values())
+
+
+def utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+async def effective_plans(db: AsyncSession, company_ids: Iterable[UUID], on: date | None = None) -> dict[UUID, str]:
+    """Each company's plan on a day (today by default): Pro+ while a paid year
+    covers it, else `show_companies.plan`."""
+    ids = list(company_ids)
+    if not ids:
+        return {}
+    on = on or utc_today()
+    plans = dict((await db.execute(select(ShowCompany.id, ShowCompany.plan).where(ShowCompany.id.in_(ids)))).all())
+    covered = set(
+        (
+            await db.execute(
+                select(ShowCompanySubscription.company_id).where(
+                    ShowCompanySubscription.company_id.in_(ids),
+                    ShowCompanySubscription.starts_on <= on,
+                    ShowCompanySubscription.ends_on >= on,
+                )
+            )
+        ).scalars().all()
+    )
+    return {cid: PRO_PLUS if cid in covered else (plan if plan in PLANS else FREE) for cid, plan in plans.items()}
+
+
+def combined_features(plans: Iterable[str | None]) -> set[str]:
+    """What some companies have between them: every one of their plans'
+    features. A plan is the only way to a feature (migration 170)."""
+    features: set[str] = set()
+    for plan in plans:
+        features |= plan_features(plan)
+    return features
+
+
+def company_features(company: ShowCompany, on: date | None = None) -> set[str]:
+    """What one loaded company has: its plan's features, today's plan being Pro+
+    while a paid year covers it. `company.subscriptions` must be loaded."""
+    return combined_features([loaded_effective_plan(company, on)])
+
+
+def loaded_effective_plan(company: ShowCompany, on: date | None = None) -> str:
+    """`effective_plan` for a company loaded with its subscriptions."""
+    return effective_plan(company.plan, company.subscriptions, on or utc_today())
+
+
+async def show_company_ids(db: AsyncSession, show_id: UUID) -> list[UUID]:
+    """The companies whose plan a show is on.
+
+    The show's own company (migration 156). A show from before then, which its
+    office has not given a company yet, is run by its managers, so it is on
+    whatever their companies are on -- the same people who had every screen of
+    it before plans existed, which is what grandfathering promised them.
+    """
+    company_id = (await db.execute(select(Show.company_id).where(Show.id == show_id))).scalar_one_or_none()
+    if company_id is not None:
+        return [company_id]
     rows = await db.execute(
-        select(ShowCompanyFeature.feature)
-        .join(ShowCompanyMember, ShowCompanyMember.company_id == ShowCompanyFeature.company_id)
-        .where(ShowCompanyMember.user_id == user_id)
+        select(ShowCompanyMember.company_id)
+        .join(ShowManager, ShowManager.user_id == ShowCompanyMember.user_id)
+        .where(ShowManager.show_id == show_id)
         .distinct()
     )
-    return set(rows.scalars().all())
+    return list(rows.scalars().all())
+
+
+async def show_features(db: AsyncSession, show_id: UUID) -> set[str]:
+    """Every feature a show's company has, through its plan or an add-on."""
+    company_ids = await show_company_ids(db, show_id)
+    if not company_ids:
+        return set()
+    return combined_features((await effective_plans(db, company_ids)).values())
 
 
 async def enabled_features(db: AsyncSession, user_id: UUID, role: str) -> set[str]:
@@ -641,15 +966,26 @@ def upgrade_request_email(
 
     An independent's company is named after them, so "Jane Smith asked for Pro
     for Jane Smith" would say nothing -- it names what they are instead."""
-    entry = FEATURES[feature]
     whom = "their own account (an independent -- no club or firm)" if personal else company_name
-    subject = f"{requester_name if personal else company_name} asked for {entry.plan}"
     role = _ROLE_LABEL.get(requester_role, requester_role)
+    if feature == PRO_PLUS:
+        pro_plus = PLANS[PRO_PLUS]
+        return (
+            f"{requester_name if personal else company_name} asked for {pro_plus.label}",
+            f"{requester_name} ({requester_email}, {role}) asked for {pro_plus.label} for {whom}: "
+            f"a year of unlimited shows and exhibitors for {_dollars(pro_plus.annual_cents)}.\n\n"
+            "Arrange the payment with them, then record it on the company's page -- that starts "
+            "their year and answers the request:\n"
+            f"{public_app_url()}/admin/companies/{company_id}\n",
+        )
+    entry = FEATURES[feature]
+    subject = f"{requester_name if personal else company_name} asked for {entry.plan}"
     body = (
         f"{requester_name} ({requester_email}, {role}) asked for {entry.plan} for {whom}, "
         f"to use: {entry.label}.\n\n"
         "GaitDesk doesn't take payment in the app, so get in touch with them to arrange it. "
-        "Once it's settled, switch the feature on for the company -- that answers the request:\n"
+        f"Once it's settled, move the company to {entry.plan} (or switch just this feature on) "
+        "-- that answers the request:\n"
         f"{public_app_url()}/admin/companies/{company_id}\n"
     )
     return subject, body
@@ -685,23 +1021,23 @@ async def request_upgrade(
     company already has: the caller's page is stale, and a request for
     something that is on would sit on the admin's list with nothing to do.
     """
-    if feature not in FEATURES:
+    if feature not in REQUESTABLE:
         raise HTTPException(404, "No such feature")
     member_of = [c.id for c in await companies_for_user(db, user_id)]
     target = resolve_upgrade_company(role, company_id, member_of)
 
-    already_on = (
-        await db.execute(
-            select(ShowCompanyFeature.id).where(
-                ShowCompanyFeature.company_id == target, ShowCompanyFeature.feature == feature
+    company = await db.get(ShowCompany, target)
+    current = (await effective_plans(db, [target]))[target]
+    if feature == PRO_PLUS:
+        # Pro+ is asked for, never pressed on: a GaitDesk admin starts the
+        # year (migrations 169, 171).
+        if current == PRO_PLUS:
+            raise HTTPException(409, f"{company.name} is already on {PLANS[PRO_PLUS].label}.")
+    else:
+        if feature in plan_features(current):
+            raise HTTPException(
+                409, f"{company.name} already has {FEATURES[feature].label}. Reload the page to use it."
             )
-        )
-    ).first()
-    if already_on is not None:
-        company = await db.get(ShowCompany, target)
-        raise HTTPException(
-            409, f"{company.name} already has {FEATURES[feature].label}. Reload the page to use it."
-        )
 
     try:
         # A savepoint, so a request the company already made -- a colleague's
@@ -807,3 +1143,329 @@ def require_feature(feature: str):
             raise HTTPException(403, feature_not_enabled_message(feature))
 
     return dependency
+
+
+SHOW_FEATURE_NOT_ENABLED = (
+    "{label} needs the {plan} subscription, and this show's company isn't on it yet. "
+    "Its office can choose GaitDesk Pro on My Company -- nothing is charged until after the show."
+)
+
+
+def show_feature_not_enabled_message(feature: str) -> str:
+    entry = FEATURES[feature]
+    return SHOW_FEATURE_NOT_ENABLED.format(label=entry.label, plan=entry.plan)
+
+
+def require_show_feature(feature: str):
+    """A dependency refusing a caller at a show whose company has not paid for
+    `feature` -- for a feature used at a show and billed for that show. Reads
+    the `show_id` path parameter, so it only goes on a route under a show; who
+    may open the show at all is still the route's own `_assert_show_access`.
+
+    An ADMIN passes without a lookup, as everywhere.
+    """
+    if feature not in FEATURES:
+        raise ValueError(f"Unknown feature: {feature}")
+
+    async def dependency(
+        show_id: UUID,
+        x_user_role: str = Header(...),
+        db: AsyncSession = Depends(get_db),
+    ) -> None:
+        if x_user_role in ALL_FEATURE_ROLES:
+            return
+        if feature not in await show_features(db, show_id):
+            raise HTTPException(403, show_feature_not_enabled_message(feature))
+
+    return dependency
+
+
+# ── Choosing a plan, Pro+ years, and setting up a show (migration 169) ─────────
+
+
+def _dollars(cents: int) -> str:
+    return f"${cents / 100:,.0f}" if cents % 100 == 0 else f"${cents / 100:,.2f}"
+
+
+def set_company_plan(company: ShowCompany, plan: str, changed_by: UUID | None, db: AsyncSession) -> bool:
+    """Move a company onto a per-exhibitor plan (or Free), in the caller's
+    transaction, and log it -- the log is what a show is priced from
+    (`show_billing_plan`). Answers every upgrade request for a feature the
+    company now has. Returns False when it was already on that plan.
+
+    `company.upgrade_requests` and `company.subscriptions` must be loaded."""
+    if plan not in COLUMN_PLANS:
+        raise HTTPException(422, "Choose GaitDesk Free, Basic or Pro.")
+    if company.plan == plan:
+        return False
+    company.plan = plan
+    db.add(
+        ShowCompanyPlanChange(
+            company_id=company.id, plan=plan, changed_at=datetime.now(timezone.utc), changed_by_user_id=changed_by
+        )
+    )
+    now_has = plan_features(effective_plan(plan, company.subscriptions, utc_today()))
+    for request in [r for r in company.upgrade_requests if r.feature in now_has]:
+        company.upgrade_requests.remove(request)
+    return True
+
+
+def record_pro_plus(
+    company: ShowCompany,
+    *,
+    starts_on: date,
+    ends_on: date,
+    price_cents: int,
+    payment_method: str | None,
+    payment_reference: str | None,
+    recorded_by: UUID | None,
+    db: AsyncSession,
+    payment_received_on: date | None = None,
+) -> ShowCompanySubscription:
+    """Start a Pro+ year, in the caller's transaction. A GaitDesk admin starts
+    one by hand -- paid for, owed (`payment_received_on` None, marked paid
+    when the money comes) or complimentary (a price of 0) -- and a card
+    processor's confirmation would call this the same way, paid. The year is
+    in force from `starts_on` regardless: being paid for it is a fact about
+    the money, not about what the company may use (migration 171).
+
+    A Free company is moved to Pro as well, so the plan it returns to when the
+    year runs out unrenewed is one that still sets up shows and keeps every
+    feature it has been using -- billed per exhibitor from then on. A Basic or
+    Pro company keeps the plan it chose. Answers every upgrade request the
+    company has, Pro+ included. `company` must be loaded with its upgrade
+    requests and subscriptions."""
+    if ends_on < starts_on:
+        raise HTTPException(422, "The year can't end before it starts.")
+    if price_cents < 0:
+        raise HTTPException(422, "The price can't be negative.")
+    term = ShowCompanySubscription(
+        company_id=company.id,
+        plan=PRO_PLUS,
+        starts_on=starts_on,
+        ends_on=ends_on,
+        price_cents=price_cents,
+        payment_method=(payment_method or "").strip() or None,
+        payment_reference=(payment_reference or "").strip() or None,
+        # Nothing is owed on a complimentary year, so it is never "unpaid".
+        payment_received_on=payment_received_on if price_cents else (payment_received_on or utc_today()),
+        recorded_by_user_id=recorded_by,
+    )
+    company.subscriptions.append(term)
+    if company.plan == FREE:
+        set_company_plan(company, PRO, recorded_by, db)
+    for request in list(company.upgrade_requests):
+        if request.feature in REQUESTABLE:
+            company.upgrade_requests.remove(request)
+    return term
+
+
+SHOW_SETUP_LOCKED = (
+    "{name} is on GaitDesk Free, which doesn't set up shows. Choose GaitDesk Basic or Pro on "
+    "My Company to set one up -- nothing is charged until after the show."
+)
+
+
+def show_setup_choice(
+    companies: Sequence[tuple[UUID, UUID | None, str, str]], role: str
+) -> UUID | None:
+    """Which company a new show runs under, from the creator's companies as
+    `(id, owner_user_id, name, effective plan)` -- or None, and Step 1 asks.
+
+    Refuses outright (403) when none of them sets up shows: a Free company can
+    staff itself, but a show needs a plan it will be invoiced on. Among the
+    ones that do, `default_show_company` decides as before -- a company on
+    Free is never picked for a show, even as somebody's only organization.
+    An ADMIN is in no company and chooses on Step 1.
+    """
+    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
+        return None
+    able = [(cid, owner) for cid, owner, _name, plan in companies if sets_up_shows(plan)]
+    if not able:
+        # An independent's own company is named after them; "Jane Smith is on
+        # Free" reads their own name back at them.
+        named = next((name for _cid, owner, name, _plan in companies if owner is None), None)
+        raise HTTPException(403, SHOW_SETUP_LOCKED.format(name=named or "Your account"))
+    return default_show_company(able)
+
+
+async def show_setup_company_for(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
+    """`show_setup_choice` for the account creating a show: the gate on every
+    path that makes one (a new show, a show bill's Create)."""
+    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
+        return None
+    rows = (
+        await db.execute(
+            select(ShowCompany.id, ShowCompany.owner_user_id, ShowCompany.name)
+            .join(ShowCompanyMember, ShowCompanyMember.company_id == ShowCompany.id)
+            .where(ShowCompanyMember.user_id == user_id)
+        )
+    ).all()
+    plans = await effective_plans(db, [r[0] for r in rows])
+    return show_setup_choice([(cid, owner, name, plans.get(cid, FREE)) for cid, owner, name in rows], role)
+
+
+async def can_set_up_shows(db: AsyncSession, user_id: UUID, role: str) -> bool:
+    """Whether the caller may create a show at all -- what the New Show button
+    asks. Never the enforcement; `show_setup_company_for` is."""
+    if role in ALL_FEATURE_ROLES:
+        return True
+    if role not in SHOW_OFFICE_ROLES:
+        return False
+    company_ids = (
+        await db.execute(select(ShowCompanyMember.company_id).where(ShowCompanyMember.user_id == user_id))
+    ).scalars().all()
+    return any(sets_up_shows(plan) for plan in (await effective_plans(db, company_ids)).values())
+
+
+# ── Telling the company's show managers (migration 169) ───────────────────────
+
+
+async def company_manager_emails(db: AsyncSession, company_id: UUID) -> list[str]:
+    """Who hears about the company's plan: its show managers, or -- for a
+    company with none, an independent secretary's own -- everybody in it."""
+    rows = (
+        await db.execute(
+            select(User.email, User.role)
+            .join(ShowCompanyMember, ShowCompanyMember.user_id == User.id)
+            .where(ShowCompanyMember.company_id == company_id)
+        )
+    ).all()
+    managers = [email for email, role in rows if role == "SHOW_MANAGER"]
+    return unique_addresses(managers or [email for email, _role in rows])
+
+
+def plan_confirmation_email(
+    company_name: str,
+    plan: str,
+    *,
+    term: tuple[date, date] | None = None,
+    returns_to: str | None = None,
+) -> tuple[str, str]:
+    """What the company's show managers are sent once it is on a plan."""
+    entry = PLANS[plan]
+    lines = [f"{company_name} is now on {entry.label}.", ""]
+    if plan == PRO_PLUS and term is not None:
+        starts, ends = term
+        lines += [
+            f"Your year runs from {starts:%B %-d, %Y} through {ends:%B %-d, %Y}: unlimited shows and "
+            "exhibitors, with every GaitDesk Pro feature, and no per-exhibitor charge for any show "
+            "that starts in it.",
+            "",
+            f"We'll email you a month before it ends. If it isn't renewed by {ends:%B %-d, %Y}, "
+            f"{company_name} moves to {plan_label(returns_to)}"
+            + (f", billed {_dollars(PLANS[returns_to].rate_cents)} per exhibitor after each show." if returns_to in PLANS and PLANS[returns_to].rate_cents else "."),
+        ]
+    elif entry.rate_cents:
+        lines += [
+            f"Each show is billed {_dollars(entry.rate_cents)} per exhibitor registered to it, after the "
+            "show -- nothing is charged until then. You can set up shows now.",
+        ]
+    else:
+        lines += ["Choose GaitDesk Basic or Pro on My Company when you're ready to set up a show."]
+    lines += ["", "What it includes:"] + [f"  - {line}" for line in entry.includes]
+    lines += ["", f"Your plan, any time: {public_app_url()}/admin/my-company"]
+    return f"{company_name} is on {entry.label}", "\n".join(lines) + "\n"
+
+
+def renewal_reminder_email(company_name: str, ends_on: date, returns_to: str) -> tuple[str, str]:
+    """The one reminder a month before a Pro+ year ends."""
+    pro_plus = PLANS[PRO_PLUS]
+    after = PLANS.get(returns_to) or PLANS[PRO]
+    consequence = (
+        f"{company_name} moves to {after.label}: it keeps setting up shows"
+        + (
+            f", and each show that starts after then is billed {_dollars(after.rate_cents)} per exhibitor "
+            "registered to it."
+            if after.rate_cents
+            else "."
+        )
+    )
+    if not after.sets_up_shows:
+        consequence = f"{company_name} moves to {after.label} and can't set up new shows until it picks a plan."
+    if after.features != pro_plus.features:
+        consequence += " The GaitDesk Pro features -- reports, Live Boards, the show bill import and exports -- turn off."
+    body = (
+        f"{company_name}'s {pro_plus.label} year ends on {ends_on:%B %-d, %Y}.\n\n"
+        f"Renew for another year of unlimited shows and exhibitors for {_dollars(pro_plus.annual_cents)}: "
+        "reply to this email or contact GaitDesk, and the new year starts the day after this one ends.\n\n"
+        f"If it isn't renewed by {ends_on:%B %-d, %Y}: {consequence} Nothing is lost -- your shows, "
+        "entries and results stay as they are.\n\n"
+        f"Your plan, any time: {public_app_url()}/admin/my-company\n"
+    )
+    return f"{company_name}'s {pro_plus.label} year ends {ends_on:%B %-d}", body
+
+
+async def send_renewal_reminders(db: AsyncSession, today: date | None = None) -> int:
+    """Send each Pro+ year's renewal reminder, once, to its company's managers.
+
+    Each is **claimed before it is sent**: the row is marked in an UPDATE that
+    only succeeds while it is unmarked, so two workers running the check at
+    once send it once between them. Nothing is claimed without SMTP -- the
+    renewal banner on My Company tells the company either way, and a reminder
+    claimed with nowhere to send it would never go. Returns how many went."""
+    from mailer import smtp_configured
+
+    if not smtp_configured():
+        return 0
+    today = today or utc_today()
+    window_end = today + timedelta(days=RENEWAL_NOTICE_DAYS)
+    candidates = (
+        await db.execute(
+            select(ShowCompanySubscription).where(
+                ShowCompanySubscription.renewal_reminder_sent_at.is_(None),
+                ShowCompanySubscription.ends_on >= today,
+                ShowCompanySubscription.ends_on <= window_end,
+            )
+        )
+    ).scalars().all()
+    sent = 0
+    for term in candidates:
+        terms = (
+            await db.execute(
+                select(ShowCompanySubscription).where(ShowCompanySubscription.company_id == term.company_id)
+            )
+        ).scalars().all()
+        if not renewal_reminder_due(term, terms, today):
+            continue
+        claimed = (
+            await db.execute(
+                update(ShowCompanySubscription)
+                .where(
+                    ShowCompanySubscription.id == term.id,
+                    ShowCompanySubscription.renewal_reminder_sent_at.is_(None),
+                )
+                .values(renewal_reminder_sent_at=datetime.now(timezone.utc))
+                .returning(ShowCompanySubscription.id)
+            )
+        ).first()
+        await db.commit()
+        if claimed is None:
+            continue
+        company = await db.get(ShowCompany, term.company_id)
+        recipients = await company_manager_emails(db, term.company_id)
+        if company is None or not recipients:
+            continue
+        subject, body = renewal_reminder_email(company.name, term.ends_on, company.plan)
+        await email_admins(recipients, subject, body)
+        sent += 1
+    return sent
+
+
+# How often the renewal check runs. Daily is enough -- a reminder is a month
+# early -- and six hours means a restart never costs more than a quarter-day.
+RENEWAL_CHECK_SECONDS = 6 * 60 * 60
+
+
+async def renewal_reminder_loop(session_factory) -> None:
+    """Run `send_renewal_reminders` now and every `RENEWAL_CHECK_SECONDS`, for
+    the life of the process. One failure is logged and the loop carries on."""
+    while True:
+        try:
+            async with session_factory() as db:
+                count = await send_renewal_reminders(db)
+            if count:
+                logger.info("Sent %d Pro+ renewal reminder(s)", count)
+        except Exception:  # noqa: BLE001 -- a bad night must not end the loop
+            logger.exception("Pro+ renewal reminder check failed")
+        await asyncio.sleep(RENEWAL_CHECK_SECONDS)

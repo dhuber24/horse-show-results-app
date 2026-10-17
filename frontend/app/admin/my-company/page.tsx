@@ -2,12 +2,13 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
+import { fetchMyFeatures } from '@/lib/show-companies';
 import MyCompanyStaff, { type MyCompany } from './MyCompanyStaff';
 
 /**
- * My Company Staff — who works for the caller's show company, managed by the
- * company's own managers and secretaries. A GaitDesk admin manages every
- * company, and its features, from Show Companies instead.
+ * My Company — the caller's show company, run by its own managers and
+ * secretaries: its plan, staff, crew and invites (migration 169). A GaitDesk
+ * admin manages every company, and records Pro+ years, from Show Companies.
  */
 export default async function MyCompanyPage() {
   const session = await auth();
@@ -19,8 +20,13 @@ export default async function MyCompanyPage() {
   const headers = await getAuthHeaders();
   let companies: MyCompany[] = [];
   let loadFailed = false;
+  // The plans and their prices ride on the caller's features -- the one place
+  // the frontend reads them from.
+  const [res, mine] = await Promise.all([
+    headers ? fetch(`${API_URL}/my-company`, { headers, cache: 'no-store' }).catch(() => null) : null,
+    fetchMyFeatures(headers),
+  ]);
   if (headers) {
-    const res = await fetch(`${API_URL}/my-company`, { headers, cache: 'no-store' }).catch(() => null);
     if (res?.ok) companies = (await readJsonBody(res)) ?? [];
     else loadFailed = true;
   }
@@ -28,13 +34,13 @@ export default async function MyCompanyPage() {
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
       <div>
-        <Breadcrumbs crumbs={[{ label: 'Admin', href: '/admin' }, { label: 'My Company Staff' }]} />
-        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>My Company Staff</h1>
+        <Breadcrumbs crumbs={[{ label: 'Admin', href: '/admin' }, { label: 'My Company' }]} />
+        <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>My Company</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-          The show managers and secretaries who work for your company. Everyone here shares the
-          company&apos;s paid features, so a GaitDesk admin approves each new member you ask for.
-          Removing somebody who has left takes effect straight away. Below the staff, choose how late
-          exhibitors can cancel their own registration at your shows.
+          Your company&apos;s plan, its staff — the show managers and secretaries who work every show it
+          runs — and its crew of scribes and gate stewards, whom you assign show by show. Adding or
+          removing somebody takes effect straight away. Below, choose how late exhibitors can cancel their
+          own registration at your shows.
         </p>
       </div>
       {loadFailed ? (
@@ -42,7 +48,7 @@ export default async function MyCompanyPage() {
           Your company could not be loaded. Refresh in a moment.
         </p>
       ) : (
-        <MyCompanyStaff initialCompanies={companies} />
+        <MyCompanyStaff initialCompanies={companies} plans={mine.plans} />
       )}
     </main>
   );

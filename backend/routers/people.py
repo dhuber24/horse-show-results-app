@@ -41,12 +41,15 @@ from exhibitor_merge import (
 )
 from show_companies import (
     FEATURES,
+    REQUESTABLE,
     SHOW_OFFICE_ROLES,
+    can_set_up_shows,
     admin_emails,
     companies_for_user,
     email_admins,
     enabled_features,
     load_upgrade_request,
+    plan_catalog,
     place_in_company,
     request_upgrade,
     sync_personal_company_name,
@@ -556,8 +559,13 @@ async def list_own_features(
         companies=[
             ShowCompanyRef(id=c.id, name=c.name, personal=c.owner_user_id == uid) for c in companies
         ],
-        catalog=[FeatureInfoOut(key=f.key, label=f.label, plan=f.plan) for f in FEATURES.values()],
-        upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in FEATURES],
+        catalog=[
+            FeatureInfoOut(key=f.key, label=f.label, plan=f.plan, description=f.description)
+            for f in FEATURES.values()
+        ],
+        upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in REQUESTABLE],
+        plans=plan_catalog(),
+        can_set_up_shows=await can_set_up_shows(db, uid, x_user_role),
     )
 
 

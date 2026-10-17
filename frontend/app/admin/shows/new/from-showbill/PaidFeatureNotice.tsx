@@ -1,12 +1,12 @@
 import Link from 'next/link';
-import UpgradeRequestButton from '@/components/UpgradeRequestButton';
+import UpgradeToProLink from '@/components/UpgradeToProLink';
 import { SHOWBILL_IMPORT, upgradeText, type MyFeatures } from '@/lib/show-companies';
 
 /**
  * What the show-bill screens show a caller whose show company is not on the
- * plan (migration 142) -- the same words and the same Request upgrade button
- * as the locked card on `AutomateShowCard`, and always the way the show can
- * still be set up, so the screen is never a dead end.
+ * plan (migration 142) -- the same words and the same Upgrade link as the
+ * locked card on `AutomateShowCard`, and always the way the show can still be
+ * set up, so the screen is never a dead end.
  */
 export default function PaidFeatureNotice({ mine }: { mine: MyFeatures }) {
   const { headline, detail } = upgradeText(mine, SHOWBILL_IMPORT);
@@ -19,7 +19,7 @@ export default function PaidFeatureNotice({ mine }: { mine: MyFeatures }) {
         <span className="font-semibold">{headline}</span>{' '}
         <span style={{ color: 'var(--muted)' }}>{detail}</span>
       </p>
-      <UpgradeRequestButton mine={mine} feature={SHOWBILL_IMPORT} />
+      <UpgradeToProLink mine={mine} feature={SHOWBILL_IMPORT} />
       <p>
         <Link href="/admin/shows/new" className="underline" style={{ color: 'var(--primary)' }}>
           Set the show up step by step instead →

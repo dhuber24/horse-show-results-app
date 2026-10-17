@@ -40,6 +40,7 @@ export default async function EditShowDetailsPage({
     pendingInvites,
     allUsers,
     stepsInput,
+    companyCrew,
   ] = await Promise.all([
     fetchVenues(),
     fetchShowTypes(),
@@ -52,6 +53,8 @@ export default async function EditShowDetailsPage({
     fetchAuthed<PendingInvite[]>(`${API_URL}/user-invites/by-show/${id}`, []),
     isAdmin ? fetchAuthed<StaffUser[]>(`${API_URL}/users/`, []) : Promise.resolve([]),
     fetchStepCounts(id),
+    // The company's crew (migration 169), who the office assigns from.
+    isAdmin ? Promise.resolve([]) : fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/company-crew`, []),
   ]);
 
   return (
@@ -102,6 +105,7 @@ export default async function EditShowDetailsPage({
             allUsers={allUsers}
             isAdmin={isAdmin}
             initialPendingInvites={pendingInvites}
+            companyCrew={companyCrew}
           />
         </div>
       </div>

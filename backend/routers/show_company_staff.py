@@ -8,11 +8,12 @@ one show. That is the third door onto company membership, beside a GaitDesk
 admin's Show Companies screens and a member's My Company Staff, and it runs
 through the same `show_companies` functions as both:
 
-  * **Adding somebody is still a request.** Membership carries the company's
-    paid features, so a member asking for a colleague vouches for them and a
-    GaitDesk admin approves (migration 149) -- exactly what My Company Staff
-    does. A GaitDesk admin working Step 1 *is* the approver, so their additions
-    take effect at once, as on Show Companies.
+  * **Adding somebody takes effect at once** (migration 169), from a member
+    as from an admin -- exactly what My Company Staff does. Until then each
+    addition was a request a GaitDesk admin approved (migration 149), because
+    membership carried paid features bought once for the whole company; now a
+    show is billed for itself, and who works for the company is the company's
+    call.
   * **Only from inside the company.** Somebody working the show as a guest -- a
     per-show row, not a member -- sees the company's staff and changes nothing
     about it, the rule My Company Staff is built on.
@@ -27,13 +28,18 @@ companies, has none until somebody picks one. Moving a show between companies
 changes who works it, so only the current company's own staff (or an admin)
 may do it, and only to a company they work for themselves.
 
-Scribes and gate stewards are not company staff -- they are hired show by show
--- and nor is a guest secretary: both stay on `routers/show_staff.py`.
+Scribes and gate stewards are not company staff -- they are on the company's
+crew list (migration 169) and assigned show by show -- and nor is a guest
+secretary: both stay on `routers/show_staff.py`.
+
+A show can only be put under a company whose plan sets up shows (migration
+169): moving one onto a company on GaitDesk Free would be a way round the
+rule that Free sets up no show.
 """
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import Show, ShowCompany, ShowCompanyMember, User
-from routers.my_company import StaffAdd, StaffMemberOut, StaffRequestOut, _commit, _out, _vouch
+from routers.my_company import StaffAdd, StaffMemberOut, StaffRequestOut, _commit, _out
 from routers.show_companies import _load
 from routers.shows import _assert_show_access
 from show_access import SHOW_OFFICE_TABLES
@@ -50,6 +56,8 @@ from show_companies import (
     add_company_member,
     decline_join_request,
     default_show_company,
+    effective_plans,
+    sets_up_shows,
     remove_company_member,
 )
 
@@ -217,7 +225,8 @@ async def _staff_out(db: AsyncSession, show_id: UUID, role: str, caller: UUID) -
     return ShowCompanyStaffOut(
         company=company_out,
         can_manage=member_ids is not None and may_manage(role, caller, member_ids),
-        adds_directly=role == "ADMIN",
+        # Migration 169: every addition takes effect at once.
+        adds_directly=True,
         can_change=may_change_company(role, caller, member_ids, caller_companies),
         choices=[CompanyChoice(id=c.id, name=c.name, personal=c.owner_user_id is not None) for c in choices],
         suggested_company_id=(await _suggest(db, show, assigned, choices)) if show.company_id is None else None,
@@ -281,6 +290,12 @@ async def set_show_company(
             if x_user_role == "ADMIN"
             else "You can only run a show under a company you work for.",
         )
+    if x_user_role != "ADMIN" and not sets_up_shows((await effective_plans(db, [target.id]))[target.id]):
+        raise HTTPException(
+            403,
+            f"{target.name} is on GaitDesk Free, which doesn't run shows. Choose GaitDesk Basic or Pro "
+            "for it on My Company first -- nothing is charged until after the show.",
+        )
     current_members: Optional[set[UUID]] = None
     if show.company_id is not None:
         current = await _load(db, show.company_id)
@@ -295,20 +310,18 @@ async def set_show_company(
     return await _staff_out(db, show_id, x_user_role, caller)
 
 
-@router.post("/company-staff", response_model=ShowCompanyStaffOut, status_code=202)
+@router.post("/company-staff", response_model=ShowCompanyStaffOut, status_code=201)
 async def add_company_staff(
     show_id: UUID,
     body: StaffAdd,
     response: Response,
-    background: BackgroundTasks,
     x_api_key: str = Header(...),
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Add somebody to the show's company by the email their account signs in
-    with. 202 from a member: a request, until a GaitDesk admin approves it. 201
-    from an admin: added."""
+    with. 201: added, whoever presses it (migration 169)."""
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     caller = safe_uuid(x_user_id)
     company = await _managed_company(db, show_id, x_user_role, caller)
@@ -324,12 +337,9 @@ async def add_company_staff(
             f"No show manager or secretary account uses {email}. Ask them to sign up as a "
             "show manager or secretary first, then add them here.",
         )
-    if x_user_role == "ADMIN":
-        await add_company_member(company, user, caller, db)
-        await _commit(db, f"{user.full_name} is already in {company.name}.")
-        response.status_code = 201
-    else:
-        await _vouch(company, user, caller, db, background)
+    await add_company_member(company, user, caller, db)
+    await _commit(db, f"{user.full_name} is already in {company.name}.")
+    response.status_code = 201
     return await _staff_out(db, show_id, x_user_role, caller)
 
 
@@ -365,26 +375,20 @@ async def approve_company_request(
     show_id: UUID,
     user_id: UUID,
     response: Response,
-    background: BackgroundTasks,
     x_api_key: str = Header(...),
     x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Approve somebody who asked to join. A member's approval goes to GaitDesk
-    with their name on it (202); an admin's adds them (200)."""
+    """Approve somebody who asked to join: adds them (migration 169)."""
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     caller = safe_uuid(x_user_id)
     company = await _managed_company(db, show_id, x_user_role, caller)
     request = next((r for r in company.join_requests if r.user_id == user_id), None)
     if request is None or request.user is None:
         raise HTTPException(404, "That account has not asked to join this company.")
-    if x_user_role == "ADMIN":
-        await add_company_member(company, request.user, caller, db)
-        await _commit(db, f"{request.user.full_name} is already in {company.name}.")
-    else:
-        await _vouch(company, request.user, caller, db, background)
-        response.status_code = 202
+    await add_company_member(company, request.user, caller, db)
+    await _commit(db, f"{request.user.full_name} is already in {company.name}.")
     return await _staff_out(db, show_id, x_user_role, caller)
 
 

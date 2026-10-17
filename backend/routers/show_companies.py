@@ -1,9 +1,8 @@
 """Show companies: who they are, who works for them, and what they have paid for.
 
-GaitDesk admin only. A company is created, staffed and switched on by GaitDesk
-staff, because the switch stands for a payment the app does not take -- a
-manager able to add themselves to a company, or tick a feature on, would be
-able to give themselves what somebody else paid for. See `show_companies.py`.
+GaitDesk admin only: creating a company, any company's plan (Free included),
+recording a Pro+ payment, and the billing notes. A company's own staff pick
+Basic or Pro and manage their people from My Company. See `show_companies.py`.
 
 The one way in that is not an admin's is the sign-up form (migration 143): an
 independent gets a company of their own, and somebody who types an existing
@@ -18,25 +17,34 @@ the member answers it. Removing and leaving run through the same
 `show_companies` functions as the buttons here. Features and notes stay here:
 they stand for what somebody paid.
 
-The other thing that waits here is an **upgrade request** (migration 144),
-made from a locked paid feature's Request upgrade button. It rides on the
-feature it asks for, and switching that feature on answers it.
+The other thing that waits here is an **upgrade request** (migration 144).
+Since migration 169 a company picks Basic or Pro itself, so the one asked for
+is Pro+, answered by starting a year (paid, owed or complimentary); an older request for a feature is
+answered by moving the company onto a plan that includes it. There are no
+per-feature switches since migration 170 -- a plan is the only way to one.
+
+**The plan is set here too** (migration 168), and so is the usage statement
+GaitDesk invoices a company from: each of its shows' exhibitors at the plan's
+rate, priced by `billing.platform_usage`.
 """
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from billing import billable_exhibitor_count, platform_usage
 from database import get_db
 from dependencies import require_admin, safe_uuid
 from models import (
     Circuit,
+    Show,
+    ShowEntry,
     PointSystem,
     ShowCompany,
-    ShowCompanyFeature,
+    ShowCompanyCrew,
     ShowCompanyJoinRequest,
     ShowCompanyMember,
     ShowCompanyUpgradeRequest,
@@ -44,6 +52,7 @@ from models import (
     User,
 )
 from schemas import (
+    CompanyUsageOut,
     PendingCompanyRequestsOut,
     ShowCompanyCreate,
     ShowCompanyFeatureOut,
@@ -52,9 +61,27 @@ from schemas import (
     ShowCompanyMemberOut,
     ShowCompanyOut,
     ShowCompanyUpdate,
+    ProPlusPaymentIn,
+    ProPlusRecordIn,
+    SubscriptionOut,
+    UsageShowOut,
+    UsageSubscriptionOut,
 )
 from show_companies import (
     FEATURES,
+    PLANS,
+    PRO_PLUS,
+    REQUESTABLE,
+    company_manager_emails,
+    email_admins,
+    loaded_effective_plan,
+    next_pro_plus_term,
+    plan_confirmation_email,
+    plan_features,
+    record_pro_plus,
+    set_company_plan,
+    show_billing_plan,
+    utc_today,
     SHOW_OFFICE_ROLES,
     add_company_member,
     decline_join_request as decline_request,
@@ -72,10 +99,12 @@ router = APIRouter(
 
 _LOAD = (
     selectinload(ShowCompany.members).selectinload(ShowCompanyMember.user),
-    selectinload(ShowCompany.features).selectinload(ShowCompanyFeature.enabled_by),
     selectinload(ShowCompany.join_requests).selectinload(ShowCompanyJoinRequest.user),
     selectinload(ShowCompany.join_requests).selectinload(ShowCompanyJoinRequest.vouched_by),
     selectinload(ShowCompany.upgrade_requests).selectinload(ShowCompanyUpgradeRequest.requested_by),
+    selectinload(ShowCompany.subscriptions),
+    selectinload(ShowCompany.plan_changes),
+    selectinload(ShowCompany.crew).selectinload(ShowCompanyCrew.user),
 )
 
 
@@ -84,8 +113,11 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         (m for m in company.members if m.user is not None),
         key=lambda m: (m.user.last_name.lower(), m.user.first_name.lower()),
     )
-    switched_on = {f.feature: f for f in company.features}
+    effective = loaded_effective_plan(company)
+    included = plan_features(effective)
+    plan = PLANS.get(company.plan) or PLANS["free"]
     asked_for = {r.feature: r for r in company.upgrade_requests}
+    pro_plus_ask = asked_for.get(PRO_PLUS)
     requests = sorted(
         (r for r in company.join_requests if r.user is not None),
         key=lambda r: r.created_at or company.created_at,
@@ -97,6 +129,19 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         created_at=company.created_at,
         owner_user_id=company.owner_user_id,
         self_cancel_days_before=company.self_cancel_days_before or 0,
+        plan=plan.key,
+        plan_label=plan.label,
+        plan_rate_cents=plan.rate_cents,
+        effective_plan=effective,
+        effective_plan_label=PLANS[effective].label,
+        subscriptions=[SubscriptionOut.model_validate(t) for t in company.subscriptions],
+        pro_plus_requested_at=pro_plus_ask.created_at if pro_plus_ask else None,
+        pro_plus_requested_by_name=(
+            pro_plus_ask.requested_by.full_name if pro_plus_ask and pro_plus_ask.requested_by else None
+        ),
+        pro_plus_requested_by_email=(
+            pro_plus_ask.requested_by.email if pro_plus_ask and pro_plus_ask.requested_by else None
+        ),
         join_requests=[
             ShowCompanyJoinRequestOut(
                 user_id=r.user.id,
@@ -120,21 +165,16 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
             )
             for m in members
         ],
-        # Every registered feature, on or off, in registry order. A row for a
-        # key the registry no longer names is left out: it switches nothing on.
+        # Every registered feature, in registry order, and whether today's plan
+        # includes it -- the only way to one since migration 170.
         features=[
             ShowCompanyFeatureOut(
                 key=feature.key,
                 label=feature.label,
                 description=feature.description,
                 plan=feature.plan,
-                enabled=feature.key in switched_on,
-                enabled_at=switched_on[feature.key].enabled_at if feature.key in switched_on else None,
-                enabled_by_name=(
-                    switched_on[feature.key].enabled_by.full_name
-                    if feature.key in switched_on and switched_on[feature.key].enabled_by
-                    else None
-                ),
+                enabled=feature.key in included,
+                included_in_plan=feature.key in included,
                 **_request_fields(asked_for.get(feature.key)),
             )
             for feature in FEATURES.values()
@@ -244,7 +284,7 @@ async def pending_requests(db: AsyncSession = Depends(get_db)):
     upgrades = await db.scalar(
         select(func.count())
         .select_from(ShowCompanyUpgradeRequest)
-        .where(ShowCompanyUpgradeRequest.feature.in_(list(FEATURES)))
+        .where(ShowCompanyUpgradeRequest.feature.in_(list(REQUESTABLE)))
     )
     return PendingCompanyRequestsOut(join_requests=joins or 0, upgrade_requests=upgrades or 0)
 
@@ -258,6 +298,8 @@ async def get_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
 async def update_company(
     company_id: UUID,
     body: ShowCompanyUpdate,
+    background: BackgroundTasks,
+    x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     company = await _load(db, company_id)
@@ -274,12 +316,185 @@ async def update_company(
         if body.self_cancel_days_before is None:
             raise HTTPException(422, "Say how many days before the show, or 0 for until it starts.")
         company.self_cancel_days_before = body.self_cancel_days_before
+    plan_changed = False
+    if "plan" in fields:
+        if body.plan is None:
+            raise HTTPException(422, "Choose GaitDesk Free, Basic or Pro.")
+        # Logged, and answers every request for what it now includes, in the
+        # same commit.
+        plan_changed = set_company_plan(company, body.plan, safe_uuid(x_user_id), db)
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, "There is already a show company with that name.")
+    company = await _load(db, company_id)
+    if plan_changed:
+        await _mail_plan(background, db, company)
+    return _company_out(company)
+
+
+async def _mail_plan(background: BackgroundTasks, db: AsyncSession, company: ShowCompany, term=None) -> None:
+    """Tell the company's show managers the plan it is now on, after the
+    response. Best-effort, like every email here; the plan is on My Company
+    whether or not this arrives."""
+    recipients = await company_manager_emails(db, company.id)
+    if not recipients:
+        return
+    effective = loaded_effective_plan(company)
+    subject, body = plan_confirmation_email(
+        company.name,
+        effective,
+        term=(term.starts_on, term.ends_on) if term is not None else None,
+        returns_to=company.plan,
+    )
+    background.add_task(email_admins, recipients, subject, body)
+
+
+@router.post("/{company_id}/subscriptions", response_model=ShowCompanyOut, status_code=201)
+async def start_pro_plus_year(
+    company_id: UUID,
+    body: ProPlusRecordIn,
+    background: BackgroundTasks,
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Start a Pro+ year for the company (migration 169) -- with its payment
+    received, still owed (`payment_received: false`, marked paid later), or
+    complimentary (a price of 0) (migration 171). The year is in force at once
+    whichever it is. Mails the company's show managers.
+
+    Left blank, the year is the next one -- from today, or from the day after
+    the current year ends, so a renewal paid early loses nothing."""
+    company = await _load(db, company_id)
+    if body.starts_on is not None:
+        starts_on, ends_on = next_pro_plus_term(None, body.starts_on)
+    else:
+        latest_end = max((t.ends_on for t in company.subscriptions), default=None)
+        starts_on, ends_on = next_pro_plus_term(latest_end, utc_today())
+    term = record_pro_plus(
+        company,
+        starts_on=starts_on,
+        ends_on=body.ends_on or ends_on,
+        price_cents=PLANS[PRO_PLUS].annual_cents if body.price_cents is None else body.price_cents,
+        payment_method=body.payment_method,
+        payment_reference=body.payment_reference,
+        recorded_by=safe_uuid(x_user_id),
+        db=db,
+        payment_received_on=utc_today() if body.payment_received else None,
+    )
+    await db.commit()
+    company = await _load(db, company_id)
+    await _mail_plan(background, db, company, term=term)
+    return _company_out(company)
+
+
+@router.patch("/{company_id}/subscriptions/{subscription_id}", response_model=ShowCompanyOut)
+async def mark_pro_plus_paid(
+    company_id: UUID,
+    subscription_id: UUID,
+    body: ProPlusPaymentIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a Pro+ year paid -- the money for a year started without it has
+    arrived (migration 171). Changes nothing the company can use: the year was
+    already in force."""
+    company = await _load(db, company_id)
+    term = next((t for t in company.subscriptions if t.id == subscription_id), None)
+    if term is None:
+        raise HTTPException(404, "That Pro+ year isn't on this company.")
+    term.payment_received_on = body.payment_received_on or utc_today()
+    if body.payment_method is not None:
+        term.payment_method = body.payment_method.strip() or None
+    if body.payment_reference is not None:
+        term.payment_reference = body.payment_reference.strip() or None
+    await db.commit()
     return _company_out(await _load(db, company_id))
+
+
+@router.delete("/{company_id}/subscriptions/{subscription_id}", response_model=ShowCompanyOut)
+async def delete_pro_plus_year(company_id: UUID, subscription_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Remove a Pro+ year recorded in error. A year that was paid and then
+    refunded is removed the same way; the company's notes say why."""
+    company = await _load(db, company_id)
+    term = next((t for t in company.subscriptions if t.id == subscription_id), None)
+    if term is None:
+        raise HTTPException(404, "That Pro+ year isn't on this company.")
+    company.subscriptions.remove(term)
+    await db.commit()
+    return _company_out(await _load(db, company_id))
+
+
+@router.get("/{company_id}/usage", response_model=CompanyUsageOut)
+async def company_usage(company_id: UUID, db: AsyncSession = Depends(get_db)):
+    """The usage statement GaitDesk invoices the company from: every show it
+    runs, newest first, with the exhibitors on its roster at the company's
+    plan rate.
+
+    Each show is priced at its own billing plan (migration 169,
+    `show_billing_plan`): the highest plan the company held across the show's
+    dates, or nothing per exhibitor when a Pro+ year covers its first day. Each
+    Pro+ year is its own line at its price.
+    """
+    company = await _load(db, company_id)
+    plan = PLANS.get(company.plan) or PLANS["free"]
+    shows = (
+        await db.execute(
+            select(Show)
+            .where(Show.company_id == company_id)
+            .order_by(Show.start_date.desc(), Show.name)
+        )
+    ).scalars().all()
+    # Only the columns the roster test reads -- a season's worth of shows is
+    # thousands of rows, and nothing else on them is wanted here.
+    show_entries = (
+        await db.execute(
+            select(ShowEntry.show_id, ShowEntry.registered_at, ShowEntry.cancelled_at).where(
+                ShowEntry.show_id.in_([s.id for s in shows])
+            )
+        )
+    ).all() if shows else []
+    by_show: dict[UUID, list] = {}
+    for se in show_entries:
+        by_show.setdefault(se.show_id, []).append(se)
+
+    lines = []
+    for show in shows:
+        billed = PLANS[show_billing_plan(company.plan_changes, company.subscriptions, show.start_date, show.end_date)]
+        usage = platform_usage(billable_exhibitor_count(by_show.get(show.id, [])), billed.rate_cents)
+        lines.append(
+            UsageShowOut(
+                show_id=show.id,
+                show_name=show.name,
+                start_date=show.start_date,
+                end_date=show.end_date,
+                status=show.status,
+                billing_plan=billed.key,
+                billing_plan_label=billed.label,
+                **usage,
+            )
+        )
+    years = [
+        UsageSubscriptionOut(
+            id=t.id,
+            starts_on=t.starts_on,
+            ends_on=t.ends_on,
+            price_cents=t.price_cents,
+            payment_received_on=t.payment_received_on,
+        )
+        for t in sorted(company.subscriptions, key=lambda t: t.starts_on, reverse=True)
+    ]
+    return CompanyUsageOut(
+        company_id=company.id,
+        company_name=company.name,
+        plan=plan.key,
+        plan_label=plan.label,
+        rate_cents=plan.rate_cents,
+        shows=lines,
+        subscriptions=years,
+        exhibitor_count=sum(line.exhibitor_count for line in lines),
+        amount_cents=sum(line.amount_cents for line in lines) + sum(y.price_cents for y in years),
+    )
 
 
 async def _in_other_company(db: AsyncSession, user_id: UUID, company_id: UUID) -> bool:
@@ -294,7 +509,7 @@ async def _in_other_company(db: AsyncSession, user_id: UUID, company_id: UUID) -
 
 @router.delete("/{company_id}", status_code=204)
 async def delete_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Takes its memberships and switches with it -- every account that had a
+    """Takes its memberships and its plan with it -- every account that had a
     feature only through this company loses it on the next request.
 
     Every show manager and secretary belongs to a company (migration 143), so
@@ -390,67 +605,10 @@ async def decline_join_request(company_id: UUID, user_id: UUID, db: AsyncSession
     return _company_out(await _load(db, company_id))
 
 
-def _registered(feature: str) -> str:
-    if feature not in FEATURES:
-        raise HTTPException(404, "No such feature")
-    return feature
-
-
-@router.put("/{company_id}/features/{feature}", response_model=ShowCompanyOut)
-async def enable_feature(
-    company_id: UUID,
-    feature: str,
-    x_user_id: str = Header(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Turn a feature on. A second press is not an error -- it is already on,
-    and the original `enabled_at` is kept, since that is when it started.
-
-    Turning it on answers the company's request for it (migration 144), in the
-    same commit -- the way adding a member answers a join request."""
-    _registered(feature)
-    company = await _load(db, company_id)
-    changed = False
-    if not any(f.feature == feature for f in company.features):
-        db.add(
-            ShowCompanyFeature(
-                company_id=company.id,
-                feature=feature,
-                enabled_by_user_id=safe_uuid(x_user_id),
-            )
-        )
-        changed = True
-    request = next((r for r in company.upgrade_requests if r.feature == feature), None)
-    if request is not None:
-        company.upgrade_requests.remove(request)
-        changed = True
-    if changed:
-        try:
-            await db.commit()
-        except IntegrityError:
-            # Two admins pressed at once; the other press turned it on, and
-            # cleared the request with it.
-            await db.rollback()
-    return _company_out(await _load(db, company_id))
-
-
-@router.delete("/{company_id}/features/{feature}", response_model=ShowCompanyOut)
-async def disable_feature(company_id: UUID, feature: str, db: AsyncSession = Depends(get_db)):
-    """Turn a feature off. The row is the switch, so off is its deletion."""
-    _registered(feature)
-    company = await _load(db, company_id)
-    row = next((f for f in company.features if f.feature == feature), None)
-    if row is not None:
-        company.features.remove(row)
-        await db.commit()
-    return _company_out(await _load(db, company_id))
-
-
 @router.delete("/{company_id}/upgrade-requests/{feature}", response_model=ShowCompanyOut)
 async def dismiss_upgrade_request(company_id: UUID, feature: str, db: AsyncSession = Depends(get_db)):
-    """Dismiss a company's request for a feature without switching it on --
-    they decided against it, or it was pressed by mistake. Nothing tells them;
-    their locked button simply offers the request again."""
+    """Dismiss a company's request without answering it -- they decided
+    against it, or it was pressed by mistake. Nothing tells them."""
     company = await _load(db, company_id)
     request = next((r for r in company.upgrade_requests if r.feature == feature), None)
     if request is None:

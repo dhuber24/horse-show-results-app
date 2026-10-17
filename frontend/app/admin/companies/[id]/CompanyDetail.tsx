@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
-import type { ShowCompany } from '@/lib/show-companies';
+import { formatRate, type PlanInfo, type ShowCompany } from '@/lib/show-companies';
 import SelfCancelPolicy from '@/components/SelfCancelPolicy';
-import FeatureToggle from '../FeatureToggle';
+import PlanPicker from '../PlanPicker';
+import ProPlusYears from './ProPlusYears';
+import UsageStatement from './UsageStatement';
 
 export interface StaffAccount {
   id: string;
@@ -42,9 +44,11 @@ function accountsText(count: number): string {
 export default function CompanyDetail({
   initialCompany,
   staff,
+  plans,
 }: {
   initialCompany: ShowCompany;
   staff: StaffAccount[];
+  plans: PlanInfo[];
 }) {
   const router = useRouter();
   const [company, setCompany] = useState<ShowCompany>(initialCompany);
@@ -187,8 +191,7 @@ export default function CompanyDetail({
             </h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-deep)' }}>
               They typed this company&apos;s name when they signed up, or somebody in the company asked for
-              them from My Company Staff. They aren&apos;t members until you add them, because members get
-              this company&apos;s paid features.
+              them before companies added people themselves. The company can approve them on My Company too.
             </p>
           </div>
           <ul className="divide-y" style={{ borderColor: 'var(--warning-border)' }}>
@@ -240,13 +243,73 @@ export default function CompanyDetail({
         </section>
       )}
 
+      <section className="p-5 rounded-lg border space-y-4" style={sectionStyle}>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Plan</h2>
+            <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+              {company.effective_plan === 'pro_plus'
+                ? `On ${company.effective_plan_label} now; ${company.plan_label} when its year runs out. `
+                : company.plan === 'free'
+                  ? 'GaitDesk Free: the company can staff itself but set up no show until it picks Basic or Pro. '
+                  : `${company.plan_label}, at ${formatRate(company.plan_rate_cents)} per exhibitor registered to each of its shows. `}
+              The company picks Basic or Pro itself on My Company; a change here reaches every account below
+              and every show it runs straight away, is logged for pricing, and emails its show managers.
+            </p>
+          </div>
+          <PlanPicker company={company} onChange={setCompany} onError={setError} />
+        </div>
+        {plans.length > 0 && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            {plans.map((plan) => {
+              const current = plan.key === (company.effective_plan ?? company.plan);
+              return (
+                <div
+                  key={plan.key}
+                  className="rounded-lg border p-3"
+                  style={{
+                    borderColor: current ? 'var(--accent-border)' : 'var(--border-subtle)',
+                    backgroundColor: current ? 'var(--accent-bg)' : 'var(--background)',
+                  }}
+                >
+                  <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                    {plan.label}
+                    <span className="ml-2 font-normal" style={{ color: 'var(--muted)' }}>
+                      {plan.annual_cents
+                        ? `${formatRate(plan.annual_cents)} / year`
+                        : plan.rate_cents
+                          ? `${formatRate(plan.rate_cents)} / exhibitor`
+                          : 'no charge'}
+                    </span>
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5 text-xs list-disc pl-4" style={{ color: 'var(--text-deep)' }}>
+                    {plan.includes.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <ProPlusYears
+        company={company}
+        plan={plans.find((p) => p.key === 'pro_plus')}
+        onChange={setCompany}
+        onError={setError}
+      />
+
+      <UsageStatement companyId={company.id} plan={`${company.plan}:${company.subscriptions?.length ?? 0}`} />
+
       <section className="p-5 rounded-lg border space-y-3" style={sectionStyle}>
         <div>
-          <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Paid features</h2>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Features</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-            A feature switched on reaches every account below, straight away. Switching it off keeps
-            their work, which comes back when it is switched on again. GaitDesk admins always have every
-            feature.
+            What {company.effective_plan_label ?? company.plan_label} includes today. A feature comes with the
+            plan and no other way — move the company to Pro to give it the rest. GaitDesk admins always have
+            every feature.
           </p>
         </div>
         <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -260,12 +323,6 @@ export default function CompanyDetail({
                   </span>
                 </p>
                 <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{feature.description}</p>
-                {feature.enabled && (
-                  <p className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>
-                    On for {accountsText(company.members.length)} since {formatDate(feature.enabled_at)}
-                    {feature.enabled_by_name ? ` · turned on by ${feature.enabled_by_name}` : ''}
-                  </p>
-                )}
                 {feature.requested_at && !feature.enabled && (
                   <div
                     className="mt-2 rounded border p-2.5 text-xs space-y-1"
@@ -292,11 +349,12 @@ export default function CompanyDetail({
                       )}
                     </p>
                     <p style={{ color: 'var(--muted)' }}>
-                      Once payment is arranged, switch it on — that answers the request.{' '}
+                      The company can choose {feature.plan} itself on My Company; moving it there answers the
+                      request.{' '}
                       <button
                         onClick={() => dismissUpgrade(feature.key)}
                         disabled={busy !== null}
-                        title={busy !== null ? 'Waiting for the last change to save' : 'Take the request off the list without switching the feature on'}
+                        title={busy !== null ? 'Waiting for the last change to save' : 'Take the request off the list'}
                         className="font-medium hover:underline disabled:opacity-50"
                         style={{ color: 'var(--text-deep)' }}
                       >
@@ -306,13 +364,16 @@ export default function CompanyDetail({
                   </div>
                 )}
               </div>
-              <FeatureToggle
-                companyId={company.id}
-                companyName={company.name}
-                feature={feature}
-                onChange={setCompany}
-                onError={setError}
-              />
+              <span
+                className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full"
+                style={
+                  feature.included_in_plan
+                    ? { backgroundColor: 'var(--success-bg)', color: 'var(--success-strong)' }
+                    : { backgroundColor: 'var(--bg-subtle)', color: 'var(--muted)' }
+                }
+              >
+                {feature.included_in_plan ? 'Included' : 'Not on this plan'}
+              </span>
             </li>
           ))}
         </ul>

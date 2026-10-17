@@ -12,8 +12,8 @@ export type AdminSection = {
 
 export const MY_COMPANY_TILE: AdminSection = {
   href: '/admin/my-company',
-  title: 'My Company Staff',
-  description: 'The managers and secretaries in your company — ask for colleagues to be added, answer requests to join, remove anybody who has left.',
+  title: 'My Company',
+  description: 'Your plan, your managers and secretaries, and your crew of scribes and gate stewards — add or invite people, answer requests to join.',
   icon: 'S',
 };
 
