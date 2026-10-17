@@ -93,8 +93,8 @@ export default async function TrainerRegistryPage({ searchParams }: { searchPara
         style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}
       >
         {/* An invitation, not a price list: this page is read by the clients
-            trainers advertise to, so the plans are shown only once somebody
-            has a trainer account (`/trainers/plans`, `/profile/registry`). */}
+            trainers advertise to, so the plans are linked only from trainer
+            screens (`/trainers/plans`, `/profile/registry`). */}
         <p className="font-semibold" style={{ color: 'var(--foreground)' }}>Are you a trainer?</p>
         <p className="mt-1">List your training services here, where exhibitors near you are looking.</p>
         <div className="mt-3 flex flex-wrap gap-2">

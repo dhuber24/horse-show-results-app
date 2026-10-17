@@ -2,6 +2,13 @@
 
 ## October 2026
 
+### Trainers compare the plans before registering
+
+- **The trainer sign-up form links to the plans**: *Compare plans here* opens
+  `/trainers/plans` in a new tab, so the form keeps what was typed. The page no
+  longer needs a trainer account; the public registry and the FAQ still don't
+  link to the comparison or print the Pro price.
+
 ### A Pro+ year without a payment
 
 - **A GaitDesk admin can start a Pro+ year whether or not it's paid for**

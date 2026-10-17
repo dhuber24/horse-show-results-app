@@ -234,7 +234,11 @@ export default function TrainerRegisterForm({ disciplines }: { disciplines: stri
                 Trainer Registry
               </Link>
               . List free on Basic, or go Pro and GaitDesk will prioritize your profile based on proximity to the
-              exhibitor viewing the registry. You&apos;ll see the plans side by side once your account is set up.
+              exhibitor viewing the registry.{' '}
+              <Link href="/trainers/plans" target="_blank" rel="noopener" className="underline" style={{ color: 'var(--accent)' }}>
+                Compare plans here
+              </Link>
+              .
             </span>
           </span>
         </label>
