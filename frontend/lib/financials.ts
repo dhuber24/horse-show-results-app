@@ -34,6 +34,10 @@ export type ShowPayment = {
   recorded_by: string | null;
   recorded_by_name: string | null;
   created_at: string | null;
+  /** Migration 172: the processing fee a credit card payer paid on top of an
+   * online payment. Not part of `amount_cents`, and not credited to the bill. */
+  card_fee_cents?: number;
+  stripe_payment_intent_id?: string | null;
 };
 
 export type FinancialAccount = {

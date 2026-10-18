@@ -418,7 +418,7 @@ def test_a_pro_request_tells_the_admins_what_to_do_about_it():
     trainer = _trainer()
     subject, body = pro_request_email(trainer, "annual", "jane@example.com")
     assert subject == "Trainer Registry Pro: Jane Smith (Smith Performance Horses) asked for Pro, annual"
-    assert "takes no payment" in body
+    assert "bill them outside the app" in body
     assert f"/admin/trainers/{trainer.id}" in body
 
 

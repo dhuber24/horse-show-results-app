@@ -29,7 +29,7 @@ whatever "couldn't load this" branch the page already has. Either way the real s
 an opaque `Unexpected token 'I', "Internal S"... is not valid JSON` on a screen that often has
 nothing to do with the actual fault, which is a genuinely hard error to trace back to its source.
 
-- Route handlers: use `safeFetchBackend()`, which returns `{ json, status }` and never throws.
+- Route handlers: use `safeFetchBackend()`, which returns `{ json, status }` and never throws. A handler that only relays a signed-in request — path in, the backend's status and body out — is one line with `relayToBackend(path, { method, body })` (`lib/backend-fetch.ts`), which goes through it.
 - Server components fetching the backend directly: parse with `readJsonBody(res)` from
   `frontend/lib/backend-fetch.ts`. It returns `null` for a non-JSON (or `204`) body, so treat
   `!res.ok || json === null` as the error case and fall back to the page's own message.

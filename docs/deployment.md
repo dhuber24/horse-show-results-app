@@ -459,6 +459,25 @@ Nothing in `render.yaml` changes. `generateValue` only fills in a value that is
 missing, so a later sync does not overwrite a rotated one, and the sync's
 `fromService` copy is by then the same new key.
 
+## Online payments (Stripe)
+
+Optional, like SMTP: with `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` unset
+nothing offers to take a payment and everything else works. To switch it on, set
+on `gaitdesk-api` only (the web service never sees a Stripe key — the browser is
+handed the publishable key by the API):
+
+- `STRIPE_SECRET_KEY` (`sk_live_…`) and `STRIPE_PUBLISHABLE_KEY` (`pk_live_…`)
+- `STRIPE_WEBHOOK_SECRET` — the endpoint at `https://gaitdesk.com/api/stripe/webhook`
+- `STRIPE_CONNECT_WEBHOOK_SECRET` — the endpoint at `https://gaitdesk.com/api/stripe/webhook/connect`
+- `STRIPE_CARD_PERCENT_BP` / `STRIPE_CARD_FIXED_CENTS` come from `render.yaml`
+  (2.9% + 30¢); change them only if the account is priced differently.
+
+`PUBLIC_APP_URL` must be the public site: it is where Stripe sends a payer back
+after Checkout and onboarding. The account setup — Connect, payment methods,
+the customer portal and which events each webhook endpoint listens for — is in
+[docs/design/payments.md](design/payments.md). Use test keys anywhere but
+production.
+
 ## Email (SMTP)
 
 Mail goes out through [Resend](https://resend.com) over SMTP. Nothing depends

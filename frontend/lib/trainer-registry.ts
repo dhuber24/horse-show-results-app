@@ -85,7 +85,7 @@ export const DEFAULT_REGISTRY_OPTIONS: RegistryOptions = {
 
 // ── The plans ────────────────────────────────────────────────────────────────
 
-/** What Pro costs. GaitDesk takes no payment in the app: an admin bills it. */
+/** What Pro costs — and what Stripe charges for it: `PRO_PRICE_CENTS` in `backend/trainer_registry.py` must agree. */
 export const PRO_PRICES: Record<ProPlan, { price: string; per: string }> = {
   monthly: { price: '$10', per: 'month' },
   annual: { price: '$100', per: 'year' },

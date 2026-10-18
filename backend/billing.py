@@ -11,7 +11,7 @@ secretary's numbers, reported back.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Iterable, Optional
 
 from cancellations import is_on_roster
@@ -1248,8 +1248,9 @@ def platform_usage(exhibitor_count: int, rate_cents: int) -> dict:
     """One show's line on a company's GaitDesk usage statement: its billable
     exhibitors at the plan's rate.
 
-    Not on any exhibitor's bill -- this is what GaitDesk invoices the show
-    company, and the app takes no payment for it either.
+    Not on any exhibitor's bill, and never taken out of an exhibitor's payment:
+    this is what GaitDesk invoices the show company, net 30
+    (`gaitdesk_invoices.py`).
     """
     exhibitors = max(0, int(exhibitor_count))
     return {
@@ -1257,3 +1258,86 @@ def platform_usage(exhibitor_count: int, rate_cents: int) -> dict:
         "rate_cents": rate_cents,
         "amount_cents": exhibitors * rate_cents,
     }
+
+
+# ── Paying online: the card processing fee (migration 172) ────────────────────
+
+# Visa's ceiling on a credit card surcharge, in basis points: 3% of the amount,
+# or the merchant's actual cost when that is lower. Mastercard's is higher, so
+# Visa's is the one that binds.
+CARD_FEE_CAP_BP = 300
+
+# How long a show company has to pay a GaitDesk invoice.
+INVOICE_NET_DAYS = 30
+
+
+def card_fee_cents(amount_cents: int, percent_bp: int, fixed_cents: int, cap_bp: int = CARD_FEE_CAP_BP) -> int:
+    """The processing fee a credit card payer is charged on top of
+    `amount_cents`, when whoever is paid passes the fee on.
+
+    Grossed up so the payee nets the whole amount: the processor takes its
+    percentage of the fee too, so the fee is (amount x rate + fixed) / (1 -
+    rate), rounded up a cent. Capped at `cap_bp` of the amount -- a surcharge
+    may never exceed the card network's ceiling, so below about $2,300 at
+    2.9% + 30c the cap binds and the payee absorbs the last few cents.
+    """
+    if amount_cents <= 0 or percent_bp < 0 or fixed_cents < 0:
+        return 0
+    numerator = amount_cents * percent_bp + fixed_cents * 10_000
+    denominator = 10_000 - percent_bp
+    if denominator <= 0:
+        return 0
+    grossed_up = -(-numerator // denominator)  # ceiling division, in integers
+    cap = amount_cents * cap_bp // 10_000
+    return max(0, min(grossed_up, cap))
+
+
+def surcharge_applies(method_type: Optional[str], card_funding: Optional[str]) -> bool:
+    """Is this payment method one a fee may be added to? A **credit** card only.
+
+    Network rules and federal law forbid surcharging a debit or prepaid card,
+    and a bank payment (ACH) costs at most a few dollars, which the payee
+    absorbs. A card whose funding the processor reports as unknown is treated
+    as debit -- the safe reading.
+    """
+    return method_type == "card" and card_funding == "credit"
+
+
+def payment_quote(
+    amount_cents: int,
+    method_type: Optional[str],
+    card_funding: Optional[str],
+    pass_fee: bool,
+    percent_bp: int,
+    fixed_cents: int,
+) -> dict:
+    """What one online payment of `amount_cents` costs the payer: the amount,
+    the card fee on top (zero unless the payee passes it on and this is a
+    credit card), and the total charged."""
+    fee = card_fee_cents(amount_cents, percent_bp, fixed_cents) if pass_fee and surcharge_applies(
+        method_type, card_funding
+    ) else 0
+    return {
+        "amount_cents": amount_cents,
+        "card_fee_cents": fee,
+        "total_cents": amount_cents + fee,
+    }
+
+
+def invoice_due_on(issued_on: date, net_days: int = INVOICE_NET_DAYS) -> date:
+    return issued_on + timedelta(days=net_days)
+
+
+def invoice_status(invoice, today: date) -> str:
+    """Where a GaitDesk invoice stands: `void`, `paid`, `processing` (a bank
+    payment started and not yet settled), `overdue` (unpaid past its due date)
+    or `open`."""
+    if invoice.voided_at is not None:
+        return "void"
+    if invoice.paid_on is not None:
+        return "paid"
+    if invoice.payment_pending_at is not None:
+        return "processing"
+    if invoice.due_on < today:
+        return "overdue"
+    return "open"

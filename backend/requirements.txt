@@ -47,6 +47,12 @@ pypdf==6.11.0
 # to manual entry rather than failing.
 anthropic==0.116.0
 
+# Online payments: Trainer Registry Pro, GaitDesk's invoices to show companies,
+# and exhibitors paying a show company. Optional at runtime: with no
+# STRIPE_SECRET_KEY set nothing is offered, and every payment screen says online
+# payment is not set up yet. See backend/stripe_gateway.py.
+stripe==15.6.1
+
 # Optional: For CSV/Excel export (future)
 # openpyxl==3.11.0
 # python-docx==0.8.11

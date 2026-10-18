@@ -29,6 +29,10 @@ export interface MyListing {
   pro_plan: ProPlan | null;
   pro_request_plan: ProPlan | null;
   pro_requested_at: string | null;
+  /** A Stripe subscription is paying for Pro (migration 172). */
+  subscribed: boolean;
+  /** Online payment is set up. Without it Pro is asked for, as before. */
+  can_subscribe: boolean;
 }
 
 export interface MyLead {
@@ -67,7 +71,83 @@ function Message({ message }: { message: { ok: boolean; text: string } | null })
 
 // ── Your plan ────────────────────────────────────────────────────────────────
 
-function PlanActions({ listing }: { listing: MyListing }) {
+/**
+ * Pro paid by card (migration 172): Subscribe sends the trainer to Stripe
+ * Checkout, Manage subscription to Stripe's own page for changing the card,
+ * switching plan or cancelling. Pro switches on when Stripe reports the
+ * payment, so the page coming back from Checkout may still say Basic for a
+ * moment — `justPaid` says so instead of leaving it to look like a failure.
+ */
+function SubscribeActions({ listing, justPaid }: { listing: MyListing; justPaid: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const go = async (path: string, body?: object) => {
+    setBusy(true);
+    setMessage(null);
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    }).catch(() => null);
+    const json = res ? await res.json().catch(() => null) : null;
+    if (!res || !res.ok || !json?.url) {
+      setBusy(false);
+      setMessage({ ok: false, text: errorMessage(json, 'Something went wrong. Try again in a moment.') });
+      return;
+    }
+    window.location.href = json.url;
+  };
+
+  return (
+    <div className="space-y-2">
+      {justPaid && !listing.is_pro && (
+        <p style={{ color: 'var(--success-strong)' }}>
+          Thanks — your payment is being confirmed. Pro switches on in a minute or two; refresh to see it.
+        </p>
+      )}
+      {listing.subscribed ? (
+        <>
+          <p>Your Pro subscription renews automatically. Change your card, switch plans or cancel on the subscription page.</p>
+          <button
+            type="button"
+            disabled={busy}
+            title={busy ? 'Opening…' : undefined}
+            onClick={() => go('/api/trainers/me/billing-portal')}
+            className={secondaryButton}
+            style={secondaryStyle}
+          >
+            Manage subscription
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {(['monthly', 'annual'] as ProPlan[]).map((plan) => (
+              <button
+                key={plan}
+                type="button"
+                disabled={busy}
+                title={busy ? 'Opening checkout…' : undefined}
+                onClick={() => go('/api/trainers/me/pro-checkout', { plan })}
+                className={plan === 'monthly' ? primaryButton : secondaryButton}
+                style={plan === 'monthly' ? primaryStyle : secondaryStyle}
+              >
+                {listing.is_pro ? 'Subscribe' : 'Upgrade to Pro'} — {proPlanLabel(plan)}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            Paid by card through Stripe. Cancel any time — Pro stays on through the time you&apos;ve paid for.
+          </p>
+        </>
+      )}
+      <Message message={message} />
+    </div>
+  );
+}
+
+function PlanActions({ listing, justPaid = false }: { listing: MyListing; justPaid?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -128,7 +208,9 @@ function PlanActions({ listing }: { listing: MyListing }) {
         <p>You&apos;re on <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Basic</span>, free.</p>
       )}
 
-      {requested ? (
+      {listing.can_subscribe ? (
+        <SubscribeActions listing={listing} justPaid={justPaid} />
+      ) : requested ? (
         <div className="space-y-2">
           <p>
             You asked for Pro, {requested === 'annual' ? 'yearly' : 'monthly'} ({proPlanLabel(requested)})
@@ -474,17 +556,20 @@ export default function RegistryManager({
   initialPictures,
   leads,
   options,
+  justPaid = false,
 }: {
   listing: MyListing;
   initialPictures: MyPicture[];
   leads: MyLead[];
   options: RegistryOptions;
+  /** Back from Stripe Checkout (`?pro=thanks`). */
+  justPaid?: boolean;
 }) {
   return (
     <div className="space-y-6">
       <section className="space-y-3">
         <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Your plan</h2>
-        <PlanMatrix limits={options} current={listing.is_pro ? 'pro' : 'basic'} proAction={<PlanActions listing={listing} />} />
+        <PlanMatrix limits={options} current={listing.is_pro ? 'pro' : 'basic'} proAction={<PlanActions listing={listing} justPaid={justPaid} />} />
       </section>
 
       <section className={sectionClass} style={sectionStyle}>

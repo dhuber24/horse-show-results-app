@@ -1,4 +1,5 @@
 import { auth } from '@/auth';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { fetchVenues, fetchShowTypes } from '@/lib/api';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
@@ -85,7 +86,46 @@ export default async function NewShowPage() {
             companies={myFeatures.companies}
             plans={myFeatures.plans}
             proPlusRequested={myFeatures.upgrade_requests.some((r) => r.feature === PRO_PLUS)}
+            canBuyOnline={myFeatures.can_pay_online === true}
           />
+        </div>
+      </main>
+    );
+  }
+
+  // A finished show to pay for (migration 173): the next one waits until it is
+  // settled — online on My Company, or by check that GaitDesk marks paid.
+  // `POST /shows` refuses it either way; this only says so up front.
+  if (role !== 'ADMIN' && myFeatures.settle_up_message) {
+    return (
+      <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
+        <div>
+          <Breadcrumbs
+            crumbs={[
+              { label: 'Admin', href: '/admin' },
+              { label: 'Shows', href: '/admin/shows' },
+              { label: 'New Show' },
+            ]}
+          />
+          <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
+            New Show
+          </h1>
+        </div>
+        <div
+          className="rounded-lg border p-5 space-y-3"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
+        >
+          <p className="font-semibold" style={{ color: 'var(--foreground)' }}>
+            Settle up your last show first
+          </p>
+          <p className="text-sm">{myFeatures.settle_up_message}</p>
+          <Link
+            href="/admin/my-company"
+            className="inline-block text-sm font-medium px-4 py-2 rounded"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+          >
+            Settle up on My Company
+          </Link>
         </div>
       </main>
     );

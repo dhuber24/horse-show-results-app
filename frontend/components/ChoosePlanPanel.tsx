@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BuyProPlus from '@/components/payments/BuyProPlus';
 import { errorMessage } from '@/lib/api-error';
 import { PRO_PLUS, formatRate, type CompanyRef, type PlanInfo, type PlanKey } from '@/lib/show-companies';
 
@@ -14,15 +15,17 @@ import { PRO_PLUS, formatRate, type CompanyRef, type PlanInfo, type PlanKey } fr
  * invoiced after it runs. The plans and their prices come from the backend
  * (`show_companies.PLANS`); nothing here spells one.
  *
- * Pro+ is billed up front, so it is asked for rather than chosen: the request
- * is the company's, like any upgrade request, and a GaitDesk admin starts the
- * year.
+ * Pro+ is paid for up front (migration 173): with online payment set up the
+ * company buys the year here, by bank or card, and it starts when the payment
+ * succeeds. Without it the year is asked for, like any upgrade request, and a
+ * GaitDesk admin starts it once it is paid.
  */
 export default function ChoosePlanPanel({
   companies,
   plans,
   current,
   proPlusRequested = false,
+  canBuyOnline = false,
   onChosen,
   heading = 'Choose a plan to set up your show',
 }: {
@@ -31,6 +34,8 @@ export default function ChoosePlanPanel({
   /** The company's current per-exhibitor plan, when there is one company. */
   current?: PlanKey;
   proPlusRequested?: boolean;
+  /** Online payment is set up, so Pro+ is bought here rather than asked for. */
+  canBuyOnline?: boolean;
   /** Called with the backend's answer; without it the page is refreshed. */
   onChosen?: (body: unknown) => void;
   heading?: string;
@@ -97,7 +102,7 @@ export default function ChoosePlanPanel({
         </h2>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           Nothing is charged now. Each show is billed after it runs, per exhibitor registered to it, at the plan
-          your company was on during the show.
+          your company was on during the show — and is paid for before you set up the next one.
         </p>
       </div>
 
@@ -172,7 +177,7 @@ export default function ChoosePlanPanel({
         <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-1" />
         <span>
           I agree that GaitDesk bills my company, after each show, for every exhibitor registered to it at the
-          plan&apos;s price.
+          plan&apos;s price, and that each show is paid for before my company sets up its next one.
         </span>
       </label>
 
@@ -186,11 +191,13 @@ export default function ChoosePlanPanel({
               {proPlus.label} — {formatRate(proPlus.annual_cents ?? 0)} a year
             </p>
             <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-              Every Pro feature, unlimited shows and exhibitors, billed once a year. Running more than one mid-sized
-              show a season? It usually costs less.
+              Every Pro feature, unlimited shows and exhibitors, paid for up front for the year. Running more than one
+              mid-sized show a season? It usually costs less.
             </p>
           </div>
-          {asked ? (
+          {canBuyOnline && companyId ? (
+            <BuyProPlus key={companyId} companyId={companyId} label={`Buy ${proPlus.label.replace('GaitDesk ', '')}`} />
+          ) : asked ? (
             <p role="status" className="text-xs sm:max-w-xs" style={{ color: 'var(--text-deep)' }}>
               Asked. Someone from GaitDesk will contact you to set up your Pro+ year, and we&apos;ll email you when it
               starts.

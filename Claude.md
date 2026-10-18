@@ -14,9 +14,10 @@ It does:
 - Record a judge's card — maneuver or fence scores and the penalties called — and add it up (migration 122).
 - Publish results live.
 - Read a show's own printed show bill into a draft show for staff to check and create (migration 141) — a **paid feature** (migration 142).
-- Sell show companies a plan (migrations 168, 169): **GaitDesk Free** staffs a company but sets up no show; **Basic** ($2 per exhibitor registered to a show) runs the show; **Pro** ($4) adds financial reports, the show bill import, association results exports, the Live Boards and (coming) online card payments; **Pro+** ($1,499 a year) is Pro with unlimited shows and exhibitors. A company picks Basic or Pro itself and is invoiced after each show; A GaitDesk admin starts a Pro+ year by hand — paid, invoiced later or complimentary — and can set any plan without a payment. The app takes no payment.
+- Sell show companies a plan (migrations 168, 169): **GaitDesk Free** staffs a company but sets up no show; **Basic** ($2 per exhibitor registered to a show) runs the show; **Pro** ($4) adds financial reports, the show bill import, association results exports, the Live Boards and online payments from exhibitors; **Pro+** ($1,499 a year) is Pro with unlimited shows and exhibitors. A company picks Basic or Pro itself and is invoiced after each show, net 30, and **pays for a finished show before it sets up the next one** (migration 173); a company **buys Pro+ up front** on My Company. A GaitDesk admin can still start a Pro+ year by hand — paid by check, invoiced later or complimentary — and can set any plan without a payment.
+- Take payments online through Stripe (migration 172), and only where Stripe's keys are set: trainers subscribe to Registry Pro by card; a show company pays GaitDesk's invoice by bank or card; and exhibitors pay a show company's own Stripe account, never GaitDesk's.
 - Track horses, exhibitors, show staff, documents, and association registration data.
-- Run a public Trainer Registry: a free Basic listing, and a paid Pro listing ranked nearest-first that a GaitDesk admin records once billed (migration 165).
+- Run a public Trainer Registry: a free Basic listing, and a paid Pro listing ranked nearest-first (migration 165) — a card subscription, or a date a GaitDesk admin records.
 - Provide limited association compliance validation where the app stores enough data, including AQHA class-code, registration, membership-number, workshop-date, and age checks.
 
 It does not:
@@ -53,6 +54,7 @@ Each design doc holds that subsystem's data model notes, its rules, the reasons 
 | The in-gate: check-in, no-shows, starting and finishing classes, classes run together | [docs/design/gate.md](docs/design/gate.md) |
 | Live boards (results and gate), the marquee, points systems, high-point standings, circuits | [docs/design/live-boards-and-high-point.md](docs/design/live-boards-and-high-point.md) |
 | Show companies, office access to a show, plans (Basic / Pro) and paid features | [docs/design/companies.md](docs/design/companies.md) |
+| Anything that takes a payment online: Stripe, the card fee, GaitDesk's invoices to companies, a company's own Stripe account, Trainer Pro subscriptions | [docs/design/payments.md](docs/design/payments.md) |
 | Associations, APHA/AQHA rules, memberships and competition cards, class-code catalogs | [docs/design/associations.md](docs/design/associations.md) |
 | Roles, accounts, `/welcome`, the profile, exhibitor/trainer/judge records, the Trainer Registry and its plans, horses, horse documents | [docs/design/accounts.md](docs/design/accounts.md) |
 | A migration, or a release to production | [docs/design/operations.md](docs/design/operations.md) and the `release` skill |
@@ -91,6 +93,7 @@ Core files only; each design doc lists the files for its subsystem.
 | Backend routers | `backend/routers/` |
 | Association rules | `backend/rules/` |
 | All money math | `backend/billing.py` |
+| Every call to Stripe | `backend/stripe_gateway.py` |
 | NextAuth config | `frontend/auth.ts` |
 | Backend proxy helper | `frontend/lib/backend-fetch.ts` |
 | Shared frontend API helpers | `frontend/lib/api.ts` |
@@ -118,13 +121,14 @@ Each line is the short form; the linked doc has the reason and the history.
 - **A migration's compatibility decides the release order.** Backward-compatible (new table, nullable or defaulted column, index): production database first, then the code. Backward-incompatible (`RENAME`, `DROP`, `SET NOT NULL`, a narrowed type): split it into expand / contract releases — there is no safe single step. Development runs on its own Neon branch, and `database/migrate.ps1` refuses production without `-AllowProduction`. Use the `release` skill. → [operations](docs/design/operations.md)
 - **Write migrations to survive `create_all`.** Startup runs `Base.metadata.create_all`, which may create a new table before its migration does: use `IF NOT EXISTS`, and state server defaults and SQL-only CHECKs in their own statements. Keep migrations append-only once applied. → [associations](docs/design/associations.md) (migration 114)
 - **Money is computed in one place: `backend/billing.py`** (`build_bill`, `charge_lines`, `fee_rate_cents`, `build_account`, `summarize_accounts`). No router, component or SQL `SUM` re-derives a total; every screen quotes it. → [billing](docs/design/billing.md)
+- **Every Stripe call goes through `backend/stripe_gateway.py`, and every settled payment through one idempotent function in `payment_events.py`.** A card fee is added only to a credit card, read off the card on the server, never from the browser; GaitDesk takes nothing from an exhibitor's payment; **no part of a card number is ever stored in the database** — Stripe holds cards; with no Stripe keys nothing offers to take one. → [payments](docs/design/payments.md)
 - **An aggregate screen quotes; it does not compute.** The desk, My Shows and similar one-screen views read the builders above and post to the endpoint that already owns each job. → [desk](docs/design/desk.md)
 - **A back number lives on `show_entries.back_number`, or on `show_horse_numbers` at a show that numbers horses** (`shows.back_number_per`, migration 161). Read it through `backend/backnumbers.back_numbers_for_show` — never `entries.back_number`, a legacy column nothing writes, and never `ShowEntry.back_number` directly. → [registration](docs/design/registration.md)
 - **"On the roster" is `cancellations.is_on_roster`, not `registered_at`.** A cancelled registration keeps its `registered_at`. → [registration](docs/design/registration.md)
 - **A show reads the exhibitor through `ShowExhibitorView`, and a registration never writes the profile.** Show data goes to that show's own copy. → [registration](docs/design/registration.md)
 - **The exhibitor permission is an `exhibitors` row, not `users.role`.** Read it with `loadExhibitor()` / `canActAsExhibitor()` (`frontend/lib/exhibitor-access.ts`). → [accounts](docs/design/accounts.md)
 - **Every office access check goes through `backend/show_access.py`**: a per-show row or membership of the show's company. → [companies](docs/design/companies.md)
-- **A company on GaitDesk Free sets up no show**: every path that creates one goes through `show_companies.show_setup_company_for`. A show is priced at the highest plan its company held across its dates (`show_billing_plan`), so every plan change goes through `set_company_plan`, which logs it. → [companies](docs/design/companies.md)
+- **A company on GaitDesk Free sets up no show, nor does one with a finished show still to pay for** (migration 173): every path that creates one goes through `show_companies.show_setup_company_for`. A show is priced at the highest plan its company held across its dates (`show_billing_plan`), so every plan change goes through `set_company_plan`, which logs it. → [companies](docs/design/companies.md)
 - **A paid feature is enforced on every endpoint it gates** with `Depends(require_feature(KEY))`, or `Depends(require_show_feature(KEY))` for one used at a show — that reads the *show's* company plan, since the show is what is billed. A page only decides whether to offer the door. → [companies](docs/design/companies.md)
 - **Flag what the desk can sort out; refuse only what nobody at the counter can produce.** Health paperwork, memberships and a horse's papers are flags, never entry gates. What refuses is the exhibitor's own missing date of birth, or a placing in a class not yet judged. → [desk](docs/design/desk.md), [registration](docs/design/registration.md)
 - **A verified or attested value is never taken from the client.** The backend reads it off the record (paperwork sign-offs, attestation wording). A typed signature is the one exception. → [desk](docs/design/desk.md)

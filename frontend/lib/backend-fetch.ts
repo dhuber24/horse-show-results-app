@@ -70,3 +70,26 @@ export async function safeFetchBackend(
     };
   }
 }
+
+/**
+ * Forward one signed-in request to the backend and answer with its status and
+ * body, unchanged. For a route handler whose whole job is to relay — the
+ * payment routes (migration 172) are a dozen of them. Goes through
+ * `safeFetchBackend`, so a backend 500 comes back as itself rather than as a
+ * JSON parse error.
+ */
+export async function relayToBackend(
+  path: string,
+  init: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: unknown } = {},
+): Promise<NextResponse> {
+  const headers = await getAuthHeaders();
+  if (!headers) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { json, status } = await safeFetchBackend(`${API_URL}${path}`, {
+    method: init.method ?? 'GET',
+    headers,
+    cache: 'no-store',
+    body: init.body === undefined ? undefined : JSON.stringify(init.body ?? {}),
+  });
+  if (status === 204) return new NextResponse(null, { status });
+  return NextResponse.json(json, { status });
+}

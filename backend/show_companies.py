@@ -150,12 +150,17 @@ FEATURES: dict[str, Feature] = {
         ),
         plan=PRO_LABEL,
     ),
-    # Sold before it is built: nothing gates on it yet, and the financials page
-    # says "coming soon". The card processor is its own project.
+    # Migration 172: the company connects its own Stripe account on My Company,
+    # and exhibitors pay their balance from What I Owe. Gated where the company
+    # connects (`company_billing.connect_stripe`) and where an exhibitor pays
+    # (`payments.unavailable_reason`, on the show's plan).
     ONLINE_PAYMENTS: Feature(
         key=ONLINE_PAYMENTS,
-        label="Online card payments",
-        description="Exhibitors pay their show bill by card, online. Coming soon.",
+        label="Online payments",
+        description=(
+            "Exhibitors pay their balance online, by card or bank transfer, straight to your "
+            "company's own Stripe account. You choose whether credit card payers cover the fee."
+        ),
         plan=PRO_LABEL,
     ),
 }
@@ -220,7 +225,7 @@ PLANS: dict[str, Plan] = {
             "Start a show from its show bill",
             "Association results export",
             "Live Boards for exhibitors and spectators (monitors not included)",
-            "Online card payments (coming soon)",
+            "Online payments from exhibitors, to your own Stripe account",
         ),
         self_serve=True,
     ),
@@ -1291,7 +1296,39 @@ def show_setup_choice(
 
 async def show_setup_company_for(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
     """`show_setup_choice` for the account creating a show: the gate on every
-    path that makes one (a new show, a show bill's Create)."""
+    path that makes one (a new show, a show bill's Create). Also refuses
+    (403) while that company has a finished show to pay for (migration 173,
+    `gaitdesk_invoices.settle_up_block`)."""
+    company_id = await _show_setup_company(db, user_id, role)
+    block = await settle_up_block(db, company_id)
+    if block:
+        raise HTTPException(403, block)
+    return company_id
+
+
+async def settle_up_block(db: AsyncSession, company_id: UUID | None) -> str | None:
+    """Why this company cannot set up another show until it pays for one it
+    ran, or None. An ADMIN's shows are never held back -- the gate is only
+    asked on a show office's own paths."""
+    # Imported here: gaitdesk_invoices reads PLANS and pricing from this module.
+    from gaitdesk_invoices import settle_up_block as block_for
+
+    return await block_for(db, company_id)
+
+
+async def show_setup_blocked(db: AsyncSession, user_id: UUID, role: str) -> str | None:
+    """What the New Show page says instead of Step 1 while the caller's company
+    owes for a finished show -- never the enforcement, which is
+    `show_setup_company_for`. None when nothing holds it back, including when
+    the company is on Free (that wall is `can_set_up_shows`)."""
+    try:
+        company_id = await _show_setup_company(db, user_id, role)
+    except HTTPException:
+        return None
+    return await settle_up_block(db, company_id)
+
+
+async def _show_setup_company(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
     if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
         return None
     rows = (
@@ -1359,7 +1396,9 @@ def plan_confirmation_email(
     elif entry.rate_cents:
         lines += [
             f"Each show is billed {_dollars(entry.rate_cents)} per exhibitor registered to it, after the "
-            "show -- nothing is charged until then. You can set up shows now.",
+            "show -- nothing is charged until then. You can set up shows now; once a show has finished, "
+            "it is paid for before the next one is set up. Settle up on My Company by card or bank "
+            "transfer, or by check.",
         ]
     else:
         lines += ["Choose GaitDesk Basic or Pro on My Company when you're ready to set up a show."]

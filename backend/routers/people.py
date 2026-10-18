@@ -39,11 +39,13 @@ from exhibitor_merge import (
     remove_exhibitor,
     removal_refusal,
 )
+from stripe_gateway import configured as stripe_configured
 from show_companies import (
     FEATURES,
     REQUESTABLE,
     SHOW_OFFICE_ROLES,
     can_set_up_shows,
+    show_setup_blocked,
     admin_emails,
     companies_for_user,
     email_admins,
@@ -566,6 +568,8 @@ async def list_own_features(
         upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in REQUESTABLE],
         plans=plan_catalog(),
         can_set_up_shows=await can_set_up_shows(db, uid, x_user_role),
+        settle_up_message=await show_setup_blocked(db, uid, x_user_role),
+        can_pay_online=stripe_configured(),
     )
 
 

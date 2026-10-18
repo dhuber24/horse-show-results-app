@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@stripe/react-stripe-js": "6.11.0",
+    "@stripe/stripe-js": "9.17.0",
     "@tailwindcss/postcss": "^4.2.2",
     "autoprefixer": "^10.5.0",
     "axios": "^1.6.2",

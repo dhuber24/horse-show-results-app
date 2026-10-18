@@ -13,9 +13,11 @@ from sqlalchemy.orm import load_only, selectinload
 from uuid import UUID
 import bcrypt
 
+import stripe_gateway
 from database import get_db
 from dependencies import require_admin, require_authenticated, safe_uuid
-from mailer import send_email
+from mailer import public_app_url, send_email
+from payment_events import KIND_TRAINER_PRO
 from models import (
     Association,
     Horse,
@@ -49,6 +51,9 @@ from trainer_registry import (
     MAX_PHOTOS,
     MAX_RATE_LINES,
     MAX_VIDEO_LINKS,
+    PRO_INTERVALS,
+    PRO_PLANS,
+    PRO_PRICE_CENTS,
     RADIUS_CHOICES,
     TRAINER_DISCIPLINES,
     ListingMedia,
@@ -537,6 +542,74 @@ async def withdraw_pro_request(
     await db.execute(delete(TrainerProRequest).where(TrainerProRequest.trainer_id == trainer.id))
     await db.commit()
     return await _reload_for_self(user_id, db)
+
+
+@router.post("/me/pro-checkout")
+async def start_pro_checkout(
+    body: TrainerProRequestCreate,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Subscribe to Pro by card (migration 172): returns the Stripe Checkout
+    page to send the trainer to. Card only, and GaitDesk pays the processing
+    fee. Pro switches on when Stripe reports the first invoice paid, and each
+    renewal moves `pro_until` on (`payment_events.apply_trainer_renewal`).
+
+    The Stripe customer is made here, before Checkout, and kept on the trainer
+    -- so a paid invoice can always be matched to them, whichever of Stripe's
+    events arrives first.
+    """
+    stripe_gateway.require_configured()
+    trainer = await _load_trainer_for_self(user_id, db)
+    if trainer.stripe_subscription_id:
+        raise HTTPException(
+            409, "You already have a Pro subscription. Use Manage subscription to change or cancel it."
+        )
+    try:
+        if not trainer.stripe_customer_id:
+            trainer.stripe_customer_id = await stripe_gateway.run(
+                stripe_gateway.create_customer,
+                trainer.user.email if trainer.user else trainer.email,
+                trainer.name,
+                {"trainer_id": str(trainer.id)},
+            )
+            await db.commit()
+        url = await stripe_gateway.run(
+            stripe_gateway.create_subscription_checkout,
+            customer_id=trainer.stripe_customer_id,
+            amount_cents=PRO_PRICE_CENTS[body.plan],
+            interval=PRO_INTERVALS[body.plan],
+            product_name=f"GaitDesk Trainer Registry {PRO_PLANS[body.plan]}",
+            success_url=f"{public_app_url()}/profile/registry?pro=thanks",
+            cancel_url=f"{public_app_url()}/profile/registry",
+            metadata={"kind": KIND_TRAINER_PRO, "trainer_id": str(trainer.id), "plan": body.plan},
+        )
+    except stripe_gateway.PaymentError as exc:
+        raise HTTPException(502, exc.message)
+    return {"url": url}
+
+
+@router.post("/me/billing-portal")
+async def open_billing_portal(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stripe's own page for the trainer to change their card, switch between
+    monthly and annual, or cancel. Cancelling leaves Pro on through the date
+    already paid for."""
+    stripe_gateway.require_configured()
+    trainer = await _load_trainer_for_self(user_id, db)
+    if not trainer.stripe_customer_id:
+        raise HTTPException(409, "There is no Pro subscription on file to manage.")
+    try:
+        url = await stripe_gateway.run(
+            stripe_gateway.create_billing_portal,
+            trainer.stripe_customer_id,
+            f"{public_app_url()}/profile/registry",
+        )
+    except stripe_gateway.PaymentError as exc:
+        raise HTTPException(502, exc.message)
+    return {"url": url}
 
 
 async def _reload_for_self(user_id: str, db: AsyncSession) -> Trainer:

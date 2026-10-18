@@ -195,13 +195,13 @@ export default async function ShowFinancialsPage({
         className="rounded border px-4 py-3 text-sm"
         style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
-        The app doesn&rsquo;t process payments yet. Amounts billed come from the show&rsquo;s own fee
-        schedule, and payments are what your office records collecting at the desk — cash,
-        checks, and transfers you write down here.{' '}
-        {/* Sold before it is built (migration 168): nothing takes a card yet. */}
+        Amounts billed come from the show&rsquo;s own fee schedule, and payments are what your office
+        records collecting at the desk — cash, checks, and transfers you write down here.{' '}
+        {/* Migration 172: online payments land in the same accounts, marked Paid online. */}
         <span style={{ color: 'var(--muted)' }}>
-          Online card payments are coming to GaitDesk Pro
-          {showHasFeature(plan, ONLINE_PAYMENTS) ? ', and this show will have them.' : '.'}
+          {showHasFeature(plan, ONLINE_PAYMENTS)
+            ? 'Exhibitors can also pay their balance online once your company connects Stripe on My Company; those payments appear here on their own, marked Paid online.'
+            : 'Taking exhibitors’ payments online is part of GaitDesk Pro.'}
         </span>
       </div>
 

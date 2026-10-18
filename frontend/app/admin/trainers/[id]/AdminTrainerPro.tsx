@@ -27,9 +27,10 @@ function periodFromToday(plan: ProPlan): string {
 }
 
 /**
- * Trainer Registry Pro, from the admin's side. GaitDesk takes no payment in
- * the app: the trainer asks, an admin bills them outside it and records here
- * how long they have paid for. Pro is on through that date and Basic after it
+ * Trainer Registry Pro, from the admin's side. A trainer who subscribes by
+ * card (migration 172) has their date moved by each payment; for anybody else
+ * — or with online payment not set up — the trainer asks, an admin bills them
+ * outside the app and records here how long they have paid for. Pro is on through that date and Basic after it
  * — nobody has to switch it off. Recording a date answers the request.
  */
 export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {

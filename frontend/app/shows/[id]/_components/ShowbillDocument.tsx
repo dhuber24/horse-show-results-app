@@ -543,7 +543,7 @@ export default function ShowbillDocument({
         </div>
         <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
           Class entry fees are listed with the classes above. The show office collects payment at
-          the show — this app does not take payment.
+          the show.
         </p>
       </Section>
 

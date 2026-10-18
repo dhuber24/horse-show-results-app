@@ -3,7 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import (
     Column, Text, Date, Time, Boolean, Integer, LargeBinary, ForeignKey,
     ForeignKeyConstraint, Table, TIMESTAMP, UniqueConstraint, CheckConstraint,
-    Index, Numeric, func, event, text, exists
+    Index, Identity, Numeric, func, event, text, exists
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, JSONB
 from sqlalchemy.orm import column_property, deferred, relationship
@@ -982,6 +982,11 @@ class Trainer(Base):
         CheckConstraint("pro_plan IS NULL OR pro_plan IN ('monthly', 'annual')", name="ck_trainers_pro_plan"),
         nullable=True,
     )
+    # Migration 172: the Stripe customer and subscription paying for Pro. Each
+    # paid renewal moves `pro_until` (`payment_events.py`); cancelling stops
+    # moving it, so Pro still lapses on its own.
+    stripe_customer_id = Column(Text, nullable=True)
+    stripe_subscription_id = Column(Text, nullable=True)
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -1465,7 +1470,7 @@ class ShowCompany(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(Text, nullable=False)
-    # GaitDesk admin only: the billing arrangement while the app takes no payment.
+    # GaitDesk admin only: notes on the company's billing arrangement.
     notes = Column(Text, nullable=True)
     created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # Migration 143: set when the company *is* one independent person, named
@@ -1482,6 +1487,21 @@ class ShowCompany(Base):
     # add-on on top of it. Pro+ is a prepaid year in `subscriptions`, not a
     # value here: this is the plan the company is on when no year covers today.
     plan = Column(Text, nullable=False, server_default="free", default="free")
+    # Migration 172: the company's own Stripe account (Connect; Accounts v2, set up as v1's Standard), which
+    # exhibitors' online payments go to -- never through GaitDesk. Whether it
+    # can take a payment yet is Stripe's to say (`account.updated`).
+    stripe_account_id = Column(Text, nullable=True)
+    stripe_charges_enabled = Column(Boolean, nullable=False, server_default="false", default=False)
+    # The company's choice: a credit card payer pays the processing fee on top
+    # of their balance, or the company absorbs it.
+    pass_card_fees = Column(Boolean, nullable=False, server_default="false", default=False)
+    # Migration 173: a Pro+ year bought by bank transfer, on its way -- so it is
+    # not bought twice while it settles.
+    pro_plus_payment_intent_id = Column(Text, nullable=True)
+    pro_plus_payment_pending_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # Migration 173: the first show end date that must be paid for before the
+    # company sets up another show (`gaitdesk_invoices.settle_up_block`).
+    settle_shows_from = Column(Date, nullable=False, server_default=text("CURRENT_DATE"), default=date.today)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (CheckConstraint("plan IN ('free', 'basic', 'pro')", name="ck_show_companies_plan"),)
@@ -1541,9 +1561,19 @@ class ShowCompanySubscription(Base):
     recorded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     renewal_reminder_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # Migration 173: a year bought online -- the payment, once per year however
+    # often Stripe reports it, and the card fee paid on top of the price.
+    stripe_payment_intent_id = Column(Text, nullable=True)
+    card_fee_cents = Column(Integer, nullable=False, server_default="0", default=0)
 
     __table_args__ = (
         CheckConstraint("ends_on >= starts_on", name="ck_show_company_subscriptions_dates"),
+        Index(
+            "uq_show_company_subscriptions_payment_intent",
+            "stripe_payment_intent_id",
+            unique=True,
+            postgresql_where=text("stripe_payment_intent_id IS NOT NULL"),
+        ),
         CheckConstraint("plan IN ('pro_plus')", name="ck_show_company_subscriptions_plan"),
         CheckConstraint("price_cents >= 0", name="ck_show_company_subscriptions_price"),
     )
@@ -2610,8 +2640,9 @@ class ShowEntryReservation(Base):
 class ShowPayment(Base):
     """Money the office recorded collecting on an account (migration 096).
 
-    Recording, not processing: no card is handled and no processor is called.
-    The desk takes a check and writes down that it happened, which is what lets
+    Recording, not processing: the desk takes a check and writes down that it
+    happened -- and since migration 172 an exhibitor's online payment writes
+    its own row here (`payment_events.record_show_payment`). That is what lets
     `billed − paid = balance` mean anything. Without this table an outstanding
     balance would read as the full bill for everyone, forever.
 
@@ -2641,6 +2672,11 @@ class ShowPayment(Base):
     # removed — the same reason ShowVerification keeps verified_by_name.
     recorded_by_name = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # Migration 172: an online payment. `card_fee_cents` is the processing fee a
+    # credit card payer paid on top, when the company passes it on -- never
+    # part of `amount_cents`, which is what is credited against the bill.
+    card_fee_cents = Column(Integer, nullable=False, server_default="0", default=0)
+    stripe_payment_intent_id = Column(Text, nullable=True)
 
     # Declared here as well as in the migration, and named to match: startup
     # create_all races the migration runner, and constraints that live only in
@@ -2652,10 +2688,102 @@ class ShowPayment(Base):
             name="ck_show_payments_method",
         ),
         CheckConstraint("amount_cents <> 0", name="ck_show_payments_amount_nonzero"),
+        Index(
+            "uq_show_payments_stripe_payment_intent",
+            "stripe_payment_intent_id",
+            unique=True,
+            postgresql_where=text("stripe_payment_intent_id IS NOT NULL"),
+        ),
     )
 
     show_entry = relationship("ShowEntry", back_populates="payments")
     recorded_by_user = relationship("User")
+
+
+class GaitDeskInvoice(Base):
+    """What GaitDesk invoices a show company (migration 172), net 30.
+
+    Issued by a GaitDesk admin from the usage statement: the shows the company
+    ran and any unpaid Pro+ year, one line each, priced exactly as the
+    statement prices them. Paid online by bank or card (`routers/
+    company_billing.py`), or marked paid by an admin for a check or wire.
+    `card_fee_cents` is the processing fee a credit card payer paid on top --
+    never part of `amount_cents`. Kept, with the company's name, when the
+    company is deleted: it is a record of money owed or paid.
+    """
+    __tablename__ = "gaitdesk_invoices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), default=uuid.uuid4)
+    number = Column(Integer, Identity(always=False), nullable=False)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="SET NULL"), nullable=True)
+    company_name = Column(Text, nullable=False)
+    issued_on = Column(Date, nullable=False)
+    due_on = Column(Date, nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    note = Column(Text, nullable=True)
+    issued_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    voided_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    paid_on = Column(Date, nullable=True)
+    payment_method = Column(Text, nullable=True)
+    payment_reference = Column(Text, nullable=True)
+    card_fee_cents = Column(Integer, nullable=False, server_default="0", default=0)
+    stripe_payment_intent_id = Column(Text, nullable=True)
+    # An online payment started and not settled yet -- a bank payment takes days.
+    payment_pending_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("number", name="uq_gaitdesk_invoices_number"),
+        CheckConstraint("amount_cents >= 0", name="ck_gaitdesk_invoices_amount"),
+        CheckConstraint("due_on >= issued_on", name="ck_gaitdesk_invoices_due"),
+        CheckConstraint("card_fee_cents >= 0", name="ck_gaitdesk_invoices_card_fee"),
+        CheckConstraint(
+            "payment_method IS NULL OR payment_method IN ('card', 'ach', 'check', 'wire', 'other')",
+            name="ck_gaitdesk_invoices_method",
+        ),
+    )
+
+    # Selectin: every read of an invoice shows its lines, and the routes that
+    # read one after a write would otherwise lazy-load them (MissingGreenlet).
+    lines = relationship(
+        "GaitDeskInvoiceLine", back_populates="invoice", cascade="all, delete-orphan",
+        order_by="GaitDeskInvoiceLine.description", lazy="selectin",
+    )
+
+
+class GaitDeskInvoiceLine(Base):
+    """One show, or one Pro+ year, on a GaitDesk invoice (migration 172)."""
+    __tablename__ = "gaitdesk_invoice_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"), default=uuid.uuid4)
+    invoice_id = Column(UUID(as_uuid=True), ForeignKey("gaitdesk_invoices.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="SET NULL"), nullable=True)
+    subscription_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_company_subscriptions.id", ondelete="SET NULL"), nullable=True
+    )
+    description = Column(Text, nullable=False)
+    billing_plan = Column(Text, nullable=True)
+    exhibitor_count = Column(Integer, nullable=True)
+    rate_cents = Column(Integer, nullable=True)
+    amount_cents = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('show', 'pro_plus')", name="ck_gaitdesk_invoice_lines_kind"),
+        CheckConstraint("amount_cents >= 0", name="ck_gaitdesk_invoice_lines_amount"),
+    )
+
+    invoice = relationship("GaitDeskInvoice", back_populates="lines")
+
+
+class StripeEvent(Base):
+    """A Stripe webhook event already handled (migration 172), so a retried
+    delivery is applied once."""
+    __tablename__ = "stripe_events"
+
+    id = Column(Text, primary_key=True)
+    type = Column(Text, nullable=False)
+    received_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
 
 class ShowContactMessage(Base):

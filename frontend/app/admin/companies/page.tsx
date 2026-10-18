@@ -6,8 +6,8 @@ import CompaniesManager from './CompaniesManager';
 /**
  * Show companies — the business a plan is sold to (migrations 142, 168).
  *
- * GaitDesk sets a company's plan, and it reaches every account in the company. The app takes no payment itself: the
- * arrangement is written in the company's notes.
+ * GaitDesk sets a company's plan, and it reaches every account in the company. Each company's page issues
+ * its invoices (migration 172); the company pays them on My Company.
  */
 export default async function AdminCompaniesPage() {
   const headers = await getAuthHeaders();

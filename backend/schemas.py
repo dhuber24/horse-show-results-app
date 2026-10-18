@@ -1562,6 +1562,9 @@ class UsageSubscriptionOut(BaseModel):
     price_cents: int
     # Migration 171: NULL while the year is owed.
     payment_received_on: Optional[date] = None
+    # Migration 172: the invoice it is on, when one that is not void has it.
+    invoice_id: Optional[UUID] = None
+    invoice_label: Optional[str] = None
 
 
 class ShowPlanOut(BaseModel):
@@ -1594,6 +1597,11 @@ class UsageShowOut(BaseModel):
     # company held across its dates, or Pro+ when a paid year covers its start.
     billing_plan: str = "basic"
     billing_plan_label: str = "GaitDesk Basic"
+    # Migration 172: the invoice it is on, when one that is not void has it.
+    invoice_id: Optional[UUID] = None
+    invoice_label: Optional[str] = None
+    # Migration 173: that invoice is paid, or a bank payment is on its way.
+    invoice_settled: bool = False
 
 
 class CompanyUsageOut(BaseModel):
@@ -1609,6 +1617,173 @@ class CompanyUsageOut(BaseModel):
     amount_cents: int
     # Migration 169: the Pro+ years paid for, each its own line.
     subscriptions: list[UsageSubscriptionOut] = Field(default_factory=list)
+
+
+# ── Online payments and GaitDesk invoices (migration 172) ──────────────────
+
+
+class GaitDeskInvoiceLineOut(BaseModel):
+    id: UUID
+    kind: Literal["show", "pro_plus"]
+    show_id: Optional[UUID] = None
+    subscription_id: Optional[UUID] = None
+    description: str
+    billing_plan: Optional[str] = None
+    exhibitor_count: Optional[int] = None
+    rate_cents: Optional[int] = None
+    amount_cents: int
+
+
+class GaitDeskInvoiceOut(BaseModel):
+    """A GaitDesk invoice to a show company, net 30."""
+    id: UUID
+    number: int
+    # "GD-00042": how the invoice is named everywhere it is printed.
+    label: str
+    company_id: Optional[UUID] = None
+    company_name: str
+    issued_on: date
+    due_on: date
+    amount_cents: int
+    # void | paid | processing | overdue | open -- `billing.invoice_status`.
+    status: str
+    note: Optional[str] = None
+    paid_on: Optional[date] = None
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
+    # The processing fee a credit card payer paid on top; never in amount_cents.
+    card_fee_cents: int = 0
+    voided_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    lines: list[GaitDeskInvoiceLineOut] = Field(default_factory=list)
+
+
+class GaitDeskInvoiceCreate(BaseModel):
+    """Lines chosen off the usage statement. Priced by the statement, never
+    sent: an invoice cannot disagree with what it was issued from."""
+    show_ids: list[UUID] = Field(default_factory=list, max_length=200)
+    subscription_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=1000)
+    # Defaults to today; due 30 days later.
+    issued_on: Optional[date] = None
+
+
+class GaitDeskInvoicePaymentIn(BaseModel):
+    """An admin recording a payment that did not come through the app -- a
+    check or a wire, usually."""
+    method: Literal["check", "wire", "ach", "card", "other"]
+    reference: Optional[str] = Field(default=None, max_length=200)
+    # Defaults to today.
+    paid_on: Optional[date] = None
+
+
+class PaymentSetupOut(BaseModel):
+    """What the browser needs to draw the card and bank form for one payment.
+    `stripe_account` is set when the payment goes to a show company's own
+    account rather than to GaitDesk."""
+    publishable_key: str
+    stripe_account: Optional[str] = None
+    amount_cents: int
+    # Whether a credit card payer pays the processing fee on top, and the rate
+    # it is worked out from -- so the form can say so before anything is typed.
+    pass_card_fees: bool
+    card_percent_bp: int
+    card_fixed_cents: int
+    card_fee_cap_bp: int
+
+
+class PaymentTokenIn(BaseModel):
+    """What the payer entered, as a Stripe ConfirmationToken. The card's type
+    and funding are read off it on the server, never sent."""
+    confirmation_token: str = Field(min_length=3, max_length=255)
+    # The total the payer was shown. A payment is refused if the amount owed
+    # changed in between, rather than charging a figure nobody agreed to.
+    expected_total_cents: Optional[int] = None
+
+
+class PaymentQuoteOut(BaseModel):
+    amount_cents: int
+    card_fee_cents: int
+    total_cents: int
+    method_type: Optional[str] = None
+    card_funding: Optional[str] = None
+
+
+class PaymentResultOut(BaseModel):
+    """`succeeded`: paid. `processing`: a bank payment, settled in a few days.
+    `requires_action`: the bank wants the payer to confirm; the browser
+    finishes it with `client_secret`."""
+    status: str
+    payment_intent_id: str
+    client_secret: Optional[str] = None
+    total_cents: int
+
+
+class SettleUpShowOut(BaseModel):
+    show_id: UUID
+    show_name: str
+    end_date: Optional[date] = None
+    exhibitor_count: int
+    rate_cents: int
+    amount_cents: int
+    billing_plan_label: str
+    invoice_id: Optional[UUID] = None
+    invoice_label: Optional[str] = None
+
+
+class SettleUpOut(BaseModel):
+    """The finished shows a company must pay for before it sets up another
+    (migration 173). `blocked` is the same answer the show-creation gate
+    gives; `message` is what it says."""
+    blocked: bool
+    message: Optional[str] = None
+    shows: list[SettleUpShowOut] = Field(default_factory=list)
+    # Shows not yet on any invoice -- the company can have one issued now.
+    can_issue_invoice: bool = False
+
+
+class ProPlusOfferOut(BaseModel):
+    """Buying a Pro+ year on My Company (migration 173)."""
+    price_cents: int
+    starts_on: date
+    ends_on: date
+    # Online payment is set up; without it the company asks and an admin
+    # records the year once it is paid for.
+    can_buy_online: bool
+    # A bank payment for a year is on its way.
+    pending: bool = False
+
+
+class OnlinePaymentsOut(BaseModel):
+    """A show company's own Stripe account, as My Company shows it."""
+    # Stripe is set up for GaitDesk at all.
+    configured: bool
+    # The company's plan includes online payments (GaitDesk Pro or Pro+).
+    plan_allows: bool
+    connected: bool
+    charges_enabled: bool
+    details_submitted: bool
+    pass_card_fees: bool
+    card_percent_bp: int
+    card_fixed_cents: int
+    card_fee_cap_bp: int
+
+
+class OnlinePaymentsSettingsIn(BaseModel):
+    pass_card_fees: bool
+    # Turning the fee on is the company stating it may surcharge where it does
+    # business. Required to switch it on; ignored to switch it off.
+    agree_surcharge_rules: bool = False
+
+
+class ShowPaymentAvailabilityOut(BaseModel):
+    """Whether an exhibitor can pay their balance at a show online, and if not
+    why -- so the page says something true instead of showing a dead button."""
+    available: bool
+    reason: Optional[str] = None
+    balance_cents: int = 0
+    company_name: Optional[str] = None
+    setup: Optional[PaymentSetupOut] = None
 
 
 class UpgradeRequestCreate(BaseModel):
@@ -1651,6 +1826,12 @@ class MyFeaturesOut(BaseModel):
     # Migration 169: whether any of the caller's companies is on a plan that
     # sets up shows. What the New Show buttons ask; creating one enforces it.
     can_set_up_shows: bool = False
+    # Migration 173: set while the company a new show would run under owes for
+    # a finished show -- the New Show page says so instead of Step 1.
+    settle_up_message: Optional[str] = None
+    # Migration 173: online payment is set up, so Pro+ is bought on My Company
+    # rather than asked for.
+    can_pay_online: bool = False
 
 
 # ── Breeds ─────────────────────────────────────────────────────────────────────
@@ -3290,6 +3471,13 @@ class AphaStandardClassOut(BaseModel):
         from_attributes = True
 
 
+def _stripe_configured() -> bool:
+    # Imported here so this module never imports the payment code at load.
+    from stripe_gateway import configured
+
+    return configured()
+
+
 class TrainerProfileOut(BaseModel):
     id: UUID
     user_id: Optional[UUID] = None
@@ -3325,6 +3513,12 @@ class TrainerProfileOut(BaseModel):
     pro_plan: Optional[Literal["monthly", "annual"]] = None
     pro_request_plan: Optional[Literal["monthly", "annual"]] = None
     pro_requested_at: Optional[datetime] = None
+    # Migration 172: paying for Pro by card. `subscribed` is a Stripe
+    # subscription on file (the Manage subscription button); `can_subscribe`
+    # is whether online payment is set up at all -- without it the trainer
+    # asks for Pro and an admin records the date, as before.
+    subscribed: bool = False
+    can_subscribe: bool = False
 
     @model_validator(mode='before')
     @classmethod
@@ -3347,6 +3541,8 @@ class TrainerProfileOut(BaseModel):
             'pro_plan': getattr(v, 'pro_plan', None),
             'pro_request_plan': request.plan if request else None,
             'pro_requested_at': request.created_at if request else None,
+            'subscribed': bool(getattr(v, 'stripe_customer_id', None) and getattr(v, 'stripe_subscription_id', None)),
+            'can_subscribe': _stripe_configured(),
             'id': v.id,
             'user_id': getattr(v, 'user_id', None),
             'first_name': getattr(v, 'first_name', ''),
@@ -4239,6 +4435,10 @@ class ShowPaymentOut(BaseModel):
     recorded_by: Optional[UUID] = None
     recorded_by_name: Optional[str] = None
     created_at: datetime
+    # Migration 172: paid online. The card fee is what a credit card payer
+    # paid on top when the company passes it on -- not part of amount_cents.
+    card_fee_cents: int = 0
+    stripe_payment_intent_id: Optional[str] = None
 
     class Config:
         from_attributes = True

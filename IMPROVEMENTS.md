@@ -2,6 +2,46 @@
 
 ## October 2026
 
+### Pro+ paid up front, and each show paid before the next
+
+- **Show companies buy Pro+ on My Company** (migration 173), by bank transfer
+  for $1,499 or by credit card with the processing fee added. The year starts
+  when the payment succeeds, and renews from the last month of the year.
+- **A finished show is paid for before the next one is set up.** A Basic or
+  Pro company whose last show has finished and isn't paid for can't set up a
+  new show. My Company lists what's owed and issues the invoice; paying it by
+  card or bank lifts the hold at once, and a check is marked paid by a GaitDesk
+  admin. Shows that ended before this release never count.
+- **No card digits are kept.** Online payments read "Online, Visa card" — the
+  last four digits are no longer stored anywhere in GaitDesk.
+- **Company accounts use Stripe's Accounts v2**, which Stripe requires of new
+  Connect platforms, on `stripe` 15.6.1.
+
+### Online payments through Stripe
+
+- **Stripe, ready for the account's keys** (migration 172). With
+  `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` unset nothing offers to take
+  a payment and everything works as before; set them, plus the two webhook
+  signing secrets, and three kinds of payment switch on. Setup steps are in
+  `docs/design/payments.md`.
+- **Trainers subscribe to Registry Pro by card** from their registry page
+  (Stripe Checkout; GaitDesk pays the fee). Each paid renewal moves their Pro
+  date on; *Manage subscription* opens Stripe's billing portal.
+- **GaitDesk invoices show companies, net 30.** An admin ticks finished shows
+  and unpaid Pro+ years on the usage statement and issues an invoice; the
+  company's managers are emailed it and pay on My Company — by bank transfer
+  for the invoice amount, or by credit card with the processing fee added. A
+  check or wire is marked paid by an admin.
+- **Show companies take exhibitors' payments on their own Stripe account**
+  (GaitDesk Pro). They connect it on My Company and choose whether credit card
+  payers cover the fee; exhibitors pay their balance from What I Owe. The
+  payment lands on their account in Financials, marked *Paid online*, with the
+  fee shown beside it and never credited to the bill. GaitDesk takes nothing
+  from these payments.
+- **A card fee is only ever added to a credit card**, decided on the server
+  from the card itself, grossed up so the payee nets the amount and capped at
+  3%.
+
 ### The FAQ links to the plans, and Pro shows the public email
 
 - **The FAQ's Trainer Registry Pro answer links to `/trainers/plans`**, with no

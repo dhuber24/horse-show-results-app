@@ -23,7 +23,8 @@ type Filter = 'owing' | 'settled' | 'all';
  *
  * Opens on the accounts that owe money, because that is the question the office
  * comes here with. Recording a payment writes it down — no card is charged and
- * no processor is called.
+ * no processor is called. An exhibitor's online payment (migration 172) arrives
+ * on its own, marked "Paid online", with any card fee shown beside it.
  */
 export default function AccountsPanel({
   showId,
@@ -414,6 +415,11 @@ function PaymentHistory({
                 )}
                 {payment.note && (
                   <span style={{ color: 'var(--muted)' }}> · {payment.note}</span>
+                )}
+                {(payment.card_fee_cents ?? 0) > 0 && (
+                  <span style={{ color: 'var(--muted)' }}>
+                    {' '}· plus {formatMoney(payment.card_fee_cents ?? 0)} card fee paid by the exhibitor
+                  </span>
                 )}
               </span>
               <span className="flex items-center gap-3">

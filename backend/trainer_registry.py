@@ -16,9 +16,12 @@ sign-up, or "List in Trainer Registry" on their profile, both of which set
   the trainer.
 
 **Pro is a date, not a switch** (`is_pro`): on through `trainers.pro_until`,
-Basic after. The app takes no payment -- a trainer asks
-(`trainer_pro_requests`), an admin bills them outside the app and records the
-date -- so a lapsed subscription needs nobody to turn it off.
+Basic after, so a lapsed subscription needs nobody to turn it off. Two ways
+move the date. With Stripe set up (migration 172) the trainer subscribes by
+card -- GaitDesk pays the processing fee -- and each paid renewal moves it to
+the end of the period paid for (`payment_events.apply_trainer_renewal`).
+Without it, or for a trainer billed some other way, the trainer asks
+(`trainer_pro_requests`) and an admin records the date by hand.
 
 **The plan is enforced where a listing is built** (`public_card`) and where its
 pictures are served, never by refusing the edit: a Basic trainer may fill in
@@ -66,6 +69,12 @@ TRAINER_DISCIPLINES: tuple[str, ...] = (
 )
 
 PRO_PLANS: dict[str, str] = {"monthly": "Pro, monthly", "annual": "Pro, annual"}
+
+# What each Pro plan costs, and how often it renews, when paid by card through
+# Stripe (migration 172). The trainer screens print `PRO_PRICES` in
+# `frontend/lib/trainer-registry.ts`; the two must say the same thing.
+PRO_PRICE_CENTS: dict[str, int] = {"monthly": 1000, "annual": 10000}
+PRO_INTERVALS: dict[str, str] = {"monthly": "month", "annual": "year"}
 
 MAX_PHOTOS = 8
 MAX_VIDEO_LINKS = 5
@@ -321,9 +330,9 @@ def pro_request_email(trainer, plan: str, login_email: Optional[str]) -> tuple[s
     lines = [
         f"{trainer.name} asked for Trainer Registry {plan_label}.",
         "",
-        "GaitDesk takes no payment in the app: bill them, then record how long",
-        "they have paid for on their record. Pro switches on with that date and",
-        "back to Basic after it.",
+        "Online payment is not set up, so bill them outside the app, then record",
+        "how long they have paid for on their record. Pro switches on with that",
+        "date and back to Basic after it.",
         "",
         *_trainer_lines(trainer, login_email),
         "",

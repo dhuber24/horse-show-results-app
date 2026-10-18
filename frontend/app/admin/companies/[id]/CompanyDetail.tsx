@@ -7,6 +7,7 @@ import { errorMessage } from '@/lib/api-error';
 import { formatRate, type PlanInfo, type ShowCompany } from '@/lib/show-companies';
 import SelfCancelPolicy from '@/components/SelfCancelPolicy';
 import PlanPicker from '../PlanPicker';
+import CompanyInvoices from './CompanyInvoices';
 import ProPlusYears from './ProPlusYears';
 import UsageStatement from './UsageStatement';
 
@@ -55,6 +56,9 @@ export default function CompanyDetail({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Bumped when an invoice is issued, voided or paid, so the usage statement
+  // and the invoice list re-read each other's changes (migration 172).
+  const [invoiceKey, setInvoiceKey] = useState(0);
   const [pick, setPick] = useState('');
   const [name, setName] = useState(initialCompany.name);
   const [notes, setNotes] = useState(initialCompany.notes ?? '');
@@ -301,7 +305,13 @@ export default function CompanyDetail({
         onError={setError}
       />
 
-      <UsageStatement companyId={company.id} plan={`${company.plan}:${company.subscriptions?.length ?? 0}`} />
+      <UsageStatement
+        companyId={company.id}
+        plan={`${company.plan}:${company.subscriptions?.length ?? 0}:${invoiceKey}`}
+        onInvoiced={() => setInvoiceKey((k) => k + 1)}
+      />
+
+      <CompanyInvoices companyId={company.id} refreshKey={invoiceKey} onChange={() => setInvoiceKey((k) => k + 1)} />
 
       <section className="p-5 rounded-lg border space-y-3" style={sectionStyle}>
         <div>

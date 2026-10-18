@@ -15,7 +15,12 @@ export const metadata: Metadata = { title: 'My Trainer Registry listing' };
  * ticked. The listing's text — town, zip, disciplines, bio — is edited on My
  * Account with the rest of the profile.
  */
-export default async function MyRegistryPage() {
+export default async function MyRegistryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ pro?: string }>;
+}) {
+  const { pro } = await searchParams;
   const session = await auth();
   if (!session?.user) redirect('/login?callbackUrl=/profile/registry');
   const headers = await getAuthHeaders();
@@ -97,7 +102,7 @@ export default async function MyRegistryPage() {
         </p>
       </div>
 
-      <RegistryManager listing={me} initialPictures={pictures} leads={leads} options={options} />
+      <RegistryManager listing={me} initialPictures={pictures} leads={leads} options={options} justPaid={pro === 'thanks'} />
     </main>
   );
 }

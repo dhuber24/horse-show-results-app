@@ -62,6 +62,20 @@ services:
         value: "true"
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Online payments (migration 172). Optional: unset, nothing offers to
+      # take a payment. Live keys here only; see docs/design/payments.md.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CONNECT_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CARD_PERCENT_BP
+        value: "290"
+      - key: STRIPE_CARD_FIXED_CENTS
+        value: "30"
 
   - type: web
     name: gaitdesk-web

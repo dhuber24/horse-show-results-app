@@ -8,7 +8,9 @@ for everyone, forever. Migration 096 adds the other half.
 
 **Recording, not processing.** Nothing here touches a card or calls a processor.
 Staff write down the cash or check they took, exactly as `show_office.py` writes
-down a document a human physically inspected. The app still collects no payment.
+down a document a human physically inspected. An exhibitor's online payment
+(migration 172, `routers/payments.py`) lands in the same table, written by the
+payment itself, with any card fee in its own column.
 
 Three things are deliberate:
 
@@ -249,6 +251,8 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
                     "recorded_by": p.recorded_by,
                     "recorded_by_name": p.recorded_by_name,
                     "created_at": p.created_at,
+                    "card_fee_cents": p.card_fee_cents or 0,
+                    "stripe_payment_intent_id": p.stripe_payment_intent_id,
                 }
                 for p in payments
             ],

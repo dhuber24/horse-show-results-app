@@ -52,6 +52,7 @@ from routers.show_companies import _load
 from routers.shows import _assert_show_access
 from show_access import SHOW_OFFICE_TABLES
 from show_companies import (
+    settle_up_block,
     SHOW_OFFICE_ROLES,
     add_company_member,
     decline_join_request,
@@ -296,6 +297,12 @@ async def set_show_company(
             f"{target.name} is on GaitDesk Free, which doesn't run shows. Choose GaitDesk Basic or Pro "
             "for it on My Company first -- nothing is charged until after the show.",
         )
+    # Moving a show onto a company that owes for a finished one would be the
+    # way round the settle-up rule (migration 173).
+    if x_user_role != "ADMIN":
+        block = await settle_up_block(db, target.id)
+        if block:
+            raise HTTPException(403, block)
     current_members: Optional[set[UUID]] = None
     if show.company_id is not None:
         current = await _load(db, show.company_id)

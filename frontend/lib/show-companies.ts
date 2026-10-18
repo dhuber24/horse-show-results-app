@@ -97,6 +97,11 @@ export interface MyFeatures {
   /** Any of the caller's companies is on a plan that sets up shows
    *  (migration 169). Creating a show enforces it. */
   can_set_up_shows: boolean;
+  /** Set while the company a new show would run under owes for a finished
+   *  show (migration 173). Creating a show enforces it. */
+  settle_up_message?: string | null;
+  /** Online payment is set up, so Pro+ is bought rather than asked for. */
+  can_pay_online?: boolean;
 }
 
 /**
@@ -127,6 +132,9 @@ export interface UsageShow {
   /** The plan the show is invoiced at (migration 169). */
   billing_plan?: PlanKey;
   billing_plan_label?: string;
+  /** The invoice it is on, once one that is not void has it (migration 172). */
+  invoice_id?: string | null;
+  invoice_label?: string | null;
 }
 
 export interface CompanyUsage {
@@ -145,6 +153,8 @@ export interface CompanyUsage {
     ends_on: string;
     price_cents: number;
     payment_received_on?: string | null;
+    invoice_id?: string | null;
+    invoice_label?: string | null;
   }[];
 }
 
@@ -278,6 +288,8 @@ export async function fetchMyFeatures(headers: Record<string, string> | null): P
       upgrade_requests: Array.isArray(body?.upgrade_requests) ? body.upgrade_requests : [],
       plans: Array.isArray(body?.plans) ? body.plans : [],
       can_set_up_shows: body?.can_set_up_shows === true,
+      settle_up_message: typeof body?.settle_up_message === 'string' ? body.settle_up_message : null,
+      can_pay_online: body?.can_pay_online === true,
     };
   } catch {
     return NO_FEATURES;

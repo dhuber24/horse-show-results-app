@@ -35,13 +35,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from billing import billable_exhibitor_count, platform_usage
 from database import get_db
+from gaitdesk_invoices import usage_statement
 from dependencies import require_admin, safe_uuid
 from models import (
     Circuit,
     Show,
-    ShowEntry,
     PointSystem,
     ShowCompany,
     ShowCompanyCrew,
@@ -64,8 +63,6 @@ from schemas import (
     ProPlusPaymentIn,
     ProPlusRecordIn,
     SubscriptionOut,
-    UsageShowOut,
-    UsageSubscriptionOut,
 )
 from show_companies import (
     FEATURES,
@@ -80,7 +77,6 @@ from show_companies import (
     plan_features,
     record_pro_plus,
     set_company_plan,
-    show_billing_plan,
     utc_today,
     SHOW_OFFICE_ROLES,
     add_company_member,
@@ -434,67 +430,10 @@ async def company_usage(company_id: UUID, db: AsyncSession = Depends(get_db)):
     Each show is priced at its own billing plan (migration 169,
     `show_billing_plan`): the highest plan the company held across the show's
     dates, or nothing per exhibitor when a Pro+ year covers its first day. Each
-    Pro+ year is its own line at its price.
+    Pro+ year is its own line at its price. Each line names the invoice it is
+    on, once one that is not void has it (migration 172).
     """
-    company = await _load(db, company_id)
-    plan = PLANS.get(company.plan) or PLANS["free"]
-    shows = (
-        await db.execute(
-            select(Show)
-            .where(Show.company_id == company_id)
-            .order_by(Show.start_date.desc(), Show.name)
-        )
-    ).scalars().all()
-    # Only the columns the roster test reads -- a season's worth of shows is
-    # thousands of rows, and nothing else on them is wanted here.
-    show_entries = (
-        await db.execute(
-            select(ShowEntry.show_id, ShowEntry.registered_at, ShowEntry.cancelled_at).where(
-                ShowEntry.show_id.in_([s.id for s in shows])
-            )
-        )
-    ).all() if shows else []
-    by_show: dict[UUID, list] = {}
-    for se in show_entries:
-        by_show.setdefault(se.show_id, []).append(se)
-
-    lines = []
-    for show in shows:
-        billed = PLANS[show_billing_plan(company.plan_changes, company.subscriptions, show.start_date, show.end_date)]
-        usage = platform_usage(billable_exhibitor_count(by_show.get(show.id, [])), billed.rate_cents)
-        lines.append(
-            UsageShowOut(
-                show_id=show.id,
-                show_name=show.name,
-                start_date=show.start_date,
-                end_date=show.end_date,
-                status=show.status,
-                billing_plan=billed.key,
-                billing_plan_label=billed.label,
-                **usage,
-            )
-        )
-    years = [
-        UsageSubscriptionOut(
-            id=t.id,
-            starts_on=t.starts_on,
-            ends_on=t.ends_on,
-            price_cents=t.price_cents,
-            payment_received_on=t.payment_received_on,
-        )
-        for t in sorted(company.subscriptions, key=lambda t: t.starts_on, reverse=True)
-    ]
-    return CompanyUsageOut(
-        company_id=company.id,
-        company_name=company.name,
-        plan=plan.key,
-        plan_label=plan.label,
-        rate_cents=plan.rate_cents,
-        shows=lines,
-        subscriptions=years,
-        exhibitor_count=sum(line.exhibitor_count for line in lines),
-        amount_cents=sum(line.amount_cents for line in lines) + sum(y.price_cents for y in years),
-    )
+    return await usage_statement(db, await _load(db, company_id))
 
 
 async def _in_other_company(db: AsyncSession, user_id: UUID, company_id: UUID) -> bool:

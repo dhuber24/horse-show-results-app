@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import ChoosePlanPanel from '@/components/ChoosePlanPanel';
+import BuyProPlus from '@/components/payments/BuyProPlus';
 import SelfCancelPolicy from '@/components/SelfCancelPolicy';
 import { errorMessage } from '@/lib/api-error';
 import { formatDay, formatRate, type PlanInfo, type PlanKey } from '@/lib/show-companies';
@@ -103,10 +104,12 @@ function PlanBlock({
   company,
   plans,
   onChange,
+  canBuyOnline,
 }: {
   company: MyCompany;
   plans: PlanInfo[];
   onChange: (next: MyCompany) => void;
+  canBuyOnline: boolean;
 }) {
   const plan = company.plan;
   // A company on Free has nothing else to do here first, so the chooser is open.
@@ -150,11 +153,14 @@ function PlanBlock({
           className="text-sm rounded border p-3"
           style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
         >
-          <span className="font-semibold">Your Pro+ year ends {formatDay(year.ends_on)}.</span> Renew with GaitDesk to
-          keep unlimited shows. Otherwise {company.name} moves to {afterYear?.label ?? plan.plan_label} the day after
+          <span className="font-semibold">Your Pro+ year ends {formatDay(year.ends_on)}.</span>{' '}
+          {canBuyOnline ? 'Renew now to keep unlimited shows' : 'Renew with GaitDesk to keep unlimited shows'} — the
+          next year starts the day after this one ends. Otherwise {company.name} moves to{' '}
+          {afterYear?.label ?? plan.plan_label} the day after
           {afterYear && afterYear.rate_cents > 0 ? `, at ${formatRate(afterYear.rate_cents)} per exhibitor` : ''}.
         </p>
       )}
+      {year?.renewal_due && canBuyOnline && <BuyProPlus companyId={company.id} label="Renew Pro+" />}
 
       {choosing && (
         <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}>
@@ -164,6 +170,7 @@ function PlanBlock({
             plans={year ? plans.filter((p) => p.key !== 'pro_plus') : plans}
             current={plan.plan === 'free' ? undefined : plan.plan}
             proPlusRequested={Boolean(plan.pro_plus_requested_at)}
+            canBuyOnline={canBuyOnline}
             onChosen={(body) => {
               onChange(body as MyCompany);
               setChoosing(false);
@@ -278,9 +285,11 @@ function CompanySection({
   plans,
   onChange,
   onRemoved,
+  canBuyOnline,
 }: {
   company: MyCompany;
   plans: PlanInfo[];
+  canBuyOnline: boolean;
   onChange: (next: MyCompany) => void;
   /** A removal answers with every company the caller is still in. */
   onRemoved: (next: MyCompany[]) => void;
@@ -401,7 +410,7 @@ function CompanySection({
         )}
       </div>
 
-      <PlanBlock company={company} plans={plans} onChange={onChange} />
+      <PlanBlock company={company} plans={plans} onChange={onChange} canBuyOnline={canBuyOnline} />
 
       {company.join_requests.length > 0 && (
         <div className="space-y-2 pt-4 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -617,7 +626,16 @@ function CompanySection({
  * stewards, and its invites. Since migration 169 the company adds people
  * itself and picks its own plan; a GaitDesk admin starts a Pro+ year.
  */
-export default function MyCompanyStaff({ initialCompanies, plans }: { initialCompanies: MyCompany[]; plans: PlanInfo[] }) {
+export default function MyCompanyStaff({
+  initialCompanies,
+  plans,
+  canBuyOnline = false,
+}: {
+  initialCompanies: MyCompany[];
+  plans: PlanInfo[];
+  /** Online payment is set up: Pro+ is bought and renewed here (migration 173). */
+  canBuyOnline?: boolean;
+}) {
   const [companies, setCompanies] = useState<MyCompany[]>(initialCompanies);
 
   if (companies.length === 0) {
@@ -635,6 +653,7 @@ export default function MyCompanyStaff({ initialCompanies, plans }: { initialCom
           key={company.id}
           company={company}
           plans={plans}
+          canBuyOnline={canBuyOnline}
           onChange={(next) => setCompanies((list) => list.map((c) => (c.id === next.id ? next : c)))}
           onRemoved={setCompanies}
         />

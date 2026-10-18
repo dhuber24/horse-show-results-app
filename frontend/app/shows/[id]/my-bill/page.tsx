@@ -2,10 +2,30 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { fetchShow } from '@/lib/api';
+import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
+import type { PaymentSetup } from '@/lib/payments';
 import ShowBillBreakdown from '@/components/ShowBillBreakdown';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import DueAtShow from '../_components/DueAtShow';
 import { loadMyShowBill } from '../_components/myShowBill';
+import PayOnline from './PayOnline';
+
+/** `ShowPaymentAvailabilityOut` (migration 172). */
+interface PaymentAvailability {
+  available: boolean;
+  reason: string | null;
+  balance_cents: number;
+  company_name: string | null;
+  setup: PaymentSetup | null;
+}
+
+async function loadPaymentAvailability(showId: string): Promise<PaymentAvailability | null> {
+  const headers = await getAuthHeaders();
+  if (!headers) return null;
+  const res = await fetch(`${API_URL}/my-shows/${showId}/payment`, { headers, cache: 'no-store' }).catch(() => null);
+  if (!res?.ok) return null;
+  return (await readJsonBody(res)) as PaymentAvailability | null;
+}
 
 /**
  * What this one show costs the signed-in exhibitor, itemised.
@@ -16,12 +36,20 @@ import { loadMyShowBill } from '../_components/myShowBill';
  * would be faster and would eventually disagree.
  */
 
-export default async function MyShowBillPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function MyShowBillPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ paid?: string }>;
+}) {
   const { id } = await params;
+  const { paid } = await searchParams;
   const session = await auth();
   if (!session) redirect(`/login?next=${encodeURIComponent(`/shows/${id}/my-bill`)}`);
 
-  const [show, mine] = await Promise.all([fetchShow(id), loadMyShowBill(id)]);
+  const [show, mine, payment] = await Promise.all([fetchShow(id), loadMyShowBill(id), loadPaymentAvailability(id)]);
+  const payOnline = payment?.available && payment.setup ? payment : null;
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
@@ -67,9 +95,27 @@ export default async function MyShowBillPage({ params }: { params: Promise<{ id:
           {/* Side pot buy-ins are on the bill above: entering a class a pot
               bundles is the buy-in, so `build_bill` charges it and the office's
               Financials reads the same figure. See Claude.md. */}
+          {!payOnline && paid === '1' && (
+            <p className="text-sm mt-4" style={{ color: 'var(--success-strong)' }}>
+              Payment received — thank you. It shows on your account once the show office&rsquo;s records catch up.
+            </p>
+          )}
+          {payOnline && payOnline.setup && (
+            <div className="mt-4">
+              <PayOnline
+                showId={id}
+                companyName={payOnline.company_name}
+                balanceCents={payOnline.balance_cents}
+                setup={payOnline.setup}
+                justPaid={paid === '1'}
+              />
+            </div>
+          )}
+
           <p className="text-xs mt-4" style={{ color: 'var(--muted)' }}>
-            This is what the show office will collect — the app does not take payment. If a number
-            looks wrong, the show secretary is the one who can change it.
+            {payOnline
+              ? 'Pay online above, or pay the show office as usual. If a number looks wrong, the show secretary is the one who can change it.'
+              : 'This is what the show office will collect. If a number looks wrong, the show secretary is the one who can change it.'}
           </p>
         </>
       )}
