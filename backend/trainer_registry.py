@@ -11,7 +11,7 @@ sign-up, or "List in Trainer Registry" on their profile, both of which set
   distance.
 - **Pro, $10 a month or $100 a year:** ranked nearest-first above Basic, with
   its distance shown; the rich profile (bio, headshot, logo, photos, video
-  links, rate sheet, website and socials, association cards and compliance
+  links, rate sheet, public email, website and socials, association cards and compliance
   badges); and a Contact Trainer form whose leads are stored and emailed to
   the trainer.
 
@@ -207,6 +207,7 @@ def public_card(
         "bio": trainer.bio,
         "website": trainer.website,
         "public_phone": trainer.phone,
+        "public_email": trainer.email,
         "social_facebook": trainer.social_facebook,
         "social_instagram": trainer.social_instagram,
         "social_tiktok": trainer.social_tiktok,

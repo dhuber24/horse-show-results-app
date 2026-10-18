@@ -2,6 +2,14 @@
 
 ## October 2026
 
+### The FAQ links to the plans, and Pro shows the public email
+
+- **The FAQ's Trainer Registry Pro answer links to `/trainers/plans`**, with no
+  sign-in needed. The registry listings still don't link to it or print a price.
+- **A Pro listing shows the trainer's public email**: an Email button on the
+  card and the address on their page. Basic doesn't, and the login email,
+  private phone and zip code stay off both plans.
+
 ### Trainers compare the plans before registering
 
 - **The trainer sign-up form links to the plans**: *Compare plans here* opens

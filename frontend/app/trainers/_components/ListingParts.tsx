@@ -8,6 +8,7 @@
 import {
   affiliationLabel,
   initials,
+  mailtoHref,
   mediaUrl,
   safeWebUrl,
   socialUrl,
@@ -100,14 +101,16 @@ export const linkButtonClass = 'inline-flex items-center gap-1 text-sm font-medi
 export const linkButtonStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--accent)' } as const;
 
 /**
- * The Call button, and with `full` the website and socials. Pro only. The
- * Contact Trainer form sits beside these; the email address itself is never
- * printed, since the form routes to it.
+ * The Call and Email buttons, and with `full` the website and socials. Pro
+ * only — a Basic listing carries none of these. The Contact Trainer form sits
+ * beside them and sends to the same public email.
  */
 export function ContactLinks({ trainer, full }: { trainer: TrainerListing; full?: boolean }) {
   const links: { href: string; label: string; external?: boolean }[] = [];
   const tel = telHref(trainer.public_phone);
   if (tel) links.push({ href: tel, label: `📞 ${full ? trainer.public_phone : 'Call'}` });
+  const mailto = mailtoHref(trainer.public_email);
+  if (mailto) links.push({ href: mailto, label: `📧 ${full ? trainer.public_email : 'Email'}` });
   if (full) {
     const website = safeWebUrl(trainer.website);
     const facebook = socialUrl('facebook', trainer.social_facebook);

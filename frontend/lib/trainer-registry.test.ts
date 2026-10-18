@@ -36,6 +36,7 @@ function listing(overrides: Partial<TrainerListing> = {}): TrainerListing {
     bio: 'Started colts for twenty years.',
     website: null,
     public_phone: null,
+    public_email: null,
     social_facebook: null,
     social_instagram: null,
     social_tiktok: null,

@@ -3378,9 +3378,9 @@ class TrainerPublicOut(BaseModel):
     """One Trainer Registry listing, as the public sees it. Built only by
     `trainer_registry.public_card`, which decides what each plan shows.
 
-    Basic: the first block and nothing else. Pro: everything. Raw compliance
-    dates, the zip code and every private contact detail stay out on both; the
-    public email stays out too -- the Contact Trainer form routes to it.
+    Basic: the first block and nothing else. Pro: everything, the public email
+    included. Raw compliance dates, the zip code and every private contact
+    detail stay out on both.
     """
     id: UUID
     first_name: str
@@ -3398,6 +3398,7 @@ class TrainerPublicOut(BaseModel):
     bio: Optional[str] = None
     website: Optional[str] = None
     public_phone: Optional[str] = None
+    public_email: Optional[str] = None
     social_facebook: Optional[str] = None
     social_instagram: Optional[str] = None
     social_tiktok: Optional[str] = None

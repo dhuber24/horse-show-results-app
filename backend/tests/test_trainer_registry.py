@@ -222,7 +222,7 @@ def test_basic_shows_a_name_what_they_train_and_where_and_nothing_more():
     assert card.disciplines == ["Reining", "Ranch Riding"]
     empty = TrainerPublicOut(id=trainer.id, first_name="", last_name="", name="")
     for field in (
-        "bio", "website", "public_phone", "social_facebook", "headshot_id", "logo_id",
+        "bio", "website", "public_phone", "public_email", "social_facebook", "headshot_id", "logo_id",
         "photo_ids", "video_urls", "rate_sheet", "can_contact", "affiliations",
         "safesport_current", "has_liability_insurance",
     ):
@@ -243,13 +243,18 @@ def test_pro_shows_the_rich_profile_and_takes_leads():
     assert card.has_liability_insurance is True
 
 
-def test_no_plan_shows_the_private_contact_the_zip_or_the_public_email():
+def test_no_plan_shows_the_private_contact_or_the_zip():
     for trainer in (_trainer(), _pro()):
         dumped = public_card(trainer, [], ListingMedia(), today=TODAY).model_dump_json()
         assert "555-000-0000" not in dumped
-        assert "jane@example.com" not in dumped
-        assert "barn@example.com" not in dumped  # the Contact Trainer form routes to it
+        assert "jane@example.com" not in dumped  # the login email
         assert "34470" not in dumped
+
+
+def test_only_pro_shows_the_public_email():
+    assert public_card(_pro(), [], ListingMedia(), today=TODAY).public_email == "barn@example.com"
+    dumped = public_card(_trainer(), [], ListingMedia(), today=TODAY).model_dump_json()
+    assert "barn@example.com" not in dumped
 
 
 def test_a_lapsed_card_is_left_off_a_pro_listing():

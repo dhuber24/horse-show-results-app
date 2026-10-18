@@ -44,6 +44,7 @@ export interface TrainerListing {
   bio: string | null;
   website: string | null;
   public_phone: string | null;
+  public_email: string | null;
   social_facebook: string | null;
   social_instagram: string | null;
   social_tiktok: string | null;
@@ -141,6 +142,7 @@ export function planFeatures(limits: Pick<RegistryOptions, 'max_photos' | 'max_v
     { label: 'Association cards, and SafeSport, background-check and insurance badges', basic: false, pro: true },
     { label: 'Contact Trainer button — leads straight to your email', basic: false, pro: true },
     { label: 'Call button with your public phone', basic: false, pro: true },
+    { label: 'Your public email shown', basic: false, pro: true },
     { label: 'Every lead kept on your registry page', basic: false, pro: true },
   ];
 }
