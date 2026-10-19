@@ -17,9 +17,11 @@ import MyCompanyStaff, { type MyCompany } from './MyCompanyStaff';
 export default async function MyCompanyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stripe?: string; invoice?: string }>;
+  searchParams: Promise<{ stripe?: string; company?: string; invoice?: string }>;
 }) {
-  const { stripe, invoice } = await searchParams;
+  // `?stripe=return|refresh&company=` is Stripe sending a manager back from
+  // setting up that company's account.
+  const { stripe, company: stripeCompany, invoice } = await searchParams;
   const session = await auth();
   // An invoice email links here (`?invoice=`); signing in brings them back to it.
   if (!session?.user) {
@@ -88,7 +90,7 @@ export default async function MyCompanyPage({
               invoices={invoices}
               online={online}
               settleUp={settleUp}
-              stripeReturn={stripe ?? null}
+              stripeReturn={stripe && (!stripeCompany || stripeCompany === company.id) ? stripe : null}
               openInvoiceId={invoice ?? null}
             />
           ))}

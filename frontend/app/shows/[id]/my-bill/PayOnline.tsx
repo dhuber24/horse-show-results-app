@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BankVerificationNote from '@/components/payments/BankVerificationNote';
 import StripePaymentForm from '@/components/payments/StripePaymentForm';
 import { formatCents, type PaymentSetup } from '@/lib/payments';
 
@@ -27,6 +28,7 @@ export default function PayOnline({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [done, setDone] = useState<'succeeded' | 'processing' | null>(justPaid ? 'succeeded' : null);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
   const base = `/api/my-shows/${showId}/payment`;
 
   if (done) {
@@ -40,6 +42,11 @@ export default function PayOnline({
             ? 'It takes a few business days to settle, and shows on your account once it does.'
             : 'A receipt is on its way by email, and the show office sees the payment on your account.'}
         </p>
+        {done === 'processing' && (
+          <div className="mt-2">
+            <BankVerificationNote url={verificationUrl} />
+          </div>
+        )}
       </div>
     );
   }
@@ -71,8 +78,9 @@ export default function PayOnline({
           quoteUrl={`${base}/quote`}
           payUrl={base}
           statusUrl={`${base}/status`}
-          onDone={(status) => {
+          onDone={(status, url) => {
             setDone(status);
+            setVerificationUrl(url ?? null);
             router.refresh();
           }}
         />

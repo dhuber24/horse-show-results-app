@@ -35,7 +35,9 @@ export interface StripePaymentFormProps {
   payUrl: string;
   /** POST { payment_intent_id } after the bank asked the payer to confirm. */
   statusUrl: string;
-  onDone: (status: 'succeeded' | 'processing') => void;
+  /** `verificationUrl`: a bank account typed in by hand waits on its
+   *  microdeposit -- show it with `BankVerificationNote`. */
+  onDone: (status: 'succeeded' | 'processing', verificationUrl?: string | null) => void;
 }
 
 const stripeCache = new Map<string, Promise<Stripe | null>>();
@@ -160,12 +162,12 @@ function PaymentSteps({ setup, amountLabel, quoteUrl, payUrl, statusUrl, onDone 
       // that `onDone` refreshes reads where the payment really stands.
       const status = await postJson(statusUrl, { payment_intent_id: result.payment_intent_id });
       setBusy(false);
-      onDone(status.json?.status === 'processing' ? 'processing' : 'succeeded');
+      onDone(status.json?.status === 'processing' ? 'processing' : 'succeeded', status.json?.verification_url);
       return;
     }
     setBusy(false);
     if (result.status === 'succeeded' || result.status === 'processing') {
-      onDone(result.status);
+      onDone(result.status, result.verification_url);
       return;
     }
     setQuote(null);

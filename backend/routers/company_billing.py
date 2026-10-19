@@ -67,6 +67,7 @@ from payment_events import (
     mark_invoice_paid,
 )
 from routers.my_company import _caller, _my_company
+from routers.payments import payment_result
 from routers.show_companies import _load, usage_statement
 from schemas import (
     GaitDeskInvoiceCreate,
@@ -379,25 +380,21 @@ async def pay_invoice(
         raise HTTPException(402, exc.message)
 
     await _settle_invoice_intent(db, invoice, intent)
-    return PaymentResultOut(
-        status=intent["status"] or "unknown",
-        payment_intent_id=intent["id"],
-        client_secret=intent["client_secret"] if intent["status"] == "requires_action" else None,
-        total_cents=quote["total_cents"],
-    )
+    return payment_result(intent, quote["total_cents"])
 
 
 async def _settle_invoice_intent(db: AsyncSession, invoice: GaitDeskInvoice, intent: dict) -> None:
     """Write down where a payment on an invoice stands right now. A card that
     succeeded is paid at once -- the webhook confirms it later and changes
     nothing -- and a bank payment holds the invoice as processing until it
-    settles or fails."""
+    settles or fails, from the moment it starts: a bank account typed in by
+    hand waits on its microdeposit first, and the invoice must not be paid a
+    second time meanwhile."""
     invoice.stripe_payment_intent_id = intent["id"]
-    status = intent.get("status")
-    if status == "succeeded":
+    if intent.get("status") == "succeeded":
         await apply_invoice_payment(intent, db)
-    elif status == "processing":
-        invoice.payment_pending_at = datetime.now(timezone.utc)
+    elif stripe_gateway.on_its_way(intent):
+        invoice.payment_pending_at = invoice.payment_pending_at or datetime.now(timezone.utc)
     await db.commit()
 
 
@@ -469,7 +466,7 @@ async def online_payments(
             company.stripe_charges_enabled = account["charges_enabled"]
             await db.commit()
             out = _online_payments_out(company).model_copy(
-                update={"details_submitted": account["details_submitted"]}
+                update={"details_submitted": account["details_submitted"], "details_due": account["details_due"]}
             )
     return out
 
@@ -501,11 +498,14 @@ async def connect_stripe(
             )
             await db.commit()
             logger.info("Stripe account %s created for company %s", company.stripe_account_id, company.id)
+        # Stripe sends the manager to `refresh` when this link has expired or
+        # was already opened; My Company then makes a new one and carries on.
+        # The company is named because a manager may work for several.
         url = await stripe_gateway.run(
             stripe_gateway.create_onboarding_link,
             company.stripe_account_id,
-            f"{public_app_url()}/admin/my-company?stripe=refresh",
-            f"{public_app_url()}/admin/my-company?stripe=return",
+            f"{public_app_url()}/admin/my-company?stripe=refresh&company={company.id}",
+            f"{public_app_url()}/admin/my-company?stripe=return&company={company.id}",
         )
     except stripe_gateway.PaymentError as exc:
         raise HTTPException(502, exc.message)
@@ -724,17 +724,20 @@ async def quote_pro_plus(
 async def _settle_pro_plus_intent(db: AsyncSession, company_id: UUID, intent: dict) -> None:
     """Write down where a Pro+ payment stands: a card that succeeded starts the
     year now (the webhook later changes nothing); a bank payment holds the
-    company as pending until it settles or fails."""
+    company as pending until it settles or fails -- including while a bank
+    account typed in by hand waits on its microdeposit, so a second year is
+    not bought meanwhile."""
     if intent.get("status") == "succeeded":
         term = await apply_pro_plus_purchase(intent, db)
         await db.commit()
         if term is not None:
             await mail_pro_plus_started(db, company_id, term)
         return
-    if intent.get("status") == "processing":
+    if stripe_gateway.on_its_way(intent):
         company = await _load(db, company_id)
-        company.pro_plus_payment_intent_id = intent["id"]
-        company.pro_plus_payment_pending_at = datetime.now(timezone.utc)
+        if company.pro_plus_payment_intent_id != intent["id"]:
+            company.pro_plus_payment_intent_id = intent["id"]
+            company.pro_plus_payment_pending_at = datetime.now(timezone.utc)
         await db.commit()
 
 
@@ -776,12 +779,7 @@ async def buy_pro_plus(
     except stripe_gateway.PaymentError as exc:
         raise HTTPException(402, exc.message)
     await _settle_pro_plus_intent(db, company.id, intent)
-    return PaymentResultOut(
-        status=intent["status"] or "unknown",
-        payment_intent_id=intent["id"],
-        client_secret=intent["client_secret"] if intent["status"] == "requires_action" else None,
-        total_cents=quote["total_cents"],
-    )
+    return payment_result(intent, quote["total_cents"])
 
 
 @company_router.post("/{company_id}/pro-plus/payment-status", response_model=PaymentResultOut)
@@ -805,9 +803,5 @@ async def pro_plus_payment_status(
     if metadata.get("kind") != KIND_PRO_PLUS or metadata.get("company_id") != str(company_id):
         raise HTTPException(404, "That payment is not for this company's Pro+.")
     await _settle_pro_plus_intent(db, company_id, intent)
-    return PaymentResultOut(
-        status=intent.get("status") or "unknown",
-        payment_intent_id=intent["id"],
-        total_cents=int(intent.get("amount") or 0),
-    )
+    return payment_result(intent, int(intent.get("amount") or 0))
 

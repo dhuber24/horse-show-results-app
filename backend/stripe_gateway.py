@@ -263,7 +263,8 @@ def create_payment(
     PaymentIntent's id, status and client secret: `succeeded` for most cards,
     `processing` for a bank payment (settled days later, by webhook), or
     `requires_action` when the bank wants the payer to confirm -- the browser
-    finishes that with the client secret."""
+    finishes that with the client secret -- or when a bank account typed in by
+    hand waits on its microdeposit (`awaiting_microdeposits`)."""
     intent = _call(
         lambda s: s.PaymentIntent.create,
         amount=amount_cents,
@@ -284,6 +285,7 @@ def create_payment(
         "client_secret": intent.get("client_secret"),
         "amount": intent.get("amount"),
         "metadata": intent.get("metadata") or {},
+        **_next_action(intent),
     }
 
 
@@ -295,7 +297,44 @@ def retrieve_payment(intent_id: str, stripe_account: Optional[str] = None) -> di
         "amount": intent.get("amount"),
         "metadata": intent.get("metadata") or {},
         "payment_method_types": intent.get("payment_method_types") or [],
+        **_next_action(intent),
     }
+
+
+MICRODEPOSITS = "verify_with_microdeposits"
+
+
+def _next_action(intent: dict) -> dict:
+    """What a `requires_action` payment waits on, and -- for a microdeposit --
+    Stripe's page where the payer enters it."""
+    action = intent.get("next_action") or {}
+    return {
+        "next_action_type": action.get("type"),
+        "verification_url": (action.get(MICRODEPOSITS) or {}).get("hosted_verification_url"),
+    }
+
+
+def awaiting_microdeposits(intent: dict) -> bool:
+    """A bank account typed in by hand rather than linked: Stripe sends it a
+    small deposit, and the payment goes ahead only once the payer reads the
+    deposit's code back -- a day or two later. If they never do, or get it
+    wrong too often, Stripe fails the payment (`payment_intent.payment_failed`)."""
+    return intent.get("status") == "requires_action" and intent.get("next_action_type") == MICRODEPOSITS
+
+
+def on_its_way(intent: dict) -> bool:
+    """A bank payment started that has not settled: processing, or waiting on
+    its microdeposit. Either way it is days from paid, and only the webhook
+    says how it ends -- so nothing may be paid a second time meanwhile."""
+    return intent.get("status") == "processing" or awaiting_microdeposits(intent)
+
+
+def payer_status(intent: dict) -> str:
+    """Where the payment stands, as the payer is told. A microdeposit wait
+    reads `processing`, like any bank payment on its way: it is nothing the
+    browser can finish now, and `requires_action` would have the form ask
+    Stripe.js to finish it."""
+    return "processing" if awaiting_microdeposits(intent) else intent.get("status") or "unknown"
 
 
 # ── A show company's own account (Connect, Standard) ──────────────────────────
@@ -360,13 +399,17 @@ def create_onboarding_link(account_id: str, refresh_url: str, return_url: str) -
 def retrieve_account(account_id: str) -> dict:
     """Whether the company's account can take payments yet. Read through the
     v1 endpoint, which Stripe answers for a v2 account too, in the v1 shape --
-    `charges_enabled` is the one fact this needs."""
+    `charges_enabled` is the one fact this needs. `details_due`: Stripe is
+    waiting on the company for more (a full SSN after the last four, say), as
+    against checking what it already has."""
     account = _call(lambda s: s.Account.retrieve, account_id)
+    requirements = account.get("requirements") or {}
     return {
         "id": account["id"],
         "charges_enabled": bool(account.get("charges_enabled")),
         "details_submitted": bool(account.get("details_submitted")),
         "payouts_enabled": bool(account.get("payouts_enabled")),
+        "details_due": bool(requirements.get("currently_due") or requirements.get("past_due")),
     }
 
 

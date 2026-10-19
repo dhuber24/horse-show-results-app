@@ -35,6 +35,9 @@ export interface PaymentResult {
   payment_intent_id: string;
   client_secret: string | null;
   total_cents: number;
+  /** A bank account typed in by hand waits on a microdeposit (status
+   *  `processing`): Stripe's page where the payer enters it. */
+  verification_url?: string | null;
 }
 
 /** `GaitDeskInvoiceOut`. */

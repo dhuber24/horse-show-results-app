@@ -71,6 +71,20 @@ class PaymentStatusIn(BaseModel):
     payment_intent_id: str = Field(min_length=3, max_length=255)
 
 
+def payment_result(intent: dict, total_cents: int) -> PaymentResultOut:
+    """What the payment form is told, for every kind of payment: a bank
+    account waiting on its microdeposit reads as a bank payment on its way,
+    with Stripe's page for entering the deposit -- never as paid."""
+    status = stripe_gateway.payer_status(intent)
+    return PaymentResultOut(
+        status=status,
+        payment_intent_id=intent["id"],
+        client_secret=intent.get("client_secret") if status == "requires_action" else None,
+        total_cents=total_cents,
+        verification_url=intent.get("verification_url"),
+    )
+
+
 # ── The webhook ───────────────────────────────────────────────────────────────
 
 
@@ -283,12 +297,7 @@ async def pay_show_balance(
     if intent["status"] == "succeeded":
         await record_show_payment(intent, company.stripe_account_id, db)
         await db.commit()
-    return PaymentResultOut(
-        status=intent["status"] or "unknown",
-        payment_intent_id=intent["id"],
-        client_secret=intent["client_secret"] if intent["status"] == "requires_action" else None,
-        total_cents=quote["total_cents"],
-    )
+    return payment_result(intent, quote["total_cents"])
 
 
 @router.post("/my-shows/{show_id}/payment/status", response_model=PaymentResultOut)
@@ -317,8 +326,4 @@ async def show_payment_status(
     if intent.get("status") == "succeeded":
         await record_show_payment(intent, ctx.company.stripe_account_id, db)
         await db.commit()
-    return PaymentResultOut(
-        status=intent.get("status") or "unknown",
-        payment_intent_id=intent["id"],
-        total_cents=int(intent.get("amount") or 0),
-    )
+    return payment_result(intent, int(intent.get("amount") or 0))

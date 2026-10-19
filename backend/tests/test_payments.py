@@ -14,6 +14,9 @@ that decide what anybody is charged, without a database or a Stripe account:
   same payment changes nothing;
 * a Pro subscription invoice moves `pro_until` to the end of the period paid
   for, read the same way in every Stripe API version;
+* a bank payment on its way -- processing, or a bank account typed in by hand
+  waiting on its microdeposit -- holds what it pays for, and is never told to
+  the payer as paid;
 * nothing is offered, and nothing is trusted, without Stripe's keys.
 """
 import asyncio
@@ -497,3 +500,92 @@ def test_without_online_payment_the_invoice_email_asks_for_a_check():
     _, body = invoice_email(invoice, [], pay_online=False)
     assert "Pay by check" in body and "GD-00007" in body
     assert "credit card" not in body
+
+
+# ── A bank payment on its way, including one waiting on its microdeposit ─────
+
+from fastapi import HTTPException  # noqa: E402
+
+from routers import company_billing  # noqa: E402
+from routers.payments import payment_result  # noqa: E402
+
+MICRODEPOSIT = {
+    "id": "pi_md",
+    "status": "requires_action",
+    "next_action_type": "verify_with_microdeposits",
+    "verification_url": "https://payments.stripe.com/microdeposit/pacs_test",
+    "client_secret": "pi_md_secret",
+}
+
+
+class _Session:
+    async def commit(self):
+        pass
+
+
+@pytest.mark.parametrize(
+    "intent, on_its_way",
+    [
+        ({"status": "processing"}, True),
+        (MICRODEPOSIT, True),
+        # 3-D Secure: the browser finishes it now, so nothing is held.
+        ({"status": "requires_action", "next_action_type": "use_stripe_sdk"}, False),
+        ({"status": "succeeded"}, False),
+        ({"status": "requires_payment_method"}, False),
+    ],
+)
+def test_a_bank_payment_is_on_its_way_until_it_settles(intent, on_its_way):
+    assert stripe_gateway.on_its_way(intent) is on_its_way
+
+
+def test_the_payer_is_told_a_microdeposit_wait_is_a_bank_payment_on_its_way():
+    out = payment_result(MICRODEPOSIT, 8_000)
+    assert out.status == "processing"
+    assert out.client_secret is None  # nothing for Stripe.js to finish
+    assert out.verification_url == MICRODEPOSIT["verification_url"]
+
+
+def test_a_card_the_bank_wants_confirmed_is_finished_in_the_browser():
+    out = payment_result(
+        {"id": "pi_3ds", "status": "requires_action", "next_action_type": "use_stripe_sdk", "client_secret": "s"}, 100
+    )
+    assert (out.status, out.client_secret, out.verification_url) == ("requires_action", "s", None)
+
+
+def test_an_invoice_waiting_on_a_microdeposit_cannot_be_paid_again():
+    invoice = SimpleNamespace(id=uuid4(), number=5, stripe_payment_intent_id=None, payment_pending_at=None,
+                              voided_at=None, paid_on=None)
+    asyncio.run(company_billing._settle_invoice_intent(_Session(), invoice, MICRODEPOSIT))
+    assert invoice.stripe_payment_intent_id == "pi_md" and invoice.payment_pending_at is not None
+    assert invoice_status(invoice, TODAY) == "processing"
+    with pytest.raises(HTTPException) as refused:
+        company_billing._refuse_unless_open(invoice)
+    assert refused.value.status_code == 409
+
+
+def test_a_pro_plus_year_waiting_on_a_microdeposit_is_not_bought_twice(monkeypatch):
+    company = SimpleNamespace(pro_plus_payment_intent_id=None, pro_plus_payment_pending_at=None, subscriptions=[])
+
+    async def load(db, company_id):
+        return company
+
+    monkeypatch.setattr(company_billing, "_load", load)
+    asyncio.run(company_billing._settle_pro_plus_intent(_Session(), uuid4(), MICRODEPOSIT))
+    assert company.pro_plus_payment_intent_id == "pi_md" and company.pro_plus_payment_pending_at is not None
+    with pytest.raises(HTTPException) as refused:
+        company_billing._refuse_pro_plus(company)
+    assert refused.value.status_code == 409
+
+
+def test_a_microdeposit_never_entered_frees_the_company_to_pay_again():
+    """Stripe fails the payment when the code is wrong too often or never
+    entered -- `payment_intent.payment_failed`, seen in the sandbox for both."""
+    company = SimpleNamespace(id=uuid4(), pro_plus_payment_intent_id="pi_md", pro_plus_payment_pending_at=object())
+
+    class _Db:
+        async def get(self, model, key):
+            return company
+
+    failed = {"id": "pi_md", "metadata": {"kind": payment_events.KIND_PRO_PLUS, "company_id": str(company.id)}}
+    assert asyncio.run(payment_events.apply_pro_plus_payment_failed(failed, _Db()))
+    assert company.pro_plus_payment_intent_id is None and company.pro_plus_payment_pending_at is None

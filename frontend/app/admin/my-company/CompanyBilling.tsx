@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import BankVerificationNote from '@/components/payments/BankVerificationNote';
 import StripePaymentForm from '@/components/payments/StripePaymentForm';
 import { errorMessage } from '@/lib/api-error';
 import {
@@ -20,6 +21,8 @@ export interface OnlinePayments {
   connected: boolean;
   charges_enabled: boolean;
   details_submitted: boolean;
+  /** Stripe is waiting on the company for more details, not checking them. */
+  details_due?: boolean;
   pass_card_fees: boolean;
   card_percent_bp: number;
   card_fixed_cents: number;
@@ -75,6 +78,7 @@ function InvoiceRow({
   const [setup, setSetup] = useState<PaymentSetup | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
   const payable = invoice.status === 'open' || invoice.status === 'overdue';
   const base = `/api/my-company/${companyId}/invoices/${invoice.id}`;
 
@@ -184,8 +188,9 @@ function InvoiceRow({
             quoteUrl={`${base}/quote`}
             payUrl={`${base}/pay`}
             statusUrl={`${base}/payment-status`}
-            onDone={(status) => {
+            onDone={(status, url) => {
               setSetup(null);
+              setVerificationUrl(status === 'processing' ? url ?? null : null);
               setMessage({
                 ok: true,
                 text:
@@ -199,6 +204,7 @@ function InvoiceRow({
         </div>
       )}
       <Note message={message} />
+      <BankVerificationNote url={verificationUrl} />
     </li>
   );
 }
@@ -356,6 +362,20 @@ function OnlinePaymentsPanel({
     window.location.href = json.url;
   };
 
+  // Stripe sends the manager back to `?stripe=refresh` when its setup link had
+  // expired or was already opened (a link preview can open it first). Stripe's
+  // advice is to make a new link and send them straight back, so they never
+  // have to find the button again.
+  const resumed = useRef(false);
+  const resume =
+    stripeReturn === 'refresh' && state.configured && state.plan_allows && state.connected && !state.charges_enabled;
+  useEffect(() => {
+    if (!resume || resumed.current) return;
+    resumed.current = true;
+    void connect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resume]);
+
   const save = async () => {
     setBusy(true);
     setMessage(null);
@@ -399,9 +419,11 @@ function OnlinePaymentsPanel({
         </p>
         {state.connected && (
           <p style={{ color: 'var(--warning-strong)' }}>
-            {stripeReturn === 'return'
-              ? 'Stripe is still checking your details. This usually takes a few minutes — refresh to check.'
-              : 'Your Stripe account is not finished yet.'}
+            {state.details_due
+              ? 'Stripe needs a few more details before you can take payments. Continue setting up Stripe to finish.'
+              : state.details_submitted
+                ? 'Stripe is checking your details. This usually takes a few minutes — refresh to check.'
+                : 'Your Stripe account is not finished yet.'}
           </p>
         )}
         <button type="button" onClick={connect} disabled={busy} title={busy ? 'Opening Stripe…' : undefined} className={primaryButton} style={primaryStyle}>

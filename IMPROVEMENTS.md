@@ -2,6 +2,25 @@
 
 ## October 2026
 
+### A bank account typed in by hand is a payment on its way
+
+- **Paying by a bank account typed in by hand no longer reads as paid.** Stripe
+  checks such an account with a small deposit before the payment goes ahead,
+  which takes a day or two. The payment form used to say "Payment received";
+  it now says the bank payment has started, with a link to Stripe's page for
+  entering the deposit's code — on My Company's invoices, buying Pro+, and an
+  exhibitor's What I Owe.
+- **An invoice or Pro+ purchase waiting on that deposit is held as pending**,
+  like any bank payment, so the company cannot pay it a second time by card
+  meanwhile. If the code is never entered, or is wrong too often, Stripe fails
+  the payment and the invoice opens again to be paid.
+- **Setting up a company's Stripe account says what Stripe is waiting for.**
+  My Company now tells a manager when Stripe needs more details from them,
+  rather than saying it is still checking; and a setup link that has expired
+  or was already opened makes a new one and carries on by itself.
+- **Removing a Pro+ year is logged**, with its Stripe payment when it was
+  bought online.
+
 ### Pro+ paid up front, and each show paid before the next
 
 - **Show companies buy Pro+ on My Company** (migration 173), by bank transfer

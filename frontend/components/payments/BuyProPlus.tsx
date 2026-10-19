@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BankVerificationNote from '@/components/payments/BankVerificationNote';
 import StripePaymentForm from '@/components/payments/StripePaymentForm';
 import { errorMessage } from '@/lib/api-error';
 import { cardRateLabel, formatCents, type PaymentSetup } from '@/lib/payments';
@@ -45,6 +46,7 @@ export default function BuyProPlus({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<'succeeded' | 'processing' | null>(null);
+  const [verificationUrl, setVerificationUrl] = useState<string | null>(null);
   const base = `/api/my-company/${companyId}/pro-plus`;
 
   const start = async () => {
@@ -77,11 +79,14 @@ export default function BuyProPlus({
 
   if (done) {
     return (
-      <p role="status" className="text-sm" style={{ color: 'var(--success-strong)' }}>
-        {done === 'processing'
-          ? 'Bank payment started. Your Pro+ year starts when it settles, usually in a few business days.'
-          : 'Payment received — your Pro+ year has started. A receipt and confirmation are on their way by email.'}
-      </p>
+      <div role="status" className="space-y-2">
+        <p className="text-sm" style={{ color: 'var(--success-strong)' }}>
+          {done === 'processing'
+            ? 'Bank payment started. Your Pro+ year starts when it settles, usually in a few business days.'
+            : 'Payment received — your Pro+ year has started. A receipt and confirmation are on their way by email.'}
+        </p>
+        {done === 'processing' && <BankVerificationNote url={verificationUrl} />}
+      </div>
     );
   }
 
@@ -102,8 +107,9 @@ export default function BuyProPlus({
           quoteUrl={`${base}/quote`}
           payUrl={`${base}/pay`}
           statusUrl={`${base}/payment-status`}
-          onDone={(status) => {
+          onDone={(status, url) => {
             setDone(status);
+            setVerificationUrl(url ?? null);
             router.refresh();
           }}
         />

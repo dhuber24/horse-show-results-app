@@ -1710,13 +1710,15 @@ class PaymentQuoteOut(BaseModel):
 
 
 class PaymentResultOut(BaseModel):
-    """`succeeded`: paid. `processing`: a bank payment, settled in a few days.
-    `requires_action`: the bank wants the payer to confirm; the browser
-    finishes it with `client_secret`."""
+    """`succeeded`: paid. `processing`: a bank payment, settled in a few days
+    -- including one waiting on its microdeposit, when `verification_url` is
+    Stripe's page for entering it. `requires_action`: the bank wants the payer
+    to confirm; the browser finishes it with `client_secret`."""
     status: str
     payment_intent_id: str
     client_secret: Optional[str] = None
     total_cents: int
+    verification_url: Optional[str] = None
 
 
 class SettleUpShowOut(BaseModel):
@@ -1763,6 +1765,9 @@ class OnlinePaymentsOut(BaseModel):
     connected: bool
     charges_enabled: bool
     details_submitted: bool
+    # Stripe is waiting on the company for more details, rather than checking
+    # what it has -- read from Stripe while the account is not yet enabled.
+    details_due: bool = False
     pass_card_fees: bool
     card_percent_bp: int
     card_fixed_cents: int

@@ -27,6 +27,7 @@ per-feature switches since migration 170 -- a plan is the only way to one.
 GaitDesk invoices a company from: each of its shows' exhibitors at the plan's
 rate, priced by `billing.platform_usage`.
 """
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
@@ -89,6 +90,8 @@ from show_companies import (
     place_in_company,
     remove_company_member,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/show-companies",
@@ -452,13 +455,28 @@ async def mark_pro_plus_paid(
 
 
 @router.delete("/{company_id}/subscriptions/{subscription_id}", response_model=ShowCompanyOut)
-async def delete_pro_plus_year(company_id: UUID, subscription_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_pro_plus_year(
+    company_id: UUID,
+    subscription_id: UUID,
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     """Remove a Pro+ year recorded in error. A year that was paid and then
-    refunded is removed the same way; the company's notes say why."""
+    refunded is removed the same way; the company's notes say why. The row
+    goes, so the log keeps what it was -- above all a year paid online, whose
+    Stripe payment is the only other trace of the money."""
     company = await _load(db, company_id)
     term = next((t for t in company.subscriptions if t.id == subscription_id), None)
     if term is None:
         raise HTTPException(404, "That Pro+ year isn't on this company.")
+    paid = term.payment_received_on is not None and term.price_cents > 0
+    (logger.warning if paid else logger.info)(
+        "Pro+ year removed: company=%s %s to %s price_cents=%d paid_on=%s method=%s reference=%r "
+        "stripe_payment_intent=%s card_fee_cents=%d by user=%s",
+        company_id, term.starts_on, term.ends_on, term.price_cents, term.payment_received_on,
+        term.payment_method, term.payment_reference, term.stripe_payment_intent_id,
+        term.card_fee_cents or 0, x_user_id,
+    )
     company.subscriptions.remove(term)
     await db.commit()
     return _company_out(await _load(db, company_id))
