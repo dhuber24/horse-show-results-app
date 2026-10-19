@@ -589,3 +589,61 @@ def test_a_microdeposit_never_entered_frees_the_company_to_pay_again():
     failed = {"id": "pi_md", "metadata": {"kind": payment_events.KIND_PRO_PLUS, "company_id": str(company.id)}}
     assert asyncio.run(payment_events.apply_pro_plus_payment_failed(failed, _Db()))
     assert company.pro_plus_payment_intent_id is None and company.pro_plus_payment_pending_at is None
+
+
+# ── An exhibitor's bank payment on its way is held (migration 174) ───────────
+
+from routers import payments as payments_router  # noqa: E402
+from routers.payments import BANK_PAYMENT_ON_ITS_WAY  # noqa: E402
+
+
+def _show_entry(intent_id=None):
+    return SimpleNamespace(
+        id=uuid4(), online_payment_intent_id=intent_id, online_payment_pending_at=object() if intent_id else None
+    )
+
+
+def test_a_balance_with_a_bank_payment_on_its_way_is_not_offered_again(stripe_keys):
+    ctx = _ctx()
+    ctx.show_entry = _show_entry("pi_bank")
+    assert ctx.bank_payment_pending
+    assert unavailable_reason(ctx) == BANK_PAYMENT_ON_ITS_WAY
+
+
+@pytest.mark.parametrize("intent", [{"id": "pi_bank", "status": "processing"}, {**MICRODEPOSIT, "id": "pi_bank"}],
+                         ids=["processing", "microdeposit"])
+def test_an_exhibitors_bank_payment_holds_the_balance(intent):
+    show_entry = _show_entry()
+    asyncio.run(payments_router._settle_show_intent(_Session(), show_entry, SimpleNamespace(stripe_account_id="acct_1"), intent))
+    assert show_entry.online_payment_intent_id == "pi_bank" and show_entry.online_payment_pending_at is not None
+
+
+def test_a_failed_bank_payment_lets_the_balance_go():
+    show_entry = _show_entry("pi_bank")
+    failed = {"id": "pi_bank", "status": "requires_payment_method"}
+    asyncio.run(payments_router._settle_show_intent(_Session(), show_entry, SimpleNamespace(stripe_account_id="acct_1"), failed))
+    assert show_entry.online_payment_intent_id is None and show_entry.online_payment_pending_at is None
+
+
+def test_only_the_payment_held_releases_the_hold():
+    show_entry = _show_entry("pi_bank")
+    assert not payment_events.release_show_payment(show_entry, "pi_other")
+    assert show_entry.online_payment_intent_id == "pi_bank"
+    assert payment_events.release_show_payment(show_entry, "pi_bank")
+    assert show_entry.online_payment_pending_at is None
+
+
+def test_the_failure_webhook_releases_it_only_from_the_companys_own_account():
+    show_entry = _show_entry("pi_bank")
+    company = SimpleNamespace(id=uuid4(), stripe_account_id="acct_company")
+
+    class _Db:
+        async def get(self, model, key):
+            return show_entry if key == show_entry.id else company
+
+    failed = {"id": "pi_bank", "metadata": {"kind": payment_events.KIND_SHOW_PAYMENT,
+                                            "show_entry_id": str(show_entry.id), "company_id": str(company.id)}}
+    assert not asyncio.run(payment_events.apply_show_payment_failed(failed, "acct_somebody_else", _Db()))
+    assert show_entry.online_payment_intent_id == "pi_bank"
+    assert asyncio.run(payment_events.apply_show_payment_failed(failed, "acct_company", _Db()))
+    assert show_entry.online_payment_intent_id is None

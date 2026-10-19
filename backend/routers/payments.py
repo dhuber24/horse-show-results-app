@@ -28,6 +28,7 @@ balance paid, with the fee in `card_fee_cents` beside it.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -43,7 +44,7 @@ from database import get_db
 from dependencies import require_api_key, require_authenticated, safe_uuid
 from mailer import public_app_url
 from models import Exhibitor, Show, ShowCompany, ShowEntry, User
-from payment_events import KIND_SHOW_PAYMENT, handle_event, record_show_payment
+from payment_events import KIND_SHOW_PAYMENT, handle_event, record_show_payment, release_show_payment
 from routers.show_financials import _load_financials
 from schemas import (
     PaymentQuoteOut,
@@ -60,6 +61,9 @@ router = APIRouter(tags=["Online Payments"])
 
 NOT_AT_THIS_SHOW = "This show does not take payments online. Pay the show office."
 NOTHING_TO_PAY = "You have nothing to pay at this show."
+BANK_PAYMENT_ON_ITS_WAY = (
+    "Your bank payment is on its way. It takes a few business days to settle, and shows on your account once it does."
+)
 
 
 class PaymentsConfigOut(BaseModel):
@@ -124,16 +128,55 @@ async def payments_config():
 
 
 class _Context:
-    def __init__(self, exhibitor, show, company, account, features):
+    def __init__(self, exhibitor, show, company, account, features, show_entry=None):
         self.exhibitor = exhibitor
         self.show = show
         self.company = company
         self.account = account
         self.features = features
+        self.show_entry = show_entry
 
     @property
     def balance_cents(self) -> int:
         return int(self.account["balance_cents"]) if self.account else 0
+
+    @property
+    def bank_payment_pending(self) -> bool:
+        return self.show_entry is not None and self.show_entry.online_payment_pending_at is not None
+
+
+async def _settle_show_intent(db: AsyncSession, show_entry: Optional[ShowEntry], company, intent: dict) -> None:
+    """Write down where an exhibitor's payment stands now. A card that
+    succeeded is recorded at once (the webhook later changes nothing); a bank
+    payment on its way -- processing, or waiting on its microdeposit -- holds
+    the balance so it is not paid twice (migration 174); and one that failed
+    lets it go."""
+    if intent.get("status") == "succeeded":
+        await record_show_payment(intent, company.stripe_account_id, db)
+    elif show_entry is None:
+        return
+    elif stripe_gateway.on_its_way(intent):
+        if show_entry.online_payment_intent_id != intent["id"]:
+            show_entry.online_payment_intent_id = intent["id"]
+            show_entry.online_payment_pending_at = datetime.now(timezone.utc)
+    elif intent.get("status") in ("requires_payment_method", "canceled"):
+        release_show_payment(show_entry, intent["id"])
+    await db.commit()
+
+
+async def _catch_up(db: AsyncSession, show_entry: ShowEntry, company) -> None:
+    """A bank payment held on the exhibitor's account: ask Stripe where it
+    stands before the balance is read. The webhook says the same thing, but a
+    delivery that never arrives must not leave an exhibitor unable to pay
+    online for good -- as My Company asks Stripe about a company's account."""
+    try:
+        intent = await stripe_gateway.run(
+            stripe_gateway.retrieve_payment, show_entry.online_payment_intent_id, company.stripe_account_id
+        )
+    except stripe_gateway.PaymentError:
+        logger.warning("Could not read online payment %s", show_entry.online_payment_intent_id)
+        return
+    await _settle_show_intent(db, show_entry, company, intent)
 
 
 async def _context(show_id: UUID, user_id: str, db: AsyncSession) -> _Context:
@@ -146,11 +189,22 @@ async def _context(show_id: UUID, user_id: str, db: AsyncSession) -> _Context:
     if show is None:
         raise HTTPException(404, "Show not found")
     company = await db.get(ShowCompany, show.company_id) if show.company_id else None
+    show_entry = (
+        await db.execute(select(ShowEntry).where(ShowEntry.show_id == show_id, ShowEntry.exhibitor_id == exhibitor.id))
+    ).scalar_one_or_none()
+    if (
+        show_entry is not None
+        and show_entry.online_payment_intent_id
+        and company is not None
+        and company.stripe_account_id
+        and stripe_gateway.configured()
+    ):
+        await _catch_up(db, show_entry, company)
     # The office's own figures, account for account. Heavier than one bill,
     # and worth it: the balance paid here is the one Financials shows.
     financials = await _load_financials(show_id, db)
     account = next((a for a in financials["accounts"] if a["exhibitor_id"] == exhibitor.id), None)
-    return _Context(exhibitor, show, company, account, await show_features(db, show_id))
+    return _Context(exhibitor, show, company, account, await show_features(db, show_id), show_entry)
 
 
 def unavailable_reason(ctx: _Context) -> Optional[str]:
@@ -162,6 +216,8 @@ def unavailable_reason(ctx: _Context) -> Optional[str]:
         return NOT_AT_THIS_SHOW
     if ONLINE_PAYMENTS not in ctx.features:
         return NOT_AT_THIS_SHOW
+    if ctx.bank_payment_pending:
+        return BANK_PAYMENT_ON_ITS_WAY
     if ctx.account is None or ctx.balance_cents <= 0:
         return NOTHING_TO_PAY
     return None
@@ -195,6 +251,7 @@ async def show_payment_availability(
         balance_cents=ctx.balance_cents,
         company_name=ctx.company.name if ctx.company else None,
         setup=_setup(ctx) if reason is None else None,
+        bank_payment_pending=ctx.bank_payment_pending,
     )
 
 
@@ -294,9 +351,7 @@ async def pay_show_balance(
     except stripe_gateway.PaymentError as exc:
         raise HTTPException(402, exc.message)
 
-    if intent["status"] == "succeeded":
-        await record_show_payment(intent, company.stripe_account_id, db)
-        await db.commit()
+    await _settle_show_intent(db, show_entry, company, intent)
     return payment_result(intent, quote["total_cents"])
 
 
@@ -323,7 +378,5 @@ async def show_payment_status(
     metadata = intent.get("metadata") or {}
     if metadata.get("exhibitor_id") != str(ctx.exhibitor.id) or metadata.get("show_id") != str(show_id):
         raise HTTPException(404, "That payment is not yours.")
-    if intent.get("status") == "succeeded":
-        await record_show_payment(intent, ctx.company.stripe_account_id, db)
-        await db.commit()
+    await _settle_show_intent(db, ctx.show_entry, ctx.company, intent)
     return payment_result(intent, int(intent.get("amount") or 0))

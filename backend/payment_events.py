@@ -317,7 +317,36 @@ async def record_show_payment(intent: dict, account_id: Optional[str], db: Async
         recorded_by_name=ONLINE_PAYMENT_NAME,
         stripe_payment_intent_id=intent_id,
     ))
+    release_show_payment(show_entry, intent_id)
     logger.info("Online payment recorded: show_entry=%s amount_cents=%d intent=%s", show_entry.id, amount, intent_id)
+    return True
+
+
+def release_show_payment(show_entry, intent_id: Optional[str]) -> bool:
+    """The exhibitor's bank payment on its way has settled or failed: their
+    balance may be paid online again (migration 174). Only that payment
+    releases it."""
+    if show_entry is None or not intent_id or show_entry.online_payment_intent_id != intent_id:
+        return False
+    show_entry.online_payment_intent_id = None
+    show_entry.online_payment_pending_at = None
+    return True
+
+
+async def apply_show_payment_failed(intent: dict, account_id: Optional[str], db: AsyncSession) -> bool:
+    """An exhibitor's bank payment bounced, or its microdeposit was never
+    entered: nothing was paid, and the balance is theirs to pay again."""
+    metadata = intent.get("metadata") or {}
+    if metadata.get("kind") != KIND_SHOW_PAYMENT:
+        return False
+    show_entry = await db.get(ShowEntry, _uuid(metadata.get("show_entry_id")))
+    company_id = _uuid(metadata.get("company_id"))
+    company = await db.get(ShowCompany, company_id) if company_id else None
+    if account_id and (company is None or company.stripe_account_id != account_id):
+        return False
+    if not release_show_payment(show_entry, intent.get("id")):
+        return False
+    logger.warning("Online bank payment %s for show_entry %s failed", intent.get("id"), show_entry.id)
     return True
 
 
@@ -469,6 +498,8 @@ async def handle_event(event: dict, connect: bool, db: AsyncSession) -> str:
     elif connect:
         if event_type == "payment_intent.succeeded":
             applied = await record_show_payment(obj, event.get("account"), db)
+        elif event_type == "payment_intent.payment_failed":
+            applied = await apply_show_payment_failed(obj, event.get("account"), db)
     elif event_type == "checkout.session.completed":
         applied = await apply_trainer_checkout(obj, db)
     elif event_type == "invoice.paid":

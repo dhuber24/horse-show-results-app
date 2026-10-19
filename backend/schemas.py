@@ -1789,6 +1789,9 @@ class ShowPaymentAvailabilityOut(BaseModel):
     balance_cents: int = 0
     company_name: Optional[str] = None
     setup: Optional[PaymentSetupOut] = None
+    # A bank payment of theirs is on its way (migration 174): the balance is
+    # held until it settles or fails, rather than offered to pay again.
+    bank_payment_pending: bool = False
 
 
 class UpgradeRequestCreate(BaseModel):

@@ -2388,6 +2388,11 @@ class ShowEntry(Base):
     # drawn, against "arriving late Friday" at the gate.
     stall_request = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    # Migration 174: the exhibitor's online bank payment while it is on its way
+    # -- processing, or waiting on its microdeposit -- so the balance is not
+    # paid a second time before Stripe settles or fails it.
+    online_payment_intent_id = Column(Text, nullable=True)
+    online_payment_pending_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("show_id", "exhibitor_id"),

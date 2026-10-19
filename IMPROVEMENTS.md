@@ -2,6 +2,16 @@
 
 ## October 2026
 
+### An exhibitor's bank payment holds their balance
+
+- **Paying a show by bank transfer can't be paid twice** (migration 174).
+  While an exhibitor's bank payment is on its way, What I Owe says so instead
+  of offering *Pay online* again; it clears when the payment settles, or
+  opens up again if it fails. The office's Financials still show the balance
+  owed until the money arrives.
+- **Production's Stripe webhook for connected accounts needs one more event**,
+  `payment_intent.payment_failed` — see `docs/design/payments.md`, step 6.
+
 ### A bank account typed in by hand is a payment on its way
 
 - **Paying by a bank account typed in by hand no longer reads as paid.** Stripe

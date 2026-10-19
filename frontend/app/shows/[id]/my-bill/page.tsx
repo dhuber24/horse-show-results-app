@@ -17,6 +17,9 @@ interface PaymentAvailability {
   balance_cents: number;
   company_name: string | null;
   setup: PaymentSetup | null;
+  /** Migration 174: a bank payment of theirs is on its way; nothing more is
+   *  offered until it settles or fails. */
+  bank_payment_pending?: boolean;
 }
 
 async function loadPaymentAvailability(showId: string): Promise<PaymentAvailability | null> {
@@ -95,10 +98,16 @@ export default async function MyShowBillPage({
           {/* Side pot buy-ins are on the bill above: entering a class a pot
               bundles is the buy-in, so `build_bill` charges it and the office's
               Financials reads the same figure. See Claude.md. */}
-          {!payOnline && paid === '1' && (
-            <p className="text-sm mt-4" style={{ color: 'var(--success-strong)' }}>
-              Payment received — thank you. It shows on your account once the show office&rsquo;s records catch up.
+          {payment?.bank_payment_pending ? (
+            <p className="text-sm mt-4 rounded border p-3" style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}>
+              {payment.reason}
             </p>
+          ) : (
+            !payOnline && paid === '1' && (
+              <p className="text-sm mt-4" style={{ color: 'var(--success-strong)' }}>
+                Payment received — thank you. It shows on your account once the show office&rsquo;s records catch up.
+              </p>
+            )
           )}
           {payOnline && payOnline.setup && (
             <div className="mt-4">
