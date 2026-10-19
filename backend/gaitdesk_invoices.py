@@ -206,12 +206,27 @@ def _dollars(cents: int) -> str:
     return f"${cents / 100:,.2f}"
 
 
-def invoice_email(invoice: GaitDeskInvoice, lines: Iterable[GaitDeskInvoiceLine]) -> tuple[str, str]:
-    """The email to the company's show managers when an invoice is issued."""
+def invoice_pay_url(invoice: GaitDeskInvoice) -> str:
+    """The link that opens this invoice's payment on My Company. Signing in
+    first brings the reader back to it (`/login?next=`)."""
+    return f"{public_app_url()}/admin/my-company?invoice={invoice.id}"
+
+
+def invoice_email(
+    invoice: GaitDeskInvoice,
+    lines: Iterable[GaitDeskInvoiceLine],
+    *,
+    pay_online: bool = True,
+    intro: Optional[str] = None,
+) -> tuple[str, str]:
+    """The email to the company's show managers when an invoice is issued.
+    `pay_online` is whether Stripe is set up: with it the link opens the
+    payment; without it the invoice is paid by check. `intro` replaces the
+    opening line -- a Pro+ year GaitDesk started says so."""
     label = invoice_label(invoice)
     subject = f"GaitDesk invoice {label}: {_dollars(invoice.amount_cents)} due {_day(invoice.due_on)}"
     body = [
-        f"GaitDesk has issued invoice {label} to {invoice.company_name}.",
+        intro or f"GaitDesk has issued invoice {label} to {invoice.company_name}.",
         "",
     ]
     for line in lines:
@@ -227,10 +242,23 @@ def invoice_email(invoice: GaitDeskInvoice, lines: Iterable[GaitDeskInvoiceLine]
         f"Total: {_dollars(invoice.amount_cents)}",
         f"Due: {_day(invoice.due_on)} (net 30)",
         "",
-        "Pay it on My Company -- by bank transfer at no extra charge, or by credit",
-        "card with the card processing fee added:",
-        f"{public_app_url()}/admin/my-company",
     ]
+    if pay_online:
+        body += [
+            "Pay it online -- by bank transfer at no extra charge, or by credit card",
+            "with the card processing fee added:",
+            invoice_pay_url(invoice),
+            "",
+            f"Or pay by check: write invoice {label} on it, and GaitDesk marks it paid",
+            "when it arrives.",
+        ]
+    else:
+        body += [
+            f"Pay by check, with invoice {label} written on it -- reply to this email",
+            "for where to send it. GaitDesk marks it paid when it arrives. The invoice",
+            "is on My Company:",
+            invoice_pay_url(invoice),
+        ]
     if invoice.note:
         body += ["", invoice.note]
     return subject, "\n".join(body)
@@ -398,3 +426,48 @@ async def issue_settle_up_invoice(
     )
     db.add(invoice)
     return invoice
+
+
+async def issue_pro_plus_invoice(
+    db: AsyncSession, company: ShowCompany, year_id: UUID, issued_by: Optional[UUID]
+) -> Optional[GaitDeskInvoice]:
+    """An invoice for a Pro+ year GaitDesk started before it was paid for
+    (`routers/show_companies.start_pro_plus_year`): the
+    year's line off the usage statement, due in 30 days. None when there is
+    nothing to invoice -- the year is paid, free, or already on an invoice."""
+    today = utc_today()
+    usage = await usage_statement(db, company)
+    try:
+        lines = invoice_lines(usage, [], [year_id], await invoiced_for_company(db, company.id), today)
+    except InvoiceRefused:
+        return None
+    invoice = GaitDeskInvoice(
+        company_id=company.id,
+        company_name=company.name,
+        issued_on=today,
+        due_on=invoice_due_on(today),
+        amount_cents=sum(line["amount_cents"] for line in lines),
+        issued_by_user_id=issued_by,
+        lines=[GaitDeskInvoiceLine(**line) for line in lines],
+    )
+    db.add(invoice)
+    return invoice
+
+
+async def open_invoices_for_year(db: AsyncSession, year_id: UUID) -> list[GaitDeskInvoice]:
+    """Unpaid, unvoided invoices that bill nothing but this Pro+ year -- the
+    ones an admin marking the year paid settles too."""
+    invoices = (
+        await db.execute(
+            select(GaitDeskInvoice)
+            .join(GaitDeskInvoiceLine, GaitDeskInvoiceLine.invoice_id == GaitDeskInvoice.id)
+            .where(
+                GaitDeskInvoiceLine.subscription_id == year_id,
+                GaitDeskInvoice.paid_on.is_(None),
+                GaitDeskInvoice.voided_at.is_(None),
+            )
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().unique().all()
+    return [i for i in invoices if all(line.subscription_id == year_id for line in i.lines)]
+

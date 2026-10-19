@@ -214,7 +214,7 @@ async def issue_invoice(
 
     recipients = await company_manager_emails(db, company_id)
     if recipients:
-        subject, mail = invoice_email(invoice, invoice.lines)
+        subject, mail = invoice_email(invoice, invoice.lines, pay_online=stripe_gateway.configured())
         background.add_task(email_admins, recipients, subject, mail)
     return invoice_out(invoice, today)
 

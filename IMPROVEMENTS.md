@@ -12,6 +12,10 @@
   new show. My Company lists what's owed and issues the invoice; paying it by
   card or bank lifts the hold at once, and a check is marked paid by a GaitDesk
   admin. Shows that ended before this release never count.
+- **A Pro+ year GaitDesk starts unpaid is invoiced straight away.** Choosing
+  *not yet — invoice later* issues the year's invoice (net 30) and emails the
+  company's managers a link that opens its payment on My Company. Marking the
+  year paid by check settles the invoice too.
 - **No card digits are kept.** Online payments read "Online, Visa card" — the
   last four digits are no longer stored anywhere in GaitDesk.
 - **Company accounts use Stripe's Accounts v2**, which Stripe requires of new

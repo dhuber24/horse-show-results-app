@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import StripePaymentForm from '@/components/payments/StripePaymentForm';
 import { errorMessage } from '@/lib/api-error';
@@ -57,9 +57,21 @@ function Note({ message }: { message: { ok: boolean; text: string } | null }) {
 
 // ── Invoices from GaitDesk ───────────────────────────────────────────────────
 
-function InvoiceRow({ companyId, invoice, canPayOnline }: { companyId: string; invoice: GaitDeskInvoice; canPayOnline: boolean }) {
+function InvoiceRow({
+  companyId,
+  invoice,
+  canPayOnline,
+  autoOpen = false,
+}: {
+  companyId: string;
+  invoice: GaitDeskInvoice;
+  canPayOnline: boolean;
+  /** Arrived from the invoice email's link: open its payment straight away. */
+  autoOpen?: boolean;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const [open, setOpen] = useState(autoOpen);
   const [setup, setSetup] = useState<PaymentSetup | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -80,8 +92,19 @@ function InvoiceRow({ companyId, invoice, canPayOnline }: { companyId: string; i
     setOpen(true);
   };
 
+  // Once, on arrival from the email: scroll to the invoice and, when it can be
+  // paid online, open its payment form.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!autoOpen || opened.current) return;
+    opened.current = true;
+    rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (payable && canPayOnline) void startPaying();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
+
   return (
-    <li className="py-3 space-y-2">
+    <li ref={rowRef} className="py-3 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <button
@@ -180,7 +203,17 @@ function InvoiceRow({ companyId, invoice, canPayOnline }: { companyId: string; i
   );
 }
 
-function Invoices({ companyId, invoices, canPayOnline }: { companyId: string; invoices: GaitDeskInvoice[]; canPayOnline: boolean }) {
+function Invoices({
+  companyId,
+  invoices,
+  canPayOnline,
+  openInvoiceId,
+}: {
+  companyId: string;
+  invoices: GaitDeskInvoice[];
+  canPayOnline: boolean;
+  openInvoiceId: string | null;
+}) {
   const owed = invoices.filter((i) => i.status === 'open' || i.status === 'overdue');
   return (
     <section className={sectionClass} style={sectionStyle}>
@@ -199,7 +232,13 @@ function Invoices({ companyId, invoices, canPayOnline }: { companyId: string; in
       ) : (
         <ul className="divide-y" style={{ borderColor: 'var(--border)' }}>
           {invoices.map((invoice) => (
-            <InvoiceRow key={invoice.id} companyId={companyId} invoice={invoice} canPayOnline={canPayOnline} />
+            <InvoiceRow
+              key={invoice.id}
+              companyId={companyId}
+              invoice={invoice}
+              canPayOnline={canPayOnline}
+              autoOpen={invoice.id === openInvoiceId}
+            />
           ))}
         </ul>
       )}
@@ -433,6 +472,7 @@ export default function CompanyBilling({
   online,
   settleUp,
   stripeReturn,
+  openInvoiceId = null,
 }: {
   companyId: string;
   companyName: string;
@@ -442,6 +482,8 @@ export default function CompanyBilling({
   online: OnlinePayments | null;
   settleUp: SettleUp | null;
   stripeReturn: string | null;
+  /** `?invoice=` from an invoice email: that invoice's payment opens on arrival. */
+  openInvoiceId?: string | null;
 }) {
   return (
     <div className="space-y-4">
@@ -451,7 +493,7 @@ export default function CompanyBilling({
         </h2>
       )}
       {settleUp && <SettleUpPanel companyId={companyId} settleUp={settleUp} canPayOnline={!!online?.configured} />}
-      <Invoices companyId={companyId} invoices={invoices} canPayOnline={!!online?.configured} />
+      <Invoices companyId={companyId} invoices={invoices} canPayOnline={!!online?.configured} openInvoiceId={openInvoiceId} />
       {online && <OnlinePaymentsPanel companyId={companyId} initial={online} stripeReturn={stripeReturn} />}
     </div>
   );

@@ -36,9 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from gaitdesk_invoices import usage_statement
+import stripe_gateway
+from gaitdesk_invoices import invoice_email, issue_pro_plus_invoice, open_invoices_for_year, usage_statement
+from payment_events import invoice_label, mark_invoice_paid
 from dependencies import require_admin, safe_uuid
 from models import (
+    GaitDeskInvoice,
     Circuit,
     Show,
     PointSystem,
@@ -360,6 +363,11 @@ async def start_pro_plus_year(
     complimentary (a price of 0) (migration 171). The year is in force at once
     whichever it is. Mails the company's show managers.
 
+    A year started still owed is invoiced at once (net 30), and the managers
+    are emailed the invoice with a link that opens its payment on My Company
+    -- Pro+ is paid for up front, so a year GaitDesk starts on credit is a
+    bill, not a favour.
+
     Left blank, the year is the next one -- from today, or from the day after
     the current year ends, so a renewal paid early loses nothing."""
     company = await _load(db, company_id)
@@ -382,6 +390,30 @@ async def start_pro_plus_year(
     await db.commit()
     company = await _load(db, company_id)
     await _mail_plan(background, db, company, term=term)
+    if term.payment_received_on is None and term.price_cents > 0:
+        invoice = await issue_pro_plus_invoice(db, company, term.id, safe_uuid(x_user_id))
+        if invoice is not None:
+            await db.commit()
+            invoice = (
+                await db.execute(
+                    select(GaitDeskInvoice)
+                    .where(GaitDeskInvoice.id == invoice.id)
+                    .execution_options(populate_existing=True)
+                )
+            ).scalar_one()
+            recipients = await company_manager_emails(db, company_id)
+            if recipients:
+                subject, mail = invoice_email(
+                    invoice,
+                    invoice.lines,
+                    pay_online=stripe_gateway.configured(),
+                    intro=(
+                        f"GaitDesk has started a Pro+ year for {company.name}, and invoice "
+                        f"{invoice_label(invoice)} is due for it."
+                    ),
+                )
+                background.add_task(email_admins, recipients, subject, mail)
+        company = await _load(db, company_id)
     return _company_out(company)
 
 
@@ -404,6 +436,17 @@ async def mark_pro_plus_paid(
         term.payment_method = body.payment_method.strip() or None
     if body.payment_reference is not None:
         term.payment_reference = body.payment_reference.strip() or None
+    # The year's own invoice is settled with it, so My Company stops asking the
+    # company to pay what GaitDesk has just recorded as paid.
+    for invoice in await open_invoices_for_year(db, term.id):
+        method = (term.payment_method or "").lower()
+        mark_invoice_paid(
+            invoice,
+            [term],
+            paid_on=term.payment_received_on,
+            method=method if method in ("card", "ach", "check", "wire") else "other",
+            reference=term.payment_reference,
+        )
     await db.commit()
     return _company_out(await _load(db, company_id))
 

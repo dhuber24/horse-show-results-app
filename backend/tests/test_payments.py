@@ -463,3 +463,37 @@ def test_a_company_that_has_paid_sets_up_its_show(monkeypatch):
     monkeypatch.setattr(show_companies, "_show_setup_company", chosen)
     monkeypatch.setattr(show_companies, "settle_up_block", clear)
     assert asyncio.run(show_companies.show_setup_company_for(None, uuid4(), "SHOW_MANAGER")) == company_id
+
+
+# ── A Pro+ year GaitDesk starts on credit is invoiced (migration 173) ─────────
+
+from gaitdesk_invoices import invoice_email, invoice_pay_url  # noqa: E402
+
+
+def _pro_plus_invoice():
+    return SimpleNamespace(
+        id=uuid4(), number=7, company_name="Minnesota Paint Club", amount_cents=149_900,
+        due_on=date(2026, 11, 17), note=None,
+    )
+
+
+def test_the_invoice_email_links_straight_to_paying_it():
+    invoice = _pro_plus_invoice()
+    line = SimpleNamespace(kind="pro_plus", description="GaitDesk Pro+, Oct 18, 2026 to Oct 17, 2027",
+                           exhibitor_count=None, rate_cents=None, amount_cents=149_900)
+    subject, body = invoice_email(
+        invoice, [line], pay_online=True,
+        intro="GaitDesk has started a Pro+ year for Minnesota Paint Club, and invoice GD-00007 is due for it.",
+    )
+    assert subject == "GaitDesk invoice GD-00007: $1,499.00 due Nov 17, 2026"
+    assert body.startswith("GaitDesk has started a Pro+ year")
+    assert invoice_pay_url(invoice) in body
+    assert invoice_pay_url(invoice).endswith(f"/admin/my-company?invoice={invoice.id}")
+    assert "bank transfer" in body and "check" in body
+
+
+def test_without_online_payment_the_invoice_email_asks_for_a_check():
+    invoice = _pro_plus_invoice()
+    _, body = invoice_email(invoice, [], pay_online=False)
+    assert "Pay by check" in body and "GD-00007" in body
+    assert "credit card" not in body

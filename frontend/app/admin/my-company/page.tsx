@@ -17,14 +17,18 @@ import MyCompanyStaff, { type MyCompany } from './MyCompanyStaff';
 export default async function MyCompanyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stripe?: string }>;
+  searchParams: Promise<{ stripe?: string; invoice?: string }>;
 }) {
+  const { stripe, invoice } = await searchParams;
   const session = await auth();
-  if (!session?.user) redirect('/login');
+  // An invoice email links here (`?invoice=`); signing in brings them back to it.
+  if (!session?.user) {
+    const here = invoice ? `/admin/my-company?invoice=${encodeURIComponent(invoice)}` : '/admin/my-company';
+    redirect(`/login?next=${encodeURIComponent(here)}`);
+  }
   const role = (session.user as { role?: string }).role;
   if (role === 'ADMIN') redirect('/admin/companies');
   if (role !== 'SHOW_MANAGER' && role !== 'SHOW_SECRETARY') redirect('/admin');
-  const { stripe } = await searchParams;
 
   const headers = await getAuthHeaders();
   let companies: MyCompany[] = [];
@@ -85,6 +89,7 @@ export default async function MyCompanyPage({
               online={online}
               settleUp={settleUp}
               stripeReturn={stripe ?? null}
+              openInvoiceId={invoice ?? null}
             />
           ))}
         </>
