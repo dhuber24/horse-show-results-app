@@ -48,7 +48,7 @@ code-only release reads neither and asks for nothing. The dry run reports which
 of the three are configured without reading any secret.
 
 With them in place it cuts a Neon backup branch (`pre-<migration>-<commit>`,
-expiring after `-BackupDays`, default 14) from whichever branch owns the
+expiring after `-BackupDays`, default 7) from whichever branch owns the
 production endpoint, just before migrating production, and stops without
 migrating if Neon refuses. **Do not pass `-BackedUp` when a key is configured** —
 it skips the branch, and it is only the fallback for a machine without a key,

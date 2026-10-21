@@ -267,7 +267,7 @@ knowingly and at a quiet time, not a routine release.
 A Neon **branch** is the backup, and `release.ps1` makes it: through Neon's
 API (`POST /projects/{id}/branches`), immediately before production is migrated,
 named for the release (`pre-139-d994370` — first migration number, then the
-commit) and set to **expire after 14 days** (`-BackupDays`). If it goes wrong,
+commit) and set to **expire after 7 days** (`-BackupDays`). If it goes wrong,
 the branch still holds the pre-release state and can be inspected or restored
 from.
 
@@ -287,8 +287,13 @@ Some details that are deliberate:
   state as it can be. If Neon refuses the branch, production is not migrated.
 - **The expiry replaces deleting them by hand**, which never happened: a drawer
   full of old backups makes the branch list useless and counts against the plan's
-  branch limit. Neon's point-in-time restore covers the same ground within the
-  history-retention window; the named branch says *why* it exists.
+  branch limit — 10 are included on Launch and each one past that bills
+  $1.50/month. Neon's point-in-time restore covers the same ground within the
+  history-retention window, which is set to **7 days** on the production
+  project (raised from 6 hours on 2026-10-12), so the expiry matches it.
+  Neither reaches past a week: a bad migration noticed later than that has no
+  restore point, so pass a larger `-BackupDays` for a release you are unsure
+  of. The named branch says *why* it exists.
 
 The API key needs to be able to create branches in the GaitDesk project; a key
 scoped to that one project is the narrowest that works, where the plan offers
