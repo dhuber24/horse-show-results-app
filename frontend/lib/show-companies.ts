@@ -102,6 +102,9 @@ export interface MyFeatures {
   settle_up_message?: string | null;
   /** Online payment is set up, so Pro+ is bought rather than asked for. */
   can_pay_online?: boolean;
+  /** Why the caller can't set up a show, when it is their company's unpaid
+   *  Pro+ renewal rather than GaitDesk Free (migration 175). */
+  pro_plus_lapsed_message?: string | null;
 }
 
 /**
@@ -117,6 +120,9 @@ export interface ShowPlan {
   company_name: string | null;
   /** The caller works for the show's company and may ask for the upgrade. */
   can_request_upgrade: boolean;
+  /** Set while the show is frozen by its company's unpaid Pro+ renewal
+   *  (migration 175): what its pages say in place of the page. */
+  frozen_message?: string | null;
 }
 
 /** One show's line on a company's GaitDesk usage statement. */
@@ -216,6 +222,12 @@ export interface ShowCompany {
   effective_plan?: PlanKey;
   effective_plan_label?: string;
   subscriptions?: Subscription[];
+  /** Migration 175: on Pro+ and renewing it, rather than moving to `plan`
+   *  when the year ends. */
+  renews_pro_plus?: boolean;
+  /** While that renewal is unpaid: the day it lapsed, its unfinished shows
+   *  frozen since. */
+  pro_plus_lapsed_since?: string | null;
   pro_plus_requested_at?: string | null;
   pro_plus_requested_by_name?: string | null;
   pro_plus_requested_by_email?: string | null;
@@ -290,6 +302,8 @@ export async function fetchMyFeatures(headers: Record<string, string> | null): P
       can_set_up_shows: body?.can_set_up_shows === true,
       settle_up_message: typeof body?.settle_up_message === 'string' ? body.settle_up_message : null,
       can_pay_online: body?.can_pay_online === true,
+      pro_plus_lapsed_message:
+        typeof body?.pro_plus_lapsed_message === 'string' ? body.pro_plus_lapsed_message : null,
     };
   } catch {
     return NO_FEATURES;

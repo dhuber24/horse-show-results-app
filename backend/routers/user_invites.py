@@ -41,7 +41,7 @@ from schemas import (
     UserInviteOut,
 )
 from routers.show_companies import _load as _load_company
-from show_companies import SHOW_OFFICE_ROLES, add_company_member
+from show_companies import ALL_FEATURE_ROLES, SHOW_OFFICE_ROLES, add_company_member, show_freeze
 from welcome_email import send_welcome_email
 
 router = APIRouter(prefix="/user-invites", tags=["User Invites"])
@@ -69,10 +69,14 @@ def _generate_token() -> str:
 async def _assert_show_access(
     show_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession
 ) -> None:
-    # A per-show row or the show's company (migration 156).
-    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
-        return
-    raise HTTPException(403, "Not authorized for this show")
+    # A per-show row or the show's company (migration 156), and not while the
+    # show is frozen (migration 175).
+    if not await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
+        raise HTTPException(403, "Not authorized for this show")
+    if x_user_role not in ALL_FEATURE_ROLES:
+        message = await show_freeze(db, show_id)
+        if message:
+            raise HTTPException(403, message)
 
 
 @router.post(

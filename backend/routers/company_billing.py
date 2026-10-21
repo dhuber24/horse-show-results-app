@@ -657,11 +657,12 @@ async def pro_plus_offer(
     db: AsyncSession = Depends(get_db),
 ):
     """What buying Pro+ now costs and the year it would buy: from today, or
-    from the day after the current year ends when it is a renewal."""
+    from the day after the current year ends when it is a renewal -- paid
+    early, or paid late by a company that renews Pro+ (migration 175)."""
     caller = _caller(x_user_id, x_user_role)
     company = await _my_company(company_id, caller, db)
     latest_end = max((t.ends_on for t in company.subscriptions), default=None)
-    starts_on, ends_on = next_pro_plus_term(latest_end, utc_today())
+    starts_on, ends_on = next_pro_plus_term(latest_end, utc_today(), bool(company.renews_pro_plus))
     return ProPlusOfferOut(
         price_cents=_pro_plus_price(),
         starts_on=starts_on,

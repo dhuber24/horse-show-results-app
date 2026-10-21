@@ -1487,6 +1487,10 @@ class ShowCompany(Base):
     # add-on on top of it. Pro+ is a prepaid year in `subscriptions`, not a
     # value here: this is the plan the company is on when no year covers today.
     plan = Column(Text, nullable=False, server_default="free", default="free")
+    # Migration 175: the company is on Pro+ and renews it -- so when a year runs
+    # out unpaid it is frozen (`show_companies.pro_plus_lapse`), not moved onto
+    # `plan`. Set by starting a year; cleared by picking Basic, Pro or Free.
+    renews_pro_plus = Column(Boolean, nullable=False, server_default="false", default=False)
     # Migration 172: the company's own Stripe account (Connect; Accounts v2, set up as v1's Standard), which
     # exhibitors' online payments go to -- never through GaitDesk. Whether it
     # can take a payment yet is Stripe's to say (`account.updated`).

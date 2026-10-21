@@ -28,6 +28,7 @@ export default function ChoosePlanPanel({
   canBuyOnline = false,
   onChosen,
   heading = 'Choose a plan to set up your show',
+  buyProPlusLabel,
 }: {
   companies: CompanyRef[];
   plans: PlanInfo[];
@@ -39,6 +40,9 @@ export default function ChoosePlanPanel({
   /** Called with the backend's answer; without it the page is refreshed. */
   onChosen?: (body: unknown) => void;
   heading?: string;
+  /** The Pro+ button's words -- "Renew Pro+" for a company whose renewal is
+   *  unpaid (migration 175). */
+  buyProPlusLabel?: string;
 }) {
   const router = useRouter();
   const [companyId, setCompanyId] = useState(() => companies.find((c) => !c.personal)?.id ?? companies[0]?.id ?? '');
@@ -196,7 +200,11 @@ export default function ChoosePlanPanel({
             </p>
           </div>
           {canBuyOnline && companyId ? (
-            <BuyProPlus key={companyId} companyId={companyId} label={`Buy ${proPlus.label.replace('GaitDesk ', '')}`} />
+            <BuyProPlus
+              key={companyId}
+              companyId={companyId}
+              label={buyProPlusLabel ?? `Buy ${proPlus.label.replace('GaitDesk ', '')}`}
+            />
           ) : asked ? (
             <p role="status" className="text-xs sm:max-w-xs" style={{ color: 'var(--text-deep)' }}>
               Asked. Someone from GaitDesk will contact you to set up your Pro+ year, and we&apos;ll email you when it

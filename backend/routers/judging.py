@@ -24,6 +24,7 @@ from sqlalchemy.orm import selectinload
 
 from database import get_db
 from dependencies import require_admin_or_scribe, require_api_key
+from show_companies import refuse_frozen_show
 from judging import (
     compute_score,
     effective_score,
@@ -223,7 +224,7 @@ async def list_cards(
 @router.put(
     "/entries/{entry_id}/card",
     response_model=JudgeCardOut,
-    dependencies=[Depends(require_admin_or_scribe)],
+    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
 )
 async def save_card(
     show_id: UUID,

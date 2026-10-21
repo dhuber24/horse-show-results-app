@@ -69,10 +69,12 @@ from show_companies import (
     ASSOCIATION_EXPORT,
     PLANS,
     companies_for_user,
-    effective_plans,
+    effective_label,
+    plan_states,
     require_show_feature,
     show_company_ids,
     show_features,
+    show_freeze,
     show_setup_company_for,
 )
 
@@ -489,13 +491,26 @@ async def get_program_index(show_id: UUID, db: AsyncSession = Depends(get_db)):
     return by_class
 
 
-async def _assert_show_access(show_id: UUID, x_api_key: str, x_user_id: str, x_user_role: str, db: AsyncSession):
+async def _assert_show_access(
+    show_id: UUID,
+    x_api_key: str,
+    x_user_id: str,
+    x_user_role: str,
+    db: AsyncSession,
+    allow_frozen: bool = False,
+):
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
     # A per-show row or the show's company (migration 156): `show_access.py`.
-    if await works_show(db, show_id, safe_uuid(x_user_id) if x_user_id else None, x_user_role):
-        return
-    raise HTTPException(403, "Not authorized for this show")
+    if not await works_show(db, show_id, safe_uuid(x_user_id) if x_user_id else None, x_user_role):
+        raise HTTPException(403, "Not authorized for this show")
+    # Migration 175: an unpaid Pro+ renewal freezes the company's unfinished
+    # shows -- every office screen at once, since every one asks here. Only
+    # the show's plan, which says so, reads a frozen show.
+    if not allow_frozen and x_user_role not in ALL_FEATURE_ROLES:
+        message = await show_freeze(db, show_id)
+        if message:
+            raise HTTPException(403, message)
 
 
 async def association_id_by_code(db: AsyncSession, code: str) -> Optional[UUID]:
@@ -940,7 +955,7 @@ async def get_show_plan(
     An ADMIN is told the show's real plan but has every feature, so GaitDesk
     staff can see what the customer sees without being locked out of it.
     """
-    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db, allow_frozen=True)
     company_ids = await show_company_ids(db, show_id)
     companies = (
         (await db.execute(select(ShowCompany).where(ShowCompany.id.in_(company_ids)))).scalars().all()
@@ -950,9 +965,14 @@ async def get_show_plan(
     features = await show_features(db, show_id)
     # A show on several companies' plans (no company of its own, managers in
     # more than one) is on the best of them -- the features are their union.
-    # Pro+ while a paid year covers today (migration 169).
-    current = (await effective_plans(db, company_ids)).values()
-    best = max(current, key=lambda key: (PLANS[key].annual_cents, PLANS[key].rate_cents), default="free")
+    # Pro+ while a paid year covers today (migration 169); Free while a Pro+
+    # renewal is unpaid (migration 175), labelled as that.
+    states = list((await plan_states(db, company_ids)).values())
+    best, lapse = max(
+        states,
+        key=lambda state: (PLANS[state[0]].annual_cents, PLANS[state[0]].rate_cents),
+        default=("free", None),
+    )
     plan = PLANS[best]
     own = companies[0] if len(companies) == 1 else None
     can_request = False
@@ -961,7 +981,8 @@ async def get_show_plan(
         can_request = own.id in mine
     return ShowPlanOut(
         plan=plan.key,
-        plan_label=plan.label,
+        plan_label=effective_label(best, lapse),
+        frozen_message=await show_freeze(db, show_id),
         features=sorted(set(PLANS["pro"].features) if x_user_role in ALL_FEATURE_ROLES else features),
         company_id=own.id if own else None,
         company_name=own.name if own else None,

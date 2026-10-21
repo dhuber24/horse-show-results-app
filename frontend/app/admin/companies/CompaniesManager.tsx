@@ -299,12 +299,22 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                       <span
                         className="text-xs px-1.5 py-0.5 rounded font-medium"
                         style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent)' }}
-                        title={`Paid year; then ${company.plan_label}`}
+                        title={company.renews_pro_plus ? 'Paid year; renews as Pro+' : `Paid year; then ${company.plan_label}`}
                       >
                         Pro+ through{' '}
                         {formatDay(
                           [...(company.subscriptions ?? [])].sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0]?.ends_on,
                         )}
+                      </span>
+                    )}
+                    {/* Migration 175: an unpaid renewal freezes the company's shows. */}
+                    {company.pro_plus_lapsed_since && (
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded font-medium"
+                        style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
+                        title="Sets up no show, and its unfinished shows are frozen, until it renews or moves to Basic or Pro"
+                      >
+                        Pro+ renewal unpaid since {formatDay(company.pro_plus_lapsed_since)}
                       </span>
                     )}
                     {company.pro_plus_requested_at && company.effective_plan !== 'pro_plus' && (

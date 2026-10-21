@@ -409,7 +409,7 @@ async def apply_pro_plus_purchase(intent: dict, db: AsyncSession) -> Optional[Sh
         return None
     today = utc_today()
     latest_end = max((t.ends_on for t in company.subscriptions), default=None)
-    starts_on, ends_on = next_pro_plus_term(latest_end, today)
+    starts_on, ends_on = next_pro_plus_term(latest_end, today, bool(company.renews_pro_plus))
     method_type = metadata.get("method_type")
     term = record_pro_plus(
         company,
@@ -465,6 +465,7 @@ async def mail_pro_plus_started(db: AsyncSession, company_id: UUID, term) -> Non
             loaded_effective_plan(company),
             term=(term.starts_on, term.ends_on),
             returns_to=company.plan,
+            renews=bool(company.renews_pro_plus),
         )
         await email_admins(recipients, subject, body)
     except Exception:  # noqa: BLE001 -- mail never undoes a payment

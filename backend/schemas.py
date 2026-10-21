@@ -1479,6 +1479,11 @@ class ShowCompanyOut(BaseModel):
     effective_plan: str = "basic"
     effective_plan_label: str = "GaitDesk Basic"
     subscriptions: list["SubscriptionOut"] = Field(default_factory=list)
+    # Migration 175: the company is on Pro+ and renews it, rather than moving
+    # to `plan` when its year ends -- and, while that renewal is unpaid, the
+    # day it lapsed (its unfinished shows frozen since).
+    renews_pro_plus: bool = False
+    pro_plus_lapsed_since: Optional[date] = None
     # The company has asked for Pro+ and is waiting on GaitDesk.
     pro_plus_requested_at: Optional[datetime] = None
     pro_plus_requested_by_name: Optional[str] = None
@@ -1581,6 +1586,9 @@ class ShowPlanOut(BaseModel):
     # The caller works for that company, so a locked door can ask for the
     # upgrade on its behalf; a guest secretary cannot.
     can_request_upgrade: bool = False
+    # Migration 175: set while the show is frozen by its company's unpaid Pro+
+    # renewal -- what the show's pages say in place of the page.
+    frozen_message: Optional[str] = None
 
 
 class UsageShowOut(BaseModel):
@@ -1840,6 +1848,9 @@ class MyFeaturesOut(BaseModel):
     # Migration 173: online payment is set up, so Pro+ is bought on My Company
     # rather than asked for.
     can_pay_online: bool = False
+    # Migration 175: why the caller can't set up a show, when it is their
+    # company's unpaid Pro+ renewal rather than GaitDesk Free.
+    pro_plus_lapsed_message: Optional[str] = None
 
 
 # ── Breeds ─────────────────────────────────────────────────────────────────────

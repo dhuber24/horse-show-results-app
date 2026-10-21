@@ -2,9 +2,11 @@
 own plan (migration 169).
 
 Free sets up no show. Pro+ is a prepaid year: every Pro feature, no
-per-exhibitor charge for a show that starts in it, and back to the company's
-per-exhibitor plan when it runs out. Because a company now chooses its plan,
-a show is priced at the highest plan the company held across its dates.
+per-exhibitor charge for a show that starts in it -- and since migration 175
+it renews as Pro+, freezing the company's unfinished shows while the renewal
+is unpaid, unless the company chose Basic or Pro to follow it. Because a
+company now chooses its plan, a show is priced at the highest plan the
+company held across its dates.
 
 Pure functions only; the suite runs without a database.
 """
@@ -25,11 +27,15 @@ from show_companies import (
     REQUESTABLE,
     RENEWAL_NOTICE_DAYS,
     effective_plan,
+    frozen_since,
+    keep_pro_plus,
     next_pro_plus_term,
+    pro_plus_lapse,
     plan_confirmation_email,
     plan_features,
     renewal_reminder_due,
     renewal_reminder_email,
+    set_company_plan,
     sets_up_shows,
     show_billing_plan,
     show_setup_choice,
@@ -76,8 +82,87 @@ def test_a_paid_year_makes_the_company_pro_plus_while_it_lasts():
     assert effective_plan(BASIC, terms, DEC31) == PRO_PLUS
 
 
-def test_an_unrenewed_year_returns_the_company_to_its_own_plan():
+def test_a_company_that_chose_a_plan_to_follow_pro_plus_moves_onto_it():
     assert effective_plan(PRO, [year(JAN1, DEC31)], date(2027, 1, 1)) == PRO
+
+
+# ── Pro+ renews as Pro+ (migration 175) ───────────────────────────────────────
+
+def test_an_unpaid_renewal_puts_the_company_on_no_plan_from_the_day_after():
+    terms = [year(JAN1, DEC31)]
+    assert pro_plus_lapse(True, terms, DEC31) is None
+    assert pro_plus_lapse(True, terms, date(2027, 1, 1)) == date(2027, 1, 1)
+    assert pro_plus_lapse(True, terms, date(2027, 3, 1)) == date(2027, 1, 1)
+    # On no plan: it sets up no show and has no feature until it pays or picks one.
+    assert effective_plan(PRO, terms, date(2027, 1, 1), renews=True) == FREE
+
+
+def test_a_company_that_does_not_renew_never_lapses():
+    assert pro_plus_lapse(False, [year(JAN1, DEC31)], date(2027, 1, 1)) is None
+
+
+def test_a_company_waiting_on_its_first_year_has_not_lapsed():
+    assert pro_plus_lapse(True, [year(date(2026, 2, 1), date(2027, 1, 31))], JAN1) is None
+
+
+def test_a_show_running_when_the_year_runs_out_freezes_mid_show():
+    terms = [year(JAN1, DEC31)]
+    assert frozen_since(True, terms, date(2027, 1, 2), date(2027, 1, 1)) == date(2027, 1, 1)
+
+
+def test_a_show_still_to_come_is_frozen():
+    assert frozen_since(True, [year(JAN1, DEC31)], date(2027, 5, 10), date(2027, 1, 5)) == date(2027, 1, 1)
+
+
+def test_a_show_that_finished_inside_the_year_stays_open():
+    assert frozen_since(True, [year(JAN1, DEC31)], DEC31, date(2027, 1, 5)) is None
+
+
+def test_nothing_freezes_while_a_year_covers_today_or_once_the_renewal_is_paid():
+    terms = [year(JAN1, DEC31), year(date(2027, 1, 1), date(2027, 12, 31))]
+    assert frozen_since(True, terms, date(2027, 5, 10), date(2027, 1, 5)) is None
+
+
+def test_a_renewal_paid_late_is_backdated_to_the_day_after_the_year_ended():
+    assert next_pro_plus_term(DEC31, date(2027, 2, 10), renewing=True) == (date(2027, 1, 1), date(2027, 12, 31))
+
+
+def test_a_renewal_a_whole_year_late_starts_today():
+    assert next_pro_plus_term(DEC31, date(2028, 1, 5), renewing=True)[0] == date(2028, 1, 5)
+
+
+def _renewing(plan=PRO, renews=True, terms=None):
+    return SimpleNamespace(
+        id=uuid4(), plan=plan, renews_pro_plus=renews, subscriptions=terms or [], upgrade_requests=[]
+    )
+
+
+def test_picking_basic_or_pro_stops_pro_plus_renewing_and_unfreezes_the_company():
+    company = _renewing(PRO, terms=[year(JAN1, DEC31)])
+    db = _Db()
+    assert set_company_plan(company, BASIC, None, db) is True
+    assert company.renews_pro_plus is False and company.plan == BASIC
+    assert pro_plus_lapse(company.renews_pro_plus, company.subscriptions, date(2027, 1, 5)) is None
+
+
+def test_picking_the_plan_it_already_holds_still_stops_the_renewal_and_is_logged():
+    company = _renewing(PRO)
+    db = _Db()
+    assert set_company_plan(company, PRO, None, db) is True
+    assert company.renews_pro_plus is False and [row.plan for row in db.added] == [PRO]
+    assert set_company_plan(company, PRO, None, db) is False
+
+
+def test_pro_plus_goes_back_on_renewing_only_during_a_year():
+    today = date.today()
+    company = _renewing(BASIC, renews=False, terms=[year(today - timedelta(days=10), today + timedelta(days=300))])
+    db = _Db()
+    assert keep_pro_plus(company, None, db) is True and company.renews_pro_plus is True
+    assert [row.plan for row in db.added] == [PRO_PLUS]
+    lapsed = _renewing(BASIC, renews=False, terms=[year(today - timedelta(days=400), today - timedelta(days=36))])
+    with pytest.raises(HTTPException) as refused:
+        keep_pro_plus(lapsed, None, _Db())
+    assert refused.value.status_code == 409
 
 
 def test_an_unknown_plan_is_free():
@@ -174,6 +259,12 @@ def test_the_reminder_for_a_company_returning_to_basic_says_pro_features_turn_of
     assert "GaitDesk Basic" in body and "turn off" in body
 
 
+def test_the_reminder_for_a_company_that_renews_says_its_shows_freeze():
+    _subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, PRO, renews=True)
+    assert "frozen" in body and "choose GaitDesk Basic or Pro" in body
+    assert "Exhibitors can still sign up" in body
+
+
 # ── Telling the company it is subscribed ──────────────────────────────────────
 
 def test_the_basic_and_pro_confirmations_say_nothing_is_charged_until_after_the_show():
@@ -189,6 +280,13 @@ def test_the_pro_plus_confirmation_gives_the_dates_and_what_follows():
     )
     assert "January 1, 2026" in body and "December 31, 2026" in body
     assert "a month before it ends" in body and "GaitDesk Pro" in body
+
+
+def test_the_pro_plus_confirmation_says_it_renews_and_what_freezes_meanwhile():
+    _subject, body = plan_confirmation_email(
+        "Minnesota Paint Club", PRO_PLUS, term=(JAN1, DEC31), renews=True
+    )
+    assert "renews as GaitDesk Pro+ for $1,499" in body and "frozen" in body
 
 
 # ── Setting up a show ─────────────────────────────────────────────────────────
@@ -230,6 +328,15 @@ def test_an_admin_is_never_refused():
     assert show_setup_choice([], "ADMIN") is None
 
 
+def test_a_company_whose_pro_plus_renewal_is_unpaid_is_told_so_not_that_it_is_on_free():
+    with pytest.raises(HTTPException) as refused:
+        show_setup_choice(
+            [(CLUB, None, "Minnesota Paint Club", FREE)], "SHOW_MANAGER", lapsed={CLUB: date(2027, 1, 1)}
+        )
+    assert refused.value.detail.startswith("Minnesota Paint Club's GaitDesk Pro+ year ended on December 31, 2026")
+    assert "Renew it, or choose GaitDesk Basic or Pro" in refused.value.detail
+
+
 # ── Starting a Pro+ year without a payment (migration 171) ────────────────────
 
 from show_companies import record_pro_plus  # noqa: E402
@@ -244,7 +351,7 @@ class _Db:
 
 
 def _company(plan=BASIC):
-    return SimpleNamespace(id=uuid4(), plan=plan, subscriptions=[], upgrade_requests=[])
+    return SimpleNamespace(id=uuid4(), plan=plan, renews_pro_plus=False, subscriptions=[], upgrade_requests=[])
 
 
 def _start(company, price_cents, received_on, db=None):
@@ -278,9 +385,23 @@ def test_a_complimentary_year_is_never_owed():
     assert term.price_cents == 0 and term.payment_received_on is not None
 
 
-def test_a_free_company_given_pro_plus_is_moved_to_pro_for_after_it():
+def test_a_company_given_pro_plus_renews_it_and_keeps_its_own_plan_as_it_was():
+    """Migration 175: Pro+ renews as Pro+. A Free company is no longer moved to
+    Pro for after it -- nothing follows Pro+ unless the company chooses it."""
     db = _Db()
     company = _company(FREE)
     _start(company, 149900, None, db)
-    assert company.plan == PRO
-    assert [row.plan for row in db.added] == [PRO]
+    assert company.renews_pro_plus is True
+    assert company.plan == FREE and [row.plan for row in db.added] == [PRO_PLUS]
+
+
+def test_a_show_that_started_while_a_renewal_was_unpaid_is_priced_by_the_plan_picked_after():
+    """Pro before Pro+, the renewal lapses, the show starts frozen and the
+    company picks Basic mid-show: a Basic show, not a Pro one."""
+    changes = [at(date(2025, 1, 1), PRO), at(JAN1, PRO_PLUS), at(date(2027, 2, 6), BASIC)]
+    assert show_billing_plan(changes, [year(JAN1, DEC31)], date(2027, 2, 5), date(2027, 2, 7)) == BASIC
+
+
+def test_a_show_inside_a_pro_plus_year_is_still_covered_with_pro_plus_in_the_log():
+    changes = [at(date(2025, 1, 1), PRO), at(JAN1, PRO_PLUS)]
+    assert show_billing_plan(changes, [year(JAN1, DEC31)], date(2026, 6, 1), date(2026, 6, 2)) == PRO_PLUS

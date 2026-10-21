@@ -18,6 +18,7 @@ from models import (
 )
 from schemas import UserOut
 from show_access import works_show
+from show_companies import ALL_FEATURE_ROLES, show_freeze
 
 router = APIRouter(tags=["Show Staff"])
 
@@ -42,10 +43,14 @@ async def _get_user_or_404(user_id: UUID, db: AsyncSession) -> User:
 
 async def _assert_show_admin_access(show_id: UUID, x_user_id: str, x_user_role: str, db: AsyncSession):
     """Raises 403 unless the caller works the show from the office: ADMIN, an
-    assigned manager or secretary, or a member of the show's company."""
-    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
-        return
-    raise HTTPException(status_code=403, detail="Not authorized for this show")
+    assigned manager or secretary, or a member of the show's company -- and
+    not while the show is frozen (migration 175)."""
+    if not await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
+        raise HTTPException(status_code=403, detail="Not authorized for this show")
+    if x_user_role not in ALL_FEATURE_ROLES:
+        message = await show_freeze(db, show_id)
+        if message:
+            raise HTTPException(status_code=403, detail=message)
 
 
 async def _company_staffed(show_id: UUID, db: AsyncSession) -> bool:

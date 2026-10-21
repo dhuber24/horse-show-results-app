@@ -12,28 +12,26 @@ const CHOICES: { key: ColumnPlanKey; label: string }[] = [
 ];
 
 /**
- * Which GaitDesk plan a company is on (migration 168), on the list and on the
- * company's own page -- the same control in both places, so it behaves the same.
+ * Moving a company to Free, Basic or Pro (migration 168) -- the one way an
+ * admin does it, from the list's picker and the company page's plan cards
+ * alike, so both behave the same.
  *
  * **Immediate both ways**: moving a company to Basic keeps all its work, which
  * comes back with Pro, so a confirmation would only slow a fix. Moving it to Pro answers its upgrade requests, server-side.
- * The choice shows on the press and settles on the company the endpoint
- * returns.
+ * `pending` is the plan just pressed, so the choice shows on the press and
+ * settles on the company the endpoint returns.
  */
-export default function PlanPicker({
-  company,
-  onChange,
-  onError,
-}: {
-  company: ShowCompany;
-  onChange: (company: ShowCompany) => void;
-  onError: (message: string | null) => void;
-}) {
+export function usePlanChange(
+  company: ShowCompany,
+  onChange: (company: ShowCompany) => void,
+  onError: (message: string | null) => void,
+) {
   const [pending, setPending] = useState<ColumnPlanKey | null>(null);
-  const current = pending ?? company.plan;
 
   async function choose(plan: ColumnPlanKey) {
-    if (plan === company.plan || pending) return;
+    // While Pro+ renews, the plan the company already holds is still a choice:
+    // pressing it stops the renewal (migration 175).
+    if ((plan === company.plan && !company.renews_pro_plus) || pending) return;
     setPending(plan);
     onError(null);
     const res = await fetch(`/api/show-companies/${company.id}`, {
@@ -49,6 +47,23 @@ export default function PlanPicker({
     }
     setPending(null);
   }
+
+  return { pending, choose };
+}
+
+/** Which GaitDesk plan a company is on, as a row's control on the list. */
+export default function PlanPicker({
+  company,
+  onChange,
+  onError,
+}: {
+  company: ShowCompany;
+  onChange: (company: ShowCompany) => void;
+  onError: (message: string | null) => void;
+}) {
+  const { pending, choose } = usePlanChange(company, onChange, onError);
+  // A company renewing Pro+ has chosen none of these (migration 175).
+  const current = pending ?? (company.renews_pro_plus ? null : company.plan);
 
   return (
     <div

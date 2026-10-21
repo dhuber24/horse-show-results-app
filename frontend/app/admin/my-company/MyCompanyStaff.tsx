@@ -62,6 +62,10 @@ export type MyPlan = {
   sets_up_shows: boolean;
   pro_plus: { starts_on: string; ends_on: string; renewal_due: boolean } | null;
   pro_plus_requested_at: string | null;
+  /** Migration 175: on Pro+ and renewing it, rather than moving to `plan`. */
+  renews_pro_plus?: boolean;
+  /** While that renewal is unpaid: the last day of the year that ended. */
+  pro_plus_ended_on?: string | null;
 };
 
 export type MyCompany = {
@@ -99,7 +103,16 @@ function Badge({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Where the company stands: its plan, a Pro+ year and its end, and the way to change. */
+/**
+ * Where the company stands: its plan, a Pro+ year and its end, and the way to
+ * change.
+ *
+ * **Pro+ renews as Pro+** (migration 175): during a year the company may
+ * choose Basic or Pro to follow it instead, and go back to renewing Pro+.
+ * Once a renewing year has ended unpaid the company is frozen -- no show set
+ * up, its unfinished shows locked -- and the chooser opens with both ways
+ * out: renew (backdated to the day after the year ended), or Basic or Pro.
+ */
 function PlanBlock({
   company,
   plans,
@@ -112,11 +125,35 @@ function PlanBlock({
   canBuyOnline: boolean;
 }) {
   const plan = company.plan;
-  // A company on Free has nothing else to do here first, so the chooser is open.
-  const [choosing, setChoosing] = useState(plan?.plan === 'free' && !plan?.pro_plus);
+  const lapsed = Boolean(plan?.pro_plus_ended_on);
+  // A company on Free or frozen has nothing else to do here first, so the chooser is open.
+  const [choosing, setChoosing] = useState((plan?.plan === 'free' && !plan?.pro_plus) || lapsed);
+  const [renewing, setRenewing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (!plan) return null;
   const year = plan.pro_plus;
+  const renews = plan.renews_pro_plus === true;
   const afterYear = plans.find((p) => p.key === plan.plan);
+  const proPlus = plans.find((p) => p.key === 'pro_plus');
+  const proPlusPrice = proPlus?.annual_cents ? formatRate(proPlus.annual_cents) : null;
+
+  /** Back on renewing Pro+, after choosing Basic or Pro to follow the year. */
+  async function keepProPlus() {
+    setRenewing(true);
+    setError(null);
+    const res = await fetch(`/api/my-company/${company.id}/plan`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'pro_plus' }),
+    }).catch(() => null);
+    const body = res ? await res.json().catch(() => null) : null;
+    setRenewing(false);
+    if (!res?.ok) {
+      setError(errorMessage(body, 'Pro+ could not be set to renew. Try again in a moment.'));
+      return;
+    }
+    onChange(body as MyCompany);
+  }
 
   return (
     <div className="space-y-3">
@@ -126,7 +163,15 @@ function PlanBlock({
             Plan: {plan.effective_plan_label}
           </h3>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {year ? (
+            {lapsed ? (
+              `Your Pro+ year ended ${formatDay(plan.pro_plus_ended_on)} and hasn't been renewed.`
+            ) : year && renews ? (
+              <>
+                Unlimited shows and exhibitors through {formatDay(year.ends_on)}. It renews as Pro+
+                {proPlusPrice ? ` for ${proPlusPrice}` : ''} — until the renewal is paid, your shows are frozen
+                from the day after.
+              </>
+            ) : year ? (
               <>
                 Unlimited shows and exhibitors through {formatDay(year.ends_on)}. After that,{' '}
                 {plan.plan === 'free'
@@ -141,11 +186,44 @@ function PlanBlock({
           </p>
         </div>
         {!choosing && (
-          <button type="button" onClick={() => setChoosing(true)} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
-            {year ? `Change what follows Pro+` : 'Change plan'}
-          </button>
+          <span className="flex items-center gap-4 flex-wrap">
+            {year && !renews && (
+              <button
+                type="button"
+                onClick={keepProPlus}
+                disabled={renewing}
+                title={renewing ? 'Saving…' : 'Renew Pro+ when this year ends, instead of moving to another plan'}
+                className="text-sm hover:underline disabled:opacity-50"
+                style={{ color: 'var(--accent)' }}
+              >
+                {renewing ? 'Saving…' : 'Renew Pro+ instead'}
+              </button>
+            )}
+            <button type="button" onClick={() => setChoosing(true)} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>
+              {year ? 'Change what follows Pro+' : 'Change plan'}
+            </button>
+          </span>
         )}
       </div>
+
+      {error && (
+        <p role="alert" className="text-sm" style={{ color: 'var(--error)' }}>
+          {error}
+        </p>
+      )}
+
+      {lapsed && (
+        <p
+          role="status"
+          className="text-sm rounded border p-3"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
+        >
+          <span className="font-semibold">Your shows are frozen.</span> Until you renew Pro+ or choose Basic or Pro,{' '}
+          {company.name} can&apos;t set up a show, and nobody can work a show of yours that was still running or still
+          to come when the year ended. Nothing is lost, and exhibitors can still sign up. A renewal picks up the day
+          after your year ended, so those shows are covered by it.
+        </p>
+      )}
 
       {year?.renewal_due && (
         <p
@@ -155,9 +233,18 @@ function PlanBlock({
         >
           <span className="font-semibold">Your Pro+ year ends {formatDay(year.ends_on)}.</span>{' '}
           {canBuyOnline ? 'Renew now to keep unlimited shows' : 'Renew with GaitDesk to keep unlimited shows'} — the
-          next year starts the day after this one ends. Otherwise {company.name} moves to{' '}
-          {afterYear?.label ?? plan.plan_label} the day after
-          {afterYear && afterYear.rate_cents > 0 ? `, at ${formatRate(afterYear.rate_cents)} per exhibitor` : ''}.
+          next year starts the day after this one ends.{' '}
+          {renews ? (
+            <>
+              Otherwise {company.name}&apos;s shows are frozen from the day after, until you renew or choose Basic or
+              Pro.
+            </>
+          ) : (
+            <>
+              Otherwise {company.name} moves to {afterYear?.label ?? plan.plan_label} the day after
+              {afterYear && afterYear.rate_cents > 0 ? `, at ${formatRate(afterYear.rate_cents)} per exhibitor` : ''}.
+            </>
+          )}
         </p>
       )}
       {year?.renewal_due && canBuyOnline && <BuyProPlus companyId={company.id} label="Renew Pro+" />}
@@ -165,20 +252,29 @@ function PlanBlock({
       {choosing && (
         <div className="rounded-lg border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' }}>
           <ChoosePlanPanel
-            heading={plan.plan === 'free' ? 'Choose a plan to set up shows' : year ? 'The plan after your Pro+ year' : 'Change plan'}
+            heading={
+              lapsed
+                ? 'Renew Pro+, or choose another plan'
+                : plan.plan === 'free' && !year
+                  ? 'Choose a plan to set up shows'
+                  : year
+                    ? 'Follow your Pro+ year with Basic or Pro'
+                    : 'Change plan'
+            }
             companies={[{ id: company.id, name: company.name, personal: company.personal }]}
             plans={year ? plans.filter((p) => p.key !== 'pro_plus') : plans}
-            current={plan.plan === 'free' ? undefined : plan.plan}
+            current={plan.plan === 'free' || renews ? undefined : plan.plan}
             proPlusRequested={Boolean(plan.pro_plus_requested_at)}
             canBuyOnline={canBuyOnline}
+            buyProPlusLabel={lapsed ? 'Renew Pro+' : undefined}
             onChosen={(body) => {
               onChange(body as MyCompany);
               setChoosing(false);
             }}
           />
-          {plan.plan !== 'free' && (
+          {!lapsed && (plan.plan !== 'free' || year) && (
             <button type="button" onClick={() => setChoosing(false)} className="mt-3 text-sm hover:underline" style={{ color: 'var(--muted)' }}>
-              Keep {plan.plan_label}
+              {year && renews ? 'Keep renewing Pro+' : `Keep ${plan.plan_label}`}
             </button>
           )}
         </div>

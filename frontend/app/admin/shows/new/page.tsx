@@ -77,8 +77,11 @@ export default async function NewShowPage() {
           <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>
             New Show
           </h1>
+          {/* Migration 175: an unpaid Pro+ renewal is on no plan too, but it
+              never chose Free, so it is told what happened instead. */}
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-            Your company is on GaitDesk Free, which lets you build your team but not set up a show yet.
+            {myFeatures.pro_plus_lapsed_message ??
+              'Your company is on GaitDesk Free, which lets you build your team but not set up a show yet.'}
           </p>
         </div>
         <div className="rounded-lg border p-5" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
@@ -87,6 +90,7 @@ export default async function NewShowPage() {
             plans={myFeatures.plans}
             proPlusRequested={myFeatures.upgrade_requests.some((r) => r.feature === PRO_PLUS)}
             canBuyOnline={myFeatures.can_pay_online === true}
+            buyProPlusLabel={myFeatures.pro_plus_lapsed_message ? 'Renew Pro+' : undefined}
           />
         </div>
       </main>

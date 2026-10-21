@@ -74,8 +74,10 @@ from show_companies import (
     PRO_PLUS,
     REQUESTABLE,
     company_manager_emails,
+    effective_label,
     email_admins,
     loaded_effective_plan,
+    loaded_pro_plus_lapse,
     next_pro_plus_term,
     plan_confirmation_email,
     plan_features,
@@ -116,6 +118,7 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         key=lambda m: (m.user.last_name.lower(), m.user.first_name.lower()),
     )
     effective = loaded_effective_plan(company)
+    lapse = loaded_pro_plus_lapse(company)
     included = plan_features(effective)
     plan = PLANS.get(company.plan) or PLANS["free"]
     asked_for = {r.feature: r for r in company.upgrade_requests}
@@ -135,8 +138,10 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         plan_label=plan.label,
         plan_rate_cents=plan.rate_cents,
         effective_plan=effective,
-        effective_plan_label=PLANS[effective].label,
+        effective_plan_label=effective_label(effective, lapse),
         subscriptions=[SubscriptionOut.model_validate(t) for t in company.subscriptions],
+        renews_pro_plus=bool(company.renews_pro_plus),
+        pro_plus_lapsed_since=lapse,
         pro_plus_requested_at=pro_plus_ask.created_at if pro_plus_ask else None,
         pro_plus_requested_by_name=(
             pro_plus_ask.requested_by.full_name if pro_plus_ask and pro_plus_ask.requested_by else None
@@ -349,6 +354,7 @@ async def _mail_plan(background: BackgroundTasks, db: AsyncSession, company: Sho
         effective,
         term=(term.starts_on, term.ends_on) if term is not None else None,
         returns_to=company.plan,
+        renews=bool(company.renews_pro_plus),
     )
     background.add_task(email_admins, recipients, subject, body)
 
@@ -372,13 +378,14 @@ async def start_pro_plus_year(
     bill, not a favour.
 
     Left blank, the year is the next one -- from today, or from the day after
-    the current year ends, so a renewal paid early loses nothing."""
+    the current year ends, so a renewal paid early loses nothing, and so does
+    one paid late while the company renews Pro+ (migration 175)."""
     company = await _load(db, company_id)
     if body.starts_on is not None:
         starts_on, ends_on = next_pro_plus_term(None, body.starts_on)
     else:
         latest_end = max((t.ends_on for t in company.subscriptions), default=None)
-        starts_on, ends_on = next_pro_plus_term(latest_end, utc_today())
+        starts_on, ends_on = next_pro_plus_term(latest_end, utc_today(), bool(company.renews_pro_plus))
     term = record_pro_plus(
         company,
         starts_on=starts_on,

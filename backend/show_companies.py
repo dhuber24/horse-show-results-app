@@ -292,12 +292,40 @@ def covering_subscription(subscriptions: Iterable, on: date):
     return max(covering, key=lambda s: s.ends_on) if covering else None
 
 
-def effective_plan(plan: str | None, subscriptions: Iterable, on: date) -> str:
-    """The plan a company is on today: Pro+ while a paid year covers the day,
-    otherwise its per-exhibitor plan -- which is what it returns to when a year
-    runs out unrenewed."""
+def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date) -> date | None:
+    """The day an unpaid Pro+ renewal froze the company, or None (migration 175).
+
+    A company on Pro+ renews Pro+ (`renews_pro_plus`) -- it does not drop onto
+    a per-exhibitor plan when its year runs out. From the day after its latest
+    year ended until it pays the renewal or picks Basic or Pro, it is on no
+    plan at all: it sets up no show, and every show of its that had not
+    finished by that day is frozen (`frozen_since`). A company whose only year
+    is still to start is not lapsed; it has not had one yet."""
+    if not renews or covering_subscription(subscriptions, on) is not None:
+        return None
+    ended = [s.ends_on for s in subscriptions if s.ends_on < on]
+    return max(ended) + timedelta(days=1) if ended else None
+
+
+def frozen_since(renews: bool, subscriptions: Iterable, show_end: date, on: date) -> date | None:
+    """The day a show froze, or None: its company's Pro+ renewal has lapsed and
+    the show had not finished by the day it did -- **a show running when the
+    year ran out freezes too**, mid-show. A show that finished inside a paid
+    year stays open: its results and records are history, not a show being
+    run."""
+    lapse = pro_plus_lapse(renews, subscriptions, on)
+    return lapse if lapse is not None and show_end >= lapse else None
+
+
+def effective_plan(plan: str | None, subscriptions: Iterable, on: date, renews: bool = False) -> str:
+    """The plan a company is on today: Pro+ while a paid year covers the day;
+    **Free while a Pro+ renewal is unpaid** (`pro_plus_lapse`) -- no show set
+    up, no feature -- and otherwise its per-exhibitor plan, which is what a
+    company that chose one returns to when its year runs out."""
     if covering_subscription(subscriptions, on) is not None:
         return PRO_PLUS
+    if pro_plus_lapse(renews, subscriptions, on) is not None:
+        return FREE
     return plan if plan in PLANS else FREE
 
 
@@ -314,7 +342,11 @@ def show_billing_plan(changes: Iterable, subscriptions: Iterable, start: date, e
     Otherwise **the highest-priced plan the company was on at any point across
     the show's dates**: a company picks its own plan, and pricing the show at
     whatever it is on the day it is invoiced would let it run Pro and move to
-    Basic the night the show closed. Free counts as Basic -- no show is free.
+    Basic the night the show closed. Free counts as Basic -- no show is free --
+    and so does a day on Pro+ that no year covered (migration 175: the log
+    records Pro+ as a choice too, and an unpaid renewal is on no plan), so a
+    show that started while a renewal was unpaid is priced by whatever the
+    company picked to come out of it.
 
     `changes` are `(changed_at, plan)` pairs, or rows with those attributes;
     each is in effect from the UTC day it was made. With no change on or
@@ -328,7 +360,7 @@ def show_billing_plan(changes: Iterable, subscriptions: Iterable, start: date, e
     before = [plan for day, plan in ordered if day <= start]
     held = [before[-1] if before else ordered[0][1]]
     held += [plan for day, plan in ordered if start < day <= end]
-    priced = [BASIC if plan == FREE or plan not in PLANS else plan for plan in held]
+    priced = [BASIC if plan in (FREE, PRO_PLUS) or plan not in PLANS else plan for plan in held]
     return max(priced, key=lambda plan: PLANS[plan].rate_cents)
 
 
@@ -341,11 +373,27 @@ def _change_plan(change) -> str:
     return change[1] if isinstance(change, tuple) else change.plan
 
 
-def next_pro_plus_term(latest_end: date | None, today: date) -> tuple[date, date]:
+def next_pro_plus_term(latest_end: date | None, today: date, renewing: bool = False) -> tuple[date, date]:
     """The year a new Pro+ payment buys: from today, or from the day after the
     current year ends when it is a renewal paid early -- so paying a month
-    ahead never loses the month. A year runs to the day before its anniversary."""
-    starts = today if latest_end is None or latest_end < today else latest_end + timedelta(days=1)
+    ahead never loses the month. A year runs to the day before its anniversary.
+
+    **A renewal paid late is backdated** (migration 175): a company that
+    renews Pro+ (`renewing`) and let its year run out picks up the day after
+    it ended, so its years run back to back and every show in between --
+    frozen until now -- is covered by the renewal. Paying late never buys a
+    later year-end. Once a whole renewal year has gone by unpaid, the next
+    year starts today."""
+    if latest_end is None:
+        starts = today
+    elif latest_end >= today or (renewing and _term_from(latest_end + timedelta(days=1))[1] >= today):
+        starts = latest_end + timedelta(days=1)
+    else:
+        starts = today
+    return _term_from(starts)
+
+
+def _term_from(starts: date) -> tuple[date, date]:
     try:
         anniversary = starts.replace(year=starts.year + 1)
     except ValueError:  # 29 February
@@ -843,24 +891,43 @@ def utc_today() -> date:
 
 async def effective_plans(db: AsyncSession, company_ids: Iterable[UUID], on: date | None = None) -> dict[UUID, str]:
     """Each company's plan on a day (today by default): Pro+ while a paid year
-    covers it, else `show_companies.plan`."""
+    covers it, Free while its Pro+ renewal is unpaid, else
+    `show_companies.plan` -- `effective_plan`, for many companies at once."""
+    return {cid: plan for cid, (plan, _lapse) in (await plan_states(db, company_ids, on)).items()}
+
+
+async def plan_states(
+    db: AsyncSession, company_ids: Iterable[UUID], on: date | None = None
+) -> dict[UUID, tuple[str, date | None]]:
+    """Each company's effective plan on a day, with the day its Pro+ renewal
+    lapsed (`pro_plus_lapse`) or None."""
     ids = list(company_ids)
     if not ids:
         return {}
     on = on or utc_today()
-    plans = dict((await db.execute(select(ShowCompany.id, ShowCompany.plan).where(ShowCompany.id.in_(ids)))).all())
-    covered = set(
-        (
-            await db.execute(
-                select(ShowCompanySubscription.company_id).where(
-                    ShowCompanySubscription.company_id.in_(ids),
-                    ShowCompanySubscription.starts_on <= on,
-                    ShowCompanySubscription.ends_on >= on,
-                )
-            )
-        ).scalars().all()
-    )
-    return {cid: PRO_PLUS if cid in covered else (plan if plan in PLANS else FREE) for cid, plan in plans.items()}
+    rows = (
+        await db.execute(
+            select(ShowCompany.id, ShowCompany.plan, ShowCompany.renews_pro_plus).where(ShowCompany.id.in_(ids))
+        )
+    ).all()
+    terms: dict[UUID, list] = {}
+    for term in (
+        await db.execute(
+            select(
+                ShowCompanySubscription.company_id,
+                ShowCompanySubscription.starts_on,
+                ShowCompanySubscription.ends_on,
+            ).where(ShowCompanySubscription.company_id.in_(ids))
+        )
+    ).all():
+        terms.setdefault(term.company_id, []).append(term)
+    return {
+        cid: (
+            effective_plan(plan, terms.get(cid, []), on, renews),
+            pro_plus_lapse(renews, terms.get(cid, []), on),
+        )
+        for cid, plan, renews in rows
+    }
 
 
 def combined_features(plans: Iterable[str | None]) -> set[str]:
@@ -880,7 +947,21 @@ def company_features(company: ShowCompany, on: date | None = None) -> set[str]:
 
 def loaded_effective_plan(company: ShowCompany, on: date | None = None) -> str:
     """`effective_plan` for a company loaded with its subscriptions."""
-    return effective_plan(company.plan, company.subscriptions, on or utc_today())
+    return effective_plan(company.plan, company.subscriptions, on or utc_today(), company.renews_pro_plus)
+
+
+def loaded_pro_plus_lapse(company: ShowCompany, on: date | None = None) -> date | None:
+    """`pro_plus_lapse` for a company loaded with its subscriptions."""
+    return pro_plus_lapse(company.renews_pro_plus, company.subscriptions, on or utc_today())
+
+
+# What a company is called while its Pro+ renewal is unpaid: on no plan, and
+# not "Free", which it never chose.
+LAPSED_LABEL = "GaitDesk Pro+ (renewal unpaid)"
+
+
+def effective_label(effective: str, lapse: date | None) -> str:
+    return LAPSED_LABEL if lapse is not None else plan_label(effective)
 
 
 async def show_company_ids(db: AsyncSession, show_id: UUID) -> list[UUID]:
@@ -1185,6 +1266,60 @@ def require_show_feature(feature: str):
     return dependency
 
 
+# ── A show frozen by an unpaid Pro+ renewal (migration 175) ─────────────────────
+
+
+FROZEN_SHOW = (
+    "{name}'s GaitDesk Pro+ year ended on {ended}, so this show is frozen until the company renews "
+    "Pro+ or chooses GaitDesk Basic or Pro on My Company. Nothing is lost -- its entries and results "
+    "are kept, and exhibitors can still sign up."
+)
+
+
+async def show_freeze(db: AsyncSession, show_id: UUID) -> str | None:
+    """Why the office, the gate and the scribes can't work this show, or None.
+
+    Frozen while its company's Pro+ renewal is unpaid, if the show had not
+    finished when the year ran out (`frozen_since`). Only a show's own
+    company counts: a show from before migration 156 with none is never
+    frozen. The caller exempts an ADMIN."""
+    row = (
+        await db.execute(
+            select(Show.end_date, ShowCompany.id, ShowCompany.name, ShowCompany.renews_pro_plus)
+            .join(ShowCompany, ShowCompany.id == Show.company_id)
+            .where(Show.id == show_id)
+        )
+    ).first()
+    if row is None or not row.renews_pro_plus:
+        return None
+    terms = (
+        await db.execute(
+            select(ShowCompanySubscription.starts_on, ShowCompanySubscription.ends_on).where(
+                ShowCompanySubscription.company_id == row.id
+            )
+        )
+    ).all()
+    since = frozen_since(True, terms, row.end_date, utc_today())
+    if since is None:
+        return None
+    return FROZEN_SHOW.format(name=row.name, ended=_day(since - timedelta(days=1)))
+
+
+async def refuse_frozen_show(
+    show_id: UUID,
+    x_user_role: str | None = Header(None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """A dependency refusing (403) work on a frozen show (`show_freeze`), for a
+    route under a show whose own access check is a role, not the show office
+    (`_assert_show_access` asks itself). An ADMIN passes."""
+    if x_user_role in ALL_FEATURE_ROLES:
+        return
+    message = await show_freeze(db, show_id)
+    if message:
+        raise HTTPException(403, message)
+
+
 # ── Choosing a plan, Pro+ years, and setting up a show (migration 169) ─────────
 
 
@@ -1198,21 +1333,48 @@ def set_company_plan(company: ShowCompany, plan: str, changed_by: UUID | None, d
     (`show_billing_plan`). Answers every upgrade request for a feature the
     company now has. Returns False when it was already on that plan.
 
+    **It also stops Pro+ renewing** (migration 175): picking Basic or Pro is
+    how a company on Pro+ chooses what follows its year, and how one whose
+    renewal is unpaid unfreezes without paying it. So the plan it is already
+    on is still a change while Pro+ renews, and is logged as one: the log is
+    the company's choice, Pro+ included.
+
     `company.upgrade_requests` and `company.subscriptions` must be loaded."""
     if plan not in COLUMN_PLANS:
         raise HTTPException(422, "Choose GaitDesk Free, Basic or Pro.")
-    if company.plan == plan:
+    if company.plan == plan and not company.renews_pro_plus:
         return False
+    company.renews_pro_plus = False
     company.plan = plan
+    _log_plan(company, plan, changed_by, db)
+    now_has = plan_features(effective_plan(plan, company.subscriptions, utc_today()))
+    for request in [r for r in company.upgrade_requests if r.feature in now_has]:
+        company.upgrade_requests.remove(request)
+    return True
+
+
+def keep_pro_plus(company: ShowCompany, changed_by: UUID | None, db: AsyncSession) -> bool:
+    """Put a company back on renewing Pro+ during a year it has -- the way back
+    after choosing Basic or Pro to follow it. Refused (409) with no year in
+    force: a lapsed renewal is paid for, never switched back on, or it would
+    freeze the company the moment it was pressed. Returns False when it
+    already renews. `company.subscriptions` must be loaded."""
+    if covering_subscription(company.subscriptions, utc_today()) is None:
+        raise HTTPException(409, "Buy a GaitDesk Pro+ year to go back on Pro+.")
+    if company.renews_pro_plus:
+        return False
+    company.renews_pro_plus = True
+    _log_plan(company, PRO_PLUS, changed_by, db)
+    return True
+
+
+def _log_plan(company: ShowCompany, plan: str, changed_by: UUID | None, db: AsyncSession) -> None:
+    """One row of the plan log a show is priced from (`show_billing_plan`)."""
     db.add(
         ShowCompanyPlanChange(
             company_id=company.id, plan=plan, changed_at=datetime.now(timezone.utc), changed_by_user_id=changed_by
         )
     )
-    now_has = plan_features(effective_plan(plan, company.subscriptions, utc_today()))
-    for request in [r for r in company.upgrade_requests if r.feature in now_has]:
-        company.upgrade_requests.remove(request)
-    return True
 
 
 def record_pro_plus(
@@ -1234,12 +1396,12 @@ def record_pro_plus(
     in force from `starts_on` regardless: being paid for it is a fact about
     the money, not about what the company may use (migration 171).
 
-    A Free company is moved to Pro as well, so the plan it returns to when the
-    year runs out unrenewed is one that still sets up shows and keeps every
-    feature it has been using -- billed per exhibitor from then on. A Basic or
-    Pro company keeps the plan it chose. Answers every upgrade request the
-    company has, Pro+ included. `company` must be loaded with its upgrade
-    requests and subscriptions."""
+    **The company is on Pro+ from now on, and renews it** (migration 175):
+    when the year runs out unpaid it is frozen (`pro_plus_lapse`) until it
+    pays the renewal or picks Basic or Pro -- it is not dropped onto `plan`,
+    which is left as it was; the plan log records Pro+ as its choice. Answers
+    every upgrade request the company has, Pro+ included. `company` must be
+    loaded with its upgrade requests and subscriptions."""
     if ends_on < starts_on:
         raise HTTPException(422, "The year can't end before it starts.")
     if price_cents < 0:
@@ -1257,8 +1419,9 @@ def record_pro_plus(
         recorded_by_user_id=recorded_by,
     )
     company.subscriptions.append(term)
-    if company.plan == FREE:
-        set_company_plan(company, PRO, recorded_by, db)
+    if not company.renews_pro_plus:
+        company.renews_pro_plus = True
+        _log_plan(company, PRO_PLUS, recorded_by, db)
     for request in list(company.upgrade_requests):
         if request.feature in REQUESTABLE:
             company.upgrade_requests.remove(request)
@@ -1271,8 +1434,32 @@ SHOW_SETUP_LOCKED = (
 )
 
 
+PRO_PLUS_LAPSED = (
+    "{name}'s GaitDesk Pro+ year ended on {ended}. Renew it, or choose GaitDesk Basic or Pro, on "
+    "My Company to set up a show."
+)
+
+
+def _day(value: date) -> str:
+    return f"{value:%B} {value.day}, {value.year}"
+
+
+def _lapsed_refusal(companies: Iterable[tuple[UUID, UUID | None, str]], lapsed: dict[UUID, date]) -> str | None:
+    """`PRO_PLUS_LAPSED` for the first of these companies whose Pro+ renewal
+    is unpaid, or None. An independent's own company is "Your account"."""
+    for cid, owner, name in companies:
+        if cid in lapsed:
+            return PRO_PLUS_LAPSED.format(
+                name=name if owner is None else "Your account",
+                ended=_day(lapsed[cid] - timedelta(days=1)),
+            )
+    return None
+
+
 def show_setup_choice(
-    companies: Sequence[tuple[UUID, UUID | None, str, str]], role: str
+    companies: Sequence[tuple[UUID, UUID | None, str, str]],
+    role: str,
+    lapsed: dict[UUID, date] | None = None,
 ) -> UUID | None:
     """Which company a new show runs under, from the creator's companies as
     `(id, owner_user_id, name, effective plan)` -- or None, and Step 1 asks.
@@ -1281,7 +1468,9 @@ def show_setup_choice(
     staff itself, but a show needs a plan it will be invoiced on. Among the
     ones that do, `default_show_company` decides as before -- a company on
     Free is never picked for a show, even as somebody's only organization.
-    An ADMIN is in no company and chooses on Step 1.
+    An ADMIN is in no company and chooses on Step 1. A company whose Pro+
+    renewal is unpaid is on Free until it pays or picks a plan, and `lapsed`
+    (company id -> the day it lapsed) lets the refusal say so.
     """
     if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
         return None
@@ -1290,7 +1479,8 @@ def show_setup_choice(
         # An independent's own company is named after them; "Jane Smith is on
         # Free" reads their own name back at them.
         named = next((name for _cid, owner, name, _plan in companies if owner is None), None)
-        raise HTTPException(403, SHOW_SETUP_LOCKED.format(name=named or "Your account"))
+        refusal = _lapsed_refusal([(cid, owner, name) for cid, owner, name, _plan in companies], lapsed or {})
+        raise HTTPException(403, refusal or SHOW_SETUP_LOCKED.format(name=named or "Your account"))
     return default_show_company(able)
 
 
@@ -1328,18 +1518,40 @@ async def show_setup_blocked(db: AsyncSession, user_id: UUID, role: str) -> str 
     return await settle_up_block(db, company_id)
 
 
-async def _show_setup_company(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
-    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
-        return None
-    rows = (
+async def _member_companies(db: AsyncSession, user_id: UUID) -> list:
+    return (
         await db.execute(
             select(ShowCompany.id, ShowCompany.owner_user_id, ShowCompany.name)
             .join(ShowCompanyMember, ShowCompanyMember.company_id == ShowCompany.id)
             .where(ShowCompanyMember.user_id == user_id)
         )
     ).all()
-    plans = await effective_plans(db, [r[0] for r in rows])
-    return show_setup_choice([(cid, owner, name, plans.get(cid, FREE)) for cid, owner, name in rows], role)
+
+
+async def pro_plus_lapsed_message(db: AsyncSession, user_id: UUID, role: str) -> str | None:
+    """What the New Show page says in place of its GaitDesk Free wording when
+    the caller can't set up a show because their company's Pro+ renewal is
+    unpaid (migration 175) -- the words `show_setup_company_for` refuses
+    with. Never the enforcement."""
+    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
+        return None
+    rows = await _member_companies(db, user_id)
+    states = await plan_states(db, [r[0] for r in rows])
+    if any(sets_up_shows(plan) for plan, _lapse in states.values()):
+        return None
+    return _lapsed_refusal(rows, {cid: lapse for cid, (_plan, lapse) in states.items() if lapse is not None})
+
+
+async def _show_setup_company(db: AsyncSession, user_id: UUID, role: str) -> UUID | None:
+    if role in ALL_FEATURE_ROLES or role not in SHOW_OFFICE_ROLES:
+        return None
+    rows = await _member_companies(db, user_id)
+    states = await plan_states(db, [r[0] for r in rows])
+    return show_setup_choice(
+        [(cid, owner, name, states.get(cid, (FREE, None))[0]) for cid, owner, name in rows],
+        role,
+        lapsed={cid: lapse for cid, (_plan, lapse) in states.items() if lapse is not None},
+    )
 
 
 async def can_set_up_shows(db: AsyncSession, user_id: UUID, role: str) -> bool:
@@ -1378,8 +1590,11 @@ def plan_confirmation_email(
     *,
     term: tuple[date, date] | None = None,
     returns_to: str | None = None,
+    renews: bool = False,
 ) -> tuple[str, str]:
-    """What the company's show managers are sent once it is on a plan."""
+    """What the company's show managers are sent once it is on a plan. For a
+    Pro+ year, what follows it: Pro+ again when it `renews` (and the freeze
+    while that is unpaid), else the plan it `returns_to`."""
     entry = PLANS[plan]
     lines = [f"{company_name} is now on {entry.label}.", ""]
     if plan == PRO_PLUS and term is not None:
@@ -1389,9 +1604,19 @@ def plan_confirmation_email(
             "exhibitors, with every GaitDesk Pro feature, and no per-exhibitor charge for any show "
             "that starts in it.",
             "",
-            f"We'll email you a month before it ends. If it isn't renewed by {ends:%B %-d, %Y}, "
-            f"{company_name} moves to {plan_label(returns_to)}"
-            + (f", billed {_dollars(PLANS[returns_to].rate_cents)} per exhibitor after each show." if returns_to in PLANS and PLANS[returns_to].rate_cents else "."),
+            (
+                f"It renews as {entry.label} for {_dollars(entry.annual_cents)}, and we'll email you a month "
+                f"before it ends. Until the renewal is paid, from the day after {ends:%B %-d, %Y} "
+                f"{company_name} can't set up a show, and its shows still running or still to come are "
+                "frozen. Choose GaitDesk Basic or Pro on My Company any time to follow it with one of those "
+                "instead."
+            )
+            if renews
+            else (
+                f"We'll email you a month before it ends. If it isn't renewed by {ends:%B %-d, %Y}, "
+                f"{company_name} moves to {plan_label(returns_to)}"
+                + (f", billed {_dollars(PLANS[returns_to].rate_cents)} per exhibitor after each show." if returns_to in PLANS and PLANS[returns_to].rate_cents else ".")
+            ),
         ]
     elif entry.rate_cents:
         lines += [
@@ -1407,8 +1632,12 @@ def plan_confirmation_email(
     return f"{company_name} is on {entry.label}", "\n".join(lines) + "\n"
 
 
-def renewal_reminder_email(company_name: str, ends_on: date, returns_to: str) -> tuple[str, str]:
-    """The one reminder a month before a Pro+ year ends."""
+def renewal_reminder_email(
+    company_name: str, ends_on: date, returns_to: str, renews: bool = False
+) -> tuple[str, str]:
+    """The one reminder a month before a Pro+ year ends: what happens without
+    the renewal -- the freeze when the company renews Pro+ (migration 175),
+    else the plan it chose to follow it."""
     pro_plus = PLANS[PRO_PLUS]
     after = PLANS.get(returns_to) or PLANS[PRO]
     consequence = (
@@ -1424,6 +1653,12 @@ def renewal_reminder_email(company_name: str, ends_on: date, returns_to: str) ->
         consequence = f"{company_name} moves to {after.label} and can't set up new shows until it picks a plan."
     if after.features != pro_plus.features:
         consequence += " The GaitDesk Pro features -- reports, Live Boards, the show bill import and exports -- turn off."
+    if renews:
+        consequence = (
+            f"{company_name} can't set up a show, and its shows still running or still to come are frozen -- "
+            "nobody in its office, at its gate or scribing can work them -- until you renew, or choose "
+            "GaitDesk Basic or Pro on My Company. Exhibitors can still sign up."
+        )
     body = (
         f"{company_name}'s {pro_plus.label} year ends on {ends_on:%B %-d, %Y}.\n\n"
         f"Renew for another year of unlimited shows and exhibitors for {_dollars(pro_plus.annual_cents)}: "
@@ -1485,7 +1720,7 @@ async def send_renewal_reminders(db: AsyncSession, today: date | None = None) ->
         recipients = await company_manager_emails(db, term.company_id)
         if company is None or not recipients:
             continue
-        subject, body = renewal_reminder_email(company.name, term.ends_on, company.plan)
+        subject, body = renewal_reminder_email(company.name, term.ends_on, company.plan, company.renews_pro_plus)
         await email_admins(recipients, subject, body)
         sent += 1
     return sent

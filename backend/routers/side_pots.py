@@ -25,6 +25,7 @@ from sqlalchemy.orm import selectinload
 from backnumbers import back_numbers_for_show
 from database import get_db
 from dependencies import require_admin_or_show_admin
+from show_companies import refuse_frozen_show
 from models import (
     Class,
     Entry,
@@ -53,7 +54,8 @@ from schemas import (
 router = APIRouter(
     prefix="/shows/{show_id}/side-pots",
     tags=["Side Pots"],
-    dependencies=[Depends(require_admin_or_show_admin)],
+    # Migration 175: not while the show is frozen by an unpaid Pro+ renewal.
+    dependencies=[Depends(require_admin_or_show_admin), Depends(refuse_frozen_show)],
 )
 
 

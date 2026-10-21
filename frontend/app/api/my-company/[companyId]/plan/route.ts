@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthHeaders, API_URL, safeFetchBackend } from '@/lib/backend-fetch';
 
-/** Choose GaitDesk Basic or Pro for the company (migration 169). */
+/** Choose GaitDesk Basic or Pro for the company (migration 169) -- or, during a
+ *  Pro+ year, Pro+ again to renew it (migration 175). */
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ companyId: string }> }) {
   const { companyId } = await params;
   const headers = await getAuthHeaders();

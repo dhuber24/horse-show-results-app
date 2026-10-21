@@ -2,6 +2,30 @@
 
 ## October 2026
 
+### Pro+ renews as Pro+
+
+- **A company on GaitDesk Pro+ stays on Pro+** (migration 175). Until now,
+  a Pro+ year that ran out unrenewed dropped the company onto Basic or Pro and
+  it carried on, billed per exhibitor. Now the renewal is Pro+ again, and
+  from the day after the year ends until it is paid the company can't set up
+  a show and its shows still running or still to come are frozen — for its
+  office, its gate and its scribes. Exhibitors can still sign up, and nothing
+  is lost.
+- **Two ways out, both on My Company**: renew Pro+ — the new year picks up the
+  day after the old one ended, so every frozen show is covered — or choose
+  Basic or Pro, which unfreezes the company at once. During a year the company
+  can choose Basic or Pro to follow it instead, and change its mind back.
+- **The reminder a month ahead, the confirmation email and the renewal banner
+  say so.** A GaitDesk admin is never frozen, and sees a frozen show's pages
+  under a banner; the companies list marks a company whose renewal is unpaid.
+
+### The plan cards are the control
+
+- **On a show company's admin page, each plan card is now the button**:
+  Free, Basic and Pro move the company straight away, as the old switch did,
+  and Pro+ opens the form that starts a year. The separate Pro+ section is
+  gone; its years are listed under the cards.
+
 ### An exhibitor's bank payment holds their balance
 
 - **Paying a show by bank transfer can't be paid twice** (migration 174).

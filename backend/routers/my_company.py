@@ -81,8 +81,11 @@ from show_companies import (
     company_manager_emails,
     covering_subscription,
     decline_join_request,
+    effective_label,
     email_admins,
+    keep_pro_plus,
     loaded_effective_plan,
+    loaded_pro_plus_lapse,
     plan_confirmation_email,
     remove_company_member,
     set_company_plan,
@@ -169,6 +172,11 @@ class MyPlanOut(BaseModel):
     sets_up_shows: bool
     pro_plus: Optional[ProPlusYearOut] = None
     pro_plus_requested_at: Optional[datetime] = None
+    # Migration 175: the company is on Pro+ and renews it -- rather than moving
+    # to `plan` when its year ends -- and, while that renewal is unpaid, the
+    # day its last year ended (its unfinished shows frozen since the next).
+    renews_pro_plus: bool = False
+    pro_plus_ended_on: Optional[date] = None
 
 
 class MyCompanyOut(BaseModel):
@@ -195,10 +203,12 @@ class StaffAdd(BaseModel):
 
 
 class PlanChoice(BaseModel):
-    plan: Literal["basic", "pro"]
-    # The office agrees to be billed per exhibitor after each show. Required:
-    # choosing a plan is agreeing to its price.
-    agree: bool
+    # Basic or Pro; or, during a Pro+ year, Pro+ again -- to renew it after
+    # choosing Basic or Pro to follow it (migration 175).
+    plan: Literal["basic", "pro", "pro_plus"]
+    # The office agrees to be billed per exhibitor after each show. Required
+    # for Basic and Pro: choosing a plan is agreeing to its price.
+    agree: bool = False
 
 
 class CompanyInviteCreate(BaseModel):
@@ -219,6 +229,7 @@ INVITE_TTL_DAYS = 14
 def _plan_out(company: ShowCompany) -> MyPlanOut:
     today = utc_today()
     effective = loaded_effective_plan(company, today)
+    lapse = loaded_pro_plus_lapse(company, today)
     base = PLANS.get(company.plan) or PLANS["free"]
     year = covering_subscription(company.subscriptions, today)
     pro_plus = None
@@ -234,11 +245,13 @@ def _plan_out(company: ShowCompany) -> MyPlanOut:
         plan=base.key,
         plan_label=base.label,
         effective_plan=effective,
-        effective_plan_label=PLANS[effective].label,
+        effective_plan_label=effective_label(effective, lapse),
         rate_cents=base.rate_cents,
         sets_up_shows=sets_up_shows(effective),
         pro_plus=pro_plus,
         pro_plus_requested_at=ask.created_at if ask else None,
+        renews_pro_plus=bool(company.renews_pro_plus),
+        pro_plus_ended_on=lapse - timedelta(days=1) if lapse else None,
     )
 
 
@@ -505,20 +518,33 @@ async def choose_plan(
     """Put the company on GaitDesk Basic or Pro. Nothing is charged now: each
     show is invoiced after it runs, at the highest plan the company held across
     its dates, so moving down mid-show does not lower that show's bill. The
-    company's show managers are emailed. Pro+ is not chosen here -- it is a
-    year billed up front, asked for and started by a GaitDesk admin; during
-    one, this sets the plan the company returns to when it ends."""
+    company's show managers are emailed. Pro+ is not bought here -- it is a
+    year billed up front.
+
+    **During a Pro+ year this is what follows it** (migration 175): Basic or
+    Pro stops Pro+ renewing, and Pro+ puts the renewal back. With an unpaid
+    renewal, Basic or Pro is the way out of the freeze without paying it."""
     caller = _caller(x_user_id, x_user_role)
-    if not body.agree:
-        raise HTTPException(422, "Agree to be billed per exhibitor after each show to choose a plan.")
     company = await _my_company(company_id, caller, db)
-    changed = set_company_plan(company, body.plan, caller, db)
+    if body.plan == PRO_PLUS:
+        changed = keep_pro_plus(company, caller, db)
+    else:
+        if not body.agree:
+            raise HTTPException(422, "Agree to be billed per exhibitor after each show to choose a plan.")
+        changed = set_company_plan(company, body.plan, caller, db)
     await db.commit()
     company = await _load(db, company_id)
     if changed:
         recipients = await company_manager_emails(db, company_id)
         if recipients:
-            subject, mail = plan_confirmation_email(company.name, loaded_effective_plan(company), returns_to=company.plan)
+            year = covering_subscription(company.subscriptions, utc_today())
+            subject, mail = plan_confirmation_email(
+                company.name,
+                loaded_effective_plan(company),
+                term=(year.starts_on, year.ends_on) if year is not None else None,
+                returns_to=company.plan,
+                renews=bool(company.renews_pro_plus),
+            )
             background.add_task(email_admins, recipients, subject, mail)
     return _out(company, caller, await _pending_invites(db, company_id))
 

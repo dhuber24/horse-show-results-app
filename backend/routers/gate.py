@@ -32,6 +32,7 @@ from models import (
 )
 from routers.classes import list_classes
 from show_access import works_show
+from show_companies import ALL_FEATURE_ROLES, show_freeze
 from schemas import (
     ClassPatternPost,
     ClassPatternStatus,
@@ -52,18 +53,22 @@ async def _assert_gate_access(
         raise HTTPException(401, "Unauthorized")
     # The show office -- including its company's staff (migration 156) -- or
     # a gate steward assigned to this show.
-    if await works_show(db, show_id, safe_uuid(x_user_id), x_user_role):
-        return
-    if x_user_role == "GATE_STEWARD":
+    allowed = await works_show(db, show_id, safe_uuid(x_user_id), x_user_role)
+    if not allowed and x_user_role == "GATE_STEWARD":
         row = await db.execute(
             select(ShowGateSteward).where(
                 ShowGateSteward.show_id == show_id,
                 ShowGateSteward.user_id == safe_uuid(x_user_id),
             )
         )
-        if row.scalar_one_or_none():
-            return
-    raise HTTPException(403, "Not authorized for this show's gate")
+        allowed = row.scalar_one_or_none() is not None
+    if not allowed:
+        raise HTTPException(403, "Not authorized for this show's gate")
+    # Migration 175: a show frozen by an unpaid Pro+ renewal has no gate.
+    if x_user_role not in ALL_FEATURE_ROLES:
+        message = await show_freeze(db, show_id)
+        if message:
+            raise HTTPException(403, message)
 
 
 async def _get_class_or_404(show_id: UUID, class_id: UUID, db: AsyncSession) -> Class:

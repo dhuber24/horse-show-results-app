@@ -90,9 +90,9 @@ def test_companies_together_have_the_best_of_their_plans():
 
 def test_a_loaded_company_has_its_plans_features_and_nothing_else():
     """A leftover switch row from before migration 170 turns nothing on."""
-    company = SimpleNamespace(plan=BASIC, subscriptions=[], features=[SimpleNamespace(feature=LIVE_BOARDS)])
+    company = SimpleNamespace(plan=BASIC, renews_pro_plus=False, subscriptions=[], features=[SimpleNamespace(feature=LIVE_BOARDS)])
     assert company_features(company) == set()
-    assert company_features(SimpleNamespace(plan=PRO, subscriptions=[], features=[])) == set(FEATURES)
+    assert company_features(SimpleNamespace(plan=PRO, renews_pro_plus=False, subscriptions=[], features=[])) == set(FEATURES)
 
 
 # ── The gate at a show ────────────────────────────────────────────────────────
