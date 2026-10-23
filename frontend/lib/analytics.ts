@@ -73,3 +73,33 @@ export function gaUserRole(role: string | null | undefined): string {
   if (!role) return 'VISITOR';
   return ROLES.has(role) ? role : 'OTHER';
 }
+
+// Who GaitDesk's advertising may reach — the Privacy Policy, section 3, says
+// this in words, so the two change together. Google signals and ads
+// personalization are on for the GA property; the tag turns them off again,
+// per visitor, for everybody the policy says they never reach.
+//
+// The audience is the people who buy GaitDesk: a signed-out visitor, whose age
+// nobody knows, and the show office and trainers, whom the Terms require to be
+// adults. Never an exhibitor — every youth account is one, with a date of birth
+// on file, and Minnesota's privacy law and COPPA turn on knowing a minor's age —
+// nor the crew and judges, who buy nothing. ADMIN is GaitDesk itself.
+const AD_AUDIENCE_ROLES = new Set(['SHOW_MANAGER', 'SHOW_SECRETARY', 'TRAINER']);
+
+// Set on a browser where somebody outside the audience has signed in, so it
+// stays out after they sign out: the family tablet a youth exhibitor signed in
+// on is still theirs when it reads the public results signed out.
+export const NO_ADS_COOKIE = 'gd-no-ads';
+
+/** Whether Google signals and ads personalization stay on for this visitor.
+ *  A Global Privacy Control signal turns them off too, in the browser, since
+ *  only the browser can see it. */
+export function gaAdsAllowed(role: string | null | undefined, noAdsCookie: string | null | undefined): boolean {
+  if (noAdsCookie) return false;
+  return !role || AD_AUDIENCE_ROLES.has(role);
+}
+
+/** Whether this browser should be marked with `NO_ADS_COOKIE`. */
+export function gaRemembersNoAds(role: string | null | undefined): boolean {
+  return !!role && !AD_AUDIENCE_ROLES.has(role);
+}

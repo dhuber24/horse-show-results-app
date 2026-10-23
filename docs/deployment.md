@@ -590,6 +590,21 @@ has usually been used by then (an accepted invite, an answered request), and a
 horse request still needs its owner signed in. Closing it means turning the
 history option off and sending page views from the app with the URL scrubbed.
 
+**Google signals is on (2026-10-23), and the tag decides per visitor who it
+reaches** — the audience the Privacy Policy promises in its section 3, so the
+two change together. `gaAdsAllowed` (`frontend/lib/analytics.ts`) leaves
+`allow_google_signals` and `allow_ad_personalization_signals` on only for a
+signed-out visitor and a signed-in `SHOW_MANAGER`, `SHOW_SECRETARY` or
+`TRAINER`, and the tag turns both off for a browser sending Global Privacy
+Control. Every other signed-in role — above all `EXHIBITOR`, since every youth
+account is one and its date of birth is on file — gets them off, and marks the
+browser with the `gd-no-ads` cookie so it stays off after signing out. Two
+settings in GA itself complete it, under **Admin → Data collection and
+modification → Data collection**: Google signals and *allow ads
+personalization* are allowed in US states only — the policy says visitors
+outside the United States are never included, and Europe would need consent
+GaitDesk does not ask for — and data retention is 14 months.
+
 ## Operations
 
 - Use an always-on paid Render plan for both services. Free spins down after

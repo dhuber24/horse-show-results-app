@@ -167,6 +167,14 @@ Every 📍 beside a show is `components/VenueMapLink`: the pin and the venue's n
 - **Open questions are held in state, not left to `<details>`.** A search opens everything it finds, because the match is as often in the answer as in the question, and a fragment opens the question it names; `onToggle` copies each press back so the two never disagree.
 - **The page also emits schema.org `FAQPage` JSON-LD** built from the same array (`faqPlainText` strips the link markup), so search engines can show an answer under the result. `<` in it is escaped so no answer can close the script tag.
 
+### The Terms And Privacy Policy, And The Site Footer
+
+`/terms` and `/privacy` render `lib/legal/terms.ts` and `lib/legal/privacy.ts` through `components/LegalDocument.tsx`. `SiteFooter` (`app/components/SiteFooter.tsx`, in the root layout under the page) links both, the FAQ and Contact from every page.
+
+- **The working copy of each is a Claude Doc; the file is its Markdown export.** Change the doc, export it as Markdown, take out the drafting note, and paste it in, so the two never disagree. `lib/legal-markdown.ts` reads only what the two documents use (`#` / `##` headings, paragraphs, `- ` lists, pipe tables, `**bold**`, `[label](href)`), which is why no Markdown library was added. `lib/legal-markdown.test.ts` fails on a `[Placeholder]` or a drafting note left in, and on any link that is neither a same-site path nor `https`.
+- **The Privacy Policy describes what the app does, so it changes with the app.** A new provider that receives personal data, a new cookie or `localStorage` key, who GaitDesk's advertising reaches, or how long anything is kept — including `release.ps1`'s `-BackupDays` — is a change to its text and its effective date in the same commit.
+- **The footer stays off a Live Board and off paper.** A board is a fixed full-screen overlay that covers it; `print:hidden` keeps it off a printed show bill.
+
 ## Colour And Brand
 
 The app is **GaitDesk**. The supplied brand package arrives as a

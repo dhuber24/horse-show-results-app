@@ -5,9 +5,10 @@ import './globals.css';
 import Navbar from './components/Navbar';
 import ServiceWorkerRegistration from './components/ServiceWorkerRegistration';
 import GoogleAnalytics from './components/GoogleAnalytics';
+import SiteFooter from './components/SiteFooter';
 import { StepAutosaveProvider } from './admin/shows/[id]/setup/_lib/StepAutosave';
 import { auth } from '@/auth';
-import { gaMeasurementId, gaUserRole } from '@/lib/analytics';
+import { NO_ADS_COOKIE, gaAdsAllowed, gaMeasurementId, gaRemembersNoAds, gaUserRole } from '@/lib/analytics';
 import { LAYOUT_COOKIE, SIDEBAR_COOKIE, layoutFor } from '@/lib/layout-mode';
 
 const inter = Inter({
@@ -107,12 +108,22 @@ export default async function RootLayout({
               short page rather than stopping where the page does. */}
           <div className="desktop:flex desktop:flex-1">
             {sidebar}
-            <div className="min-w-0 desktop:flex-1">{children}</div>
+            {/* The footer sits under the page, beside the sidebar rather than
+                under it, so on the desktop layout it lines up with the page. */}
+            <div className="min-w-0 desktop:flex-1">
+              {children}
+              <SiteFooter />
+            </div>
           </div>
         </StepAutosaveProvider>
         <ServiceWorkerRegistration />
         {measurementId && (
-          <GoogleAnalytics measurementId={measurementId} userRole={gaUserRole(role)} />
+          <GoogleAnalytics
+            measurementId={measurementId}
+            userRole={gaUserRole(role)}
+            adsAllowed={gaAdsAllowed(role, cookieStore.get(NO_ADS_COOKIE)?.value)}
+            rememberNoAds={gaRemembersNoAds(role)}
+          />
         )}
       </body>
     </html>

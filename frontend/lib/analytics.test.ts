@@ -1,6 +1,13 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { gaMeasurementId, gaUserRole, isTrackedPage, isTrackedPath } from './analytics';
+import {
+  gaAdsAllowed,
+  gaMeasurementId,
+  gaRemembersNoAds,
+  gaUserRole,
+  isTrackedPage,
+  isTrackedPath,
+} from './analytics';
 
 describe('gaMeasurementId', () => {
   it('accepts a GA4 measurement ID', () => {
@@ -87,5 +94,40 @@ describe('gaUserRole', () => {
   it('sends nothing it does not recognise', () => {
     expect(gaUserRole('RING_STEWARD')).toBe('OTHER');
     expect(gaUserRole("ADMIN'});alert(1)//")).toBe('OTHER');
+  });
+});
+
+// The Privacy Policy, section 3, promises exactly this audience.
+describe('gaAdsAllowed', () => {
+  it('advertises to signed-out visitors and to the people who buy GaitDesk', () => {
+    expect(gaAdsAllowed(undefined, undefined)).toBe(true);
+    expect(gaAdsAllowed('SHOW_MANAGER', undefined)).toBe(true);
+    expect(gaAdsAllowed('SHOW_SECRETARY', undefined)).toBe(true);
+    expect(gaAdsAllowed('TRAINER', undefined)).toBe(true);
+  });
+
+  it('never advertises to an exhibitor, the crew, a judge or GaitDesk itself', () => {
+    for (const role of ['EXHIBITOR', 'SCRIBE', 'GATE_STEWARD', 'JUDGE', 'ADMIN', 'SOMETHING_NEW']) {
+      expect(gaAdsAllowed(role, undefined)).toBe(false);
+    }
+  });
+
+  it('keeps a browser out once somebody outside the audience has signed in on it', () => {
+    expect(gaAdsAllowed(undefined, '1')).toBe(false);
+    expect(gaAdsAllowed('SHOW_MANAGER', '1')).toBe(false);
+  });
+});
+
+describe('gaRemembersNoAds', () => {
+  it('marks the browser for every signed-in role outside the audience', () => {
+    expect(gaRemembersNoAds('EXHIBITOR')).toBe(true);
+    expect(gaRemembersNoAds('SCRIBE')).toBe(true);
+    expect(gaRemembersNoAds('ADMIN')).toBe(true);
+  });
+
+  it('leaves the audience and signed-out visitors unmarked', () => {
+    expect(gaRemembersNoAds('SHOW_MANAGER')).toBe(false);
+    expect(gaRemembersNoAds('TRAINER')).toBe(false);
+    expect(gaRemembersNoAds(undefined)).toBe(false);
   });
 });
