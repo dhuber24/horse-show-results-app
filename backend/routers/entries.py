@@ -36,7 +36,7 @@ from side_pot_membership import (
 )
 from schemas import CogginsOverrideAuditOut, EntryCreate, EntryUpdate, EntryOut
 from routers.shows import _assert_show_access, get_aqha_association_id
-from rules import get_rules
+from rules import get_rules, refusing_issues
 from rules.apha import division_for_class
 from apha_context import apha_entry_context
 from attestations import build_attestations
@@ -133,14 +133,18 @@ async def _association_validation_context(
 
 
 def _raise_for_validation_errors(issues: list[dict]) -> None:
-    errors = [issue for issue in issues if issue.get("severity") == "error"]
-    if errors:
+    """Refuse only a request the database could not store (`REFUSING_CODES`).
+
+    Every association rule is a flag now, never a gate: the entry is saved and
+    its issues go back on `association_warnings` for the screen to show.
+    """
+    if refusing_issues(issues):
         raise HTTPException(
             422,
             {
                 "code": "ASSOCIATION_VALIDATION_FAILED",
                 "message": "Entry fails association validation",
-                "issues": issues,
+                "issues": refusing_issues(issues),
             },
         )
 
@@ -323,6 +327,7 @@ async def create_entry(
     await assign_horse_number_if_missing(show_id, entry.horse_id, db)
     await db.commit()
     await db.refresh(entry)
+    entry.association_warnings = issues
     return entry
 
 
@@ -362,6 +367,7 @@ async def update_entry(
     _raise_for_validation_errors(issues)
     await db.commit()
     await db.refresh(entry)
+    entry.association_warnings = issues
     return entry
 
 

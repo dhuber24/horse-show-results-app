@@ -402,6 +402,38 @@ Worth knowing before debugging a symptom against the wrong setting.
   digits) is ignored rather than rendered into the page. See
   [Google Analytics](#google-analytics) below.
 
+## Keeping Node.js and the frontend's packages patched
+
+The web service is the part of GaitDesk exposed to the internet that runs on
+Node, so a Node.js or Next.js advisory is about it. Last done on 27 Oct 2026, for
+Node's October 21 security release and the Next.js and Auth.js advisories
+published with it (see `IMPROVEMENTS.md`, October 2026).
+
+- **Node is pinned to an exact patch release**, `node:24.22.1-alpine`, in both
+  stages of `frontend/Dockerfile.production`, in `frontend/Dockerfile`, and as
+  `node-version` in `.github/workflows/ci.yml`. A floating tag such as
+  `node:24-alpine` is only as new as Render's build cache, so a rebuild can keep
+  an unpatched Node without anyone noticing. Bump all four together.
+- **Stay on a supported release line.** Node 20 reached end-of-life on 30 Apr
+  2026, and an end-of-life line is affected by every later advisory with no fix
+  coming. Node's [release schedule](https://github.com/nodejs/release#release-schedule)
+  gives each line's end date; move before it arrives.
+- **`npm audit` in `frontend/` should report 0 vulnerabilities.** Next.js
+  backports security fixes to 15.x as `15.5.*` (npm dist-tag `backport`), so a
+  fix does not require the Next 16 upgrade.
+- **The `overrides` block in `frontend/package.json` gives Next the app's
+  postcss.** Next 15.5 pins its own `postcss@8.4.31`, which carries the
+  advisories fixed in 8.5.23; the override swaps in the app's 8.5.x line. It
+  is used only to build the app's own CSS. Drop the override once a Next release
+  ships a fixed postcss. npm applies an override only when it re-resolves the
+  package, so after changing it, delete `node_modules/next/node_modules/postcss`
+  from `package-lock.json` and run `npm install` again.
+- **An advisory that could run code on the server also means rotating
+  secrets**, as in [Rotating a secret](#rotating-a-secret), unless it is clear
+  that production could not be reached through it.
+- **The dev container keeps the Node it was built with.** `node_modules` is an
+  anonymous volume, so after a bump run `docker compose up -d --build -V frontend`.
+
 ## Rotating a secret
 
 The web service holds two secrets, and they are the ones to rotate if it was

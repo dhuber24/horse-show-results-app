@@ -8,6 +8,7 @@ import {
   RELATIONSHIP_REQUIRED_DIVISIONS,
   divisionLabel,
 } from '@/lib/apha';
+import { warningLines } from '@/lib/association-warnings';
 import {
   formatMoney,
   healthWarnings,
@@ -37,7 +38,9 @@ import {
  * one exhibitor may show two horses in it), and a class under way or already
  * run is gone. So what is ticked is what goes in, and the press is all or
  * nothing: `POST /shows/{id}/register` commits the batch together or refuses
- * it naming the class.
+ * it naming the class. An APHA or AQHA rule is not a refusal: the entry goes in
+ * and what the rules said comes back beside the "entered" line, for the show
+ * office to take up.
  *
  * Championship classes are left out entirely, and that one is not a filter on
  * this exhibitor: a Grand & Reserve Champion class calls back the top two from
@@ -143,6 +146,7 @@ export default function AddClassEntry({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const isApha = showTypeCode === 'APHA';
   const selectedHorse = horses.find((h) => h.id === horseId);
@@ -238,6 +242,8 @@ export default function AddClassEntry({
   const aphaDivisionOf = (cls: PreviewClass) => (isApha && cls.apha_divisions?.[0]) || '';
 
   const needsNoviceDeclaration = tickedClasses.some((c) => ATTESTATION_REQUIRED_DIVISIONS.has(aphaDivisionOf(c)));
+  // Offered, never required: an association rule flags an entry and does not
+  // refuse it, so a Novice class goes in undeclared and comes back flagged.
   const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
   // Answered on the horses step. Missing is a prompt with a destination, never
   // a block: the backend takes the entry either way and the office chases it.
@@ -289,6 +295,7 @@ export default function AddClassEntry({
     setSaving(true);
     setError(null);
     setNotice(null);
+    setWarnings([]);
 
     const entries = tickedClasses.map((cls) => {
       const entry: Record<string, unknown> = { class_id: cls.id, horse_id: selectedHorse.id };
@@ -326,6 +333,13 @@ export default function AddClassEntry({
       // The horse carries over — somebody entering a second horse picks it —
       // and the ticks clear, because those classes are entered now.
       setNotice(`${selectedHorse.name} is entered in ${plural(entries.length, 'class')}.`);
+      const saved = await res.json().catch(() => null);
+      setWarnings(
+        warningLines(saved?.created_entries ?? [], (classId) => {
+          const cls = classes.find((c) => c.id === classId);
+          return cls ? `Class ${cls.class_number} (${cls.class_name})` : 'A class';
+        }),
+      );
       setTicked([]);
       // The reload brings each buy-in back as a pot already joined, so the
       // next class in it asks for nothing.
@@ -343,11 +357,9 @@ export default function AddClassEntry({
     ? 'Pick a horse first'
     : tickedClasses.length === 0
       ? 'Tick the classes to enter'
-      : missingNoviceDeclaration
-        ? 'Tick the eligibility declaration to enter a Novice class'
-        : missingPotChoice
-          ? 'A ticked class comes with a side pot — tick the pot you are buying into'
-          : null;
+      : missingPotChoice
+        ? 'A ticked class comes with a side pot — tick the pot you are buying into'
+        : null;
 
   return (
     <div
@@ -560,13 +572,20 @@ export default function AddClassEntry({
             onChange={(e) => setNoviceDeclared(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0"
           />
-          <span style={{ color: 'var(--text-deep)' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+          <span style={{ color: 'var(--text-deep)' }}>
+            {NOVICE_ELIGIBILITY_STATEMENT}
+            {missingNoviceDeclaration && (
+              <span className="block mt-1" style={{ color: 'var(--muted)' }}>
+                You can enter without it; the show office may ask you about it.
+              </span>
+            )}
+          </span>
         </label>
       )}
 
       {/* Said where the press is: in the bar below while it is on screen, in
           its place here once a horse has nothing left to enter. */}
-      {!(activeHorseId && !nothingLeft) && <Outcome error={error} notice={notice} />}
+      {!(activeHorseId && !nothingLeft) && <Outcome error={error} notice={notice} warnings={warnings} />}
 
       {/* The press rides the bottom of the screen while the list is in view: a
           show runs a hundred and fifty classes, and the button that uses the
@@ -577,7 +596,7 @@ export default function AddClassEntry({
           className="sticky bottom-0 z-10 -mx-3 -mb-3 px-3 py-2 border-t rounded-b space-y-1"
           style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border-subtle)' }}
         >
-          <Outcome error={error} notice={notice} />
+          <Outcome error={error} notice={notice} warnings={warnings} />
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -605,7 +624,7 @@ export default function AddClassEntry({
               </span>
             )}
           </div>
-          {tickedClasses.length > 0 && blocked && (missingNoviceDeclaration || missingPotChoice) && (
+          {tickedClasses.length > 0 && blocked && missingPotChoice && (
             <p className="text-xs" style={{ color: 'var(--warning)' }}>
               {blocked} — under the class list.
             </p>
@@ -616,12 +635,37 @@ export default function AddClassEntry({
   );
 }
 
-function Outcome({ error, notice }: { error: string | null; notice: string | null }) {
+function Outcome({
+  error,
+  notice,
+  warnings,
+}: {
+  error: string | null;
+  notice: string | null;
+  warnings: string[];
+}) {
   if (error) return <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>;
   if (!notice) return null;
   return (
-    <p className="text-sm" role="status" style={{ color: 'var(--success-strong)' }}>
-      {notice}
-    </p>
+    <div className="space-y-2">
+      <p className="text-sm" role="status" style={{ color: 'var(--success-strong)' }}>
+        {notice}
+      </p>
+      {/* Entered all the same: the association's rules are the show office's
+          to apply, so they are said here and chased at the desk. */}
+      {warnings.length > 0 && (
+        <div
+          className="text-xs rounded border p-2"
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+        >
+          <p className="font-medium">The show office may ask you about:</p>
+          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+            {warnings.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }

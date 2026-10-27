@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { errorMessage } from '@/lib/api-error';
 import { isMinorOn, todayIso } from '@/lib/minor';
 import type { ProfileStatus } from './types';
 
@@ -65,6 +66,22 @@ const REQUIRED_FIELDS = [
 const GUARDIAN_FIELDS = ['parent_guardian_name', 'parent_guardian_phone'] as const;
 
 type FieldName = (typeof REQUIRED_FIELDS)[number] | (typeof GUARDIAN_FIELDS)[number];
+
+/** The boxes as the record has them, blank for anything not on file. */
+function formFrom(exhibitor: ProfileStatus['exhibitor']): Record<FieldName, string> {
+  return {
+    date_of_birth: exhibitor.date_of_birth ?? '',
+    phone: exhibitor.phone ?? '',
+    address: exhibitor.address ?? '',
+    city: exhibitor.city ?? '',
+    state: exhibitor.state ?? '',
+    zip: exhibitor.zip ?? '',
+    emergency_contact_name: exhibitor.emergency_contact_name ?? '',
+    emergency_contact_phone: exhibitor.emergency_contact_phone ?? '',
+    parent_guardian_name: exhibitor.parent_guardian_name ?? '',
+    parent_guardian_phone: exhibitor.parent_guardian_phone ?? '',
+  };
+}
 
 function Field({
   label,
@@ -149,6 +166,7 @@ export default function ProfileStep({
   asOf,
   hasMembershipsStep = false,
   onSaved,
+  onSkip,
 }: {
   profile: ProfileStatus;
   /** The show whose registration this is. Saves go to that show's copy and
@@ -176,21 +194,23 @@ export default function ProfileStep({
    *  `router.refresh()` above is what reveals the next form, which is the same
    *  outcome by a slower route. */
   onSaved?: () => void;
+  /** Offers *Skip for now*, and is run by it. Only `/welcome` passes this —
+   *  there the boxes are the profile, which nothing refuses over, and every
+   *  step of setting it up can be left for later. A show's registration never
+   *  does: its required boxes are what `PUT /signup` refuses on.
+   *
+   *  Skipping keeps what was typed. Somebody who filled in four boxes and
+   *  pressed Skip meant "the rest can wait", not "throw those away", so a form
+   *  that differs from the record is saved first, required boxes or not. */
+  onSkip?: () => void;
 }) {
   const router = useRouter();
   const { exhibitor } = profile;
-  const [form, setForm] = useState<Record<FieldName, string>>({
-    date_of_birth: exhibitor.date_of_birth ?? '',
-    phone: exhibitor.phone ?? '',
-    address: exhibitor.address ?? '',
-    city: exhibitor.city ?? '',
-    state: exhibitor.state ?? '',
-    zip: exhibitor.zip ?? '',
-    emergency_contact_name: exhibitor.emergency_contact_name ?? '',
-    emergency_contact_phone: exhibitor.emergency_contact_phone ?? '',
-    parent_guardian_name: exhibitor.parent_guardian_name ?? '',
-    parent_guardian_phone: exhibitor.parent_guardian_phone ?? '',
-  });
+  const [form, setForm] = useState(() => formFrom(exhibitor));
+  // What the record holds as far as this screen knows — what it loaded, then
+  // what it last saved. Only *Skip* reads it, to tell a form somebody started
+  // filling in from one they never touched.
+  const [stored, setStored] = useState(() => formFrom(exhibitor));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -238,6 +258,12 @@ export default function ProfileStep({
       return;
     }
 
+    if (await write()) onSaved?.();
+  };
+
+  /** Saves the boxes as they stand, with no required check — that is the
+   *  caller's to make. True once the save has landed. */
+  const write = async (): Promise<boolean> => {
     setSaving(true);
     setError(null);
     // A show's registration saves to that show's copy; only /welcome, which
@@ -264,20 +290,30 @@ export default function ProfileStep({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(typeof data?.detail === 'string' ? data.detail : 'Could not save your details.');
+        setError(errorMessage(data, 'Could not save your details.'));
         setSaving(false);
-        return;
+        return false;
       }
       setSaved(true);
       setSaving(false);
+      setStored(form);
       // The checklist is server-side, so a refresh is what re-ticks the rows
       // and unlocks the step below.
       router.refresh();
-      onSaved?.();
+      return true;
     } catch {
       setError('Network error — please try again.');
       setSaving(false);
+      return false;
     }
+  };
+
+  const changed = (Object.keys(form) as FieldName[]).some((f) => form[f] !== stored[f]);
+
+  const handleSkip = async () => {
+    if (changed && !(await write())) return;
+    setInvalid(new Set());
+    onSkip?.();
   };
 
   // Only this step's rows. The horses live one step on and complaining about
@@ -479,14 +515,30 @@ export default function ProfileStep({
         >
           {saving ? 'Saving…' : 'Save & continue →'}
         </button>
+        {onSkip && (
+          <button
+            type="button"
+            onClick={handleSkip}
+            disabled={saving}
+            className="px-4 py-2 rounded text-sm font-medium border disabled:opacity-50"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
+            title={changed ? 'Saves what you have typed so far; the rest can wait' : undefined}
+          >
+            {changed ? 'Save and finish later' : 'Skip for now'}
+          </button>
+        )}
         {saved && !saving && (
           <span className="text-sm" style={{ color: 'var(--success)' }}>
             Saved.
           </span>
         )}
-        <Link href="/profile" className="text-sm hover:underline ml-auto" style={{ color: 'var(--accent)' }}>
-          Full profile →
-        </Link>
+        {/* Not while setting the profile up: the steps after this one are the
+            rest of it, and a link out half-way through is the trip they spare. */}
+        {!onSkip && (
+          <Link href="/profile" className="text-sm hover:underline ml-auto" style={{ color: 'var(--accent)' }}>
+            Full profile →
+          </Link>
+        )}
       </div>
     </div>
   );

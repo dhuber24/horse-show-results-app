@@ -200,7 +200,7 @@ compileall already cover the fast path; it takes longer (full `next build`).
   `chrome-headless-shell.exe` missing and `chromium.launch({headless:true})`
   throws immediately. Install both (see Setup).
 - **`docker compose up -d --build`** is fast on a warm cache (~1s, layers
-  cached) but the very first build pulls `node:20-alpine` etc. — budget a
+  cached) but the very first build pulls `node:24.22.1-alpine` etc. — budget a
   few minutes cold.
 
 ## Troubleshooting

@@ -1,8 +1,8 @@
 """The Trainer Registry: who is listed, what each plan shows, and in what order.
 
-A trainer is listed when they opted in -- "List me in the Trainer Registry" at
-sign-up, or "List in Trainer Registry" on their profile, both of which set
-`trainers.is_public` -- and their account is not locked (`is_listed`).
+A trainer is listed when they opted in -- "Make my listing public" on `/welcome`
+after signing up, or "List in Trainer Registry" on their profile, both of which
+set `trainers.is_public` -- and their account is not locked (`is_listed`).
 
 **Two plans** (migration 165):
 
@@ -12,8 +12,8 @@ sign-up, or "List in Trainer Registry" on their profile, both of which set
 - **Pro, $10 a month or $100 a year:** ranked nearest-first above Basic, with
   its distance shown; the rich profile (bio, headshot, logo, photos, video
   links, rate sheet, public email, website and socials, association cards and compliance
-  badges); and a Contact Trainer form whose leads are stored and emailed to
-  the trainer.
+  badges); and a Contact Trainer form whose leads land in the trainer's
+  GaitDesk inbox, with a notice emailed to them (migration 176).
 
 **Pro is a date, not a switch** (`is_pro`): on through `trainers.pro_until`,
 Basic after, so a lapsed subscription needs nobody to turn it off. Two ways
@@ -305,9 +305,14 @@ def listing_email(trainer, login_email: Optional[str], at_signup: bool) -> tuple
     header. Reply-To is set to the trainer by the caller.
     """
     subject = _one_line(f"Trainer Registry: {_who(trainer)} wants to be listed")
+    # The old sign-up box (see TrainerRegister), or /welcome and the profile.
+    how = (
+        'signed up as a trainer and ticked "List me in the Trainer Registry"'
+        if at_signup
+        else "turned on their Trainer Registry listing"
+    )
     lines = [
-        f"{trainer.name} {'signed up as a trainer and ticked' if at_signup else 'turned on'} "
-        '"List me in the Trainer Registry". Their listing is live now, on '
+        f"{trainer.name} {how}. Their listing is live now, on "
         f"{'Pro' if is_pro(trainer) else 'Basic'}.",
         "",
         *_trainer_lines(trainer, login_email),
@@ -344,24 +349,19 @@ def pro_request_email(trainer, plan: str, login_email: Optional[str]) -> tuple[s
 
 
 def lead_email(trainer, lead) -> tuple[str, str]:
-    """The email to a trainer for one Contact Trainer message. Reply-To is the
-    sender, set by the caller; every lead is also on their registry page."""
-    subject = _one_line(f"GaitDesk Trainer Registry: a message from {lead.sender_name}")
+    """The notice to a trainer that a Contact Trainer message is in their
+    GaitDesk inbox (migration 176). A notice, not the message: it names the
+    sender and links to the message, where the trainer reads it and replies,
+    and it carries neither the text nor the sender's email or phone. The caller
+    sets no Reply-To, so answering the notice reaches nobody."""
+    subject = _one_line(f"New message from {lead.sender_name} on GaitDesk")
     lines = [
         f"{lead.sender_name} found you on the GaitDesk Trainer Registry and sent you a message.",
         "",
-        f"Name: {lead.sender_name}",
-        f"Email: {lead.sender_email}",
-    ]
-    if lead.sender_phone:
-        lines.append(f"Phone: {lead.sender_phone}")
-    lines += [
+        "Read it and reply in your GaitDesk inbox:",
+        f"{public_app_url()}/profile/registry/messages#lead-{lead.id}",
         "",
-        lead.message,
-        "",
-        f"Replying to this email goes to {lead.sender_email}. Every message is",
-        "also kept on your Trainer Registry page:",
-        f"{public_app_url()}/profile/registry",
+        f"This is an automated notice: reply to {lead.sender_name} from your inbox, not to this email.",
     ]
     return subject, "\n".join(lines)
 

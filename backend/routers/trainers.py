@@ -33,6 +33,7 @@ from schemas import (
     TrainerCreate,
     TrainerLeadCreate,
     TrainerLeadOut,
+    TrainerLeadStatusUpdate,
     TrainerOut,
     TrainerProfileOut,
     TrainerProfileUpdate,
@@ -505,6 +506,40 @@ async def list_my_leads(
     return result.scalars().all()
 
 
+@router.get("/me/leads/unread-count")
+async def my_unread_lead_count(
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Just the number on the trainer's envelope, read on every page they open.
+    Zero for an account with no trainer row, rather than a 404 in the top bar."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(TrainerLead)
+        .join(Trainer, Trainer.id == TrainerLead.trainer_id)
+        .where(Trainer.user_id == safe_uuid(user_id), TrainerLead.status == "new")
+    )
+    return {"unread": result.scalar_one()}
+
+
+@router.patch("/me/leads/{lead_id}", response_model=TrainerLeadOut)
+async def set_my_lead_status(
+    lead_id: UUID,
+    body: TrainerLeadStatusUpdate,
+    user_id: str = Depends(require_authenticated),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a message read or archived -- or new again, as a show's inbox can."""
+    trainer = await _load_trainer_for_self(user_id, db)
+    lead = await db.get(TrainerLead, lead_id)
+    if not lead or lead.trainer_id != trainer.id:
+        raise HTTPException(404, "Message not found")
+    lead.status = body.status
+    await db.commit()
+    await db.refresh(lead)
+    return lead
+
+
 @router.post("/me/pro-request", response_model=TrainerProfileOut)
 async def request_pro(
     body: TrainerProRequestCreate,
@@ -893,9 +928,10 @@ async def send_trainer_lead(
     background: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    """Stored, then emailed to the trainer -- `mailer.py` does nothing without
-    SMTP, and a lead that was only an email could be lost. Only a listed Pro
-    trainer takes leads; anybody else is a 404, the same as no listing."""
+    """Stored in the trainer's inbox, then the trainer is emailed a notice --
+    `mailer.py` does nothing without SMTP, and a lead that was only an email
+    could be lost. Only a listed Pro trainer takes leads; anybody else is a
+    404, the same as no listing."""
     result = await db.execute(
         select(Trainer).options(selectinload(Trainer.user)).where(Trainer.id == trainer_id)
     )
@@ -920,8 +956,10 @@ async def send_trainer_lead(
 
     recipient = lead_recipient(trainer)
     if recipient:
+        # No Reply-To: the notice carries no way to reach the sender, so the
+        # trainer answers from the message in GaitDesk.
         subject, mail_body = lead_email(trainer, lead)
-        background.add_task(send_email, recipient, subject, mail_body, lead.sender_email)
+        background.add_task(send_email, recipient, subject, mail_body)
     return {"ok": True}
 
 

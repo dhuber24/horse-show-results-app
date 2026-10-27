@@ -2,11 +2,9 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
 import { safeNextPath } from '@/lib/safe-next';
 
 export default function RegisterForm({ next }: { next?: string }) {
-  const router = useRouter();
   const [form, setForm] = useState({ first_name: '', last_name: '', email: '', password: '', confirm_password: '' });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -47,8 +45,13 @@ export default function RegisterForm({ next }: { next?: string }) {
       return;
     }
     await signIn('credentials', { email: form.email, password: form.password, redirect: false });
-    router.push(safeNextPath(next) ?? '/');
-    router.refresh();
+    // Onto setting up the profile, then wherever they were headed — a show's
+    // sign-up button sends people here with `?next=`, and `/welcome` carries it
+    // on. A full navigation, so the first server render carries the session
+    // cookie `signIn` just set; if that sign-in failed, `/welcome` sends them
+    // to the login screen.
+    const nextPath = safeNextPath(next);
+    window.location.assign(nextPath ? `/welcome?next=${encodeURIComponent(nextPath)}` : '/welcome');
   };
 
   return (

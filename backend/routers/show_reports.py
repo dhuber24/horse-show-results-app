@@ -23,27 +23,45 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from backnumbers import back_numbers_for_show
+from data_export import build_data_export
 from database import get_db
 from dependencies import require_admin_or_show_admin
-from registration_profile import exhibitor_views, load_copies_for_show
+from high_point import _shown
+from registration_profile import ShowExhibitorView, exhibitor_views, load_copies_for_show
 from judging import effective_score, is_overridden
 from models import (
+    Association,
+    Breed,
     Class,
+    ClassSanctioning,
+    Discipline,
+    Division,
     Entry,
     Exhibitor,
+    ExhibitorCompetitionCard,
     Horse,
+    HorseColor,
+    HorsePattern,
+    HorseRegistration,
     Judge,
     JudgeCard,
     Result,
     Show,
+    ShowCompany,
     ShowEntry,
     ShowJudge,
+    Trainer,
+    User,
+    Venue,
+    judge_associations,
 )
 from rules.apha import DIVISION_LABELS, RELATIONSHIP_REQUIRED_DIVISIONS
 from schemas import ReportDefinitionOut, ReportOut
+from show_associations import show_associations
+from show_companies import DATA_EXPORT, require_show_feature
 from show_reports import RETENTION_SLUGS, build_report, list_reports
 from routers.shows import _assert_show_access, association_id_by_code
 
@@ -356,6 +374,220 @@ async def _load_record(show_id: UUID, db: AsyncSession) -> dict:
     }
 
 
+async def _load_export_extras(show_id: UUID, record: dict, db: AsyncSession) -> dict:
+    """What the Data Export carries beyond the association reports.
+
+    Added to an already-loaded record rather than folded into `_load_record`,
+    so the reports pay nothing for columns only this file prints, and the
+    placings are the very rows those reports print. Column queries throughout:
+    `_load_record` has these rows in the session already, and a relationship
+    read off one of them that it did not load is a `MissingGreenlet`.
+    """
+    associations = {
+        row.id: {
+            "id": row.id,
+            "code": row.code,
+            "name": row.name,
+            "association_type": row.association_type,
+        }
+        for row in (await db.execute(
+            select(Association.id, Association.code, Association.name, Association.association_type)
+        )).all()
+    }
+
+    # `show_type` and `sanctioning` are both `lazy="selectin"`, so this read
+    # carries what `show_associations` needs -- the same list the registration
+    # screen, the horse picker and the desk ask from.
+    show = (await db.execute(select(Show).where(Show.id == show_id))).scalar_one()
+    show_association_ids = [aid for aid, _code in await show_associations(show, db)]
+
+    place = (await db.execute(
+        select(
+            ShowCompany.name.label("company"),
+            Venue.name.label("venue"),
+            Venue.city.label("city"),
+            Venue.state.label("state"),
+        )
+        .select_from(Show)
+        .outerjoin(ShowCompany, ShowCompany.id == Show.company_id)
+        .outerjoin(Venue, Venue.id == Show.venue_id)
+        .where(Show.id == show_id)
+    )).one()
+
+    classes: dict = {
+        row.id: {
+            "division": row.division,
+            "discipline": row.discipline,
+            "high_point_eligible": row.high_point_eligible,
+            "sanctioned_by": [],
+            "shown_count": 0,
+        }
+        for row in (await db.execute(
+            select(
+                Class.id,
+                Division.name.label("division"),
+                Discipline.name.label("discipline"),
+                Class.high_point_eligible,
+            )
+            .outerjoin(Division, Division.id == Class.division_id)
+            .outerjoin(Discipline, Discipline.id == Class.discipline_id)
+            .where(Class.show_id == show_id)
+        )).all()
+    }
+    for class_id, code in (await db.execute(
+        select(ClassSanctioning.class_id, Association.code)
+        .join(Association, Association.id == ClassSanctioning.association_id)
+        .join(Class, Class.id == ClassSanctioning.class_id)
+        .where(Class.show_id == show_id)
+    )).all():
+        if class_id in classes:
+            classes[class_id]["sanctioned_by"].append(code)
+    # Horses shown, counted the way the high-point standings count a class:
+    # neither a scratch nor a no-show at the gate went into the ring.
+    for class_id, count in (await db.execute(
+        select(Entry.class_id, func.count(Entry.id))
+        .join(Class, Class.id == Entry.class_id)
+        .where(Class.show_id == show_id, _shown(Entry.class_id))
+        .group_by(Entry.class_id)
+    )).all():
+        if class_id in classes:
+            classes[class_id]["shown_count"] = count
+
+    entries = {
+        entry_id: {"gate_no_show": no_show}
+        for entry_id, no_show in (await db.execute(
+            select(Entry.id, Entry.gate_no_show)
+            .join(Class, Class.id == Entry.class_id)
+            .where(Class.show_id == show_id)
+        )).all()
+    }
+
+    # People, read through this show's copy: the details and memberships they
+    # gave this show, which is what the show holds (migration 145).
+    exhibitor_ids = {e["exhibitor_id"] for e in record["entries"] if e["exhibitor_id"]}
+    exhibitors: dict = {}
+    if exhibitor_ids:
+        copies = await load_copies_for_show(show_id, db, exhibitor_ids)
+        # A login's address is the authority where there is one;
+        # `exhibitors.email` is what the office was given at the counter.
+        login_emails = dict((await db.execute(
+            select(Exhibitor.id, User.email)
+            .join(User, User.id == Exhibitor.user_id)
+            .where(Exhibitor.id.in_(exhibitor_ids))
+        )).all())
+        cards: dict = {}
+        for exhibitor_id, association_id, division, year in (await db.execute(
+            select(
+                ExhibitorCompetitionCard.exhibitor_id,
+                ExhibitorCompetitionCard.association_id,
+                ExhibitorCompetitionCard.division,
+                ExhibitorCompetitionCard.valid_year,
+            ).where(ExhibitorCompetitionCard.exhibitor_id.in_(exhibitor_ids))
+        )).all():
+            code = associations.get(association_id, {}).get("code", "")
+            label = DIVISION_LABELS.get(division, division)
+            cards.setdefault(exhibitor_id, []).append(f"{code} {label} {year}".strip())
+
+        apha_id = next((a for a, body in associations.items() if body["code"] == "APHA"), None)
+        for row in (await db.execute(
+            select(Exhibitor)
+            .options(selectinload(Exhibitor.registrations))
+            .where(Exhibitor.id.in_(exhibitor_ids))
+        )).scalars().all():
+            view = ShowExhibitorView(row, copies.get(row.id))
+            memberships = {
+                reg.association_id: {"number": reg.member_number, "expires_at": reg.expires_at}
+                for reg in view.registrations
+            }
+            # The pre-080 column is still the only home of some APHA numbers --
+            # the fallback the Show Results report and the APHA file both make.
+            if apha_id and apha_id not in memberships and view.apha_member_number:
+                memberships[apha_id] = {
+                    "number": view.apha_member_number,
+                    "expires_at": view.apha_member_expiry,
+                }
+            exhibitors[row.id] = {
+                "date_of_birth": view.date_of_birth,
+                "city": view.city,
+                "state": view.state,
+                "zip": view.zip,
+                "phone": view.phone,
+                "email": login_emails.get(row.id) or view.email,
+                "competition_cards": cards.get(row.id, []),
+                "memberships": memberships,
+            }
+
+    horse_ids = {e["horse_id"] for e in record["entries"] if e["horse_id"]}
+    horses: dict = {}
+    if horse_ids:
+        owner = aliased(Exhibitor)
+        for row in (await db.execute(
+            select(
+                Horse.id,
+                Horse.barn_name,
+                Horse.foaling_date,
+                Horse.sex,
+                Horse.owner_name,
+                Horse.trainer_name,
+                Breed.name.label("breed"),
+                HorseColor.name.label("color"),
+                HorsePattern.name.label("pattern"),
+                owner.full_name.label("owner_exhibitor"),
+                Trainer.name.label("trainer_record"),
+            )
+            .outerjoin(Breed, Breed.id == Horse.breed_id)
+            .outerjoin(HorseColor, HorseColor.id == Horse.color_id)
+            .outerjoin(HorsePattern, HorsePattern.id == Horse.pattern_id)
+            .outerjoin(owner, owner.id == Horse.owner_exhibitor_id)
+            .outerjoin(Trainer, Trainer.id == Horse.trainer_id)
+            .where(Horse.id.in_(horse_ids))
+        )).all():
+            horses[row.id] = {
+                "barn_name": row.barn_name,
+                "foaling_year": row.foaling_date.year if row.foaling_date else None,
+                "sex": row.sex,
+                "breed": row.breed,
+                # A Paint is a colour and a pattern -- "Bay Tobiano" (migration 116).
+                "color": " ".join(p for p in (row.color, row.pattern) if p) or None,
+                "owner": row.owner_exhibitor or row.owner_name,
+                "trainer": row.trainer_record or row.trainer_name,
+                "registrations": {},
+            }
+        for horse_id, association_id, number in (await db.execute(
+            select(
+                HorseRegistration.horse_id,
+                HorseRegistration.association_id,
+                HorseRegistration.registration_number,
+            ).where(HorseRegistration.horse_id.in_(horse_ids))
+        )).all():
+            if horse_id in horses:
+                horses[horse_id]["registrations"][association_id] = number
+
+    judge_codes: dict = {}
+    for show_judge_id, code in (await db.execute(
+        select(ShowJudge.id, Association.code)
+        .join(judge_associations, judge_associations.c.judge_id == ShowJudge.judge_id)
+        .join(Association, Association.id == judge_associations.c.association_id)
+        .where(ShowJudge.show_id == show_id)
+    )).all():
+        judge_codes.setdefault(show_judge_id, []).append(code)
+
+    return {
+        "show": {
+            "company": place.company,
+            "venue": place.venue,
+            "venue_location": ", ".join(p for p in (place.city, place.state) if p) or None,
+        },
+        "associations": associations,
+        "show_association_ids": show_association_ids,
+        "classes": classes,
+        "entries": entries,
+        "exhibitors": exhibitors,
+        "horses": horses,
+        "judge_associations": judge_codes,
+    }
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────────
 
 
@@ -441,6 +673,33 @@ async def get_retention_archive(
         "generated_at": datetime.now(timezone.utc),
         "caveats": caveats,
         "reports": [build_report(slug, record) for slug in RETENTION_SLUGS],
+    }
+
+
+@router.get("/data-export", dependencies=[Depends(require_show_feature(DATA_EXPORT))])
+async def get_data_export(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every column the show can export and every row, for the office to pick
+    from -- see `data_export.py`.
+
+    Declared before `/{slug}` so it is not read as a report slug. Not in the
+    registry either: a registry report is a fixed column list, and this one's
+    columns are the reader's choice. GaitDesk Pro, on the show's plan; the
+    association reports beside it are not.
+    """
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    record = await _load_record(show_id, db)
+    record["export"] = await _load_export_extras(show_id, record, db)
+    return {
+        "show_id": record["show_id"],
+        "show_name": record["show_name"],
+        "generated_at": datetime.now(timezone.utc),
+        **build_data_export(record),
     }
 
 

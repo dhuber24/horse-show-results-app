@@ -44,14 +44,8 @@ export default async function LoginPage({
             </Link>
           </p>
           <p style={{ color: 'var(--muted)' }}>
-            Are you a Show Secretary?{' '}
-            <Link href="/register/show-secretary" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
-              Register here
-            </Link>
-          </p>
-          <p style={{ color: 'var(--muted)' }}>
-            Are you a Show Manager?{' '}
-            <Link href="/register/show-manager" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
+            Are you a Show Manager or Secretary?{' '}
+            <Link href="/register/show-office" className="font-medium hover:underline" style={{ color: 'var(--accent)' }}>
               Register here
             </Link>
           </p>

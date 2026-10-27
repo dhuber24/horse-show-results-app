@@ -3,6 +3,7 @@ import { fetchShow } from '@/lib/api';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { reportIcon, type ReportDefinition } from '@/lib/reports';
+import { DATA_EXPORT, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
 
 /**
  * The record of the show, for the office to send on.
@@ -29,7 +30,14 @@ export default async function ShowReportsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [show, reports] = await Promise.all([fetchShow(id), loadReports(id)]);
+  const [show, reports, plan] = await Promise.all([
+    fetchShow(id),
+    loadReports(id),
+    fetchShowPlan(id, await getAuthHeaders()),
+  ]);
+  // The tile stays either way -- a feature nobody can see is one nobody asks
+  // to buy -- and on a Basic show it opens the Pro offer instead.
+  const dataExportLocked = !showHasFeature(plan, DATA_EXPORT);
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-6">
@@ -69,6 +77,7 @@ export default async function ShowReportsPage({
               icon: reportIcon(report.slug),
               title: report.title,
               description: report.description,
+              pro: false,
             })),
             // The bundle is the reports above on one page rather than a report
             // of its own, so it has its own route — but it is one more thing
@@ -80,6 +89,18 @@ export default async function ShowReportsPage({
               title: 'Retention Bundle',
               description:
                 'The class summary, results, entry cards and judges’ cards on one printable page — the copy of the show’s record to keep on file.',
+              pro: false,
+            },
+            // Its columns are the reader's choice, so it is not a registry
+            // report either; it has its own route, like the bundle.
+            {
+              key: 'data-export',
+              href: `/admin/shows/${id}/reports/data-export`,
+              icon: '📤',
+              title: 'Data Export',
+              description:
+                'Every placing or entry, with the membership and registration numbers on file, in the columns you pick — for circuit standings, year-end awards and club records.',
+              pro: dataExportLocked,
             },
           ].map((tile) => (
             <Link
@@ -93,8 +114,17 @@ export default async function ShowReportsPage({
                   {tile.icon}
                 </div>
                 <div>
-                  <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>
+                  <h2 className="font-semibold flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
                     {tile.title}
+                    {tile.pro && (
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+                        title={`${tile.title} is part of GaitDesk Pro`}
+                      >
+                        Pro
+                      </span>
+                    )}
                   </h2>
                   <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                     {tile.description}

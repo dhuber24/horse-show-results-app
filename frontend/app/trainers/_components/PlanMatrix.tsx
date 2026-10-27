@@ -52,6 +52,8 @@ export default function PlanMatrix({
                 {PRO_PRICES.monthly.price}/{PRO_PRICES.monthly.per}
                 <br />
                 or {PRO_PRICES.annual.price}/{PRO_PRICES.annual.per}
+                <br />
+                paid up front
               </div>
               {current === 'pro' && <div className="text-[11px] font-semibold mt-1" style={{ color: 'var(--accent)' }}>Your plan</div>}
             </th>

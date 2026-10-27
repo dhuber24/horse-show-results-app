@@ -2,6 +2,119 @@
 
 ## October 2026
 
+### APHA and AQHA rules flag an entry; they no longer refuse it
+
+- **Which rules a show holds its exhibitors to is the show company's call.**
+  Both entry doors — the desk and the exhibitor's own class registration — used
+  to refuse an entry the APHA or AQHA rules called an error: a two-year-old in a
+  ranch class, a youth past the age cap, a sixth horse in the working events, an
+  AQHA entry with no AQHA registration number, an undeclared Novice entry. Now
+  the entry is saved, what the rules said comes back on
+  `EntryOut.association_warnings`, and the screen that saved it lists it under
+  "the show office may ask about" (exhibitor) or "the association rules flag"
+  (desk). The APHA and AQHA readiness panels list every flagged entry for the
+  office to chase.
+- **The Novice declaration is offered, not required.** Neither form disables
+  its button until it is ticked any more.
+- **What still refuses is a value the database cannot store** — an unknown
+  APHA division (`rules.REFUSING_CODES`). The rules still classify each finding
+  as an error or a warning, so the panels show what the association would not
+  accept first.
+
+### The Data Export: a show's results as data, in the columns the office picks
+
+- **A club or show company can take everything the show recorded away and
+  apply its own rules to it.** Show Record has a new **Data Export** tile: pick
+  one row per placing (per judge's card, posted classes) or one row per entry,
+  tick the columns, preview, download a CSV. It carries the class size (horses
+  shown), the clubs sanctioning each class, the judge and the associations they
+  have on file, every membership and registration number the show holds per
+  body, and GaitDesk exhibitor and horse IDs so several shows' files can be
+  joined without matching on names.
+- **GaitDesk decides nothing in it.** Circuit standings, year-end awards and
+  qualifications (WSCA's Championship rule, MNSPHC's member-only points) are the
+  club's rules and are applied to the file, not by the app. The association
+  reports (Show Results, Entry Cards, the APHA file) are unchanged.
+- **Per-body columns appear only for bodies the show runs under or that
+  somebody holds a number with**, so the list stays short as clubs are added.
+- **It is GaitDesk Pro** (`data_export`, on the show's plan). On a Basic show
+  the tile carries a *Pro* chip and the page offers the upgrade.
+
+### Node 20 to 24.22.1, Next.js 15.3.9 to 15.5.28, for the October advisories
+
+- **The web service ran Node 20, which no longer gets security fixes.** Node 20
+  reached end-of-life on 30 Apr 2026, so Node's October 21 security release
+  (ten CVEs; the worst is a Brotli decoder out-of-bounds write in `node:zlib`
+  that can run code, CVE-2026-111497, alongside TLS hostname-check bypasses)
+  has no fix for it. Every image and CI now use `node:24.22.1-alpine`, pinned to
+  the exact patched release; `docs/deployment.md` says why and how to bump it.
+- **Next.js 15.3.9 had picked up critical advisories since React2Shell**,
+  including code execution through the Image Optimization API on AVIF and SVG
+  images (GHSA-2xp9-vwfh-vxw4, GHSA-2464-fhr4-w9xw), middleware bypasses and
+  SSRF. 15.5.28 is the patched 15.x backport, and it brings `sharp` 0.35.5.
+  `eslint-config-next` moves with it.
+- **Auth.js moves to `next-auth` 5.0.0-beta.32 (`@auth/core` 0.41.3)**, fixing
+  a critical advisory where a configuration error let auth checks pass
+  (GHSA-8fpg-xm3f-6cx3), and a crash on a malformed Bearer header.
+- **`axios` and `js-cookie` are gone.** Nothing imported either, and between
+  them they carried thirty-odd advisories.
+- **Next's bundled postcss is overridden to the app's 8.5.x** through
+  `overrides` in `frontend/package.json`, since Next 15.5 still pins 8.4.31.
+  `npm audit` reports 0 vulnerabilities.
+
+### A new exhibitor sets up their profile right after signing up
+
+- **Creating an exhibitor account now opens a short setup** instead of the
+  home page: your details, your association memberships, then your horses.
+  Each step can be skipped and finished later under My Account, and
+  everything entered is saved to your profile as you go.
+- **Skipping the details keeps what you typed.** Fill in a few boxes, press
+  *Save and finish later*, and those are kept.
+- **Horses are added right there**, with the same add-a-horse steps as My
+  Account, without leaving the setup.
+- **Signing up from a show's sign-up button** goes through the setup and then
+  back to that show, which now finds your details already filled in.
+- **Show managers and secretaries who tick *I also compete*** get the same
+  memberships and horses steps, not just the details.
+- **A health document is attached the moment you choose it.** The add-a-horse
+  Health step has no *Add Document* button any more: pick a Coggins, a
+  vaccination record or a health certificate and it is listed straight away,
+  its type and dates filled in where the document could be read and editable
+  where it is listed. Nothing uploads until *Create Horse*, and the Review step
+  now lists each document's type and expiry rather than a count, since that
+  press is what saves what was read.
+
+### A new trainer sets up their listing and profile before choosing a plan
+
+- **The trainer sign-up form asks only for the account** — name, contact
+  details and a password. The *List me in the Trainer Registry* box, the
+  listing boxes under it and the *What this creates* note are gone.
+- **The next screen walks through three steps**: where the trainer works and
+  what they train, with *Make my listing public* or *Keep it private for
+  now*; their Pro profile — headshot, bio, website, socials, logo, photos,
+  videos and rates; then the Basic and Pro plans side by side, with *Upgrade
+  to Pro* or *Stay on Basic*. Every step can be skipped and changed later.
+- **The Pro profile has a page of its own**, apart from the plan. The
+  headshot, bio, website and socials moved there from My Account.
+- **A year of Pro says it is paid up front**, wherever the price is shown.
+
+### Trainers get an inbox
+
+- **Messages exhibitors send from a trainer's listing land in an inbox** —
+  the envelope in the trainer's top bar, with the number of new ones. Each
+  can be marked read, unread or archived, and *Reply by email* answers it.
+- **The email a trainer gets is now a notice** with a link straight to the
+  message, rather than the message itself.
+
+### One sign-up form for show managers and secretaries
+
+- **Show managers and show secretaries now register on the same form**, at
+  `/register/show-office`, and choose which they are at the top. The sign-in
+  and exhibitor sign-up pages carry one link to it instead of two, and the old
+  manager and secretary sign-up links still work, landing on the form with
+  their role already chosen.
+- **A mistyped email on that form now says so** instead of breaking the page.
+
 ### Pro+ renews as Pro+
 
 - **A company on GaitDesk Pro+ stays on Pro+** (migration 175). Until now,

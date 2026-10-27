@@ -138,7 +138,7 @@ from routers.futurities import load_billable_futurities, missing_horse_details
 from routers.people import _exhibitor_reg_out, _require_expiry_for_breed
 from routers.horse_documents import health_by_horse
 from routers.shows import get_aqha_association_id
-from rules import get_rules
+from rules import get_rules, refusing_issues
 from rules.apha import RELATIONSHIP_OPTIONS, divisions_for_bracket
 from apha_context import apha_entry_context
 from attestations import build_attestations
@@ -2162,8 +2162,11 @@ async def register_for_show(
             cls,
             await _association_validation_context(show, cls, db, shared_context),
         )
-        errors = [i for i in issues if i.get("severity") == "error"]
-        if errors:
+        # Only a request the database could not store is refused; every
+        # association rule is a flag, carried back on the entry for the
+        # exhibitor to read (`rules.REFUSING_CODES`).
+        refused = refusing_issues(issues)
+        if refused:
             raise HTTPException(
                 422,
                 {
@@ -2172,9 +2175,10 @@ async def register_for_show(
                         f"Entry for class {cls.class_number} ({cls.class_name}) "
                         "fails validation"
                     ),
-                    "issues": issues,
+                    "issues": refused,
                 },
             )
+        entry.association_warnings = issues
 
         db.add(entry)
         created.append(entry)

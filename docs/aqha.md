@@ -123,7 +123,11 @@ The first safe-win build is now implemented: an AQHA class-code catalog, AQHA cl
 
 ## Current Validation Behavior
 
-Entry create/update blocks AQHA entries when validation returns an error:
+Entry create/update **flags** AQHA entries; nothing here refuses one (2026-10-27).
+Which rules a show holds its exhibitors to is the show company's call, so the
+entry is saved, the issues come back on `EntryOut.association_warnings`, and the
+AQHA readiness panel lists them. These are reported as errors — what AQHA would
+not accept — and the rest as warnings:
 
 - missing AQHA class code on the class
 - class code not present in the AQHA catalog (`association_standard_classes`)

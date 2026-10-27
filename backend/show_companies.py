@@ -110,6 +110,7 @@ PRO_LABEL = "GaitDesk Pro"
 SHOWBILL_IMPORT = "showbill_import"
 FINANCIAL_REPORTS = "financial_reports"
 ASSOCIATION_EXPORT = "association_export"
+DATA_EXPORT = "data_export"
 LIVE_BOARDS = "live_boards"
 ONLINE_PAYMENTS = "online_payments"
 
@@ -138,6 +139,20 @@ FEATURES: dict[str, Feature] = {
         description=(
             "Export the show's results in the file format a breed association asks for, "
             "such as APHA's results CSV."
+        ),
+        plan=PRO_LABEL,
+    ),
+    # Its own key rather than the association export's: that one is a format
+    # a breed body specifies, this is the show's results in the columns the
+    # office picks (`data_export.py`), and the locked screen and the plan card
+    # describe each by its own label.
+    DATA_EXPORT: Feature(
+        key=DATA_EXPORT,
+        label="Data export",
+        description=(
+            "Every placing or entry at a show, with the membership and registration numbers "
+            "on file, in the columns you pick — for circuit standings, year-end awards and "
+            "club records."
         ),
         plan=PRO_LABEL,
     ),
@@ -224,6 +239,7 @@ PLANS: dict[str, Plan] = {
             "Financial reports",
             "Start a show from its show bill",
             "Association results export",
+            "Data export of every placing and entry, in the columns you pick",
             "Live Boards for exhibitors and spectators (monitors not included)",
             "Online payments from exhibitors, to your own Stripe account",
         ),

@@ -69,21 +69,26 @@ type CreatedHorseResult = MyHorse & {
   approval_email_sent?: boolean | null;
 };
 
-/** A health document staged in the browser. It can only be uploaded once the
- *  horse exists, so the wizard queues these and posts them after creation. */
+/** A health document attached in the browser. It can only be uploaded once the
+ *  horse exists, so the wizard holds these and posts them after creation. A
+ *  file is attached the moment it is chosen; its type and dates are edited on
+ *  the attached row, pre-filled when the file could be read. */
 interface PendingDoc {
   key: string;
   file: File;
   document_type: string;
   issue_date: string;
   expiry_date: string;
-  /** The read this document's values came from, so provenance survives the
-   *  queue and gets linked when the document is finally saved. */
-  extraction_id?: string;
+  /** The file is still being read, so its fields may yet fill in. */
+  reading: boolean;
+  /** What was read off the file. Its id links the read to the document when
+   *  the document is finally saved, so provenance survives the wait. */
+  extraction: ExtractionResponse | null;
 }
 
+type DocFields = Pick<PendingDoc, 'document_type' | 'issue_date' | 'expiry_date'>;
+
 const HEALTH_DOC_OPTIONS = DOC_TYPES.filter((t) => HEALTH_DOC_TYPES.includes(t.value));
-const emptyDocDraft = { document_type: '', issue_date: '', expiry_date: '' };
 
 const emptyForm = {
   name: '', barn_name: '',
@@ -194,6 +199,9 @@ interface Props {
   /** The horse already existed and was linked to the profile instead. */
   onLinked: (horse: MyHorse) => void;
   onCancel: () => void;
+  /** The way out once a horse exists or is waiting on its owner — the screen
+   *  `onCancel` returns to. My Horses unless the caller is somewhere else. */
+  returnLabel?: string;
 }
 
 function StepBadge({ children }: { children: React.ReactNode }) {
@@ -215,10 +223,157 @@ function ReviewRow({ label, value, skipped }: { label: string; value?: React.Rea
   );
 }
 
+/**
+ * One attached health document: its type and dates, filled from the read where
+ * there was one, with what was read shown underneath to check them against.
+ * Nothing here is saved — the document uploads when the horse is created.
+ */
+function AttachedDoc({ doc, onChange, onRemove }: {
+  doc: PendingDoc;
+  onChange: (patch: Partial<DocFields>) => void;
+  onRemove: () => void;
+}) {
+  const fields = doc.extraction?.fields ?? {};
+  const lowConfidence = doc.extraction?.low_confidence_fields ?? [];
+  const details = DETAIL_FIELDS
+    .map((key) => [key, asText(fields[key])] as const)
+    .filter((pair): pair is readonly [string, string] => pair[1] !== null);
+
+  const testDate = asText(fields.test_date);
+  const derivedExpiry =
+    doc.extraction && doc.document_type === 'COGGINS' && !doc.expiry_date && testDate
+      ? twelveMonthsAfter(testDate)
+      : null;
+
+  /** Marks how a value got into the field, matching the horse-page form. */
+  const fieldHint = (key: string) => {
+    if (!doc.extraction) return null;
+    if (lowConfidence.includes(key)) {
+      return <span className="text-xs ml-1" style={{ color: 'var(--warning)' }}>· check this</span>;
+    }
+    if (asText(fields[key])) {
+      return <span className="text-xs ml-1" style={{ color: 'var(--success)' }}>· read from document</span>;
+    }
+    return <span className="text-xs ml-1" style={{ color: 'var(--text-dimmed)' }}>· not on the document</span>;
+  };
+
+  return (
+    <li className="rounded border p-3 space-y-3" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="text-sm font-medium break-all" style={{ color: 'var(--foreground)' }}>{doc.file.name}</span>
+        <button onClick={onRemove} className="text-xs text-red-600 hover:text-red-800 shrink-0">
+          Remove
+        </button>
+      </div>
+
+      {doc.reading && (
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>
+          Reading the document to fill in the dates...
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2">
+          <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
+            Document Type *{fieldHint('document_type')}
+          </label>
+          <select
+            value={doc.document_type}
+            onChange={(e) => onChange({ document_type: e.target.value })}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+          >
+            <option value="">Select...</option>
+            {HEALTH_DOC_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
+            Issue Date *{fieldHint('issue_date')}
+          </label>
+          <input
+            type="date"
+            value={doc.issue_date}
+            onChange={(e) => onChange({ issue_date: e.target.value })}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+          />
+        </div>
+        <div>
+          <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
+            Expiry Date *{fieldHint('expiry_date')}
+          </label>
+          <input
+            type="date"
+            value={doc.expiry_date}
+            onChange={(e) => onChange({ expiry_date: e.target.value })}
+            className="w-full border rounded px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+          />
+          {derivedExpiry && (
+            <button
+              type="button"
+              onClick={() => onChange({ expiry_date: derivedExpiry })}
+              className="text-xs mt-1 hover:underline text-left"
+              style={{ color: 'var(--accent)' }}
+            >
+              No expiry printed. Use {derivedExpiry} — 12 months from the{' '}
+              {testDate} blood draw?
+            </button>
+          )}
+        </div>
+      </div>
+
+      {doc.extraction && (
+        <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+          <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
+            Read from the document — check the type and dates above
+          </p>
+          {reviewWarnings(fields).map((warning) => (
+            <p
+              key={warning}
+              className="text-xs font-medium rounded px-2 py-1.5"
+              style={{ color: 'var(--error-strong)', backgroundColor: 'var(--error-bg)' }}
+            >
+              {warning}
+            </p>
+          ))}
+          {doc.extraction.notes && (
+            <p className="text-xs" style={{ color: 'var(--warning)' }}>{doc.extraction.notes}</p>
+          )}
+          {lowConfidence.length > 0 && (
+            <p className="text-xs" style={{ color: 'var(--warning)' }}>
+              Hard to read: {lowConfidence.map((k) => FIELD_LABELS[k] ?? k).join(', ')}.
+            </p>
+          )}
+          {details.length > 0 && (
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {details.map(([key, value]) => (
+                <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
+                  <dt className="shrink-0" style={{ color: 'var(--muted)' }}>
+                    {FIELD_LABELS[key] ?? key}:
+                  </dt>
+                  <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: 'var(--foreground)' }}>
+                    {value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          <p className="text-xs" style={{ color: 'var(--text-dimmed)' }}>
+            These details are shown so you can verify the document is the right one. Only the
+            type and dates above are saved.
+          </p>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function AddHorseWizard({
   exhibitorId, profileHorseIds,
   initialName, initialRegAssociationId, initialRegNumber,
-  onCreated, onLinked, onCancel,
+  onCreated, onLinked, onCancel, returnLabel = 'Back to My Horses',
 }: Props) {
   const [breeds, setBreeds] = useState<Breed[]>([]);
   const [colors, setColors] = useState<HorseColor[]>([]);
@@ -249,11 +404,7 @@ export default function AddHorseWizard({
   const [regError, setRegError] = useState<string | null>(null);
 
   const [pendingDocs, setPendingDocs] = useState<PendingDoc[]>([]);
-  const [docDraft, setDocDraft] = useState(emptyDocDraft);
-  const [docFile, setDocFile] = useState<File | null>(null);
   const [docError, setDocError] = useState<string | null>(null);
-  const [docReading, setDocReading] = useState(false);
-  const [docExtraction, setDocExtraction] = useState<ExtractionResponse | null>(null);
   // Set once the horse row exists. Creation must not be offered again after
   // this point — a retry would create a duplicate horse.
   const [createdHorseId, setCreatedHorseId] = useState<string | null>(null);
@@ -383,6 +534,16 @@ export default function AddHorseWizard({
       }
     }
     if (key === 'horse' && !form.name.trim()) return 'Registered name is required.';
+    if (key === 'health') {
+      // Waiting out the read means the values are on screen to check before
+      // anybody moves past them, rather than filling in behind their back.
+      const reading = pendingDocs.find((d) => d.reading);
+      if (reading) return `Still reading ${reading.file.name} — give it a moment.`;
+      const incomplete = pendingDocs.find((d) => !d.document_type || !d.issue_date || !d.expiry_date);
+      if (incomplete) {
+        return `Pick the document type and both dates for ${incomplete.file.name}, or remove it.`;
+      }
+    }
     if (key === 'trainer') {
       const hasOtherTrainer = !form.trainer_id && (
         form.trainer_first_name.trim() || form.trainer_last_name.trim() || form.trainer_email.trim()
@@ -431,8 +592,6 @@ export default function AddHorseWizard({
     // under them rather than posting values the backend will discard.
     if (mode === 'ride') {
       setPendingDocs([]);
-      setDocDraft(emptyDocDraft);
-      setDocFile(null);
       setDocError(null);
       setForm((prev) => ({
         ...prev,
@@ -535,84 +694,49 @@ export default function AddHorseWizard({
   };
 
   /**
-   * Read the chosen file and pre-fill the draft. There is no horse yet, so this
-   * uses the unattached endpoint and the resulting extraction is claimed later,
-   * when the queued document is actually saved.
+   * Attach the chosen file at once, then read it and fill in its type and dates.
+   * There is no horse yet, so this uses the unattached endpoint and the
+   * extraction is claimed later, when the document is actually saved.
    *
-   * Nothing is queued here — "Add Document" is still a deliberate click, so the
-   * uploader confirms what was read by definition. That is the same rule the
-   * horse-page form enforces by suppressing its auto-upload shortcut.
+   * Attaching is not saving. What was read sits in the attached row's fields to
+   * check and change, and nothing reaches the horse until Create Horse on the
+   * Review step, which lists every document's type and expiry — the human save
+   * the horse-page form gets by suppressing its auto-upload shortcut.
    */
-  const handleDocFileChosen = async (nextFile: File | null) => {
-    setDocFile(nextFile);
-    setDocExtraction(null);
+  const handleAttachDoc = async (file: File | null) => {
     setDocError(null);
-    if (!nextFile) return;
-    if (nextFile.size > MAX_DOC_BYTES) { setDocError('File is too large (max 10 MB).'); return; }
+    if (!file) return;
+    if (file.size > MAX_DOC_BYTES) { setDocError(`${file.name} is too large (max 10 MB).`); return; }
 
-    setDocReading(true);
-    const read = await analyzeDocument(nextFile);
-    setDocReading(false);
-    if (!read) return;
+    const key = `${file.name}-${Date.now()}`;
+    setPendingDocs((prev) => [...prev, {
+      key, file, document_type: '', issue_date: '', expiry_date: '', reading: true, extraction: null,
+    }]);
 
-    setDocExtraction(read);
-    const f = read.fields;
-    setDocDraft((prev) => ({
-      document_type: asText(f.document_type) ?? prev.document_type,
-      issue_date: asText(f.issue_date) ?? prev.issue_date,
-      expiry_date: asText(f.expiry_date) ?? prev.expiry_date,
-    }));
+    const read = await analyzeDocument(file);
+    const f = read?.fields ?? {};
+    const readType = asText(f.document_type);
+    // Removed while it was being read: the map finds nothing and that is fine.
+    setPendingDocs((prev) => prev.map((d) => (d.key !== key ? d : {
+      ...d,
+      reading: false,
+      extraction: read,
+      // Only a health type, since that is all this step's picker offers; a
+      // read that took the file for registration papers leaves it to choose.
+      document_type: readType && HEALTH_DOC_TYPES.includes(readType) ? readType : d.document_type,
+      issue_date: asText(f.issue_date) ?? d.issue_date,
+      expiry_date: asText(f.expiry_date) ?? d.expiry_date,
+    })));
   };
 
-  const handleQueueDoc = () => {
-    if (!docFile) { setDocError('Choose a file to upload.'); return; }
-    if (!docDraft.document_type) { setDocError('Select a document type.'); return; }
-    if (!docDraft.issue_date || !docDraft.expiry_date) {
-      setDocError('Issue date and expiry date are both required.');
-      return;
-    }
-    if (docFile.size > MAX_DOC_BYTES) { setDocError('File is too large (max 10 MB).'); return; }
-
-    setPendingDocs((prev) => [...prev, {
-      key: `${docFile.name}-${Date.now()}`,
-      file: docFile,
-      document_type: docDraft.document_type,
-      issue_date: docDraft.issue_date,
-      expiry_date: docDraft.expiry_date,
-      extraction_id: docExtraction?.extraction_id,
-    }]);
-    setDocDraft(emptyDocDraft);
-    setDocFile(null);
-    setDocExtraction(null);
-    setDocError(null);
+  const handleChangeDoc = (key: string, patch: Partial<DocFields>) => {
+    setStepError(null);
+    setPendingDocs((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
   };
 
   const handleRemoveDoc = (key: string) => {
+    setStepError(null);
     setPendingDocs((prev) => prev.filter((d) => d.key !== key));
-  };
-
-  const docExtractedFields = docExtraction?.fields ?? {};
-  const docLowConfidence = docExtraction?.low_confidence_fields ?? [];
-  const docDetails = DETAIL_FIELDS
-    .map((key) => [key, asText(docExtractedFields[key])] as const)
-    .filter((pair): pair is readonly [string, string] => pair[1] !== null);
-
-  const docTestDate = asText(docExtractedFields.test_date);
-  const docDerivedExpiry =
-    docExtraction && docDraft.document_type === 'COGGINS' && !docDraft.expiry_date && docTestDate
-      ? twelveMonthsAfter(docTestDate)
-      : null;
-
-  /** Marks how a value got into the field, matching the horse-page form. */
-  const docFieldHint = (key: string) => {
-    if (!docExtraction) return null;
-    if (docLowConfidence.includes(key)) {
-      return <span className="text-xs ml-1" style={{ color: 'var(--warning)' }}>· check this</span>;
-    }
-    if (asText(docExtractedFields[key])) {
-      return <span className="text-xs ml-1" style={{ color: 'var(--success)' }}>· read from document</span>;
-    }
-    return <span className="text-xs ml-1" style={{ color: 'var(--text-dimmed)' }}>· not on the document</span>;
   };
 
   /** Documents need a horse_id, so the queue is flushed only after creation.
@@ -627,7 +751,7 @@ export default function AddHorseWizard({
       fd.append('expiry_date', doc.expiry_date);
       // Claims the read taken before this horse existed, attaching horse_id and
       // recording which suggestions the uploader changed.
-      if (doc.extraction_id) fd.append('extraction_id', doc.extraction_id);
+      if (doc.extraction) fd.append('extraction_id', doc.extraction.extraction_id);
       const res = await fetch(`/api/horses/${horseId}/documents`, { method: 'POST', body: fd });
       if (!res.ok) failed.push(doc.file.name);
     }
@@ -742,8 +866,8 @@ export default function AddHorseWizard({
           back to add a different one would otherwise find a form mysteriously
           pre-filled with the wrong animal — so the restore is announced and the
           way out of it is right there. Health documents are the exception and
-          the note says so: a staged file cannot be kept, and a list restored
-          with no bytes behind it would be a lie the Add button discovers. */}
+          the note says so: an attached file cannot be kept, and a list restored
+          with no bytes behind it would be a lie the upload discovers. */}
       {draftRestored && (
         <div
           className="rounded px-3 py-2 text-xs flex flex-wrap items-center gap-2"
@@ -981,10 +1105,11 @@ export default function AddHorseWizard({
             <StepBadge>Optional</StepBadge>
           </div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Coggins, vaccination records, and health certificates. These upload once the
-            horse is created, so they stay listed here until you finish the wizard.
+            Coggins, vaccination records, and health certificates. Choose a file and it is
+            attached straight away; check its type and dates. These upload once the horse is
+            created, so they stay listed here until you finish the wizard.
           </p>
-          {/* Said outright rather than discovered at the Add button. A record
+          {/* Said outright rather than discovered at the upload. A record
               here is the document, not a note that one exists: the show office
               reads the expiry date off the file to work out whether a horse is
               covered for the weekend, and the desk checks the paper itself
@@ -999,151 +1124,41 @@ export default function AddHorseWizard({
           </p>
 
           {pendingDocs.length > 0 && (
-            <ul className="space-y-1">
+            <ul className="space-y-3">
               {pendingDocs.map((d) => (
-                <li key={d.key} className="flex items-center justify-between p-2 rounded text-sm" style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--accent)' }}>
-                  <span className="min-w-0">
-                    <span className="font-semibold mr-2">
-                      {DOC_TYPES.find((t) => t.value === d.document_type)?.label}
-                    </span>
-                    <span className="break-all">{d.file.name}</span>
-                    <span className="text-xs ml-2">expires {d.expiry_date}</span>
-                  </span>
-                  <button onClick={() => handleRemoveDoc(d.key)} className="text-xs text-red-600 hover:text-red-800 ml-3 shrink-0">
-                    Remove
-                  </button>
-                </li>
+                <AttachedDoc
+                  key={d.key}
+                  doc={d}
+                  onChange={(patch) => handleChangeDoc(d.key, patch)}
+                  onRemove={() => handleRemoveDoc(d.key)}
+                />
               ))}
             </ul>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-            <div className="sm:col-span-2 pt-2">
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Document Type{docFieldHint('document_type')}
-              </label>
-              <select
-                value={docDraft.document_type}
-                onChange={(e) => setDocDraft((p) => ({ ...p, document_type: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--border)' }}
-              >
-                <option value="">Select...</option>
-                {HEALTH_DOC_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Issue Date{docFieldHint('issue_date')}
-              </label>
+          <div>
+            <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>File (PDF or image, max 10 MB)</label>
+            <label
+              className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-5 cursor-pointer transition-colors hover:bg-amber-50/40"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <input
-                type="date"
-                value={docDraft.issue_date}
-                onChange={(e) => setDocDraft((p) => ({ ...p, issue_date: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--border)' }}
+                type="file"
+                accept=".pdf,image/*"
+                onChange={(e) => {
+                  handleAttachDoc(e.target.files?.[0] ?? null);
+                  // Cleared so the next choice fires a change, even for the same
+                  // file chosen again after removing it.
+                  e.target.value = '';
+                }}
+                className="sr-only"
               />
-            </div>
-            <div>
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Expiry Date{docFieldHint('expiry_date')}
-              </label>
-              <input
-                type="date"
-                value={docDraft.expiry_date}
-                onChange={(e) => setDocDraft((p) => ({ ...p, expiry_date: e.target.value }))}
-                className="w-full border rounded px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--border)' }}
-              />
-              {docDerivedExpiry && (
-                <button
-                  type="button"
-                  onClick={() => setDocDraft((p) => ({ ...p, expiry_date: docDerivedExpiry }))}
-                  className="text-xs mt-1 hover:underline text-left"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  No expiry printed. Use {docDerivedExpiry} — 12 months from the{' '}
-                  {docTestDate} blood draw?
-                </button>
-              )}
-            </div>
-            <div className="sm:col-span-2">
-              <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>File (PDF or image, max 10 MB)</label>
-              <label
-                className="flex flex-col items-center justify-center w-full rounded-lg border-2 border-dashed px-4 py-5 cursor-pointer transition-colors hover:bg-amber-50/40"
-                style={{ borderColor: 'var(--border)' }}
-              >
-                <input
-                  type="file"
-                  accept=".pdf,image/*"
-                  onChange={(e) => { handleDocFileChosen(e.target.files?.[0] ?? null); }}
-                  className="sr-only"
-                />
-                {docFile ? (
-                  <span className="text-sm font-medium text-center break-all" style={{ color: 'var(--foreground)' }}>{docFile.name}</span>
-                ) : (
-                  <>
-                    <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>Click to choose a file</span>
-                    <span className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>PDF or image - max 10 MB</span>
-                  </>
-                )}
-              </label>
-            </div>
-            <div className="sm:col-span-2">
-              <button onClick={handleQueueDoc} className="px-3 py-2 rounded text-sm font-medium" style={PRIMARY_BUTTON}>
-                Add Document
-              </button>
-            </div>
+              <span className="text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                {pendingDocs.length > 0 ? 'Click to attach another file' : 'Click to choose a file'}
+              </span>
+              <span className="text-xs mt-1" style={{ color: 'var(--text-dimmed)' }}>PDF or image - max 10 MB</span>
+            </label>
           </div>
-
-          {docReading && (
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Reading the document to fill in the dates...
-            </p>
-          )}
-
-          {docExtraction && (
-            <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
-              <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
-                Read from the document — check it before adding
-              </p>
-              {reviewWarnings(docExtractedFields).map((warning) => (
-                <p
-                  key={warning}
-                  className="text-xs font-medium rounded px-2 py-1.5"
-                  style={{ color: 'var(--error-strong)', backgroundColor: 'var(--error-bg)' }}
-                >
-                  {warning}
-                </p>
-              ))}
-              {docExtraction.notes && (
-                <p className="text-xs" style={{ color: 'var(--warning)' }}>{docExtraction.notes}</p>
-              )}
-              {docLowConfidence.length > 0 && (
-                <p className="text-xs" style={{ color: 'var(--warning)' }}>
-                  Hard to read: {docLowConfidence.map((k) => FIELD_LABELS[k] ?? k).join(', ')}.
-                </p>
-              )}
-              {docDetails.length > 0 && (
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  {docDetails.map(([key, value]) => (
-                    <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
-                      <dt className="shrink-0" style={{ color: 'var(--muted)' }}>
-                        {FIELD_LABELS[key] ?? key}:
-                      </dt>
-                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: 'var(--foreground)' }}>
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              <p className="text-xs" style={{ color: 'var(--text-dimmed)' }}>
-                These details are shown so you can verify the document is the right one. Only the
-                type and dates above are saved.
-              </p>
-            </div>
-          )}
 
           {docError && <p className="text-red-600 text-xs">{docError}</p>}
         </div>
@@ -1253,7 +1268,11 @@ export default function AddHorseWizard({
             {owner.mode === 'self' && (
               <ReviewRow
                 label="Health Records"
-                value={`${pendingDocs.length} document${pendingDocs.length === 1 ? '' : 's'} to upload`}
+                // Each one's type and expiry, not a count: Create Horse is the
+                // save for what was read off these, so it is shown here to check.
+                value={pendingDocs
+                  .map((d) => `${DOC_TYPES.find((t) => t.value === d.document_type)?.label ?? d.file.name}, expires ${d.expiry_date}`)
+                  .join('; ')}
                 skipped={pendingDocs.length === 0}
               />
             )}
@@ -1320,7 +1339,7 @@ export default function AddHorseWizard({
           )}
         </div>
         <button onClick={() => { clearDraft(exhibitorId); onCancel(); }} className="ml-auto mt-3 text-xs hover:underline" style={{ color: 'var(--muted)' }}>
-          {createdHorseId || pendingApproval ? 'Back to My Horses' : 'Cancel'}
+          {createdHorseId || pendingApproval ? returnLabel : 'Cancel'}
         </button>
       </div>
     </div>

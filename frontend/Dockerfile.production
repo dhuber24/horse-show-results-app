@@ -1,4 +1,10 @@
-FROM node:20-alpine AS builder
+# Pinned to an exact patch release, not `node:24-alpine`: a floating tag is only
+# as current as the build cache, so a rebuild can quietly keep an unpatched
+# Node. Bump it (here, the runner stage, frontend/Dockerfile and CI together)
+# on every Node.js security release — https://nodejs.org/en/blog/vulnerability.
+# 24.22.1 is the fix for the October 21, 2026 release; Node 20 is end-of-life
+# and was never patched for it.
+FROM node:24.22.1-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +22,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:24.22.1-alpine AS runner
 
 WORKDIR /app
 

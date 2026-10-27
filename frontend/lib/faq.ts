@@ -198,7 +198,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'create-account',
         q: 'How do I create an account?',
         a: [
-          '[Create an exhibitor account](/register) with your name, email and a password. If you start from a show\'s sign-up button instead, you\'ll come straight back to that show once your account is made.',
+          '[Create an exhibitor account](/register) with your name, email and a password. GaitDesk then asks for your details, your association memberships and your horses, one step at a time. Skip any step and finish it later under [My Account](/profile). If you start from a show\'s sign-up button instead, you\'ll come straight back to that show at the end.',
         ],
       },
       {
@@ -381,7 +381,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'trainer-registry',
         q: 'How do I advertise in the Trainer Registry?',
         a: [
-          'Tick List me in the Trainer Registry when you [register as a trainer](/register/trainer), or tick List in Trainer Registry under [My Account](/profile) if you already have an account. Your listing needs your town, state, zip code and at least one discipline.',
+          '[Register as a trainer](/register/trainer), and the next screen asks where you work, what you train and whether to make your listing public, then lets you pick Basic or Pro. If you already have an account, tick List in Trainer Registry under [My Account](/profile). Your listing needs your town, state, zip code and at least one discipline.',
           'Your listing has its own page you can share. Untick the box under My Account to take it down.',
         ],
       },
@@ -389,7 +389,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'trainer-registry-pro',
         q: 'What do I get with Trainer Registry Pro, and how do I pay?',
         a: [
-          'Basic is free. Pro puts you above Basic listings and nearest-first for exhibitors searching near you, with your distance shown, and adds photos, video links, your rate sheet and a Contact Trainer button whose messages are emailed to you and kept on your registry page. [Compare the plans and their prices](/trainers/plans) — you don\'t need to sign in.',
+          'Basic is free. Pro puts you above Basic listings and nearest-first for exhibitors searching near you, with your distance shown, and adds photos, video links, your rate sheet and a Contact Trainer button whose messages land in your GaitDesk inbox — the envelope in the top bar — with an email to tell you each one has arrived. [Compare the plans and their prices](/trainers/plans) — you don\'t need to sign in.',
           'GaitDesk doesn\'t take payment in the app. Choose Upgrade to Pro on your [Trainer Registry page](/profile/registry), and GaitDesk gets in touch to arrange it. Your listing switches to Pro once it\'s set up, and back to Basic if Pro runs out — nothing you added is lost.',
         ],
       },
@@ -433,7 +433,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'office-getting-started',
         q: 'How do we start running our shows on GaitDesk?',
         a: [
-          'Register as a [Show Manager](/register/show-manager) or a [Show Secretary](/register/show-secretary). You can name your club or company as you register: a new name sets up your organization, and a request to join one already on GaitDesk is approved by a GaitDesk administrator.',
+          '[Register as a Show Manager or a Show Secretary](/register/show-office) — one form, where you choose which you are. You can name your club or company as you register: a new name sets up your organization, and a request to join one already on GaitDesk is approved by a GaitDesk administrator.',
           'Questions first? [Contact GaitDesk](/contact?topic=running_shows).',
         ],
       },

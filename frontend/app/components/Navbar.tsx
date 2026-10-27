@@ -81,6 +81,8 @@ export default async function Navbar() {
             {(session.user?.role === 'ADMIN' ||
               session.user?.role === 'SHOW_SECRETARY' ||
               session.user?.role === 'SHOW_MANAGER') && <MessagesButton />}
+            {/* A trainer's own inbox: their Contact Trainer messages. */}
+            {session.user?.role === 'TRAINER' && <MessagesButton trainer />}
             <Link href="/profile"
               className="text-sm px-3 py-2 rounded font-medium transition"
               style={{ backgroundColor: 'var(--slate-raised)', color: 'var(--on-slate)' }}

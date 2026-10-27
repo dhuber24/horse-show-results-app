@@ -210,7 +210,16 @@ can't file their paperwork.
 - **Shared UI helpers live in `frontend/lib/document-extraction.ts`**, not in
   either component. Both surfaces show the same review panel and field markers,
   and the horse-page form and the wizard would otherwise drift.
-- **The wizard needs no auto-upload suppression.** Its "Add Document" button is
-  already a deliberate click, so the uploader confirms what was read by
-  construction — unlike `HorseDocuments`, which had an auto-upload-when-complete
-  shortcut that had to be switched off once a document was read.
+- **The wizard attaches a file the moment it is chosen, and that is not a
+  save.** The read fills the attached row's type and dates, which stay editable
+  there; nothing is uploaded until **Create Horse**, and the Review step lists
+  each document's type and expiry so that press is made with the read values in
+  front of the uploader. That is the human save `HorseDocuments` keeps by
+  suppressing its auto-upload-when-complete shortcut once a document is read.
+  An "Add Document" button used to stand in for it; it was one more press
+  between choosing a file and seeing it attached.
+- **The wizard's Health step will not be left while a file is still being
+  read**, nor with an attached file missing its type or either date. Waiting out
+  the read keeps the values on screen to check rather than filling in after the
+  uploader has moved on. A read that names a non-health type (registration
+  papers) is not taken, since the step's picker offers only health types.

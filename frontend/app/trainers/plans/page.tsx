@@ -73,7 +73,8 @@ export default async function TrainerPlansPage() {
       <div className="rounded-lg border p-4 mt-6 text-sm space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)', color: 'var(--text-deep)' }}>
         <p className="font-semibold" style={{ color: 'var(--foreground)' }}>How Pro works</p>
         <p>
-          Start on Basic, then choose <em>Upgrade to Pro</em> on your Trainer Registry page, monthly or yearly. GaitDesk
+          Start on Basic, then choose <em>Upgrade to Pro</em> on your Trainer Registry page, monthly or yearly — a year is paid
+          all at once, up front, not month by month. GaitDesk
           gets in touch to arrange payment, and your listing switches to Pro once it&apos;s set up. If Pro runs out, your
           listing simply goes back to Basic — nothing you added is lost.
         </p>

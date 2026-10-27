@@ -4,16 +4,19 @@ import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import { DEFAULT_REGISTRY_OPTIONS, listingProblem, type RegistryOptions } from '@/lib/trainer-registry';
-import RegistryManager, { type MyListing, type MyLead, type MyPicture } from './RegistryManager';
+import RegistryManager, { type MyListing } from './RegistryManager';
 
 export const metadata: Metadata = { title: 'My Trainer Registry listing' };
 
+const cardClass = 'block rounded-lg border p-4 hover:underline';
+const cardStyle = { backgroundColor: 'var(--surface)', borderColor: 'var(--border)' } as const;
+
 /**
- * A trainer's own Trainer Registry page: their plan beside the comparison, the
- * Pro profile they can build at any time, and the leads sent to them. Where
- * the trainer sign-up form lands when "List me in the Trainer Registry" was
- * ticked. The listing's text — town, zip, disciplines, bio — is edited on My
- * Account with the rest of the profile.
+ * A trainer's own Trainer Registry page: whether they are listed, and their
+ * plan beside the comparison. Where a new trainer's `/welcome` finishes and
+ * Stripe Checkout returns. The Pro profile and the messages are pages of their
+ * own (`pro-profile/`, `messages/`), linked from here; the listing's town, zip
+ * and disciplines are edited on My Account.
  */
 export default async function MyRegistryPage({
   searchParams,
@@ -40,13 +43,12 @@ export default async function MyRegistryPage({
     );
   }
 
-  const [leadsRes, docsRes, optionsRes] = await Promise.all([
-    fetch(`${API_URL}/trainers/me/leads`, { headers: headers!, cache: 'no-store' }),
-    fetch(`${API_URL}/trainers/${me.id}/documents`, { headers: headers!, cache: 'no-store' }),
+  const [unreadRes, optionsRes] = await Promise.all([
+    fetch(`${API_URL}/trainers/me/leads/unread-count`, { headers: headers!, cache: 'no-store' }),
     fetch(`${API_URL}/trainers/registry/options`, { cache: 'no-store' }),
   ]);
-  const leads = ((leadsRes.ok ? await readJsonBody(leadsRes) : null) ?? []) as MyLead[];
-  const pictures = ((docsRes.ok ? await readJsonBody(docsRes) : null) ?? []) as MyPicture[];
+  const unreadBody = unreadRes.ok ? await readJsonBody(unreadRes) : null;
+  const unread = typeof unreadBody?.unread === 'number' ? unreadBody.unread : 0;
   const optionsBody = optionsRes.ok ? await readJsonBody(optionsRes) : null;
   const options: RegistryOptions = { ...DEFAULT_REGISTRY_OPTIONS, ...(optionsBody ?? {}) };
 
@@ -97,12 +99,29 @@ export default async function MyRegistryPage({
         )}
         {problem && <p style={{ color: 'var(--warning-strong)' }}>{problem} Add it on My Account.</p>}
         <p>
-          Your town, zip code, disciplines, bio, website and headshot are edited on{' '}
+          Your town, zip code and disciplines are edited on{' '}
           <Link href="/profile" className="underline" style={{ color: 'var(--accent)' }}>My Account</Link>.
         </p>
       </div>
 
-      <RegistryManager listing={me} initialPictures={pictures} leads={leads} options={options} justPaid={pro === 'thanks'} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+        <Link href="/profile/registry/pro-profile" className={cardClass} style={cardStyle}>
+          <span className="block text-sm font-semibold" style={{ color: 'var(--accent)' }}>My Pro profile →</span>
+          <span className="block text-xs mt-1" style={{ color: 'var(--muted)' }}>
+            Headshot, bio, website, socials, logo, photos, videos and rates.
+          </span>
+        </Link>
+        <Link href="/profile/registry/messages" className={cardClass} style={cardStyle}>
+          <span className="block text-sm font-semibold" style={{ color: 'var(--accent)' }}>
+            Messages{unread > 0 ? ` — ${unread} new` : ''} →
+          </span>
+          <span className="block text-xs mt-1" style={{ color: 'var(--muted)' }}>
+            From exhibitors who used the Contact Trainer button on your listing.
+          </span>
+        </Link>
+      </div>
+
+      <RegistryManager listing={me} options={options} justPaid={pro === 'thanks'} />
     </main>
   );
 }

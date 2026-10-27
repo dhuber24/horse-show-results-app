@@ -422,17 +422,18 @@ def test_a_pro_request_tells_the_admins_what_to_do_about_it():
     assert f"/admin/trainers/{trainer.id}" in body
 
 
-def test_a_lead_reaches_the_trainer_with_the_senders_details():
+def test_a_lead_is_a_notice_linking_to_the_message_in_the_inbox():
     lead = SimpleNamespace(
-        sender_name="Pat\r\nRider", sender_email="pat@example.com", sender_phone="555-111-2222",
-        message="Do you take youth riders?",
+        id=uuid.uuid4(), sender_name="Pat\r\nRider", sender_email="pat@example.com",
+        sender_phone="555-111-2222", message="Do you take youth riders?",
     )
     subject, body = lead_email(_pro(), lead)
     assert "\n" not in subject and "\r" not in subject
-    assert "Do you take youth riders?" in body
-    assert "Phone: 555-111-2222" in body
-    assert "Replying to this email goes to pat@example.com" in body
-    assert "/profile/registry" in body
+    assert f"/profile/registry/messages#lead-{lead.id}" in body
+    # The trainer reads and answers it in GaitDesk; the notice carries none of it.
+    assert "Do you take youth riders?" not in body
+    assert "pat@example.com" not in body
+    assert "555-111-2222" not in body
 
 
 def test_a_lead_goes_to_the_public_email_or_else_the_login():

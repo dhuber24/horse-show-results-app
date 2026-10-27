@@ -21,6 +21,7 @@ from billing import billable_exhibitor_count, platform_usage
 from show_companies import (
     ASSOCIATION_EXPORT,
     BASIC,
+    DATA_EXPORT,
     DEFAULT_PLAN,
     FEATURES,
     FINANCIAL_REPORTS,
@@ -52,7 +53,8 @@ def test_basic_includes_no_paid_feature():
 
 
 @pytest.mark.parametrize(
-    "feature", [SHOWBILL_IMPORT, FINANCIAL_REPORTS, ASSOCIATION_EXPORT, LIVE_BOARDS, ONLINE_PAYMENTS]
+    "feature",
+    [SHOWBILL_IMPORT, FINANCIAL_REPORTS, ASSOCIATION_EXPORT, DATA_EXPORT, LIVE_BOARDS, ONLINE_PAYMENTS],
 )
 def test_pro_includes_every_paid_feature(feature):
     assert feature in plan_features(PRO)

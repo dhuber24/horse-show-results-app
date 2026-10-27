@@ -1,4 +1,5 @@
-FROM node:20-alpine
+# Same Node as Dockerfile.production, which says why it is pinned.
+FROM node:24.22.1-alpine
 
 WORKDIR /app
 

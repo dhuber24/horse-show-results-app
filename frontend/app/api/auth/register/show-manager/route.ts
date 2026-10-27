@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeFetchBackend } from '@/lib/backend-fetch';
+import { errorMessage } from '@/lib/api-error';
 
 const API_URL = process.env.API_URL || 'http://backend:8000';
 
@@ -13,7 +14,9 @@ export async function POST(request: NextRequest) {
   });
 
   if (status >= 400) {
-    return NextResponse.json({ error: json?.detail || 'Registration failed' }, { status });
+    // A malformed email is a Pydantic 422, whose `detail` is a list --
+    // flattened here so the form can print it.
+    return NextResponse.json({ error: errorMessage(json, 'Registration failed') }, { status });
   }
 
   return NextResponse.json(json);

@@ -1026,8 +1026,8 @@ class TrainerProRequest(Base):
 
 class TrainerLead(Base):
     """A message from the Contact Trainer button on a Pro listing (migration
-    165). Stored, then emailed to the trainer best-effort. Everything in it is
-    whatever the visitor typed."""
+    165). Stored in the trainer's inbox, and the trainer is emailed a notice
+    best-effort. Everything in it is whatever the visitor typed."""
     __tablename__ = "trainer_leads"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -1036,6 +1036,8 @@ class TrainerLead(Base):
     sender_email = Column(Text, nullable=False)
     sender_phone = Column(Text, nullable=True)
     message = Column(Text, nullable=False)
+    # new / read / archived, as a show's messages (migration 176).
+    status = Column(Text, nullable=False, server_default="new")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
 

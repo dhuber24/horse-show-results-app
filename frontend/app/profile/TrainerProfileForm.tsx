@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
@@ -61,7 +61,6 @@ function filterPhone(raw: string): string {
 }
 
 function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
-function isValidUrl(v: string) { return /^https?:\/\/.+/.test(v); }
 
 function Field({
   label,
@@ -113,11 +112,6 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
     city: trainer?.city ?? '',
     state: trainer?.state ?? '',
     country: trainer?.country ?? 'US',
-    website: trainer?.website ?? '',
-    bio: trainer?.bio ?? '',
-    social_facebook: trainer?.social_facebook ?? '',
-    social_instagram: trainer?.social_instagram ?? '',
-    social_tiktok: trainer?.social_tiktok ?? '',
     is_public: trainer?.is_public ?? false,
     safesport_completed_at: trainer?.safesport_completed_at ?? '',
     background_check_expires_at: trainer?.background_check_expires_at ?? '',
@@ -128,19 +122,10 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState({ account: true, public: true, compliance: true, insurance: true });
   const toggle = (k: keyof typeof open) => setOpen((p) => ({ ...p, [k]: !p[k] }));
-  const [photoBust, setPhotoBust] = useState(0);
-  const [hasHeadshot, setHasHeadshot] = useState(trainer?.has_headshot ?? false);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const originalPrivateEmail = trainer?.private_email ?? '';
   const safesportCurrent = isCurrentSafesport(form.safesport_completed_at || null);
   const backgroundCurrent = isCurrentBackground(form.background_check_expires_at || null);
-
-  useEffect(() => {
-    setHasHeadshot(trainer?.has_headshot ?? false);
-  }, [trainer?.has_headshot]);
 
   // The backend's rule too (trainer_registry.listing_problem).
   const listingIssue = form.is_public
@@ -151,7 +136,6 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
   const fieldErrors = {
     private_email: form.private_email && !isValidEmail(form.private_email) ? 'Enter a valid email address' : null,
     public_email: form.public_email && !isValidEmail(form.public_email) ? 'Enter a valid email address' : null,
-    website: form.website && !isValidUrl(form.website) ? 'Must start with https:// or http://' : null,
   };
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
@@ -188,11 +172,9 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
       city: form.city || null,
       state: form.state || null,
       country: form.country || null,
-      website: form.website || null,
-      bio: form.bio || null,
-      social_facebook: form.social_facebook || null,
-      social_instagram: form.social_instagram || null,
-      social_tiktok: form.social_tiktok || null,
+      // Bio, website, socials and the headshot are the Pro profile's
+      // (`/profile/registry/pro-profile`), and are left out here so this save
+      // never writes over them.
       is_public: form.is_public,
       zip_code: form.zip_code.trim() || null,
       disciplines: form.disciplines,
@@ -224,35 +206,6 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
       const json = await res.json().catch(() => null);
       setMessage({ type: 'error', text: errorMessage(json, 'Failed to update trainer profile.') });
     }
-  };
-
-  const handlePhotoUpload = async (file: File) => {
-    setPhotoError(null);
-    setUploadingPhoto(true);
-    const fd = new FormData();
-    fd.append('file', file);
-    const res = await fetch('/api/trainers/me/photo', { method: 'POST', body: fd });
-    setUploadingPhoto(false);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      setPhotoError(err.detail || 'Failed to upload headshot.');
-      return;
-    }
-    setHasHeadshot(true);
-    setPhotoBust((n) => n + 1);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handlePhotoDelete = async () => {
-    setPhotoError(null);
-    const res = await fetch('/api/trainers/me/photo', { method: 'DELETE' });
-    if (!res.ok && res.status !== 204) {
-      const err = await res.json().catch(() => ({}));
-      setPhotoError(err.detail || 'Failed to remove headshot.');
-      return;
-    }
-    setHasHeadshot(false);
-    setPhotoBust((n) => n + 1);
   };
 
   return (
@@ -315,8 +268,13 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
               <Link href="/trainers" className="underline" style={{ color: 'var(--accent)' }}>Trainer Registry</Link>.
               A Basic listing shows your name, business, disciplines and town;{' '}
               {trainer.is_pro ? 'you’re on Pro, so everything here is shown.' : 'the rest of this section is shown on Pro.'}{' '}
+              Your headshot, bio, website, socials, photos, videos and rates are on{' '}
+              <Link href="/profile/registry/pro-profile" className="underline" style={{ color: 'var(--accent)' }}>
+                your Pro profile
+              </Link>
+              {' · '}
               <Link href="/profile/registry" className="underline" style={{ color: 'var(--accent)' }}>
-                {trainer.is_pro ? 'Manage your listing' : 'Plans, photos and rates'}
+                {trainer.is_pro ? 'Your plan' : 'Plans'}
               </Link>
               {trainer.is_public && (
                 <>
@@ -367,9 +325,6 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
               <Field label="Business / Barn Name">
                 <input value={form.business_name} onChange={(e) => update('business_name', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
               </Field>
-              <Field label="Website" error={fieldErrors.website} hint={!fieldErrors.website ? 'https://example.com' : undefined}>
-                <input type="url" placeholder="https://" value={form.website} onChange={(e) => update('website', e.target.value)} maxLength={200} className={inputClass} style={inputStyle} />
-              </Field>
               <Field label="City">
                 <input value={form.city} onChange={(e) => update('city', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
               </Field>
@@ -385,74 +340,6 @@ export default function TrainerProfileForm({ trainer, disciplines }: Props) {
               <Field label="Public Email" error={fieldErrors.public_email}>
                 <input type="email" value={form.public_email} onChange={(e) => update('public_email', e.target.value)} maxLength={200} className={inputClass} style={inputStyle} />
               </Field>
-              <Field label="Facebook" hint="Profile URL or @handle">
-                <input value={form.social_facebook} onChange={(e) => update('social_facebook', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
-              </Field>
-              <Field label="Instagram" hint="@handle or profile URL">
-                <input value={form.social_instagram} onChange={(e) => update('social_instagram', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
-              </Field>
-              <Field label="TikTok" hint="@handle or profile URL">
-                <input value={form.social_tiktok} onChange={(e) => update('social_tiktok', e.target.value)} maxLength={100} className={inputClass} style={inputStyle} />
-              </Field>
-            </div>
-
-            <div className="mt-4">
-              <Field label="Bio" hint="2000 characters max. Disciplines, experience, philosophy, etc.">
-                <textarea
-                  value={form.bio}
-                  onChange={(e) => update('bio', e.target.value)}
-                  rows={5}
-                  maxLength={2000}
-                  className={inputClass}
-                  style={inputStyle}
-                />
-              </Field>
-            </div>
-
-            <div className="mt-5 border-t pt-5" style={{ borderColor: 'var(--bg-subtle)' }}>
-              <h4 className="text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>Headshot</h4>
-              <div className="flex items-start gap-4 flex-wrap">
-                <div
-                  className="w-28 h-28 rounded-full border flex items-center justify-center overflow-hidden shrink-0"
-                  style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)' }}
-                >
-                  {hasHeadshot ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={photoBust}
-                      src={`/api/trainers/me/photo?v=${photoBust}`}
-                      alt="Trainer headshot"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-xs" style={{ color: 'var(--muted)' }}>No photo</span>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handlePhotoUpload(f);
-                    }}
-                    className="text-sm"
-                  />
-                  <p className="text-xs" style={{ color: 'var(--muted)' }}>JPEG, PNG, or WebP. Max 5 MB.</p>
-                  {hasHeadshot && (
-                    <button
-                      type="button"
-                      onClick={handlePhotoDelete}
-                      className="text-xs text-red-600 hover:underline"
-                    >
-                      Remove headshot
-                    </button>
-                  )}
-                  {uploadingPhoto && <p className="text-xs" style={{ color: 'var(--muted)' }}>Uploading...</p>}
-                  {photoError && <p className="text-xs text-red-600">{photoError}</p>}
-                </div>
-              </div>
             </div>
           </>
         )}

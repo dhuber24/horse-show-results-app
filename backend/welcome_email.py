@@ -78,16 +78,19 @@ ROLE_WELCOMES: dict[str, RoleWelcome] = {
             "pick when they name you as a horse's trainer.",
             "The Horses tab on My Account lists every horse that names you as "
             "its trainer.",
-            "Your profile holds your business details, a headshot, and your "
-            "SafeSport and background-check dates in one place.",
-            "To advertise your services, tick List in Trainer Registry on My "
-            "Account: a Basic listing is free, and Pro puts you first for "
-            "exhibitors searching near you.",
+            "Your profile holds your business details and your SafeSport and "
+            "background-check dates in one place.",
+            "To advertise your services, list yourself in the Trainer Registry: "
+            "a Basic listing is free, and Pro puts you first for exhibitors "
+            "searching near you.",
+            "Messages exhibitors send you from your listing land in your inbox, "
+            "the envelope in the top bar.",
         ),
         tips=(
             "Add your association memberships under My Account > Affiliations.",
             "Fill in your business name and public contact details, and upload "
-            "a headshot, so owners can tell you're the right trainer.",
+            "a headshot on My Pro profile, so owners can tell you're the right "
+            "trainer.",
         ),
     ),
     "SHOW_MANAGER": RoleWelcome(

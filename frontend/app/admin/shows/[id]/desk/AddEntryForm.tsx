@@ -17,6 +17,7 @@ import {
   unmetPotsForClass,
 } from './types';
 import type { Desk, DeskClass, DeskExhibitor, DeskFuturity, DeskSidePot, ProfileHorse } from './types';
+import { warningLines, type SavedEntry } from '@/lib/association-warnings';
 import { formatMoney } from '@/lib/financials';
 import {
   ATTESTATION_REQUIRED_DIVISIONS,
@@ -119,6 +120,7 @@ export default function AddEntryForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   // Futurities the desk chose not to enroll the horse in, and the category
   // picked for each one it will.
   const [enrollOff, setEnrollOff] = useState<string[]>([]);
@@ -283,8 +285,9 @@ export default function AddEntryForm({
   const divisionOf = (c: DeskClass) => (isApha && c.apha_division) || '';
 
   // The Novice divisions turn on points and earnings the app does not hold, so
-  // the entry carries a declaration instead of a check. The backend enforces it;
-  // blocking here keeps the desk from posting an entry it knows will 422.
+  // the entry carries a declaration instead of a check. Offered, never
+  // required: an association rule flags an entry rather than refusing it, so an
+  // undeclared Novice entry goes in and comes back flagged for the office.
   const needsNoviceDeclaration = targetClasses.some((c) => ATTESTATION_REQUIRED_DIVISIONS.has(divisionOf(c)));
   const missingNoviceDeclaration = needsNoviceDeclaration && !noviceDeclared;
 
@@ -296,8 +299,11 @@ export default function AddEntryForm({
     setSaving(true);
     setError(null);
     setNotice(null);
+    setWarnings([]);
 
     const entered: DeskClass[] = [];
+    // What the association rules said about each entry that went in.
+    const saved: SavedEntry[] = [];
     let refusal: { cls: DeskClass; message: string } | null = null;
     for (const c of targetClasses) {
       const body: Record<string, unknown> = {
@@ -330,6 +336,8 @@ export default function AddEntryForm({
           break;
         }
         entered.push(c);
+        const entry = await res.json().catch(() => null);
+        if (entry) saved.push(entry);
       } catch {
         refusal = { cls: c, message: 'Network error — please try again.' };
         break;
@@ -389,6 +397,12 @@ export default function AddEntryForm({
     }
     setError(messages.length > 0 ? messages.join(' ') : null);
     if (!refusal && entered.length > 1) setNotice(`${horseName} is entered in ${plural(entered.length, 'class')}.`);
+    setWarnings(
+      warningLines(saved, (classId) => {
+        const c = entered.find((e) => e.id === classId);
+        return c ? `Class ${c.class_number}` : 'A class';
+      }),
+    );
 
     if (entered.length > 0) await onAdded();
   };
@@ -413,6 +427,7 @@ export default function AddEntryForm({
         setTicked([]);
         setError(null);
         setNotice(null);
+        setWarnings([]);
       }}
       disabled={!exhibitorId || horsesLoading || selectableHorses.length === 0}
       aria-label="Horse"
@@ -443,13 +458,11 @@ export default function AddEntryForm({
       : 'Pick a horse first'
     : targetClasses.length === 0
       ? 'Tick the classes to enter'
-      : missingNoviceDeclaration
-        ? 'Novice entries need the eligibility declaration ticked'
-        : missingPotChoice
-          ? 'A class is in a side pot — tick the pot they are buying into'
-          : enrollmentIncomplete
-            ? 'Pick the futurity category, or untick the enrollment'
-            : null;
+      : missingPotChoice
+        ? 'A class is in a side pot — tick the pot they are buying into'
+        : enrollmentIncomplete
+          ? 'Pick the futurity category, or untick the enrollment'
+          : null;
 
   const count = targetClasses.length;
   const extra = enrolling.length > 0 ? ' & enroll' : potIds.length > 0 ? ' & buy in' : '';
@@ -548,6 +561,7 @@ export default function AddEntryForm({
                           onChange={(e) => {
                             setError(null);
                             setNotice(null);
+                            setWarnings([]);
                             setTicked((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)));
                           }}
                           className="mt-0.5 h-4 w-4 shrink-0"
@@ -595,7 +609,14 @@ export default function AddEntryForm({
             onChange={(e) => setNoviceDeclared(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0"
           />
-          <span style={{ color: 'var(--text-deep)' }}>{NOVICE_ELIGIBILITY_STATEMENT}</span>
+          <span style={{ color: 'var(--text-deep)' }}>
+            {NOVICE_ELIGIBILITY_STATEMENT}
+            {missingNoviceDeclaration && (
+              <span className="block mt-1" style={{ color: 'var(--muted)' }}>
+                Not ticked, the entry still goes in and is flagged for the office.
+              </span>
+            )}
+          </span>
         </label>
       )}
 
@@ -697,6 +718,22 @@ export default function AddEntryForm({
         <p className="text-sm" role="status" style={{ color: 'var(--success-strong)' }}>
           {notice}
         </p>
+      )}
+      {/* Entered all the same: whether the association's rules hold here is
+          the office's call, so they are said once and left to it. They stay on
+          the show's readiness panel too. */}
+      {warnings.length > 0 && (
+        <div
+          className="text-xs rounded border p-2"
+          style={{ backgroundColor: 'var(--warning-bg)', borderColor: 'var(--warning-border)', color: 'var(--warning)' }}
+        >
+          <p className="font-medium">Entered — the association rules flag:</p>
+          <ul className="list-disc pl-4 mt-1 space-y-0.5">
+            {warnings.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {(cls || selectedHorse) && (

@@ -7,9 +7,9 @@ const inputClass = 'w-full border rounded-lg px-3 py-2 text-sm focus:outline-non
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 
 /**
- * The Contact Trainer button's form, on a Pro listing. The message is kept for
- * the trainer and emailed to them, with Reply-To set to the sender — the
- * trainer's address is never shown here.
+ * The Contact Trainer button's form, on a Pro listing. The message lands in the
+ * trainer's GaitDesk inbox and they are emailed a notice; they reply to the
+ * address given here — the trainer's own is never shown.
  */
 export default function ContactTrainerForm({ trainerId, trainerName }: { trainerId: string; trainerName: string }) {
   const [form, setForm] = useState({ sender_name: '', sender_email: '', sender_phone: '', message: '', website: '' });

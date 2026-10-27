@@ -2693,6 +2693,10 @@ class EntryOut(BaseModel):
     gate_checked_in: bool = False
     gate_no_show: bool = False
     created_at: datetime
+    # What the association rules said about this entry as it was saved. Nothing
+    # refuses an entry over them any more (`rules.REFUSING_CODES`), so this is how
+    # whoever entered it hears about them. Empty on every read but a save.
+    association_warnings: list["AssociationValidationIssue"] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -3662,10 +3666,15 @@ class TrainerLeadOut(BaseModel):
     sender_email: str
     sender_phone: Optional[str] = None
     message: str
+    status: Literal["new", "read", "archived"] = "new"
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class TrainerLeadStatusUpdate(BaseModel):
+    status: Literal["new", "read", "archived"]
 
 
 class TrainerProRequestCreate(BaseModel):
@@ -3776,6 +3785,10 @@ class AssociationValidationIssue(BaseModel):
     entry_id: Optional[str] = None
     horse_id: Optional[str] = None
     exhibitor_id: Optional[str] = None
+
+
+# `EntryOut` is declared long before the issue it carries.
+EntryOut.model_rebuild()
 
 
 class AssociationValidationOut(BaseModel):

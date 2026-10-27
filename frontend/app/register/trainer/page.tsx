@@ -1,20 +1,8 @@
 import Link from 'next/link';
-import { API_URL, readJsonBody } from '@/lib/backend-fetch';
 import TrainerRegisterForm from './TrainerRegisterForm';
 
-/** The discipline list the registry offers — the backend's, so there is one copy. */
-async function loadDisciplines(): Promise<string[]> {
-  try {
-    const res = await fetch(`${API_URL}/trainers/registry/options`, { cache: 'no-store' });
-    const body = await readJsonBody(res);
-    return res.ok && Array.isArray(body?.disciplines) ? body.disciplines : [];
-  } catch {
-    return [];
-  }
-}
-
-export default async function TrainerRegisterPage() {
-  const disciplines = await loadDisciplines();
+/** The account only. The listing and its plan are asked at `/welcome` (`TrainerSetup`). */
+export default function TrainerRegisterPage() {
   return (
     <main
       className="min-h-screen flex items-center justify-center p-4"
@@ -28,7 +16,7 @@ export default async function TrainerRegisterPage() {
           </p>
         </div>
         <div className="rounded-lg border p-6 shadow-sm" style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)' }}>
-          <TrainerRegisterForm disciplines={disciplines} />
+          <TrainerRegisterForm />
         </div>
         <div className="text-center text-sm mt-4">
           <p style={{ color: 'var(--muted)' }}>

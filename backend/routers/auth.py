@@ -92,7 +92,10 @@ class TrainerRegister(BaseModel):
     private_phone: str
     public_email: Optional[EmailStr] = None
     public_phone: Optional[str] = None
-    # "List me in the Trainer Registry" -- sets trainers.is_public, on Basic.
+    # The sign-up form's old "List me in the Trainer Registry" box -- sets
+    # trainers.is_public, on Basic. The form no longer sends it (the listing is
+    # asked at /welcome, through PATCH /trainers/me); kept so a copy of the old
+    # form a service worker cached still lists whoever ticked it.
     # A listing needs a town, state, zip and a discipline (trainer_registry.py).
     list_in_registry: bool = False
     business_name: Optional[str] = Field(default=None, max_length=200)

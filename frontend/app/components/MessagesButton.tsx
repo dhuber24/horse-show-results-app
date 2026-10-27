@@ -16,7 +16,7 @@ type Inbox = {
   count: number;
   href: string;
   /** Whose messages the count is, for the tooltip. */
-  scope: 'show' | 'all';
+  scope: 'show' | 'all' | 'trainer';
 };
 
 async function readCount(url: string): Promise<number | null> {
@@ -45,16 +45,26 @@ async function readCount(url: string): Promise<number | null> {
  * else's show gets the combined inbox rather than that show's. Rendered by the
  * Navbar for the office roles only, so an exhibitor sends no request that can
  * only be refused.
+ *
+ * **`trainer`** is a trainer's own inbox instead — their Contact Trainer
+ * messages at `/profile/registry/messages` (migration 176) — on every page,
+ * since a trainer has no shows to scope it to.
  */
-export default function MessagesButton() {
+export default function MessagesButton({ trainer = false }: { trainer?: boolean }) {
   const pathname = usePathname();
-  const showId = pathname.match(SHOW_IN_PATH)?.[1] ?? null;
-  const key = showId ?? 'all';
+  const showId = trainer ? null : pathname.match(SHOW_IN_PATH)?.[1] ?? null;
+  const key = trainer ? 'trainer' : showId ?? 'all';
   const [inbox, setInbox] = useState<Inbox | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      if (trainer) {
+        const count = await readCount('/api/trainers/me/leads/unread-count');
+        if (cancelled) return;
+        setInbox(count === null ? null : { key, count, href: '/profile/registry/messages', scope: 'trainer' });
+        return;
+      }
       if (showId) {
         const count = await readCount(`/api/shows/${showId}/contact/messages/unread-count`);
         if (cancelled) return;
@@ -70,12 +80,13 @@ export default function MessagesButton() {
     return () => {
       cancelled = true;
     };
-  }, [showId, key, pathname]);
+  }, [trainer, showId, key, pathname]);
 
   if (!inbox || inbox.key !== key) return null;
 
   const { count, href, scope } = inbox;
-  const whose = scope === 'show' ? "This show's messages" : 'Messages from all your shows';
+  const whose =
+    scope === 'show' ? "This show's messages" : scope === 'trainer' ? 'Your messages' : 'Messages from all your shows';
   const label = count > 0 ? `${whose} — ${count} new` : whose;
   const here = pathname === href;
 

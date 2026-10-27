@@ -13,6 +13,7 @@ import { API_URL, readJsonBody } from '@/lib/backend-fetch';
 export const SHOWBILL_IMPORT = 'showbill_import';
 export const FINANCIAL_REPORTS = 'financial_reports';
 export const ASSOCIATION_EXPORT = 'association_export';
+export const DATA_EXPORT = 'data_export';
 export const LIVE_BOARDS = 'live_boards';
 export const ONLINE_PAYMENTS = 'online_payments';
 

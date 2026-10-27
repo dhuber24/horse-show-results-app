@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import type { AssociationOption } from '@/components/AssociationSelect';
 import type { ProfileStatus } from '../shows/[id]/register/types';
-import ProfileStep from '../shows/[id]/register/ProfileStep';
 import CertificationPicker, { type CertEntry } from './CertificationPicker';
+import ExhibitorSetup from './ExhibitorSetup';
+import StepHeading from './StepHeading';
+
+type SetupProps = ComponentProps<typeof ExhibitorSetup>;
 
 /**
  * The questions asked once, after the account exists.
@@ -30,11 +33,19 @@ export default function WelcomeFlow({
   associations,
   initialCertifications,
   initialExhibitor,
+  initialRegistrations,
+  initialCertificates,
+  initialHorses,
   destination,
   roleLabel,
 }: {
   associations: AssociationOption[];
   initialCertifications: CertEntry[];
+  /** What is already on their exhibitor profile, for the steps behind *I also
+   *  compete*. Empty when they have no profile yet. */
+  initialRegistrations: SetupProps['initialRegistrations'];
+  initialCertificates: SetupProps['initialCertificates'];
+  initialHorses: SetupProps['initialHorses'];
   /** Their exhibitor row if they already have one — a returning user, or a
    *  role that is issued one at signup. Present means the checkbox starts
    *  ticked and locked: this step adds the profile and never takes it away,
@@ -117,45 +128,19 @@ export default function WelcomeFlow({
   };
 
   if (step === 'exhibitor' && exhibitor) {
-    // ProfileStep is the registration wizard's step one, rendered here against
-    // the same `PATCH /api/exhibitors/{id}` — one writer for these boxes,
-    // which is the rule that keeps /profile and registration from disagreeing.
-    // The checklist is empty because it is computed per show and there is no
-    // show here; ProfileStep reads it only to print what is outstanding, and
-    // enforces its own required fields from a constant of its own.
-    //
-    // `hasMembershipsStep` suppresses its link out to /profile?tab=memberships.
-    // With an empty checklist neither branch renders anything, but the claim is
-    // the right one: sending somebody to another screen half-way through
-    // onboarding is the trip this flow exists to avoid, and their memberships
-    // are an exhibitor's own question rather than a show official's.
-    const profile: ProfileStatus = {
-      complete: false,
-      missing: [],
-      checklist: [],
-      exhibitor,
-    };
+    // The same three steps an exhibitor is given at sign-up — details,
+    // memberships, horses — numbered on from this one. An official who
+    // competes is setting up the same profile, and handing them the details
+    // alone left their horses for the first show they tried to enter.
     return (
-      <div className="space-y-5">
-        <StepHeading
-          step={2}
-          total={2}
-          title="Your exhibitor profile"
-          blurb="What a show office needs before it can take your entry — your contact details, your date of birth for the youth and amateur divisions, and someone to ring if you come off in the arena."
-        />
-        <ProfileStep profile={profile} hasMembershipsStep onSaved={finish} />
-        <button
-          onClick={finish}
-          className="w-full py-2 rounded-lg text-sm font-medium border"
-          style={{ borderColor: 'var(--border)', color: 'var(--text-deep)', backgroundColor: 'var(--surface)' }}
-        >
-          Skip for now — finish this later
-        </button>
-        <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
-          Your exhibitor profile is set up either way. You can fill these in from your profile, or the
-          first time you enter a show.
-        </p>
-      </div>
+      <ExhibitorSetup
+        exhibitor={exhibitor}
+        initialRegistrations={initialRegistrations}
+        initialCertificates={initialCertificates}
+        initialHorses={initialHorses}
+        destination={destination}
+        stepsBefore={1}
+      />
     );
   }
 
@@ -163,7 +148,7 @@ export default function WelcomeFlow({
     <div className="space-y-5">
       <StepHeading
         step={1}
-        total={wantsExhibitor ? 2 : 1}
+        total={wantsExhibitor ? 4 : 1}
         title="Your certifications"
         blurb={`Which associations are you certified with as a ${roleLabel}? Tick any that apply — or none, if you run unaffiliated shows.`}
       />
@@ -232,32 +217,6 @@ export default function WelcomeFlow({
           Skip for now
         </button>
       </div>
-    </div>
-  );
-}
-
-function StepHeading({
-  step,
-  total,
-  title,
-  blurb,
-}: {
-  step: number;
-  total: number;
-  title: string;
-  blurb: string;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--muted)' }}>
-        Step {step} of {total}
-      </p>
-      <h2 className="text-lg font-bold mt-0.5" style={{ color: 'var(--foreground)' }}>
-        {title}
-      </h2>
-      <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
-        {blurb}
-      </p>
     </div>
   );
 }

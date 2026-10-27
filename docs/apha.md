@@ -121,10 +121,12 @@ commit, so the rules engine reads the declaration off an entry that has not been
 written yet and the relationship cascade writes it on save. A check that queried
 the database would reject every new Novice entry.
 
-Missing, it is an **error at both doors** — the desk and the exhibitor's own
-registration screen — like `relationship_to_owner`. Both forms show the tickbox
-and disable the button until it is ticked, so neither posts an entry it already
-knows will 422.
+Missing, it is reported as an **error at both doors** — the desk and the
+exhibitor's own registration screen — like `relationship_to_owner`, and since
+2026-10-27 **the entry is saved anyway**: no association rule refuses an entry
+(see "APHA Entry Validation" below). Both forms show the tickbox and say an
+unticked one still goes in; the entry comes back flagged and sits on the APHA
+readiness panel for the office.
 
 ### Youth age divisions (YP-075)
 
@@ -618,11 +620,12 @@ judge with fees assessed accordingly — which is exactly what the
 
 "Horses must be three-years-old or older to exhibit in English Versatility
 Pattern, Western Versatility Pattern, and Ranch classes." Checked on entry at
-both doors, and **an error rather than a warning** — a departure from most of the
-APHA work here, and deliberate. A missing Coggins can be produced and a
-membership bought at the counter; a two-year-old cannot become three, so the
-entry is ineligible in a way nothing at the show can fix, and results filed on it
-are what APHA refuses.
+both doors, and reported as **an error rather than a warning**. A missing Coggins
+can be produced and a membership bought at the counter; a two-year-old cannot
+become three, so the entry is ineligible in a way nothing at the show can fix,
+and results filed on it are what APHA refuses. It used to refuse the entry; since
+2026-10-27 it is saved and flagged, because whether to take it is the show
+office's call (see "APHA Entry Validation").
 
 Age is counted in **show years** — every horse has a January 1 birthday, so a
 horse foaled in December 2023 is three for the whole of 2026. `horse_calendar_age`
@@ -787,7 +790,17 @@ supplied text moved this from "unknown" to "known and unanswerable".
 
 APHA rules live in `backend/rules/apha.py` and are reached the same way every
 other association's are — `rules.get_rules(show.show_type.code)`, then
-`validate_entry`. The division checks are:
+`validate_entry`.
+
+**None of them refuses an entry (2026-10-27).** Which rules a show holds its
+exhibitors to is the show company's call, so both doors save the entry and
+return the issues on `EntryOut.association_warnings`; the readiness panel lists
+them. `severity` still separates what APHA would not accept (`error`) from
+advice (`warning`). The one exception is `APHA_DIVISION_UNKNOWN`, a value the
+database's CHECK cannot store (`rules.REFUSING_CODES`). See "What GaitDesk
+decides" in `docs/design/associations.md`.
+
+The division checks are:
 
 | Rule | Code | What it says |
 | --- | --- | --- |

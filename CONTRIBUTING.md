@@ -197,7 +197,6 @@ npm run type-check
 **Example:**
 ```typescript
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
 interface Show {
   id: string;
@@ -214,8 +213,9 @@ export const ShowList: React.FC = () => {
   useEffect(() => {
     const fetchShows = async () => {
       try {
-        const response = await axios.get('/api/shows');
-        setShows(response.data);
+        const res = await fetch('/api/shows');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setShows(await res.json());
       } catch (err) {
         setError('Failed to load shows');
       } finally {
@@ -311,8 +311,8 @@ so a host-side build breaks a running dev server. CI builds instead.
 
 ### CI
 
-`.github/workflows/ci.yml` runs all of the above on push and PR to `main`, on Node 20 and Python
-3.12 to match the Dockerfiles. It also builds the frontend, and fails if any route handler under
+`.github/workflows/ci.yml` runs all of the above on push and PR to `main`, on Node 24.22.1 and
+Python 3.12 to match the Dockerfiles. It also builds the frontend, and fails if any route handler under
 `frontend/app/api/` calls `fetch()` directly instead of `safeFetchBackend()`.
 
 `.github/workflows/docs-guard.yml` is separate and only checks that documentation moved with the
