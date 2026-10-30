@@ -116,9 +116,10 @@ class ShowCreate(BaseModel):
     # How late exhibitors enter and scratch their own classes (migration 159).
     # Both are asked when a show is created and required to publish it.
     self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
-    # Who a back number belongs to (migration 161): one per exhibitor, or one
-    # per horse as APHA SC-160.D requires.
-    back_number_per: Literal["exhibitor", "horse"] = "exhibitor"
+    # Who a back number belongs to (migration 161): one per exhibitor, one per
+    # horse as APHA SC-160.D requires, or one per exhibitor per horse
+    # (migration 178).
+    back_number_per: Literal["exhibitor", "horse", "pair"] = "exhibitor"
     status: Literal["DRAFT", "PUBLISHED", "ACTIVE"] = "DRAFT"
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -148,7 +149,7 @@ class ShowUpdate(BaseModel):
     end_date: Optional[date] = None
     entry_deadline: Optional[date] = None
     self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
-    back_number_per: Optional[Literal["exhibitor", "horse"]] = None
+    back_number_per: Optional[Literal["exhibitor", "horse", "pair"]] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)
     # APHA zone 1-14 (migration 119). Not derived from the venue: a guessed
@@ -5004,9 +5005,10 @@ class ShowDeskOut(BaseModel):
     show_name: str
     show_status: str
     show_type_code: Optional[str] = None
-    # Who a back number belongs to here (migration 161): `exhibitor` puts one
-    # box in each exhibitor's header, `horse` one beside each of their horses.
-    back_number_per: Literal["exhibitor", "horse"] = "exhibitor"
+    # Who a back number belongs to here (migrations 161, 178): `exhibitor` puts
+    # one box in each exhibitor's header, `horse` and `pair` one beside each of
+    # their horses.
+    back_number_per: Literal["exhibitor", "horse", "pair"] = "exhibitor"
     # Whether this show asks for the health originals at the counter
     # (migration 138). The health rows are listed either way; when false the
     # inspection sign-off is optional and is not in `paperwork_outstanding`.

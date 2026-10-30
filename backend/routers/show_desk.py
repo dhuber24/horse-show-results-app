@@ -380,13 +380,14 @@ async def get_desk(
             "entries": financials["registrations"]["entries"],
             "classes": financials["registrations"]["classes"],
             # Exhibitors somebody still has to give a number: no number of their
-            # own, or -- where the show numbers horses -- a horse without one.
+            # own, or -- where the show numbers horses or pairs -- a horse
+            # without one.
             "no_back_number": sum(
                 1
                 for e in exhibitors_out
                 if (
                     any(h["back_number"] is None for h in e["horses"])
-                    if show.back_number_per == "horse"
+                    if (show.back_number_per or "exhibitor") != "exhibitor"
                     else e["back_number"] is None
                 )
             ),

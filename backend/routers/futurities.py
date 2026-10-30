@@ -817,7 +817,8 @@ async def _hydrate_entries(
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
     # A nomination is the horse's, so it wears the horse's number at a show
-    # that numbers horses (migration 161), the exhibitor's otherwise.
+    # that numbers horses (migration 161), the nominating exhibitor's number on
+    # it at one that numbers pairs (migration 178), the exhibitor's otherwise.
     numbers = await back_numbers_for_show(futurity.show_id, db)
 
     out: list[dict] = []
@@ -1162,7 +1163,8 @@ async def get_standings(
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
     # A nomination is the horse's, so it wears the horse's number at a show
-    # that numbers horses (migration 161), the exhibitor's otherwise.
+    # that numbers horses (migration 161), the nominating exhibitor's number on
+    # it at one that numbers pairs (migration 178), the exhibitor's otherwise.
     numbers = await back_numbers_for_show(futurity.show_id, db)
 
     class_numbers = {

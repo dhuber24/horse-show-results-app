@@ -16,6 +16,7 @@ import ReservationFields, {
   type SignupData,
 } from '../_components/ReservationFields';
 import { errorMessage } from '@/lib/api-error';
+import { numbersEachHorse } from '@/lib/back-numbers';
 import { formatMoney, type PreviewData } from './types';
 
 /**
@@ -631,9 +632,9 @@ export default function RegisterShowForm({
 }
 
 /** The back number line on the classes step: the exhibitor's number, or one
- *  per horse at a show that numbers horses (migration 161). */
+ *  per horse at a show that numbers horses or pairs (migrations 161, 178). */
 function backNumberSummary(preview: PreviewData): string {
-  if (preview.back_number_per === 'horse') {
+  if (numbersEachHorse(preview.back_number_per)) {
     const numbers = (preview.horse_numbers ?? [])
       .map((h) => h.back_number)
       .filter((n): n is number => n != null);

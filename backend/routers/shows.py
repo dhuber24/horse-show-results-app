@@ -10,10 +10,11 @@ from datetime import date
 from typing import Optional
 
 from backnumbers import (
+    PER_EXHIBITOR,
     assign_back_number_if_missing,
     assign_missing_horse_numbers,
     back_numbers_for_show,
-    show_numbers_per_horse,
+    show_number_kind,
 )
 from cancellations import is_on_roster
 from database import get_db
@@ -624,9 +625,9 @@ async def update_show(
                 "Cannot set status to In Progress: the current date is outside the show's date range.",
             )
 
-    # Switching who a back number belongs to (migration 161) hands out the new
-    # kind straight away, so the desk opens on numbered horses -- or numbered
-    # exhibitors -- rather than a column of dashes. The old kind is left where
+    # Switching who a back number belongs to (migrations 161, 178) hands out
+    # the new kind straight away, so the desk opens on numbered horses, pairs
+    # or exhibitors rather than a column of dashes. The old kind is left where
     # it is, unread, so switching back restores every number as it was.
     renumber = (
         "back_number_per" in updates
@@ -648,8 +649,9 @@ async def update_show(
 
 async def _hand_out_back_numbers(show_id: UUID, db: AsyncSession) -> None:
     """Give everyone a number of the kind the show now issues, where they hold
-    none: each entered horse, or each exhibitor on the roster."""
-    if await show_numbers_per_horse(show_id, db):
+    none: each entered horse or exhibitor-and-horse pair, or each exhibitor on
+    the roster."""
+    if await show_number_kind(show_id, db) != PER_EXHIBITOR:
         await assign_missing_horse_numbers(show_id, db)
         return
     rows = await db.execute(

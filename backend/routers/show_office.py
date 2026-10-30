@@ -590,15 +590,11 @@ async def build_verification_checklist(show_id: UUID, db: AsyncSession) -> dict:
                 "horse_name": horse.name,
                 "barn_name": horse.barn_name,
                 # The horse's own number, at a show that numbers horses
-                # (migration 161); None at one that numbers exhibitors.
-                "back_number": (
-                    roster.numbers.by_horse.get(horse.id) if roster.numbers.per_horse else None
-                ),
-                "preferred_back_number": (
-                    roster.numbers.preferred_by_horse.get(horse.id)
-                    if roster.numbers.per_horse
-                    else None
-                ),
+                # (migration 161), or this exhibitor's on it at one that
+                # numbers pairs (migration 178); None at one that numbers
+                # exhibitors.
+                "back_number": roster.numbers.horse_number(exhibitor_id, horse.id),
+                "preferred_back_number": roster.numbers.horse_preference(exhibitor_id, horse.id),
                 "age_check": age_check,
                 "registrations": horse_regs,
                 "health": health_out,

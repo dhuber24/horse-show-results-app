@@ -322,9 +322,10 @@ async def create_entry(
         if "entries_class_horse_uniq" in msg:
             raise HTTPException(409, "This horse is already entered in this class.")
         raise HTTPException(409, "Entry conflicts with an existing entry in this class.")
-    # The horse's number, at a show that numbers horses (migration 161). After
-    # the entry commits, so a number can never cost anybody the entry.
-    await assign_horse_number_if_missing(show_id, entry.horse_id, db)
+    # The horse's number, at a show that numbers horses (migration 161) or the
+    # exhibitor's on it at one that numbers pairs (migration 178). After the
+    # entry commits, so a number can never cost anybody the entry.
+    await assign_horse_number_if_missing(show_id, entry.exhibitor_id, entry.horse_id, db)
     await db.commit()
     await db.refresh(entry)
     entry.association_warnings = issues

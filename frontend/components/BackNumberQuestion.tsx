@@ -1,25 +1,43 @@
 'use client';
 
 import { useId } from 'react';
+import type { BackNumberPer } from '@/lib/back-numbers';
 
-export type BackNumberPer = 'exhibitor' | 'horse';
+export type { BackNumberPer };
 
 const OPTIONS: { value: BackNumberPer; label: string; hint: string }[] = [
   {
     value: 'exhibitor',
     label: 'One per exhibitor',
-    hint: 'Each exhibitor wears the same number whichever horse they show.',
+    hint: 'Back number is only assigned to the exhibitor, never the horse. A rider, showing two different horses, keeps the same back number for each horse.',
   },
   {
     value: 'horse',
     label: 'One per horse',
-    hint: 'Each horse has its own number, worn by whoever shows it — so an exhibitor with three horses has three. APHA shows number horses (SC-160.D).',
+    hint: 'Only the horse carries the back number, never the exhibitor. Two riders of the same horse would use the same back number.',
+  },
+  {
+    value: 'pair',
+    label: 'One per exhibitor and horse',
+    hint: 'Every back number is a rider and horse combo. One rider, showing multiple horses, needs a different back number for each horse.',
   },
 ];
 
+/** What saving a switch hands out, and what it keeps, by kind. */
+const HANDED_OUT: Record<BackNumberPer, string> = {
+  exhibitor: 'every exhibitor on the roster a number',
+  horse: 'every entered horse a number',
+  pair: 'every exhibitor a number for each horse they have entered',
+};
+const KEPT: Record<BackNumberPer, string> = {
+  exhibitor: 'exhibitors’ numbers are',
+  horse: 'horses’ numbers are',
+  pair: 'numbers per exhibitor and horse are',
+};
+
 /**
  * Who a back number belongs to at this show (`shows.back_number_per`,
- * migration 161).
+ * migrations 161 and 178).
  *
  * Controlled, with no save of its own, like `RegistrationQuestions`: it sits in
  * the new-show form and the Step 1 form and is saved with the rest of the show.
@@ -74,9 +92,8 @@ export default function BackNumberQuestion({
           {switchingLive
             ? 'This show is under way: the numbers on backs and on the judges’ cards will change. '
             : ''}
-          Saving gives every {value === 'horse' ? 'entered horse' : 'exhibitor on the roster'} a
-          number now. The {savedValue === 'horse' ? 'horses’' : 'exhibitors’'} numbers are kept, so
-          switching back restores them.
+          Saving gives {HANDED_OUT[value]} now. The {KEPT[savedValue]} kept, so switching back
+          restores them.
         </p>
       )}
     </fieldset>

@@ -32,6 +32,7 @@ export default function BackNumberRequest({
   backNumber,
   preferredBackNumber,
   horse,
+  pair = false,
 }: {
   showId: string;
   /** What the show has issued them, if anything. */
@@ -39,9 +40,16 @@ export default function BackNumberRequest({
   /** What they asked for. Differs from `backNumber` once the office renumbers. */
   preferredBackNumber: number | null;
   /** The horse this number is for, at a show that numbers horses (migration
-   *  161). Absent, the number is the exhibitor's own. */
+   *  161) or pairs (migration 178). Absent, the number is the exhibitor's own. */
   horse?: { id: string; name: string };
+  /** The number is the exhibitor's own on `horse` — a show that numbers each
+   *  exhibitor on each horse (migration 178) — rather than the horse's. */
+  pair?: boolean;
 }) {
+  // Whose number this is, as the sentences below say it: the horse's, or the
+  // exhibitor's — on a horse, at a pair-numbered show.
+  const horsesOwn = horse && !pair;
+  const onHorse = horse && pair ? ` on ${horse.name}` : '';
   const router = useRouter();
   const current = preferredBackNumber ?? backNumber;
   const [value, setValue] = useState(current == null ? '' : String(current));
@@ -103,12 +111,14 @@ export default function BackNumberRequest({
       style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
     >
       <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
-        {horse ? `${horse.name}’s back number` : 'Your back number'}
+        {horsesOwn ? `${horse.name}’s back number` : `Your back number${onHorse}`}
       </h2>
       <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-        {horse
+        {horsesOwn
           ? 'This show numbers horses — whoever shows this horse wears its number. Want a particular one? Ask for it here.'
-          : backNumber != null
+          : horse
+            ? 'This show gives you a number for each horse you show. Want a particular one? Ask for it here.'
+            : backNumber != null
             ? 'Ride a number of your own? Ask for it here.'
             : 'Ask for a number, or leave it and one will be assigned.'}
       </p>
@@ -150,12 +160,14 @@ export default function BackNumberRequest({
         </button>
         {backNumber != null && !saved && (
           <span className="text-xs" style={{ color: 'var(--success)' }}>
-            {horse ? `${horse.name} has` : 'You have'} back number <strong>{backNumber}</strong>.
+            {horsesOwn ? `${horse.name} has` : 'You have'} back number <strong>{backNumber}</strong>
+            {onHorse}.
           </span>
         )}
         {saved != null && (
           <span className="text-xs font-medium" style={{ color: 'var(--success)' }}>
-            ✓ Back number {saved} is {horse ? `${horse.name}’s` : 'yours'}.
+            ✓ Back number {saved} is {horsesOwn ? `${horse.name}’s` : 'yours'}
+            {onHorse}.
           </span>
         )}
       </div>

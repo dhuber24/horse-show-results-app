@@ -10,6 +10,7 @@ import { classEntryText } from '@/lib/registration-window';
 import SignupClosedNotice from '../_components/SignupClosedNotice';
 import { formatMoney, healthWarnings, type HorseNumber, type PreviewData } from './types';
 import type { BillClassLine } from '@/lib/my-shows';
+import { numbersEachHorse } from '@/lib/back-numbers';
 
 /**
  * Class registration: the classes an exhibitor is entered in, the picker that
@@ -234,10 +235,15 @@ export default function ClassEntryScreen({
           {/* First inside on purpose: people who ride the same number every year
               come here to claim it, and burying it under the class table would
               mean they only remember at the desk. */}
-          {preview.back_number_per === 'horse' ? (
-            // A show that numbers horses (migration 161): a number per horse,
-            // each arriving with the horse's first entry.
-            <HorseNumbers showId={showId} horses={preview.horse_numbers ?? []} live={live} />
+          {numbersEachHorse(preview.back_number_per) ? (
+            // A show that numbers horses (migration 161) or pairs (migration
+            // 178): a number per horse, each arriving with its first entry.
+            <HorseNumbers
+              showId={showId}
+              horses={preview.horse_numbers ?? []}
+              live={live}
+              pair={preview.back_number_per === 'pair'}
+            />
           ) : live ? (
             // Asking for a number closes when the show opens — the numbers are on
             // backs by then — so a running show states the one they have.
@@ -514,23 +520,27 @@ export default function ClassEntryScreen({
   );
 }
 
-/** Each entered horse's back number, at a show that numbers horses. While the
- *  show is taking entries each one can be asked for, as the exhibitor's own
- *  number can elsewhere; once it is running they are stated. */
+/** Each entered horse's back number, at a show that numbers horses — or the
+ *  exhibitor's own on each horse, at one that numbers pairs. While the show is
+ *  taking entries each one can be asked for, as the exhibitor's own number can
+ *  elsewhere; once it is running they are stated. */
 function HorseNumbers({
   showId,
   horses,
   live,
+  pair,
 }: {
   showId: string;
   horses: HorseNumber[];
   live: boolean;
+  pair: boolean;
 }) {
   if (horses.length === 0) {
     return (
       <p className="text-sm" style={{ color: 'var(--muted)' }}>
-        This show gives each horse its own back number. Enter a horse in a class and its number
-        appears here.
+        {pair
+          ? 'This show gives you a back number for each horse you show. Enter a horse in a class and its number appears here.'
+          : 'This show gives each horse its own back number. Enter a horse in a class and its number appears here.'}
       </p>
     );
   }
@@ -562,6 +572,7 @@ function HorseNumbers({
           backNumber={h.back_number}
           preferredBackNumber={h.preferred_back_number}
           horse={{ id: h.horse_id, name: h.horse_name }}
+          pair={pair}
         />
       ))}
     </div>

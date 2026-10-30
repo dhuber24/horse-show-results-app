@@ -3,6 +3,7 @@
  * History tab on the profile. Both read the same payload so a bill can't say
  * one thing in one place and something else in the other.
  */
+import type { BackNumberPer } from './back-numbers';
 
 /**
  * `GET /my-shows/{show_id}` — where the signed-in user stands at one show.
@@ -35,9 +36,9 @@ export type MyShowStanding = {
   } | null;
   back_number: number | null;
   /** Every number they wear here — one per horse at a show that numbers
-   *  horses (migration 161) — and which kind the show issues. */
+   *  horses or pairs (migrations 161, 178) — and which kind the show issues. */
   back_numbers?: number[];
-  back_number_per?: 'exhibitor' | 'horse';
+  back_number_per?: BackNumberPer;
   entry_count: number;
   arrival_date: string | null;
   departure_date: string | null;
@@ -275,9 +276,9 @@ export type MyShow = {
   location?: string | null;
   back_number: number | null;
   /** Every number they wear here — one per horse at a show that numbers
-   *  horses (migration 161) — and which kind the show issues. */
+   *  horses or pairs (migrations 161, 178) — and which kind the show issues. */
   back_numbers?: number[];
-  back_number_per?: 'exhibitor' | 'horse';
+  back_number_per?: BackNumberPer;
   registered_at: string | null;
   /** Set when the registration was called off. The backend leaves a cancelled
    *  registration off this list altogether (`my_shows.withdrawn`), so this is

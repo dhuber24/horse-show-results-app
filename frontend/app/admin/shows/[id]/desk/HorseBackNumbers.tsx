@@ -5,13 +5,16 @@ import { COLORS, horseHoldingNumber, nextFreeHorseNumber } from './types';
 import type { Desk, DeskExhibitor, DeskHorse } from './types';
 
 /**
- * One back number per horse, at a show that numbers horses (migration 161).
+ * One back number per horse, at a show that numbers horses (migration 161) or
+ * each exhibitor on each horse (migration 178).
  *
  * Takes the place of the single "Back #" box in the panel header: APHA
  * SC-160.D numbers the horse, so somebody who brought three horses wears three
- * numbers and the desk needs a box beside each. A horse shown by two exhibitors
- * is one row under each of them with the same number — changing it under one
- * changes it under both, because it is one number.
+ * numbers and the desk needs a box beside each. At a horse-numbered show a
+ * horse shown by two exhibitors is one row under each of them with the same
+ * number — changing it under one changes it under both, because it is one
+ * number. At a pair-numbered show those two rows are two numbers, and each is
+ * saved as that exhibitor's own.
  *
  * Every horse is given the lowest free number the moment it is first entered
  * (`backnumbers.assign_horse_number_if_missing`), so this is usually where a
@@ -40,7 +43,9 @@ export default function HorseBackNumbers({
           Back numbers
         </p>
         <p className="text-xs mt-1 max-w-[14rem]" style={{ color: COLORS.muted }}>
-          This show numbers horses. Each horse gets its number when it is entered in a class.
+          {desk.back_number_per === 'pair'
+            ? 'This show gives each exhibitor a number for each horse they show. Each one arrives when the horse is entered in a class.'
+            : 'This show numbers horses. Each horse gets its number when it is entered in a class.'}
         </p>
       </div>
     );
@@ -57,6 +62,7 @@ export default function HorseBackNumbers({
             key={horse.horse_id}
             showId={showId}
             desk={desk}
+            exhibitorId={exhibitor.exhibitor_id}
             horse={horse}
             busy={busy}
             run={run}
@@ -70,12 +76,15 @@ export default function HorseBackNumbers({
 function HorseNumberRow({
   showId,
   desk,
+  exhibitorId,
   horse,
   busy,
   run,
 }: {
   showId: string;
   desk: Desk;
+  /** Whose list this row is in — whose number it is, at a pair-numbered show. */
+  exhibitorId: string;
   horse: DeskHorse;
   busy: Set<string>;
   run: (key: string, fn: () => Promise<Response>, fallback: string) => Promise<boolean>;
@@ -86,13 +95,14 @@ function HorseNumberRow({
     setValue(held?.toString() ?? '');
   }, [horse.horse_id, held]);
 
-  const key = `horse-number-${horse.horse_id}`;
+  const self = { exhibitorId, horseId: horse.horse_id };
+  const key = `horse-number-${exhibitorId}-${horse.horse_id}`;
   const saving = busy.has(key);
   const dirty = (held?.toString() ?? '') !== value.trim();
   const typed = value.trim() === '' ? null : Number(value);
   // Said before Save rather than after a 409, and named, because "who has
   // 42?" is the next question.
-  const holder = typed === null ? undefined : horseHoldingNumber(desk, typed, horse.horse_id);
+  const holder = typed === null ? undefined : horseHoldingNumber(desk, typed, self);
 
   const save = (next: string = value) =>
     run(
@@ -106,6 +116,9 @@ function HorseNumberRow({
             horses: [
               {
                 horse_id: horse.horse_id,
+                // Whose number it is at a pair-numbered show; ignored at a
+                // horse-numbered one, where the horse has one number.
+                exhibitor_id: exhibitorId,
                 back_number: next.trim() === '' ? null : parseInt(next, 10),
               },
             ],
@@ -115,7 +128,7 @@ function HorseNumberRow({
     );
 
   const assignNextFree = () => {
-    const next = String(nextFreeHorseNumber(desk, horse.horse_id));
+    const next = String(nextFreeHorseNumber(desk, self));
     setValue(next);
     return save(next);
   };
@@ -143,11 +156,11 @@ function HorseNumberRow({
             type="button"
             onClick={assignNextFree}
             disabled={saving}
-            title="The lowest number no other horse at this show holds or has asked for"
+            title="The lowest number nobody else at this show holds or has asked for"
             className="px-2.5 py-1.5 rounded text-xs font-medium disabled:opacity-50 whitespace-nowrap"
             style={{ backgroundColor: COLORS.accent, color: 'var(--surface)' }}
           >
-            {saving ? 'Saving…' : `Assign #${nextFreeHorseNumber(desk, horse.horse_id)}`}
+            {saving ? 'Saving…' : `Assign #${nextFreeHorseNumber(desk, self)}`}
           </button>
         ) : (
           <button

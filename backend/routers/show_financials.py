@@ -184,8 +184,9 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
         await side_pot_membership.load_show_pots(show_id, db)
     )
 
-    # 5. Back numbers, of whichever kind the show issues (migration 161): one
-    # per exhibitor, or one per horse -- several for somebody with several.
+    # 5. Back numbers, of whichever kind the show issues (migrations 161, 178):
+    # one per exhibitor, or one per horse or pair -- several for somebody with
+    # several horses.
     numbers = await back_numbers_for_show(show_id, db)
 
     accounts: list[dict] = []
@@ -220,7 +221,7 @@ async def _load_financials(show_id: UUID, db: AsyncSession) -> dict:
             # A request for a horse's number lives on that horse's row.
             "preferred_back_number": (
                 show_entry.preferred_back_number
-                if show_entry and not numbers.per_horse
+                if show_entry and numbers.per_exhibitor
                 else None
             ),
             "signed_up": is_on_roster(show_entry),

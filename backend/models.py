@@ -161,8 +161,9 @@ class Show(Base):
     # `class_start`. Read through `self_entry.class_entry_open`.
     self_entry_closes = Column(Text, nullable=True)
     # Who a back number belongs to at this show (migration 161): `exhibitor`,
-    # one per person on `show_entries.back_number`, or `horse`, one per horse on
-    # `show_horse_numbers` -- APHA SC-160.D numbers horses. Read through
+    # one per person on `show_entries.back_number`; `horse`, one per horse on
+    # `show_horse_numbers` -- APHA SC-160.D numbers horses; or `pair`, one per
+    # exhibitor per horse on `show_pair_numbers` (migration 178). Read through
     # `backnumbers.back_numbers_for_show`, never by picking a column directly.
     back_number_per = Column(Text, nullable=False, server_default="exhibitor", default="exhibitor")
     # What kind of show this is and the judge panel it allows (migration 124).
@@ -2342,6 +2343,28 @@ class ShowHorseNumber(Base):
     )
 
     horse = relationship("Horse")
+
+
+class ShowPairNumber(Base):
+    """An exhibitor's back number on one horse at one show (migration 178),
+    read only where `shows.back_number_per` is `pair`. Keyed on the two
+    together: a horse shown by two exhibitors wears two numbers, and an
+    exhibitor with three horses wears three."""
+    __tablename__ = "show_pair_numbers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    exhibitor_id = Column(UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="CASCADE"), nullable=False)
+    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    back_number = Column(Integer, nullable=True)
+    # What was asked for, as against what the show issued (migration 104).
+    preferred_back_number = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("show_id", "exhibitor_id", "horse_id", name="uq_show_pair_numbers_pair"),
+        UniqueConstraint("show_id", "back_number", name="uq_show_pair_numbers_number"),
+    )
 
 
 class ShowJudge(Base):

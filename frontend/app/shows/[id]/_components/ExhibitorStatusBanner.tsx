@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { MyShowStanding } from '@/lib/my-shows';
-import { backNumbersLabel, backNumbersOf } from '@/lib/back-numbers';
+import { backNumbersLabel, backNumbersOf, numbersEachHorse } from '@/lib/back-numbers';
 
 /**
  * What an exhibitor's own standing at this show is, at the top of the show page.
@@ -111,9 +111,9 @@ export default function ExhibitorStatusBanner({
           {/* Only while they can still do something about it. The link is the
               point of the sentence — telling someone to enter a number
               without saying where is worse than saying nothing. */}
-          {/* Not at a show that numbers horses (migration 161): there the
-              number comes with each horse entered. */}
-          {standing.back_number == null && standing.back_number_per !== 'horse' && registrationOpen && (
+          {/* Not at a show that numbers horses or pairs (migrations 161,
+              178): there the number comes with each horse entered. */}
+          {standing.back_number == null && !numbersEachHorse(standing.back_number_per) && registrationOpen && (
             <>
               {' '}
               <Link

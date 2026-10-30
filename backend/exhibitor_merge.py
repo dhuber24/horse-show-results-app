@@ -52,6 +52,7 @@ from models import (
     ShowContactMessage,
     ShowEntry,
     ShowEntryReservation,
+    ShowPairNumber,
     ShowPayment,
     ShowRegistrationDraft,
     ShowRegistrationProfile,
@@ -499,6 +500,41 @@ async def _fold_reservations(db: AsyncSession, keep: ShowEntry, remove: ShowEntr
     await db.flush()
 
 
+async def _fold_pair_numbers(db: AsyncSession, keep_id: UUID, remove_id: UUID) -> int:
+    """Move the record's numbers at pair-numbered shows (migration 178) across.
+
+    `show_pair_numbers` is unique on (show, exhibitor, horse), so where both
+    records hold a number on the same horse at the same show the two rows
+    become one, by the rule `adopt_standing` applies to a roster row's number:
+    the survivor's number stands, and the other is adopted only where the
+    survivor has none. Left to the foreign key instead, the delete at the end
+    of the merge would cascade every one of these away. Returns how many rows
+    were folded into one the survivor already had.
+    """
+    held_rows = await db.execute(select(ShowPairNumber).where(ShowPairNumber.exhibitor_id == keep_id))
+    held = {(row.show_id, row.horse_id): row for row in held_rows.scalars().all()}
+    incoming = await db.execute(select(ShowPairNumber).where(ShowPairNumber.exhibitor_id == remove_id))
+
+    folded = 0
+    for row in incoming.scalars().all():
+        mine = held.get((row.show_id, row.horse_id))
+        if mine is None:
+            row.exhibitor_id = keep_id
+            continue
+        number, asked = row.back_number, row.preferred_back_number
+        # Gone before the survivor takes its number, so the (show_id,
+        # back_number) unique index never sees both rows holding it.
+        await db.delete(row)
+        await db.flush()
+        if mine.back_number is None:
+            mine.back_number = number
+        if mine.preferred_back_number is None:
+            mine.preferred_back_number = asked
+        folded += 1
+    await db.flush()
+    return folded
+
+
 def _futurity_entry_model():
     # Imported lazily: `models` imports cleanly either way, but keeping the
     # futurity tables out of this module's import list makes the dependency
@@ -584,6 +620,7 @@ async def merge_exhibitors(
         )
 
     duplicates = 0
+    duplicates += await _fold_pair_numbers(db, keep.id, remove.id)
     duplicates += await _move_unique_children(db, ExhibitorHorse, ("horse_id",), keep.id, remove.id)
     duplicates += await _move_unique_children(
         db, ExhibitorRegistration, ("association_id",), keep.id, remove.id

@@ -839,8 +839,8 @@ export default function ExhibitorPanel({
                   : 'Added at the desk — has not completed show sign-up.'}
             </p>
           </div>
-          {/* A show that numbers horses (migration 161) has a box per horse
-              here instead of one for the person. */}
+          {/* A show that numbers horses or pairs (migrations 161, 178) has a
+              box per horse here instead of one for the person. */}
           {numbersHorses(desk) ? (
             <HorseBackNumbers
               showId={showId}

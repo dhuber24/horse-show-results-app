@@ -2,6 +2,22 @@
 
 ## October 2026
 
+### A back number per exhibitor and horse
+
+- **A third answer to *Back numbers* on Step 1: one per exhibitor and horse.**
+  Each exhibitor gets a number for each horse they show, so three horses is
+  three numbers — as at a horse-numbered show — but a horse shown by a youth
+  and then an amateur is two numbers, not one (migration 178,
+  `show_pair_numbers`). Every screen that already handled a number per horse
+  handles it: the desk's box beside each horse, the exhibitor's request per
+  horse, auto-assign, every exhibitor-level list of numbers.
+- **One implementation for both per-horse kinds.** `backnumbers.NumberTable` is
+  the only difference between them — the key, `(horse)` or `(exhibitor,
+  horse)` — so handing out, requesting and renumbering are written once.
+- **At a pair show a number names its exhibitor**, so a side pot buy-in by back
+  number never has to ask who; and merging two exhibitor records folds their
+  pair numbers instead of letting the cascade drop them.
+
 ### APHA and AQHA rules flag an entry; they no longer refuse it
 
 - **Which rules a show holds its exhibitors to is the show company's call.**

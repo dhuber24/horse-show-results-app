@@ -7,8 +7,9 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json();
   const { showId, assignments, horses } = body;
-  // `horses` is a show that numbers horses (migration 161): one number per
-  // horse rather than per exhibitor, on its own endpoint.
+  // `horses` is a show that numbers horses or pairs (migrations 161, 178): one
+  // number per horse rather than per exhibitor, on its own endpoint. At a pair
+  // show each carries the `exhibitor_id` whose number it is.
   const url = horses
     ? `${API_URL}/shows/${showId}/back-numbers/horses`
     : `${API_URL}/shows/${showId}/back-numbers/`;

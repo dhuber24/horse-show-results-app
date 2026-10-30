@@ -267,10 +267,11 @@ async def _show_entry_wearing(show_id: UUID, number: int, db: AsyncSession) -> S
     At a show that numbers horses (migration 161) the number is a horse's, and
     a buy-in is an exhibitor's: the horse's rider is the answer when there is
     one, and when two exhibitors show that horse the number cannot say which of
-    them is buying in, so staff are asked to pick by name.
+    them is buying in, so staff are asked to pick by name. At a show that
+    numbers pairs (migration 178) the number names its exhibitor outright.
     """
     numbers = await back_numbers_for_show(show_id, db)
-    if not numbers.per_horse:
+    if numbers.per_exhibitor:
         rows = await db.execute(
             select(ShowEntry).where(
                 ShowEntry.show_id == show_id,
@@ -279,12 +280,7 @@ async def _show_entry_wearing(show_id: UUID, number: int, db: AsyncSession) -> S
         )
         show_entry = rows.scalar_one_or_none()
     else:
-        horse_ids = {h for h, held in numbers.by_horse.items() if held == number}
-        riders = [
-            exhibitor_id
-            for exhibitor_id, horses in numbers.horses_by_exhibitor.items()
-            if horses & horse_ids
-        ]
+        riders = numbers.wearers_of(number)
         if len(riders) > 1:
             raise HTTPException(
                 409,
