@@ -51,8 +51,8 @@ Codex note: browser code should call local `/api/*` routes for authenticated wri
 | --- | --- |
 | `ADMIN` | Full system access, user management, venues, configuration, all shows |
 | `SHOW_MANAGER` | Requests and manages hosted shows; can assign show secretaries and scribes |
-| `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration |
-| `SCRIBE` | Enters placings for assigned shows |
+| `SHOW_SECRETARY` | Manages assigned shows, classes, entries, back numbers, and results administration — including a scribe's work at them (placings, scores, posting, the judge's card and its photo), as `SHOW_MANAGER` may |
+| `SCRIBE` | Enters placings and scores for assigned shows |
 | `GATE_STEWARD` | Runs the warm-up side of the in-gate for assigned shows: per-class order-of-go, checking riders in or marking them no-shows for any class still to run, and starting each class in running order — alone, or alongside the classes in the ring when they run together. Never scratches an entry. Admins, Show Managers, and Show Secretaries can also perform gate functions. See `docs/design/gate.md` |
 | `EXHIBITOR` | Views own entries/results and manages profile/horses |
 | `TRAINER` | Manages a linked trainer registry profile used on horse records |
@@ -158,7 +158,8 @@ Common guards live in `backend/dependencies.py`:
 | `require_admin` | Valid API key and `ADMIN` role |
 | `require_admin_or_show_admin` | `ADMIN`, `SHOW_SECRETARY`, or `SHOW_MANAGER` |
 | `require_admin_or_show_manager` | `ADMIN` or `SHOW_MANAGER` |
-| `require_admin_or_scribe` | `ADMIN` or `SCRIBE` |
+
+A scribe's work at a show — placings, scores, posting a class, the judge's card and its photo — is guarded by `show_access.require_scoring_access`: `ADMIN` or `SCRIBE` by role, or a `SHOW_MANAGER` / `SHOW_SECRETARY` who works that show (a per-show row or the show's company). It replaced `require_admin_or_scribe`, which let in the first two only.
 
 Show-scoped write access is usually checked with join tables:
 

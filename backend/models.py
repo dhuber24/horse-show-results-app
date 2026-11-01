@@ -376,6 +376,37 @@ class ShowPatternClass(Base):
     )
 
 
+class ClassCardPhoto(Base):
+    """A photo of a judge's card, attached to its class (migration 177).
+
+    The scribe types the total; the card -- every maneuver, penalty and note in
+    the judge's hand -- is photographed from the scribe screen and read here.
+    One row per photo: a panel of three is three, a card on two sheets is two.
+    `judge_id` is the `show_judges` assignment, as on `Result.judge_id`, and
+    NULL is the unattributed card. Never replaced in place, so an id always
+    names the same bytes and a reader may cache them.
+
+    Public only once the class is posted -- the card is the placings. `file_data`
+    is deferred and nothing relates to this model, the `ShowPattern` rule. See
+    `routers/card_photos.py`.
+    """
+
+    __tablename__ = "class_card_photos"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    class_id = Column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    judge_id = Column(UUID(as_uuid=True), ForeignKey("show_judges.id", ondelete="SET NULL"), nullable=True)
+    file_data = deferred(Column(LargeBinary, nullable=False))
+    mime_type = Column(Text, nullable=False)
+    file_size = Column(Integer, nullable=False)
+    uploaded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("class_card_photos_class_idx", "class_id"),
+    )
+
+
 class PointSystem(Base):
     """A named high-point chart (migration 147), entered by a GaitDesk admin.
 
@@ -1378,54 +1409,11 @@ class HorseDocument(Base):
     uploaded_by = relationship("User")
 
 
-class DocumentExtraction(Base):
-    """One AI read of an uploaded horse document, with what the human did next.
-
-    Written when a document is analyzed — before it is saved — and linked to the
-    resulting `HorseDocument` if the uploader goes on to save. The model only
-    ever suggests; `overridden_fields` records where the person disagreed, which
-    is what makes a stored `expiry_date` answerable later: typed, accepted, or
-    corrected.
-    """
-    __tablename__ = "document_extractions"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Null when the document was read before its horse existed — the add-a-horse
-    # wizard stages documents in the browser and saves them only after creation.
-    # Set when the queued document is finally saved.
-    horse_id = Column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=True)
-    # Null until save; null forever if the uploader abandons the upload.
-    document_id = Column(UUID(as_uuid=True), ForeignKey("horse_documents.id", ondelete="CASCADE"), nullable=True)
-
-    original_filename = Column(Text, nullable=False)
-    mime_type = Column(Text, nullable=False)
-    file_size = Column(Integer, nullable=False)
-
-    status = Column(Text, nullable=False)
-    error_message = Column(Text, nullable=True)
-
-    extracted = Column(JSONB, nullable=True)
-    accepted = Column(JSONB, nullable=True)
-    overridden_fields = Column(ARRAY(Text), nullable=False, server_default="{}")
-
-    model = Column(Text, nullable=True)
-    input_tokens = Column(Integer, nullable=True)
-    output_tokens = Column(Integer, nullable=True)
-
-    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-    linked_at = Column(TIMESTAMP(timezone=True), nullable=True)
-
-    horse = relationship("Horse")
-    document = relationship("HorseDocument")
-    requested_by = relationship("User")
-
-
 class ShowBillImport(Base):
     """One AI read of an uploaded show bill, and the show made from it.
 
-    The show-sized sibling of `DocumentExtraction`: the model reads the bill,
-    a person reviews what it read, and only their press creates anything.
+    The model reads the bill, a person reviews what it read, and only their press
+    creates anything.
     `extracted` is the read, `accepted` is what the reviewer submitted, and
     `show_id` is what that became -- see `backend/showbill_import.py`.
 

@@ -21,9 +21,12 @@ secretary out of one screen of a show they could open everywhere else.
 """
 from uuid import UUID
 
+from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from database import get_db
+from dependencies import INTERNAL_API_KEY, safe_uuid
 from models import Show, ShowCompanyMember, ShowManager, ShowSecretary, User
 
 # The per-show table each office role may be assigned through.
@@ -55,6 +58,35 @@ async def works_show(db: AsyncSession, show_id: UUID, user_id: UUID | None, role
         return True
     return await in_show_company(db, show_id, user_id)
 
+
+
+async def require_scoring_access(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str | None = Header(None),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """A dependency for a scribe's work at a show: entering placings and scores,
+    posting a class, the judge's card and its photo.
+
+    ADMIN and SCRIBE at any show, by role, as it has always been -- a scribe is
+    staffed per show but the results routes never asked which. A show manager
+    or secretary does the same work at the shows they work, and only there: a
+    secretary at one company is not a scribe at another's show. Reads the
+    `show_id` path parameter, so it only goes on a route under a show; a frozen
+    show is still refused by `refuse_frozen_show` beside it.
+    """
+    if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+        raise HTTPException(401, "Unauthorized")
+    if x_user_role in ("ADMIN", "SCRIBE"):
+        return
+    if x_user_role in SHOW_OFFICE_TABLES:
+        user_id = safe_uuid(x_user_id) if x_user_id else None
+        if await works_show(db, show_id, user_id, x_user_role):
+            return
+        raise HTTPException(403, "Not authorized for this show")
+    raise HTTPException(403, "Scribe or show office access required")
 
 def worked_show_ids(user_id: UUID, role: str):
     """A SELECT of every show id this show manager or secretary works, for

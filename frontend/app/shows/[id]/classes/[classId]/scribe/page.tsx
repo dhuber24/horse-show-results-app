@@ -6,8 +6,12 @@ import {
   fetchHorse,
   fetchExhibitor,
   fetchShowJudgesPublic,
+  fetchCardPhotos,
 } from '@/lib/api';
 import { getAuthHeaders, API_URL, readJsonBody } from '@/lib/backend-fetch';
+import { CARD_PHOTOS, fetchMyFeatures, fetchShowPlan, showHasFeature } from '@/lib/show-companies';
+import { isShowOfficeRole, mayScore } from '@/lib/scoring-access';
+import ProLockedPanel from '@/components/ProLockedPanel';
 import ScribeForm from './ScribeForm';
 import ScoredScribeForm from './ScoredScribeForm';
 
@@ -46,13 +50,40 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
   // Staff headers: results for an unposted class are only returned to show
   // staff, and this screen is where the unposted draft is being written.
   const staffHeaders = await getAuthHeaders();
-  const [show, classes, entries, results, judges] = await Promise.all([
+  const role = staffHeaders?.['X-User-Role'];
+  const [show, classes, entries, results, judges, cardPhotos, plan] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchEntries(id, classId),
     fetchResults(id, classId, staffHeaders ?? undefined),
     fetchShowJudgesPublic(id),
+    fetchCardPhotos(id, classId, staffHeaders ?? undefined),
+    fetchShowPlan(id, staffHeaders),
   ]);
+
+  // The proxy lets the show office in by role; whether this is one of *its*
+  // shows is the plan answering. Anybody else would be typing into a sheet
+  // every save of which the backend refuses.
+  if (!mayScore(role, plan)) {
+    return (
+      <main className="max-w-3xl mx-auto p-6">
+        <p className="p-4 rounded-lg text-sm" style={{ backgroundColor: 'var(--warning-bg)', border: '1px solid var(--border)', color: 'var(--warning)' }}>
+          You don&apos;t work this show, so you can&apos;t enter its results. Its own show office and scribes can.
+        </p>
+      </main>
+    );
+  }
+
+  // Photos of the judge's card are GaitDesk Pro (migration 177). At a show
+  // without it the office, who can upgrade, sees the offer where the photos
+  // would be; a scribe, who cannot, sees nothing.
+  const photosOn = showHasFeature(plan, CARD_PHOTOS);
+  const photoLock =
+    !photosOn && isShowOfficeRole(role) ? (
+      <div className="mb-4">
+        <ProLockedPanel feature={CARD_PHOTOS} plan={plan} mine={await fetchMyFeatures(staffHeaders)} />
+      </div>
+    ) : null;
 
   const cls = classes.find((c: any) => c.id === classId);
   const { system: judgingSystem, cards } = await loadCards(
@@ -115,6 +146,8 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
           resultsPublishedAt={cls.results_published_at ?? null}
           judgingSystem={judgingSystem}
           cards={cards}
+          cardPhotos={photosOn ? cardPhotos : null}
+          photoLock={photoLock}
         />
       ) : (
         <ScribeForm
@@ -125,6 +158,8 @@ export default async function ScribePage({ params }: { params: Promise<{ id: str
           results={results}
           judges={judges}
           resultsPublishedAt={cls?.results_published_at ?? null}
+          cardPhotos={photosOn ? cardPhotos : null}
+          photoLock={photoLock}
         />
       )}
     </main>

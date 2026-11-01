@@ -1,3 +1,4 @@
+import type { CardPhoto } from './card-photos';
 import type { ShowPattern } from './patterns';
 import type {
   Circuit,
@@ -114,6 +115,29 @@ export async function fetchShowbill(showId: string): Promise<{
 export async function fetchShowPatterns(showId: string): Promise<ShowPattern[]> {
   try {
     const res = await fetch(`${API_URL}/shows/${showId}/patterns`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+/** The photos of a class's judge's cards (migration 177), in the panel's
+ *  running order. Public once the class is posted; pass staff headers to see
+ *  them before, as `fetchResults` takes them.
+ *
+ *  Returns [] rather than throwing: most classes have no photo, and a failed
+ *  lookup must not take the class's results down with it. */
+export async function fetchCardPhotos(
+  showId: string,
+  classId: string,
+  headers?: HeadersInit,
+): Promise<CardPhoto[]> {
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/classes/${classId}/card-photos`, {
+      headers,
+      cache: 'no-store',
+    });
     if (!res.ok) return [];
     return await res.json();
   } catch {

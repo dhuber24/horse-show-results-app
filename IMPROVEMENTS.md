@@ -1,5 +1,21 @@
 # Codebase Improvements
 
+## November 2026
+
+### Horse paperwork is no longer read by AI
+
+- **The reader behind the Coggins, vaccination, health certificate and
+  registration uploads is gone**, from the horse page and the add-a-horse wizard
+  alike. The uploader enters the document's type and dates, as they did whenever
+  a read was unavailable; the form still uploads by itself once they are in.
+  The review panel, the *read from document* markers, the *Looks right — save*
+  button and the 12-months-from-the-blood-draw offer went with it.
+- **The show bill import stays.** What
+  it shared with the document reader moved to `extraction/common.py`.
+- **`document_extractions` stays in the database for now, unused.** Dropping a
+  table the running release still maps is not a safe single step, so that is a
+  later migration.
+
 ## October 2026
 
 ### A back number per exhibitor and horse
@@ -17,6 +33,40 @@
 - **At a pair show a number names its exhibitor**, so a side pot buy-in by back
   number never has to ask who; and merging two exhibitor records folds their
   pair numbers instead of letting the cascade drop them.
+
+### The show office does a scribe's work at its own shows
+
+- **A show manager or secretary enters placings and scores, posts classes, and
+  fills and photographs judge's cards**, from the same scribe screens, at the
+  shows they work. The dashboard's *Score Classes* tile now opens the scoring
+  list for them; it used to land a secretary on the public show page. The
+  results, judge's card and photo routes check `show_access.require_scoring_access`
+  in place of the role-only `require_admin_or_scribe`: ADMIN and SCRIBE as
+  before, and the office only at its own shows — a secretary from another
+  company is refused, and the scribe screen says so.
+
+### A photo of the judge's card, on the class page
+
+- **The scribe types the total; the card is photographed, not re-typed.** Both
+  scribe forms end with *Take a photo of the card*, which opens the phone's
+  camera. The photo is tagged with the judge's tab that is open, and exhibitors
+  read it under the results on the class page, captioned with the judge —
+  the way they read the pattern before the class (migration 177,
+  `class_card_photos`).
+- **Nobody outside the show staff sees a card until the class is posted.** The
+  card is the placings; a photo up early would post the class before the scribe
+  did.
+- **A GaitDesk Pro feature.** Taking or removing a photo is refused at a show on
+  Basic; there the office sees the Pro offer where the photos would be, and a
+  scribe sees nothing.
+- **A photo is shrunk in the browser before it goes**: no more than 2000px, a
+  JPEG of a few hundred KB instead of several MB, with the camera's rotation
+  applied and its location data left behind.
+- **This replaced a WSCA Longe Line sheet that took the card box by box**, built
+  and backed out before release: a show that wants the card seen wants the
+  paper, not the scribe typing every box of it again. A Longe Line class is set
+  to *Scored* with *Scribe types the total*, and the app ranks the totals as it
+  does every scored class.
 
 ### APHA and AQHA rules flag an entry; they no longer refuse it
 

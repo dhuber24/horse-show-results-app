@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
+import { SCORING_ROLES } from '@/lib/scoring-access';
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -26,12 +27,13 @@ export default auth((req) => {
     }
   }
 
-  // Protect scribe routes
+  // Protect scribe routes. The show office does a scribe's work at its own
+  // shows; which shows is the page's and the backend's to check, not this.
   if (pathname.includes('/scribe')) {
     if (!session) {
       return NextResponse.redirect(new URL('/login', req.url));
     }
-    if (role !== 'SCRIBE' && role !== 'ADMIN') {
+    if (!SCORING_ROLES.includes(role)) {
       return NextResponse.redirect(new URL('/', req.url));
     }
   }

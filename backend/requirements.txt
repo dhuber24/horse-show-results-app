@@ -42,9 +42,8 @@ python-dateutil==2.8.2
 pytz==2023.3.post1
 pypdf==6.11.0
 
-# Document extraction (reads dates/registration numbers off uploaded scans).
-# Optional at runtime: with no ANTHROPIC_API_KEY set the upload form falls back
-# to manual entry rather than failing.
+# Show bill import (reads a show's printed show bill into a draft show).
+# Optional at runtime: with no ANTHROPIC_API_KEY set, shows are set up by hand.
 anthropic==0.116.0
 
 # Online payments: Trainer Registry Pro, GaitDesk's invoices to show companies,

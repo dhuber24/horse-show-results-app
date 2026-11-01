@@ -2,16 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import ConfirmDialog from './ConfirmDialog';
-import {
-  DETAIL_FIELDS,
-  ExtractionResponse,
-  FIELD_LABELS,
-  WIDE_DETAIL_FIELDS,
-  analyzeDocument,
-  asText,
-  reviewWarnings,
-  twelveMonthsAfter,
-} from '@/lib/document-extraction';
 
 export interface HorseDocument {
   id: string;
@@ -114,8 +104,6 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [reading, setReading] = useState(false);
-  const [extraction, setExtraction] = useState<ExtractionResponse | null>(null);
 
   useEffect(() => {
     if (initialDocuments) return;
@@ -162,8 +150,6 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     fd.append('document_type', uploadForm.document_type);
     fd.append('issue_date', uploadForm.issue_date);
     fd.append('expiry_date', uploadForm.expiry_date);
-    // Records whether these dates were typed, accepted, or corrected.
-    if (extraction) fd.append('extraction_id', extraction.extraction_id);
 
     const res = await fetch(`/api/horses/${horseId}/documents`, { method: 'POST', body: fd });
     setUploading(false);
@@ -177,7 +163,6 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
       setFilterType(nextFilter);
       setForm({ ...emptyUpload, document_type: singleType ?? nextFilter });
       setFile(null);
-      setExtraction(null);
       setShowForm(false);
     } else {
       const err = await res.json().catch(() => ({}));
@@ -185,18 +170,13 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
     }
   };
 
-  // Once a document has been read, the uploader must press Save. Auto-upload is
-  // for values they typed themselves; letting it fire on extracted values would
-  // commit a machine's reading of an expiry date — the field the Coggins entry
-  // gate gets checked against — without anyone having looked at it.
   const maybeAutoUpload = async (nextForm: typeof form, nextFile: File | null) => {
-    if (extraction || uploading || !nextFile || !canUpload(nextForm, nextFile)) return;
+    if (uploading || !nextFile || !canUpload(nextForm, nextFile)) return;
     await handleUpload(nextForm, nextFile);
   };
 
   const handleFileChosen = async (nextFile: File | null) => {
     setFile(nextFile);
-    setExtraction(null);
     setError(null);
     if (!nextFile) return;
 
@@ -205,45 +185,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
       return;
     }
 
-    setReading(true);
-    const read = await analyzeDocument(nextFile, horseId);
-    setReading(false);
-
-    if (!read) {
-      await maybeAutoUpload(form, nextFile);
-      return;
-    }
-
-    setExtraction(read);
-    const f = read.fields;
-    setForm((prev) => ({
-      document_type: singleType ?? (asText(f.document_type) ?? prev.document_type),
-      issue_date: asText(f.issue_date) ?? prev.issue_date,
-      expiry_date: asText(f.expiry_date) ?? prev.expiry_date,
-    }));
-  };
-
-  const extractedFields = extraction?.fields ?? {};
-  const lowConfidence = new Set(extraction?.low_confidence_fields ?? []);
-  const details = DETAIL_FIELDS
-    .map((key) => [key, asText(extractedFields[key])] as const)
-    .filter((pair): pair is readonly [string, string] => pair[1] !== null);
-
-  const testDate = asText(extractedFields.test_date);
-  const derivedExpiry =
-    extraction && form.document_type === 'COGGINS' && !form.expiry_date && testDate
-      ? twelveMonthsAfter(testDate)
-      : null;
-
-  const fieldHint = (key: string) => {
-    if (!extraction) return null;
-    if (lowConfidence.has(key)) {
-      return <span className="text-xs ml-1" style={{ color: 'var(--warning)' }}>· check this</span>;
-    }
-    if (asText(extractedFields[key])) {
-      return <span className="text-xs ml-1" style={{ color: 'var(--success)' }}>· read from document</span>;
-    }
-    return <span className="text-xs ml-1" style={{ color: 'var(--text-dimmed)' }}>· not on the document</span>;
+    await maybeAutoUpload(form, nextFile);
   };
 
   const handleDelete = async (docId: string) => {
@@ -365,7 +307,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             {!singleType && (
               <div className="sm:col-span-2">
                 <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                  Document Type *{fieldHint('document_type')}
+                  Document Type *
                 </label>
                 <select
                   value={form.document_type}
@@ -383,7 +325,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             )}
             <div>
               <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Issue Date *{fieldHint('issue_date')}
+                Issue Date *
               </label>
               <input
                 type="date"
@@ -398,7 +340,7 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             </div>
             <div>
               <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>
-                Expiry Date *{fieldHint('expiry_date')}
+                Expiry Date *
               </label>
               <input
                 type="date"
@@ -410,17 +352,6 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
                 }}
                 className="w-full border rounded px-3 py-2 text-sm"
               />
-              {derivedExpiry && (
-                <button
-                  type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, expiry_date: derivedExpiry }))}
-                  className="text-xs mt-1 hover:underline text-left"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  No expiry printed. Use {formatDate(derivedExpiry)} — 12 months from the{' '}
-                  {formatDate(testDate)} blood draw?
-                </button>
-              )}
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs block mb-1" style={{ color: 'var(--muted)' }}>File * (PDF or image, max 10 MB)</label>
@@ -448,65 +379,13 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
             </div>
           </div>
 
-          {reading && (
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>
-              Reading the document to fill in the dates...
-            </p>
-          )}
-
-          {extraction && (
-            <div className="rounded border p-3 space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
-              <p className="text-xs font-semibold" style={{ color: 'var(--text-deep)' }}>
-                Read from the document — check it before saving
-              </p>
-              {reviewWarnings(extractedFields).map((warning) => (
-                <p
-                  key={warning}
-                  className="text-xs font-medium rounded px-2 py-1.5"
-                  style={{ color: 'var(--error-strong)', backgroundColor: 'var(--error-bg)' }}
-                >
-                  {warning}
-                </p>
-              ))}
-              {extraction.notes && (
-                <p className="text-xs" style={{ color: 'var(--warning)' }}>{extraction.notes}</p>
-              )}
-              {lowConfidence.size > 0 && (
-                <p className="text-xs" style={{ color: 'var(--warning)' }}>
-                  Hard to read:{' '}
-                  {[...lowConfidence].map((k) => FIELD_LABELS[k] ?? k).join(', ')}.
-                </p>
-              )}
-              {details.length > 0 && (
-                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                  {details.map(([key, value]) => (
-                    <div key={key} className={`flex gap-2${WIDE_DETAIL_FIELDS.has(key) ? ' sm:col-span-2' : ''}`}>
-                      <dt className="shrink-0" style={{ color: 'var(--muted)' }}>
-                        {FIELD_LABELS[key] ?? key}:
-                      </dt>
-                      <dd className={WIDE_DETAIL_FIELDS.has(key) ? 'break-words' : 'truncate'} style={{ color: 'var(--foreground)' }}>
-                        {value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              <p className="text-xs" style={{ color: 'var(--text-dimmed)' }}>
-                These details are shown so you can verify the document is the right one. Only the
-                type and dates above are saved.
-              </p>
-            </div>
-          )}
-
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          {!error && !reading && file && !uploading && !canUpload(form, file) && (
+          {!error && file && !uploading && !canUpload(form, file) && (
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
               {/* Names only what is actually missing. Listing "document type"
                   when the filter already supplied it sends people looking for a
                   field that is filled in. */}
-              {extraction
-                ? `Fill in ${missingFields.join(', ')}, then save.`
-                : `Complete ${missingFields.join(', ')} to auto-upload.`}
+              Complete {missingFields.join(', ')} to auto-upload.
             </p>
           )}
           {uploading && (
@@ -514,23 +393,11 @@ export default function HorseDocuments({ horseId, initialDocuments, types, empty
           )}
 
           <div className="flex gap-2">
-            {extraction && (
-              <button
-                onClick={() => file && handleUpload(form, file)}
-                disabled={!canUpload(form, file) || uploading}
-                title={canUpload(form, file) ? undefined : 'Fill in the type and both dates first.'}
-                className="px-4 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
-                style={{ backgroundColor: 'var(--accent)' }}
-              >
-                {uploading ? 'Saving...' : 'Looks right — save'}
-              </button>
-            )}
             <button
               onClick={() => {
                 setShowForm(false);
                 setForm(freshForm());
                 setFile(null);
-                setExtraction(null);
                 setError(null);
               }}
               className="px-4 py-2 rounded text-sm border"

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import TouchScorePad from './TouchScorePad';
 import PublishBar from './PublishBar';
 import JudgeTabs from './JudgeTabs';
+import CardPhotos from './CardPhotos';
+import type { CardPhoto } from '@/lib/card-photos';
 import { useAutosave } from './useAutosave';
 import { buildCards, groupByCard, type ShowJudge } from './judges';
 import { RESULT_OUTCOMES, isRanked, type ResultOutcome } from '@/lib/result-outcomes';
@@ -53,6 +55,10 @@ interface Props {
    *  scribe types a total, which is how every class worked before this. */
   judgingSystem?: JudgingSystem | null;
   cards?: JudgeCard[];
+  /** Photos of the judge's card filed on this class (migration 177); null
+   *  where the show's plan has no photos, and `photoLock` shows instead. */
+  cardPhotos?: CardPhoto[] | null;
+  photoLock?: React.ReactNode;
 }
 
 /** Cards are held per (card, entry) for the same reason scores are: each judge
@@ -168,6 +174,8 @@ export default function ScoredScribeForm({
   resultsPublishedAt,
   judgingSystem = null,
   cards: filedCards = [],
+  cardPhotos = null,
+  photoLock = null,
 }: Props) {
   const labels = LABELS[scoreType];
   // Offer the unassigned card only when something is actually filed against it,
@@ -779,6 +787,19 @@ export default function ScoredScribeForm({
           ))}
         </tbody>
       </table>
+
+      {cardPhotos ? (
+        <CardPhotos
+          showId={showId}
+          classId={classId}
+          cards={cards}
+          activeCard={activeCard}
+          initialPhotos={cardPhotos}
+          posted={Boolean(publishedAt)}
+        />
+      ) : (
+        photoLock
+      )}
 
       {/* The pad types a total. With a judging system that number is the card's
           output, so there is nothing here for it to type. */}

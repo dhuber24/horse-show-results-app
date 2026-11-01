@@ -7,8 +7,8 @@ reader -- APHA prints "CODE Name" under division headings, AQHA prints
 "Division CODE Name" on every line.
 
 Parsing only ever *proposes*. Nothing here writes; the router diffs the result
-against the catalog and an admin applies it. Same rule as document extraction:
-a misread name would go out on a show program.
+against the catalog and an admin applies it: a misread name would go out on a
+show program.
 """
 from __future__ import annotations
 

@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { Fragment } from 'react';
 import { fetchClasses } from '@/lib/api';
 import { auth } from '@/auth';
+import { getAuthHeaders } from '@/lib/backend-fetch';
+import { fetchShowPlan } from '@/lib/show-companies';
+import { isShowOfficeRole, mayScore } from '@/lib/scoring-access';
 import ShowHub from './_components/ShowHub';
 import { loadShowHub } from './_components/loadShowHub';
 import AutoRefresh from '@/components/AutoRefresh';
@@ -18,7 +21,11 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const session = await auth();
   const role = (session?.user as any)?.role;
-  const canScore = (role === 'ADMIN' || role === 'SCRIBE');
+  // The show office scores its own shows too (its Score Classes tile lands
+  // here). `/plan` answering is how the page knows this is one of them.
+  const office = isShowOfficeRole(role);
+  const plan = office ? await fetchShowPlan(id, await getAuthHeaders()) : null;
+  const canScore = mayScore(role, plan);
 
   // Together, so a scribe working a running show waits on one round trip
   // rather than two. The class list is wasted only on staff opening a show
@@ -30,7 +37,8 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
 
   // Everybody gets the show menu — the public results hub, the same page
   // `/live` serves, with an exhibitor's own standing and tiles on top — except
-  // a scribe or an admin while the show runs. Then the class numbers *are* the
+  // whoever scores it (a scribe, an admin, or the show's own office) while the
+  // show runs. Then the class numbers *are* the
   // menu: every row is a link into a scribe screen. Before the show and after
   // it no row can be scored, and the list was forty rows of something to read
   // under a "Read-only" banner, where everybody else got the menu.
@@ -41,7 +49,11 @@ export default async function ShowPage({ params }: { params: Promise<{ id: strin
 
   return (
     <main className="max-w-2xl mx-auto p-4 md:p-6">
-      <Link href="/" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>← Back to Shows</Link>
+      {office ? (
+        <Link href={`/admin/shows/${id}`} className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>← Back to the show office</Link>
+      ) : (
+        <Link href="/" className="text-sm hover:underline" style={{ color: 'var(--accent)' }}>← Back to Shows</Link>
+      )}
       <div className="mt-4 mb-6 pb-4 border-b" style={{ borderColor: 'var(--border)' }}>
         <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>

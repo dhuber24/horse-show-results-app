@@ -16,6 +16,7 @@ export const ASSOCIATION_EXPORT = 'association_export';
 export const DATA_EXPORT = 'data_export';
 export const LIVE_BOARDS = 'live_boards';
 export const ONLINE_PAYMENTS = 'online_payments';
+export const CARD_PHOTOS = 'card_photos';
 
 /** GaitDesk Basic or GaitDesk Pro (migration 168); Free and Pro+ (169). */
 export type PlanKey = 'free' | 'basic' | 'pro' | 'pro_plus';

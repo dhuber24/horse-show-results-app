@@ -52,8 +52,10 @@ router = APIRouter(
 
 
 def _rate_key(request: Request) -> str:
-    """Per user, not per IP -- every request arrives from the Next.js server.
-    Same reasoning as `horse_documents._extraction_rate_key`."""
+    """Per user, not per IP -- every request arrives from the Next.js server, so
+    the client address is the same for everyone and an IP-keyed limit would be a
+    global cap: one busy user would lock out the rest. The user id is attached
+    server-side by `getAuthHeaders()` and cannot be set by the browser."""
     return request.headers.get("x-user-id") or get_remote_address(request)
 
 

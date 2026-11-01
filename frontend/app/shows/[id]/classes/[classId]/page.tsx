@@ -7,10 +7,14 @@ import {
   fetchHorse,
   fetchExhibitor,
   fetchShowJudgesPublic,
+  fetchCardPhotos,
 } from '@/lib/api';
 import { getAuthHeaders } from '@/lib/backend-fetch';
+import { fetchShowPlan } from '@/lib/show-companies';
+import { isShowOfficeRole, mayScore } from '@/lib/scoring-access';
 import { auth } from '@/auth';
 import { patternFileHref } from '@/lib/patterns';
+import { cardPhotoHref, photoJudgeName } from '@/lib/card-photos';
 import PlacingsTable, { type CardColumn, type PlacingRow } from './PlacingsTable';
 
 const NO_JUDGE = '__none__';
@@ -19,17 +23,24 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
   const { id, classId } = await params;
   const session = await auth();
   const role = (session?.user as any)?.role;
-  const canEnterPlacings = role === 'ADMIN' || role === 'SCRIBE';
+  // Whoever scores the class: a scribe, an admin, or the show's own office
+  // (`lib/scoring-access.ts`), which is known by the show's plan answering it.
+  const headers = await getAuthHeaders();
+  const plan = isShowOfficeRole(role) ? await fetchShowPlan(id, headers) : null;
+  const canEnterPlacings = mayScore(role, plan);
 
   // Staff see a class's placings before it is posted; the public does not.
   // Passing headers is what distinguishes the two — see fetchResults.
-  const staffHeaders = canEnterPlacings ? await getAuthHeaders() : null;
-  const [show, classes, entries, results, judges] = await Promise.all([
+  const staffHeaders = canEnterPlacings ? headers : null;
+  // The judge's-card photos follow the same gate (migration 177): the card is
+  // the placings, so nobody else sees one before the class is posted.
+  const [show, classes, entries, results, judges, cardPhotos] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchEntries(id, classId),
     fetchResults(id, classId, staffHeaders ?? undefined),
     fetchShowJudgesPublic(id),
+    fetchCardPhotos(id, classId, staffHeaders ?? undefined),
   ]);
 
   const cls = classes.find((c: any) => c.id === classId);
@@ -175,6 +186,43 @@ export default async function ClassPage({ params }: { params: Promise<{ id: stri
             </>
           )}
         </p>
+      )}
+
+      {cardPhotos.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>
+            {new Set(cardPhotos.map((p) => p.judge_id)).size > 1 ? "The judges' cards" : "The judge's card"}
+          </h2>
+          <p className="text-xs mt-0.5 mb-3" style={{ color: 'var(--muted)' }}>
+            Photographed by the scribe. Tap a card to open it full size.
+          </p>
+          <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {cardPhotos.map((p) => {
+              const judge = photoJudgeName(p, judges);
+              return (
+                <li key={p.id}>
+                  <a
+                    href={cardPhotoHref(id, classId, p.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block hover:underline"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={cardPhotoHref(id, classId, p.id)}
+                      alt={judge ? `${judge}'s card` : "The judge's card"}
+                      className="w-full h-48 object-contain rounded"
+                      style={{ border: '1px solid var(--border)', backgroundColor: 'var(--background)' }}
+                      loading="lazy"
+                    />
+                    {judge && <span className="block text-sm mt-1">{judge}</span>}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
     </main>
   );

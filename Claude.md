@@ -12,9 +12,10 @@ It does:
 - Assign show-level back numbers.
 - Let authorized scribes manually enter placings.
 - Record a judge's card — maneuver or fence scores and the penalties called — and add it up (migration 122).
+- Attach a scribe's photo of the judge's card to its class, which exhibitors read once the class is posted (migration 177) — a Pro feature.
 - Publish results live.
 - Read a show's own printed show bill into a draft show for staff to check and create (migration 141) — a **paid feature** (migration 142).
-- Sell show companies a plan (migrations 168, 169): **GaitDesk Free** staffs a company but sets up no show; **Basic** ($2 per exhibitor registered to a show) runs the show; **Pro** ($4) adds financial reports, the show bill import, association results exports, the Data Export, the Live Boards and online payments from exhibitors; **Pro+** ($1,499 a year) is Pro with unlimited shows and exhibitors, and **renews as Pro+**: while a renewal is unpaid the company sets up no show and its unfinished shows are frozen, until it pays or picks Basic or Pro (migration 175). A company picks Basic or Pro itself and is invoiced after each show, net 30, and **pays for a finished show before it sets up the next one** (migration 173); a company **buys Pro+ up front** on My Company. A GaitDesk admin can still start a Pro+ year by hand — paid by check, invoiced later or complimentary — and can set any plan without a payment.
+- Sell show companies a plan (migrations 168, 169): **GaitDesk Free** staffs a company but sets up no show; **Basic** ($2 per exhibitor registered to a show) runs the show; **Pro** ($4) adds financial reports, the show bill import, association results exports, the Data Export, the Live Boards, online payments from exhibitors and photos of the judge's card; **Pro+** ($1,499 a year) is Pro with unlimited shows and exhibitors, and **renews as Pro+**: while a renewal is unpaid the company sets up no show and its unfinished shows are frozen, until it pays or picks Basic or Pro (migration 175). A company picks Basic or Pro itself and is invoiced after each show, net 30, and **pays for a finished show before it sets up the next one** (migration 173); a company **buys Pro+ up front** on My Company. A GaitDesk admin can still start a Pro+ year by hand — paid by check, invoiced later or complimentary — and can set any plan without a payment.
 - Take payments online through Stripe (migration 172), and only where Stripe's keys are set: trainers subscribe to Registry Pro by card; a show company pays GaitDesk's invoice by bank or card; and exhibitors pay a show company's own Stripe account, never GaitDesk's.
 - Track horses, exhibitors, show staff, documents, and association registration data.
 - Run a public Trainer Registry: a free Basic listing, and a paid Pro listing ranked nearest-first (migration 165) — a card subscription, or a date a GaitDesk admin records.
@@ -71,7 +72,6 @@ Background and narrative:
 | Show lifecycle and operational workflow | `docs/show-workflow.md` |
 | APHA and association-specific behavior | `docs/apha.md` |
 | AQHA research, class codes, and validation | `docs/aqha.md` |
-| Reading data off uploaded documents | `docs/document-extraction.md` |
 | Setting a show up from its printed show bill | `docs/showbill-import.md` |
 | Production deployment, environments, readiness | `docs/deployment.md` |
 | Capacity ceilings and what hosting costs at scale | `docs/scaling.md` |
@@ -107,7 +107,7 @@ Core files only; each design doc lists the files for its subsystem.
 
 - `ADMIN`: everything, including every paid feature; the only role that creates show companies, sets any company's plan by hand, and starts a Pro+ year.
 - `SHOW_MANAGER`: creates and runs shows (the creator gets the `show_managers` row; removing the last manager is a 409). With `SHOW_SECRETARY`, runs their company at My Company — its plan, its staff and its crew of scribes and gate stewards, added directly (migration 169) — and its self-cancel cut-off.
-- `SHOW_SECRETARY`: runs assigned shows — classes, entries, back numbers, results administration — and, with the two roles above, the registration desk at `/admin/shows/[id]/desk`.
+- `SHOW_SECRETARY`: runs assigned shows — classes, entries, back numbers, results administration — and, with the two roles above, the registration desk at `/admin/shows/[id]/desk`. With `SHOW_MANAGER`, also does a scribe's work at the shows they work: placings, scores, posting, the judge's card and its photo.
 - `SCRIBE`: enters placings and scores for assigned shows; may be on a company's crew, which is a list, not access. Not "Ring Steward" — do not rename it.
 - `GATE_STEWARD`: runs the in-gate at `/gate` — order of go, check-in, and each class's gate status.
 - `EXHIBITOR`: their own entries, profile and horses; signs up for a `PUBLISHED` show until `shows.entry_deadline`, and enters and scratches their own classes until each class starts — or until the show starts, where `shows.self_entry_closes` says so.
@@ -128,7 +128,7 @@ Each line is the short form; the linked doc has the reason and the history.
 - **"On the roster" is `cancellations.is_on_roster`, not `registered_at`.** A cancelled registration keeps its `registered_at`. → [registration](docs/design/registration.md)
 - **A show reads the exhibitor through `ShowExhibitorView`, and a registration never writes the profile.** Show data goes to that show's own copy. → [registration](docs/design/registration.md)
 - **The exhibitor permission is an `exhibitors` row, not `users.role`.** Read it with `loadExhibitor()` / `canActAsExhibitor()` (`frontend/lib/exhibitor-access.ts`). → [accounts](docs/design/accounts.md)
-- **Every office access check goes through `backend/show_access.py`**: a per-show row or membership of the show's company. → [companies](docs/design/companies.md)
+- **Every office access check goes through `backend/show_access.py`**: a per-show row or membership of the show's company. A scribe's work, which the office may also do at its own shows, is `require_scoring_access` there. → [companies](docs/design/companies.md)
 - **A show frozen by an unpaid Pro+ renewal refuses its office, gate and scribes** (migration 175). `_assert_show_access` refuses it for you; a route under a show checked by role alone takes `Depends(refuse_frozen_show)`. Exhibitors and the public pages are never frozen. → [companies](docs/design/companies.md)
 - **A company on GaitDesk Free sets up no show, nor does one with a finished show still to pay for** (migration 173): every path that creates one goes through `show_companies.show_setup_company_for`. A show is priced at the highest plan its company held across its dates (`show_billing_plan`), so every plan change goes through `set_company_plan`, which logs it. → [companies](docs/design/companies.md)
 - **A paid feature is enforced on every endpoint it gates** with `Depends(require_feature(KEY))`, or `Depends(require_show_feature(KEY))` for one used at a show — that reads the *show's* company plan, since the show is what is billed. A page only decides whether to offer the door. → [companies](docs/design/companies.md)
@@ -140,7 +140,7 @@ Each line is the short form; the linked doc has the reason and the history.
 - **Affiliations live in `associations`; `show_types` is show configuration.** OPEN is a show type with no `associations` row, and clubs (NSBA, WSCA) are not show types. → [associations](docs/design/associations.md)
 - **Never invent an association's rules.** No points chart, penalty label, card division or year-end the association has not published goes into the app under its name. → [associations](docs/design/associations.md)
 - **GaitDesk records and exports; the show company decides.** Which registrations, clubs and association rules a show holds exhibitors to is the company's call, so no association rule refuses an entry: the APHA and AQHA checks come back on `EntryOut.association_warnings` and the readiness panels, and only a value the database cannot store refuses (`rules.REFUSING_CODES`). Club eligibility — membership-gated points, Championship qualifying — is applied by the club to the Data Export, never built into the app. → [associations](docs/design/associations.md)
-- **AI reading only ever suggests.** Nothing read off a document or a show bill reaches a record until a human saves it, and an unset `ANTHROPIC_API_KEY` must never stop anybody filing paperwork. → [accounts](docs/design/accounts.md), [show-setup](docs/design/show-setup.md)
+- **AI reading only ever suggests.** Nothing read off a show bill reaches a record until a human saves it, and an unset `ANTHROPIC_API_KEY` must never stop anybody setting up a show. → [show-setup](docs/design/show-setup.md)
 - **Email is best-effort** (`backend/mailer.py` does nothing without SMTP). Every flow that mails a link also returns it for copy/paste, and nothing depends on delivery. → [accounts](docs/design/accounts.md)
 - **An `EXHIBITOR` or `TRAINER` user is created together with its `exhibitors` or `trainers` row.** → [accounts](docs/design/accounts.md)
 - **Horse age is derived, not stored**, and deleting a horse sets `entries.horse_id` to NULL so entry history survives.

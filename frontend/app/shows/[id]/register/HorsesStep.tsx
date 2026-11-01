@@ -46,9 +46,9 @@ import { healthWarnings, type PreviewHorse } from './types';
  * they stop nothing: each flag says so itself.
  *
  * Adding a *new* horse is still a link, and the one door that reaches the
- * profile: the wizard runs document extraction, a second copy of it here would
- * be a second copy to keep in step, and a horse created for one show is one
- * the exhibitor will bring to the next.
+ * profile: a second copy of the wizard here would be a second copy to keep in
+ * step, and a horse created for one show is one the exhibitor will bring to the
+ * next.
  */
 
 /** A refusal from these endpoints carries `{ code, message }` in `detail`,

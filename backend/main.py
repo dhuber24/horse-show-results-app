@@ -27,7 +27,7 @@ from routers.trainer_documents import router as trainer_documents_router
 from routers.breeds import router as breeds_router
 from routers.horse_colors import router as horse_colors_router
 from routers.horse_patterns import router as horse_patterns_router
-from routers.horse_documents import router as horse_documents_router, documents_router
+from routers.horse_documents import router as horse_documents_router
 from routers.exhibitor_documents import router as exhibitor_documents_router
 from routers.entries import router as entries_router, coggins_audit_router
 from routers.results import router as results_router
@@ -72,6 +72,7 @@ from routers.show_documents import router as show_documents_router
 from routers.show_marquee import router as show_marquee_router
 from routers.show_setup import router as show_setup_router
 from routers.show_patterns import router as show_patterns_router
+from routers.card_photos import router as card_photos_router
 from routers.show_bill_imports import router as show_bill_imports_router
 from routers.show_companies import router as show_companies_router
 from routers.high_point import router as high_point_router
@@ -188,7 +189,6 @@ app.include_router(breeds_router)
 app.include_router(horse_colors_router)
 app.include_router(horse_patterns_router)
 app.include_router(horse_documents_router)
-app.include_router(documents_router)
 app.include_router(exhibitor_documents_router)
 app.include_router(exhibitors_router)
 app.include_router(entries_router)
@@ -241,6 +241,7 @@ app.include_router(show_documents_router)
 app.include_router(show_marquee_router)
 app.include_router(show_setup_router)
 app.include_router(show_patterns_router)
+app.include_router(card_photos_router)
 app.include_router(show_bill_imports_router)
 app.include_router(show_companies_router)
 app.include_router(high_point_router)

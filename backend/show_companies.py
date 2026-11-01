@@ -113,6 +113,7 @@ ASSOCIATION_EXPORT = "association_export"
 DATA_EXPORT = "data_export"
 LIVE_BOARDS = "live_boards"
 ONLINE_PAYMENTS = "online_payments"
+CARD_PHOTOS = "card_photos"
 
 FEATURES: dict[str, Feature] = {
     SHOWBILL_IMPORT: Feature(
@@ -175,6 +176,18 @@ FEATURES: dict[str, Feature] = {
         description=(
             "Exhibitors pay their balance online, by card or bank transfer, straight to your "
             "company's own Stripe account. You choose whether credit card payers cover the fee."
+        ),
+        plan=PRO_LABEL,
+    ),
+    # Migration 177: the scribe photographs the judge's card and exhibitors read
+    # it under the class's results once it is posted. Gated where a photo is
+    # taken or removed (`routers/card_photos.py`), on the show's plan.
+    CARD_PHOTOS: Feature(
+        key=CARD_PHOTOS,
+        label="Photos of the judge's card",
+        description=(
+            "The scribe photographs each judge's card, and exhibitors see how the judge scored "
+            "them under the class's results once it is posted."
         ),
         plan=PRO_LABEL,
     ),
@@ -242,6 +255,7 @@ PLANS: dict[str, Plan] = {
             "Data export of every placing and entry, in the columns you pick",
             "Live Boards for exhibitors and spectators (monitors not included)",
             "Online payments from exhibitors, to your own Stripe account",
+            "Photos of the judge's card on each class's results",
         ),
         self_serve=True,
     ),

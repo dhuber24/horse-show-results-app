@@ -8,7 +8,7 @@ of one. This module does that transcription and hands it back as a
 **suggestion** -- `showbill_import.py` turns it into a review screen, and only a
 person's press creates the show.
 
-Design notes, mostly the ones `documents.py` already makes:
+Design notes:
 
 * Nothing here writes to the database. The caller keeps the read on a
   `show_bill_imports` row.
@@ -34,7 +34,7 @@ import re
 from datetime import date
 from typing import Any
 
-from .documents import (
+from .common import (
     STATUS_FAILED,
     STATUS_SUCCEEDED,
     STATUS_UNSUPPORTED_MEDIA,
@@ -638,9 +638,9 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
 
     try:
         client = _get_client()
-        # No cache_control on the system prompt, unlike documents.py: a show is
-        # set up from its bill once, so there is no second read to share a
-        # cached prefix with, and a cache write bills above the base rate.
+        # No cache_control on the system prompt: a show is set up from its bill
+        # once, so there is no second read to share a cached prefix with, and a
+        # cache write bills above the base rate.
         async with client.beta.messages.stream(
             model=SHOWBILL_MODEL,
             max_tokens=MAX_TOKENS,

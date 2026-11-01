@@ -394,6 +394,20 @@ class ShowPatternAssignment(BaseModel):
     pattern_id: Optional[UUID] = None
 
 
+class ClassCardPhotoOut(BaseModel):
+    """A photo of a judge's card (migration 177). Never the bytes.
+
+    `judge_id` is the `show_judges` assignment, as on `ResultOut`; null is the
+    unattributed card.
+    """
+    id: UUID
+    class_id: UUID
+    judge_id: Optional[UUID] = None
+    mime_type: str
+    file_size: int
+    created_at: Optional[datetime] = None
+
+
 # ── Sanctioned Associations ────────────────────────────────────────────────────
 
 class SanctionedAssociationCreate(BaseModel):
@@ -1268,24 +1282,6 @@ class HorseDocumentOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-# ── Document Extraction ─────────────────────────────────────────────────────────
-
-class DocumentExtractionOut(BaseModel):
-    """What the model read off a document, for the uploader to review.
-
-    `fields` is the raw extraction, returned as-is rather than flattened onto
-    named attributes so the extraction schema can grow without a schema change
-    here. `status` is always present; on anything other than 'succeeded' the
-    uploader falls back to typing the form by hand and `message` explains why.
-    """
-    extraction_id: UUID
-    status: str
-    message: Optional[str] = None
-    fields: dict = Field(default_factory=dict)
-    low_confidence_fields: list[str] = Field(default_factory=list)
-    notes: Optional[str] = None
 
 
 # ── Show bill imports (migration 141) ────────────────────────────────────────────

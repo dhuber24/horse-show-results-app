@@ -1,22 +1,18 @@
-"""AI-assisted reading of uploaded documents.
+"""AI-assisted reading of an uploaded show bill.
 
 Everything in here produces *suggestions*. Nothing in here writes to a record.
-The uploader reviews what the model read and saves it themselves — see
-`routers/horse_documents.py` for the review/save half.
+The person setting the show up reviews what the model read and creates the show
+themselves — see `showbill_import.py` for the review/create half.
 """
 
-from .documents import (
-    EXTRACTION_MODEL,
+from .common import (
     ExtractionResult,
-    extract_horse_document,
     extraction_available,
     supports_extraction,
 )
 
 __all__ = [
-    "EXTRACTION_MODEL",
     "ExtractionResult",
-    "extract_horse_document",
     "extraction_available",
     "supports_extraction",
 ]

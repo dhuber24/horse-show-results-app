@@ -956,8 +956,18 @@ async def get_show_plan(
 
     An ADMIN is told the show's real plan but has every feature, so GaitDesk
     staff can see what the customer sees without being locked out of it.
+
+    A SCRIBE reads it too (migration 177): the scribe screen offers the
+    judge's-card photo only at a Pro show. A scribe is let in by role, as the
+    results routes let them in, and is never offered the upgrade.
     """
-    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db, allow_frozen=True)
+    if x_user_role == "SCRIBE":
+        if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
+            raise HTTPException(401, "Unauthorized")
+        if await db.get(Show, show_id) is None:
+            raise HTTPException(404, "Show not found")
+    else:
+        await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db, allow_frozen=True)
     company_ids = await show_company_ids(db, show_id)
     companies = (
         (await db.execute(select(ShowCompany).where(ShowCompany.id.in_(company_ids)))).scalars().all()

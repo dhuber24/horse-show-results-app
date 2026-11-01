@@ -13,10 +13,10 @@ from database import get_db
 from dependencies import (
     INTERNAL_API_KEY,
     require_admin,
-    require_admin_or_scribe,
     require_api_key,
 )
 from models import Class, Entry, Result, ResultAudit, Show, ShowJudge
+from show_access import require_scoring_access
 from show_companies import refuse_frozen_show
 from placings import RANKED_OUTCOMES, is_ranked
 from rules import get_rules
@@ -460,7 +460,7 @@ async def _raise_for_incomplete_placings(show_id: UUID, class_: Class, db: Async
 @router.post(
     "/publish",
     response_model=ClassResultsPublishOut,
-    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
+    dependencies=[Depends(require_scoring_access), Depends(refuse_frozen_show)],
 )
 async def publish_results(
     show_id: UUID,
@@ -510,7 +510,7 @@ async def publish_results(
     "/",
     response_model=ResultOut,
     status_code=201,
-    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
+    dependencies=[Depends(require_scoring_access), Depends(refuse_frozen_show)],
 )
 async def create_result(
     show_id: UUID, class_id: UUID, body: ResultCreate, db: AsyncSession = Depends(get_db)
@@ -576,7 +576,7 @@ async def create_result(
 @router.patch(
     "/{result_id}",
     response_model=ResultOut,
-    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
+    dependencies=[Depends(require_scoring_access), Depends(refuse_frozen_show)],
 )
 async def update_result(
     show_id: UUID,
@@ -671,7 +671,7 @@ async def update_result(
 @router.put(
     "/",
     response_model=list[ResultOut],
-    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
+    dependencies=[Depends(require_scoring_access), Depends(refuse_frozen_show)],
 )
 async def bulk_save_results(
     show_id: UUID,

@@ -7,8 +7,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      # Optional. Unset just means the document upload form is filled in by
-      # hand, the way it worked before extraction existed.
+      # Optional. Unset just means a show is set up by hand rather than read off
+      # its show bill.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Optional. Unset means nothing offers to take a payment online; every
       # payment screen says so. Use test keys here. See docs/design/payments.md.

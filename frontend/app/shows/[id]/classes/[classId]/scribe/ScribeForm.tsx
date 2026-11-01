@@ -5,6 +5,8 @@ import Link from 'next/link';
 import TouchScorePad from './TouchScorePad';
 import PublishBar from './PublishBar';
 import JudgeTabs from './JudgeTabs';
+import CardPhotos from './CardPhotos';
+import type { CardPhoto } from '@/lib/card-photos';
 import { useAutosave } from './useAutosave';
 import { buildCards, groupByCard, type ShowJudge } from './judges';
 import { outcomesFor, type ResultOutcome } from '@/lib/result-outcomes';
@@ -44,6 +46,10 @@ interface Props {
   results: Result[];
   judges: ShowJudge[];
   resultsPublishedAt: string | null;
+  /** Photos of the judge's card filed on this class (migration 177); null
+   *  where the show's plan has no photos, and `photoLock` shows instead. */
+  cardPhotos?: CardPhoto[] | null;
+  photoLock?: React.ReactNode;
 }
 
 /** Missing place numbers in a card, e.g. 1, 2, 4 → [3]. */
@@ -69,6 +75,8 @@ export default function ScribeForm({
   results,
   judges,
   resultsPublishedAt,
+  cardPhotos = null,
+  photoLock = null,
 }: Props) {
   // Offer the unassigned card only when something is actually filed against it,
   // so a normal panel show shows exactly its judges.
@@ -579,6 +587,19 @@ export default function ScribeForm({
         >
           ⚠ Place gap — missing: {gapsIn(places).join(', ')}
         </div>
+      )}
+
+      {cardPhotos ? (
+        <CardPhotos
+          showId={showId}
+          classId={classId}
+          cards={cards}
+          activeCard={activeCard}
+          initialPhotos={cardPhotos}
+          posted={Boolean(publishedAt)}
+        />
+      ) : (
+        photoLock
       )}
 
       <TouchScorePad

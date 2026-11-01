@@ -16,9 +16,8 @@ checked by a person.
 
 ## The rule
 
-**The model suggests. A person saves.** The same rule as
-[document-extraction.md](document-extraction.md), for a bigger reason: a show
-bill decides what every exhibitor at the show is charged. So:
+**The model suggests. A person saves.** A show bill decides what every exhibitor
+at the show is charged. So:
 
 - The upload creates **nothing** but a `show_bill_imports` row.
 - The apply endpoint takes the **reviewed payload** and never reads
@@ -240,7 +239,7 @@ its state and arithmetic in `frontend/lib/showbill-import.ts` (tested in
 
 ## Storage
 
-`show_bill_imports` (migration 141), shaped after `document_extractions`:
+`show_bill_imports` (migration 141):
 
 | Column | Notes |
 | --- | --- |
@@ -259,12 +258,13 @@ select columns by name — the rule `ShowDocument` already follows.
 
 ## Configuration
 
-`ANTHROPIC_API_KEY`, the same key as document extraction. **Optional**: unset,
+`ANTHROPIC_API_KEY`. **Optional**: unset,
 `GET /show-bill-imports/availability` says so, the upload page says so and
 links to the step-by-step setup, and the list of recent reads still shows — a
 read that finished before the key was removed can still be reviewed and
-created. Uploads are rate limited to ten an hour per user, keyed on the user id
-for the reason `document-extraction.md` gives.
+created. Uploads are rate limited to ten an hour per user, keyed on the user id:
+every request reaches the backend from the Next.js server, so an IP-keyed limit
+would be one global bucket and a single busy user would lock out everyone else.
 
 ## Sharp edges
 

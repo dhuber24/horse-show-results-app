@@ -23,7 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from dependencies import require_admin_or_scribe, require_api_key
+from dependencies import require_api_key
+from show_access import require_scoring_access
 from show_companies import refuse_frozen_show
 from judging import (
     compute_score,
@@ -204,7 +205,7 @@ async def symbol_system_bands(discipline: Optional[str] = None):
 # ── One card ───────────────────────────────────────────────────────────────────
 
 
-@router.get("/cards", dependencies=[Depends(require_admin_or_scribe)])
+@router.get("/cards", dependencies=[Depends(require_scoring_access)])
 async def list_cards(
     show_id: UUID,
     class_id: UUID,
@@ -224,7 +225,7 @@ async def list_cards(
 @router.put(
     "/entries/{entry_id}/card",
     response_model=JudgeCardOut,
-    dependencies=[Depends(require_admin_or_scribe), Depends(refuse_frozen_show)],
+    dependencies=[Depends(require_scoring_access), Depends(refuse_frozen_show)],
 )
 async def save_card(
     show_id: UUID,
