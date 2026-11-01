@@ -1618,7 +1618,11 @@ function ClassBuilder({
           No classes yet.
         </p>
       ) : (
-        <div>
+        // A column, even when the picker above takes the whole desktop. Each
+        // row puts its name at one end and Must qualify / Delete at the other,
+        // and across a wide monitor the eye lost the row in between — a
+        // secretary could not tell which class number a Delete belonged to.
+        <div className="max-w-3xl">
           <button
             type="button"
             onClick={() => setListOpen((open) => !open)}
@@ -1953,6 +1957,16 @@ function ClassRow({
   drag?: { provided: DraggableProvided; isDragging: boolean };
 }) {
   const entered = cls.entry_count ?? 0;
+  // Delete asks first, on the row, naming the class. It used to delete on the
+  // press — and with every delete renumbering the show, a press on the
+  // neighbouring row's Delete took out the wrong class and moved the number
+  // of the one meant, so the slip could not even be spotted by number.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const rowBackground = confirmingDelete
+    ? 'var(--error-bg)'
+    : drag?.isDragging || highlighted
+      ? COLORS.highlight
+      : undefined;
   return (
     <li
       id={`class-row-${cls.id}`}
@@ -1968,11 +1982,15 @@ function ClassRow({
        * drag whose event began on an interactive element, so tapping those
        * still does what they say. The ⠿ stays as the visual cue. */
       {...(drag?.provided.dragHandleProps ?? {})}
-      className="flex items-center justify-between gap-2 text-sm border-b py-1"
+      /* The row shades under the pointer, and under the keyboard, so the
+       * checkbox, Must qualify and Delete read as belonging to the class at
+       * the other end of it. Only when nothing else colours the row: an
+       * inline background would win over the hover class. */
+      className="flex items-center justify-between gap-2 text-sm border-b py-1 px-1 rounded-sm hover:bg-[var(--bg-subtle)] focus-within:bg-[var(--bg-subtle)]"
       title={drag ? 'Tap and hold to drag into a new running order' : undefined}
       style={{
         borderColor: COLORS.borderSoft,
-        backgroundColor: drag?.isDragging || highlighted ? COLORS.highlight : 'transparent',
+        backgroundColor: rowBackground,
         // Stops the browser scrolling or text-selecting the row out from under
         // a press that is becoming a drag.
         ...(drag ? { touchAction: 'none', userSelect: 'none' as const, cursor: 'grab' } : {}),
@@ -2001,37 +2019,71 @@ function ClassRow({
         <span className="font-mono shrink-0" style={{ color: 'var(--accent)' }}>
           #{cls.class_number}
         </span>
-        <span className="truncate">{cls.class_name}</span>
+        <span className="truncate" title={cls.class_name}>
+          {cls.class_name}
+        </span>
         {entered > 0 && (
           <span className="text-xs shrink-0" style={{ color: COLORS.muted }}>
             · {entered} entered
           </span>
         )}
       </span>
-      <span className="flex items-center gap-4 shrink-0">
-        <label
-          className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
-          style={{ color: COLORS.text }}
-          title="Ticked: entry is by qualifying — the top placings from the qualifying classes are called back, so exhibitors can't enter it themselves (the desk still can). Unticked: open entry."
-        >
-          <input
-            type="checkbox"
-            checked={cls.entered_by_qualification}
-            disabled={qualifyPending}
-            onChange={onToggleQualify}
-          />
-          Must qualify
-        </label>
-        <button
-          type="button"
-          disabled={deleteDisabled}
-          onClick={onDelete}
-          className="text-xs hover:underline disabled:opacity-50"
-          style={{ color: 'var(--error-strong)' }}
-        >
-          Delete
-        </button>
-      </span>
+      {confirmingDelete ? (
+        <span className="flex items-center gap-3 shrink-0" role="group" aria-label={`Confirm deleting ${cls.class_name}`}>
+          <span className="text-xs font-medium" style={{ color: 'var(--error-strong)' }}>
+            Delete #{cls.class_number}?
+          </span>
+          <button
+            type="button"
+            disabled={deleteDisabled}
+            onClick={() => {
+              setConfirmingDelete(false);
+              onDelete();
+            }}
+            title={deleteDisabled ? 'Another change is still saving' : undefined}
+            className="text-xs rounded px-2 py-1 disabled:opacity-50"
+            style={{ backgroundColor: 'var(--error-strong)', color: 'var(--surface)' }}
+          >
+            Yes, delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(false)}
+            className="text-xs hover:underline"
+            style={{ color: COLORS.muted }}
+          >
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <span className="flex items-center gap-4 shrink-0">
+          <label
+            className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
+            style={{ color: COLORS.text }}
+            title="Ticked: entry is by qualifying — the top placings from the qualifying classes are called back, so exhibitors can't enter it themselves (the desk still can). Unticked: open entry."
+          >
+            <input
+              type="checkbox"
+              checked={cls.entered_by_qualification}
+              disabled={qualifyPending}
+              onChange={onToggleQualify}
+              aria-label={`Must qualify — #${cls.class_number} ${cls.class_name}`}
+            />
+            Must qualify
+          </label>
+          <button
+            type="button"
+            disabled={deleteDisabled}
+            onClick={() => setConfirmingDelete(true)}
+            aria-label={`Delete #${cls.class_number} ${cls.class_name}`}
+            title={deleteDisabled ? 'Another change is still saving' : `Delete #${cls.class_number} ${cls.class_name}`}
+            className="text-xs hover:underline disabled:opacity-50"
+            style={{ color: 'var(--error-strong)' }}
+          >
+            Delete
+          </button>
+        </span>
+      )}
     </li>
   );
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
 import { canHaveEarlyRate } from '@/lib/fee-units';
+import { errorMessage } from '@/lib/api-error';
 
 export type FeeRow = {
   id: string;
@@ -29,6 +30,14 @@ const COLORS = {
   warn: 'var(--text-deep)',
   warnSoft: 'var(--warning-bg)',
 } as const;
+
+/** The fee row's own limit (`ShowFeeCreate.notes`). Enforced here too, so a
+ *  long note stops at the box rather than coming back from the save as a 422. */
+const NOTES_MAX = 500;
+
+/** The price column's two tracks: the amount, then whatever sits beside it.
+ *  The standard and early amounts share the first, so the two prices line up. */
+const PRICE_COLS = 'grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3';
 
 type SlotState = {
   feeId: string | null;
@@ -159,6 +168,14 @@ function dollarsToCents(input: string): number {
   const n = Number.parseFloat(input);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100);
+}
+
+/** A note is one paragraph, however it was typed or pasted. The box wraps so
+ *  the whole note can be read, but the exhibitor's reservation row and the
+ *  show bill print it as running text, where a line break typed here would
+ *  not be one. */
+function oneParagraph(text: string): string {
+  return text.replace(/[ \t]*\r?\n[ \t]*/g, ' ');
 }
 
 function unitChoice(slot: Slot, unit: string): UnitChoice {
@@ -298,7 +315,7 @@ export default function LodgingClient({
         });
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
-          setError(j?.detail || 'Failed to update shavings policy.');
+          setError(errorMessage(j, 'Failed to update shavings policy.'));
           return false;
         }
       }
@@ -324,7 +341,7 @@ export default function LodgingClient({
           });
           if (!res.ok && res.status !== 204) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to remove ${s.title}.`);
+            setError(errorMessage(j, `Failed to remove ${s.title}.`));
             return false;
           }
         } else if (slot.feeId && !isEmpty) {
@@ -349,7 +366,7 @@ export default function LodgingClient({
           });
           if (!res.ok) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to update ${s.title}.`);
+            setError(errorMessage(j, `Failed to update ${s.title}.`));
             return false;
           }
         } else if (!slot.feeId && !isEmpty) {
@@ -368,7 +385,7 @@ export default function LodgingClient({
           });
           if (!res.ok) {
             const j = await res.json().catch(() => null);
-            setError(j?.detail || `Failed to create ${s.title}.`);
+            setError(errorMessage(j, `Failed to create ${s.title}.`));
             return false;
           }
         }
@@ -432,39 +449,50 @@ export default function LodgingClient({
             `already reserved this at the current rate. Remove the fee and add it again ` +
             `to change how it's charged.`
           : undefined;
+        const notesLeft = NOTES_MAX - slot.notes.length;
         return (
           <section
             key={s.code}
-            className="p-4 rounded-lg border space-y-3"
+            className="p-4 rounded-lg border space-y-4"
             style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
           >
-            <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
-              {s.title}
-            </h2>
-            <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-              <div>
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  How it&apos;s charged
-                </span>
-                {!managed ? (
-                  <span className="text-sm" style={{ color: COLORS.text }}>
-                    Charged {slot.unit.replace(/_/g, ' ')}{' '}
-                    <a
-                      href={`/admin/shows/${showId}/fees/boarding`}
-                      className="text-xs underline"
-                      style={{ color: COLORS.muted }}
-                    >
-                      (set on the boarding fee schedule)
-                    </a>
-                  </span>
-                ) : s.units.length > 1 ? (
-                  <fieldset
-                    className="flex flex-wrap gap-x-4 gap-y-1"
-                    title={lockReason}
-                    disabled={unitLocked}
-                    style={{ opacity: unitLocked ? 0.55 : 1 }}
+            {/* How a one-unit line is charged is a fact, not a choice, so it
+                rides under the heading. It used to fill a column of its own
+                beside the price — a label and three words of text holding a
+                third of the card's width open on a wide screen. */}
+            <div>
+              <h2 className="text-base font-semibold" style={{ color: COLORS.text }}>
+                {s.title}
+              </h2>
+              {!managed ? (
+                <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                  Charged {slot.unit.replace(/_/g, ' ')}{' '}
+                  <a
+                    href={`/admin/shows/${showId}/fees/boarding`}
+                    className="underline"
+                    style={{ color: COLORS.muted }}
                   >
-                    <legend className="sr-only">How {s.title} is charged</legend>
+                    (set on the boarding fee schedule)
+                  </a>
+                </p>
+              ) : s.units.length === 1 ? (
+                <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
+                  Charged per {chosen.noun}
+                </p>
+              ) : null}
+            </div>
+
+            {managed && s.units.length > 1 && (
+              <div>
+                <fieldset
+                  title={lockReason}
+                  disabled={unitLocked}
+                  style={{ opacity: unitLocked ? 0.55 : 1 }}
+                >
+                  <legend className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                    How it&apos;s charged
+                  </legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
                     {s.units.map((u) => (
                       <label
                         key={u.value}
@@ -481,137 +509,155 @@ export default function LodgingClient({
                         <span>{u.choice}</span>
                       </label>
                     ))}
-                  </fieldset>
-                ) : (
-                  <span className="text-sm" style={{ color: COLORS.text }}>
-                    Cost per {chosen.noun}
-                  </span>
+                  </div>
+                </fieldset>
+                <p className="text-xs mt-1" style={{ color: COLORS.muted }}>
+                  {slot.unit === 'per_show'
+                    ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
+                    : `Charged for each ${chosen.noun} an exhibitor books — a Friday-to-Sunday show is three days and two nights.`}
+                  {unitLocked && <> {lockReason}</>}
+                </p>
+              </div>
+            )}
+
+            {/* Prices on the left, the note on the right. The note is the
+                longest thing a secretary types on this step — a stall policy
+                pasted off the show bill runs to a paragraph — and it was a
+                one-line box, so all but its first sentence was out of sight. */}
+            <div className="grid gap-x-6 gap-y-4 md:grid-cols-[22rem_minmax(0,1fr)]">
+              <div className="space-y-4">
+                <div className={`${PRICE_COLS} items-end`}>
+                  <label className="block">
+                    <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                      {managed ? `$ per ${chosen.noun}` : 'Amount ($)'}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={slot.dollars}
+                      onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
+                      className="w-full border rounded px-3 py-2"
+                      style={{ borderColor: COLORS.border }}
+                      placeholder={managed ? chosen.placeholder : ''}
+                      aria-label={
+                        managed ? `${s.title} — amount per ${chosen.noun}` : `${s.title} — amount`
+                      }
+                    />
+                  </label>
+                  {/* The floor an exhibitor cannot book under. It belongs
+                      beside the shavings ban most of all: banning outside
+                      shavings tells the exhibitor to buy bedding here, and
+                      "buy some" with no number is a stall bedded with two bags
+                      where the show wanted four.
+
+                      Bedding only. A minimum states a fact about the grounds —
+                      "every stall gets bedded this deep" — and neither a stall
+                      count nor a camping spot is that: an exhibitor books
+                      however many of either they need, so a floor required of
+                      everybody read as nonsense against either line. */}
+                  {s.requirable && (
+                    <label
+                      className="block"
+                      title={
+                        'A flat floor on the whole booking, not a number multiplied by the ' +
+                        'stalls reserved. A show wanting "2 bags per stall" sets the flat ' +
+                        'equivalent here and says so in Notes. Leave blank to require none — ' +
+                        'though banning outside shavings already requires one bag of anyone ' +
+                        'who books a stall.'
+                      }
+                    >
+                      <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                        Minimum bags per exhibitor
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        value={slot.minQuantity}
+                        onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                        style={{ borderColor: COLORS.border }}
+                        placeholder="no minimum"
+                        aria-label={`${s.title} — minimum quantity`}
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Not offered on shavings. Every other reservable line has a
+                    real reserve-early convention on a paper show bill — book a
+                    stall or a camping spot by a date, pay less. A bag count has
+                    no such convention; the control used to sit here anyway, a
+                    box with nothing behind it for a secretary to fill in. */}
+                {earlyRateAllowed(s) && (
+                  <div role="group" aria-label={`${s.title} — early rate`}>
+                    <p className="text-xs mb-1.5" style={{ color: COLORS.text }}>
+                      Early rate{' '}
+                      <span style={{ color: 'var(--text-dimmed)' }}>
+                        (optional — cheaper if they reserve by the date)
+                      </span>
+                    </p>
+                    <div className={`${PRICE_COLS} items-end`}>
+                      <label className="block">
+                        <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                          Early amount ($)
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={slot.earlyDollars}
+                          onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
+                          className="w-full border rounded px-3 py-2"
+                          style={{ borderColor: COLORS.border }}
+                          placeholder="e.g. 60.00"
+                          aria-label={`${s.title} — early rate amount`}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+                          Reserve by
+                        </span>
+                        <input
+                          type="date"
+                          value={slot.earlyDeadline}
+                          onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
+                          className="w-full border rounded px-3 py-2"
+                          style={{ borderColor: COLORS.border }}
+                          aria-label={`${s.title} — early rate deadline`}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 )}
               </div>
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  {managed ? `$ per ${chosen.noun}` : 'Amount ($)'}
+
+              {/* Grows with what is typed (`field-sizing`), and stretches to
+                  the height of the prices beside it so a short note does not
+                  leave a hole under its box. A browser without field-sizing
+                  shows three lines and a drag handle. */}
+              <label className="flex flex-col">
+                <span
+                  className="flex justify-between gap-2 text-xs mb-1"
+                  style={{ color: COLORS.muted }}
+                >
+                  <span>Notes (optional)</span>
+                  {notesLeft <= 100 && <span>{notesLeft} characters left</span>}
                 </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={slot.dollars}
-                  onChange={(e) => setSlot(s.code, { dollars: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder={managed ? chosen.placeholder : ''}
-                  aria-label={
-                    managed ? `${s.title} — amount per ${chosen.noun}` : `${s.title} — amount`
-                  }
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Notes (optional)
-                </span>
-                <input
-                  type="text"
+                <textarea
+                  rows={3}
+                  maxLength={NOTES_MAX}
                   value={slot.notes}
-                  onChange={(e) => setSlot(s.code, { notes: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.preventDefault();
+                  }}
+                  onChange={(e) => setSlot(s.code, { notes: oneParagraph(e.target.value) })}
+                  className="w-full flex-1 min-h-[5.75rem] border rounded px-3 py-2 resize-y"
+                  style={{ borderColor: COLORS.border, fieldSizing: 'content' }}
                   placeholder={s.notesPlaceholder}
+                  aria-label={`${s.title} — notes`}
                 />
               </label>
             </div>
-            {s.units.length > 1 && managed && (
-              <p className="text-xs" style={{ color: COLORS.muted }}>
-                {slot.unit === 'per_show'
-                  ? `Charged once per ${chosen.noun} however long the show runs — two spots cost twice, a three-day show does not.`
-                  : `Charged for each ${chosen.noun} an exhibitor books — a Friday-to-Sunday show is three days and two nights.`}
-                {unitLocked && <> {lockReason}</>}
-              </p>
-            )}
-            {/* Not offered on shavings. Every other reservable line has a
-                real reserve-early convention on a paper show bill — book a
-                stall or a camping spot by a date, pay less. A bag count has
-                no such convention; the control used to sit here anyway, a
-                box with nothing behind it for a secretary to fill in. */}
-            {earlyRateAllowed(s) && (
-              <div className="grid sm:grid-cols-[1fr_8rem_1fr] gap-3 items-end">
-                <span className="text-xs" style={{ color: COLORS.muted }}>
-                  Early rate{' '}
-                  <span style={{ color: 'var(--text-dimmed)' }}>
-                    (optional — cheaper if they reserve by the date)
-                  </span>
-                </span>
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Early amount ($)
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={slot.earlyDollars}
-                    onChange={(e) => setSlot(s.code, { earlyDollars: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    placeholder="e.g. 60.00"
-                    aria-label={`${s.title} — early rate amount`}
-                  />
-                </label>
-                <label className="block">
-                  <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                    Reserve by
-                  </span>
-                  <input
-                    type="date"
-                    value={slot.earlyDeadline}
-                    onChange={(e) => setSlot(s.code, { earlyDeadline: e.target.value })}
-                    className="w-full border rounded px-3 py-2"
-                    style={{ borderColor: COLORS.border }}
-                    aria-label={`${s.title} — early rate deadline`}
-                  />
-                </label>
-              </div>
-            )}
-            {/* The floor an exhibitor cannot book under. It belongs beside
-                the shavings ban most of all: banning outside shavings tells
-                the exhibitor to buy bedding here, and "buy some" with no
-                number is a stall bedded with two bags where the show wanted
-                four.
-
-                Bedding only. A minimum states a fact about the grounds —
-                "every stall gets bedded this deep" — and neither a stall
-                count nor a camping spot is that: an exhibitor books however
-                many of either they need, so a floor required of everybody
-                read as nonsense against either line. */}
-            {s.requirable && (
-              <label
-                className="block sm:max-w-xs"
-                title={
-                  'A flat floor on the whole booking, not a number multiplied by the ' +
-                  'stalls reserved. A show wanting "2 bags per stall" sets the flat ' +
-                  'equivalent here and says so in Notes. Leave blank to require none — ' +
-                  'though banning outside shavings already requires one bag of anyone ' +
-                  'who books a stall.'
-                }
-              >
-                <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
-                  Minimum per exhibitor{' '}
-                  <span style={{ color: 'var(--text-dimmed)' }}>(optional)</span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  max={999}
-                  value={slot.minQuantity}
-                  onChange={(e) => setSlot(s.code, { minQuantity: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  style={{ borderColor: COLORS.border }}
-                  placeholder="no minimum"
-                  aria-label={`${s.title} — minimum quantity`}
-                />
-                <span className="block text-xs mt-0.5" style={{ color: COLORS.muted }}>
-                  This sets the minimum # of bags required per exhibitor.
-                </span>
-              </label>
-            )}
 
             {s.code === 'shavings' && (
               <label

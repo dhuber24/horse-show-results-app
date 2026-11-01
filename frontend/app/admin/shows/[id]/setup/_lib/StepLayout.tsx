@@ -77,6 +77,7 @@ export default function StepLayout({
   subtitle,
   stepsInput,
   skip,
+  width = 'full',
   children,
 }: {
   showId: string;
@@ -86,6 +87,12 @@ export default function StepLayout({
   subtitle: string;
   stepsInput: WizardStepsInput;
   skip?: StepSkip;
+  /** `form` holds the step to a readable column on the desktop layout, where
+   *  every office page is otherwise as wide as the window. For a step made of
+   *  a few short boxes — a price, a date, a line of notes — stretched across a
+   *  wide monitor, the label ended up on one side of the screen and its box on
+   *  the other. The Class Builder's matrix is why it is not the default. */
+  width?: 'full' | 'form';
   children: React.ReactNode;
 }) {
   const steps = buildSteps(stepsInput);
@@ -101,73 +108,79 @@ export default function StepLayout({
     // autosave registry: a step's client registers what it has unsaved, and any
     // control that leaves writes it first. See StepAutosave.tsx.
     <StepAutosaveProvider>
-      <main className="max-w-3xl mx-auto p-4 md:p-6 space-y-5">
-        <div>
-          <Breadcrumbs
-            crumbs={[
-              { label: 'Admin', href: '/admin' },
-              { label: 'Shows', href: '/admin/shows' },
-              { label: showName, href: `/admin/shows/${showId}` },
-              { label: 'Setup', href: hubHref },
-              { label: heading },
-            ]}
-          />
-          <h1 className="text-2xl font-bold mt-2" style={{ color: COLORS.text }}>
-            {heading}
-          </h1>
-          <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
-            {subtitle}
-          </p>
-        </div>
-
-        {/* On a desktop the sidebar lists the steps, so the tab bar would be the
-            same list twice. */}
-        <WizardStepper current={current} steps={steps} hubHref={hubHref} className="desktop:hidden" />
-
-        {isSkipped ? (
-          <SkippedStepNotice showId={showId} keys={skipKeysFor(current)} dashboardTiles={DASHBOARD_TILES[current]} />
-        ) : (
-          skip && (
-            <SkipStepOffer
-              showId={showId}
-              keys={skipKeysFor(current)}
-              nextHref={next?.href ?? `/admin/shows/${showId}`}
-              label={skip.label}
-              note={skip.note}
+      <main className="max-w-3xl mx-auto p-4 md:p-6">
+        {/* The cap is on this column, not on <main>: admin/layout.tsx lifts
+            every <main>'s cap on the desktop layout, and its selector would win
+            over one set here. Left-aligned, so the step sits against the
+            sidebar that lists it rather than floating mid-screen. */}
+        <div className={`space-y-5 ${width === 'form' ? 'desktop:max-w-5xl' : ''}`}>
+          <div>
+            <Breadcrumbs
+              crumbs={[
+                { label: 'Admin', href: '/admin' },
+                { label: 'Shows', href: '/admin/shows' },
+                { label: showName, href: `/admin/shows/${showId}` },
+                { label: 'Setup', href: hubHref },
+                { label: heading },
+              ]}
             />
-          )
-        )}
+            <h1 className="text-2xl font-bold mt-2" style={{ color: COLORS.text }}>
+              {heading}
+            </h1>
+            <p className="text-sm mt-1" style={{ color: COLORS.muted }}>
+              {subtitle}
+            </p>
+          </div>
 
-        <div>{children}</div>
+          {/* On a desktop the sidebar lists the steps, so the tab bar would be the
+              same list twice. */}
+          <WizardStepper current={current} steps={steps} hubHref={hubHref} className="desktop:hidden" />
 
-        <div
-          className="p-4 rounded-lg border flex items-center justify-between gap-3 flex-wrap"
-          style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
-        >
-          {prev?.href ? (
-            <AutosaveNavLink
-              href={prev.href}
-              className={navButton}
-              style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
-            >
-              ← Back to {stepName(prev.label)}
-            </AutosaveNavLink>
+          {isSkipped ? (
+            <SkippedStepNotice showId={showId} keys={skipKeysFor(current)} dashboardTiles={DASHBOARD_TILES[current]} />
           ) : (
-            <span />
+            skip && (
+              <SkipStepOffer
+                showId={showId}
+                keys={skipKeysFor(current)}
+                nextHref={next?.href ?? `/admin/shows/${showId}`}
+                label={skip.label}
+                note={skip.note}
+              />
+            )
           )}
-          {/* No *Setup hub* button here any more: the tab bar leads with **All
-              steps**, which is the same destination through the same flush, and
-              the footer is for walking the flow one step at a time. Which is
-              also why the last step gets a way out rather than a lone Back —
-              a wizard whose final screen only goes backwards is one people
-              leave through the browser. */}
-          <AutosaveNavLink
-            href={next?.href ?? `/admin/shows/${showId}`}
-            className="text-sm rounded px-4 py-2"
-            style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
+
+          <div>{children}</div>
+
+          <div
+            className="p-4 rounded-lg border flex items-center justify-between gap-3 flex-wrap"
+            style={{ borderColor: COLORS.border, backgroundColor: COLORS.warnSoft }}
           >
-            {next ? `${stepName(next.label)} →` : 'Done — back to the show →'}
-          </AutosaveNavLink>
+            {prev?.href ? (
+              <AutosaveNavLink
+                href={prev.href}
+                className={navButton}
+                style={{ borderColor: COLORS.border, color: COLORS.text, backgroundColor: 'var(--surface)' }}
+              >
+                ← Back to {stepName(prev.label)}
+              </AutosaveNavLink>
+            ) : (
+              <span />
+            )}
+            {/* No *Setup hub* button here any more: the tab bar leads with **All
+                steps**, which is the same destination through the same flush, and
+                the footer is for walking the flow one step at a time. Which is
+                also why the last step gets a way out rather than a lone Back —
+                a wizard whose final screen only goes backwards is one people
+                leave through the browser. */}
+            <AutosaveNavLink
+              href={next?.href ?? `/admin/shows/${showId}`}
+              className="text-sm rounded px-4 py-2"
+              style={{ backgroundColor: COLORS.warn, color: 'var(--surface)' }}
+            >
+              {next ? `${stepName(next.label)} →` : 'Done — back to the show →'}
+            </AutosaveNavLink>
+          </div>
         </div>
       </main>
     </StepAutosaveProvider>

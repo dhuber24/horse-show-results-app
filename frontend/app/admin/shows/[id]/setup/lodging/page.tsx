@@ -36,6 +36,7 @@ export default async function SetupLodgingPage({
       showId={id}
       showName={show.name}
       current="lodging"
+      width="form"
       title="Lodging & Boarding"
       subtitle="Stall fees, shavings, and camping — each its own card, each optional."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
