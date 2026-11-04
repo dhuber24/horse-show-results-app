@@ -69,6 +69,7 @@ from payment_events import (
 from routers.my_company import _caller, _my_company
 from routers.payments import payment_result
 from routers.show_companies import _load, usage_statement
+from subscription_prices import load_prices
 from schemas import (
     GaitDeskInvoiceCreate,
     GaitDeskInvoiceOut,
@@ -84,7 +85,6 @@ from schemas import (
     SettleUpShowOut,
 )
 from show_companies import (
-    PLANS,
     PRO_PLUS,
     RENEWAL_NOTICE_DAYS,
     covering_subscription,
@@ -618,8 +618,8 @@ async def request_settle_up_invoice(
 # ── Buying Pro+ (migration 173) ───────────────────────────────────────────────
 
 
-def _pro_plus_price() -> int:
-    return PLANS[PRO_PLUS].annual_cents
+async def _pro_plus_price(db: AsyncSession) -> int:
+    return (await load_prices(db)).annual(utc_today())
 
 
 def _refuse_pro_plus(company) -> None:
@@ -664,7 +664,7 @@ async def pro_plus_offer(
     latest_end = max((t.ends_on for t in company.subscriptions), default=None)
     starts_on, ends_on = next_pro_plus_term(latest_end, utc_today(), bool(company.renews_pro_plus))
     return ProPlusOfferOut(
-        price_cents=_pro_plus_price(),
+        price_cents=await _pro_plus_price(db),
         starts_on=starts_on,
         ends_on=ends_on,
         can_buy_online=stripe_gateway.configured(),
@@ -686,7 +686,7 @@ async def pro_plus_payment_setup(
     percent_bp, fixed_cents = stripe_gateway.card_rate()
     return PaymentSetupOut(
         publishable_key=stripe_gateway.publishable_key(),
-        amount_cents=_pro_plus_price(),
+        amount_cents=await _pro_plus_price(db),
         pass_card_fees=True,
         card_percent_bp=percent_bp,
         card_fixed_cents=fixed_cents,
@@ -700,7 +700,7 @@ async def _quote_pro_plus(token_id: str) -> tuple[dict, dict]:
     except stripe_gateway.PaymentError as exc:
         raise HTTPException(400, exc.message)
     percent_bp, fixed_cents = stripe_gateway.card_rate()
-    quote = payment_quote(_pro_plus_price(), token["method_type"], token["card_funding"], True, percent_bp, fixed_cents)
+    quote = payment_quote(await _pro_plus_price(db), token["method_type"], token["card_funding"], True, percent_bp, fixed_cents)
     return token, quote
 
 

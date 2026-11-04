@@ -4,7 +4,7 @@
  * `lib/trainer-registry.ts`; `proAction` is where the trainer's page puts its
  * Upgrade buttons, under the Pro price.
  */
-import { PRO_PRICES, planFeatures, type RegistryOptions } from '@/lib/trainer-registry';
+import { planFeatures, proPrice, type RegistryOptions } from '@/lib/trainer-registry';
 
 function Cell({ value }: { value: boolean | string }) {
   if (value === true) {
@@ -21,12 +21,13 @@ export default function PlanMatrix({
   current,
   proAction,
 }: {
-  limits?: Pick<RegistryOptions, 'max_photos' | 'max_video_links'>;
+  limits?: Pick<RegistryOptions, 'max_photos' | 'max_video_links' | 'pro_prices'>;
   /** The trainer's own plan, marked in its column heading. */
   current?: 'basic' | 'pro';
   proAction?: React.ReactNode;
 }) {
   const rows = planFeatures(limits);
+  const prices = limits?.pro_prices;
   const headStyle = { borderColor: 'var(--border)' } as const;
   return (
     <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
@@ -48,13 +49,15 @@ export default function PlanMatrix({
               style={{ ...headStyle, backgroundColor: 'var(--accent-bg)' }}
             >
               <div className="font-bold" style={{ color: 'var(--accent)' }}>Pro</div>
-              <div className="text-xs font-normal mt-0.5" style={{ color: 'var(--text-deep)' }}>
-                {PRO_PRICES.monthly.price}/{PRO_PRICES.monthly.per}
-                <br />
-                or {PRO_PRICES.annual.price}/{PRO_PRICES.annual.per}
-                <br />
-                paid up front
-              </div>
+              {prices && (
+                <div className="text-xs font-normal mt-0.5" style={{ color: 'var(--text-deep)' }}>
+                  {proPrice(prices.monthly)}/month
+                  <br />
+                  or {proPrice(prices.annual)}/year
+                  <br />
+                  paid up front
+                </div>
+              )}
               {current === 'pro' && <div className="text-[11px] font-semibold mt-1" style={{ color: 'var(--accent)' }}>Your plan</div>}
             </th>
           </tr>

@@ -18,6 +18,7 @@ from fastapi import HTTPException
 
 import show_companies
 from billing import billable_exhibitor_count, platform_usage
+from subscription_prices import STARTING_PRICES
 from show_companies import (
     ASSOCIATION_EXPORT,
     BASIC,
@@ -42,9 +43,12 @@ from show_companies import (
 
 # ── What each plan includes and costs ─────────────────────────────────────────
 
+DAY = datetime(2026, 11, 3, tzinfo=timezone.utc).date()
+
+
 def test_basic_is_two_dollars_and_pro_four_per_exhibitor():
-    assert PLANS[BASIC].rate_cents == 200
-    assert PLANS[PRO].rate_cents == 400
+    assert STARTING_PRICES.rate(BASIC, DAY) == 200
+    assert STARTING_PRICES.rate(PRO, DAY) == 400
 
 
 def test_basic_includes_no_paid_feature():
@@ -83,7 +87,7 @@ def test_a_new_company_starts_on_free():
 
 
 def test_the_catalog_lists_both_plans_with_what_they_include():
-    catalog = {p.key: p for p in plan_catalog()}
+    catalog = {p.key: p for p in plan_catalog(STARTING_PRICES)}
     assert set(catalog) == {"free", BASIC, PRO, "pro_plus"}
     assert catalog[PRO].includes and catalog[BASIC].includes
     assert set(catalog[PRO].features) == set(FEATURES)
@@ -101,9 +105,9 @@ def test_companies_together_have_the_best_of_their_plans():
 
 def test_a_loaded_company_has_its_plans_features_and_nothing_else():
     """A leftover switch row from before migration 170 turns nothing on."""
-    company = SimpleNamespace(plan=BASIC, renews_pro_plus=False, subscriptions=[], features=[SimpleNamespace(feature=LIVE_BOARDS)])
+    company = SimpleNamespace(plan=BASIC, renews_pro_plus=False, subscriptions=[], grants=[], features=[SimpleNamespace(feature=LIVE_BOARDS)])
     assert company_features(company) == set()
-    assert company_features(SimpleNamespace(plan=PRO, renews_pro_plus=False, subscriptions=[], features=[])) == set(FEATURES)
+    assert company_features(SimpleNamespace(plan=PRO, renews_pro_plus=False, subscriptions=[], grants=[], features=[])) == set(FEATURES)
 
 
 # ── The gate at a show ────────────────────────────────────────────────────────
@@ -160,13 +164,13 @@ def test_only_the_roster_is_billed():
 
 
 def test_a_show_is_charged_its_exhibitors_at_the_plan_rate():
-    assert platform_usage(37, PLANS[PRO].rate_cents) == {
+    assert platform_usage(37, STARTING_PRICES.rate(PRO, DAY)) == {
         "exhibitor_count": 37,
         "rate_cents": 400,
         "amount_cents": 14800,
     }
-    assert platform_usage(37, PLANS[BASIC].rate_cents)["amount_cents"] == 7400
+    assert platform_usage(37, STARTING_PRICES.rate(BASIC, DAY))["amount_cents"] == 7400
 
 
 def test_a_show_with_nobody_on_it_costs_nothing():
-    assert platform_usage(0, PLANS[PRO].rate_cents)["amount_cents"] == 0
+    assert platform_usage(0, STARTING_PRICES.rate(PRO, DAY))["amount_cents"] == 0

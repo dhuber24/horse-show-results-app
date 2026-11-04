@@ -2,6 +2,22 @@
 
 ## November 2026
 
+### Manage Subscriptions
+
+- **A section for GaitDesk admins** at `/admin/subscriptions`: every show
+  company's plan and what it owes, every trainer's Pro, and what needs somebody.
+- **The prices can be changed** (migration 179). A price is now a dated history
+  rather than a constant, so a show keeps the price in force on its first day. A
+  raise on a company's plan must be at least 30 days away and emails the
+  companies it reaches, which is what the Terms promise.
+- **A plan can be given away**: a comp, for a time or for good, or a free trial
+  for a set time, to a show company (Basic or Pro) or a trainer (Pro).
+- **An admin can stop a trainer's card subscription**, and *End Pro* now cancels
+  it. It used to leave the card being charged, and the next paid invoice turned
+  Pro back on.
+- **Deleting a trainer cancels their card subscription.** It used to keep
+  charging them with nothing left in GaitDesk to say whose card it was.
+
 ### Horse paperwork is no longer read by AI
 
 - **The reader behind the Coggins, vaccination, health certificate and

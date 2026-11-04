@@ -10,6 +10,7 @@ import {
   type ShowCompany,
 } from '@/lib/show-companies';
 import PlanPicker, { usePlanChange } from '../PlanPicker';
+import CompanyGrants from './CompanyGrants';
 import ProPlusYears from './ProPlusYears';
 
 function priceText(plan: PlanInfo): string {
@@ -54,13 +55,18 @@ export default function CompanyPlan({
   const columnPlan = pending ?? company.plan;
   const proPlus = plans.find((p) => p.key === PRO_PLUS);
   const yearEnds = [...(company.subscriptions ?? [])].sort((a, b) => b.ends_on.localeCompare(a.ends_on))[0]?.ends_on;
+  const given = (company.grants ?? []).find((g) => g.id === company.active_grant_id);
+  // A paid Pro+ year beats a comp or trial (`effective_plan`).
+  const onGrant = given && !onProPlus ? given : null;
 
   function tag(plan: PlanInfo, isColumn: boolean): string | null {
     if (plan.key === PRO_PLUS) {
       if (lapsedSince) return 'Renewal unpaid';
       return onProPlus ? `Through ${formatDay(yearEnds)}${renews ? ' · renews' : ''}` : null;
     }
+    if (onGrant?.plan === plan.key) return onGrant.kind === 'trial' ? 'Free trial' : 'Complimentary';
     if (isColumn && pending) return 'Saving…';
+    if (isColumn && onGrant) return 'After it ends';
     if (isColumn) return onProPlus ? 'After Pro+' : 'Current plan';
     return null;
   }
@@ -93,7 +99,9 @@ export default function CompanyPlan({
       <div>
         <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Plan</h2>
         <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-          {lapsedSince
+          {given && !onProPlus
+            ? `On ${company.effective_plan_label}${given.ends_on ? ` through ${formatDay(given.ends_on)}; ${company.plan_label} after that` : ', with no end date'}. Shows that start while it runs cost nothing per exhibitor. `
+            : lapsedSince
             ? `Pro+ renewal unpaid since ${formatDay(lapsedSince)}: the company sets up no show, and its shows that hadn't finished by then are frozen until it renews or moves to Basic or Pro. `
             : onProPlus && renews
               ? `On ${company.effective_plan_label} through ${formatDay(yearEnds)}. It renews as Pro+, and its shows freeze if the renewal isn't paid. `
@@ -114,7 +122,7 @@ export default function CompanyPlan({
             const isProPlus = plan.key === PRO_PLUS;
             // While Pro+ renews, no other plan is the company's choice -- until one is pressed.
             const isColumn = !isProPlus && plan.key === columnPlan && (!renews || pending !== null);
-            const current = isProPlus ? onProPlus : isColumn && !onProPlus;
+            const current = isProPlus ? onProPlus : onGrant ? onGrant.plan === plan.key : isColumn && !onProPlus;
             const warn = isProPlus && lapsedSince !== null;
             const label = tag(plan, isColumn);
             return (
@@ -206,6 +214,8 @@ export default function CompanyPlan({
         onChange={onChange}
         onError={onError}
       />
+
+      <CompanyGrants company={company} onChange={onChange} onError={onError} />
     </section>
   );
 }

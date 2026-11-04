@@ -81,6 +81,7 @@ from mailer import public_app_url, send_email
 from models import (
     Show,
     ShowCompany,
+    ShowCompanyGrant,
     ShowCompanyJoinRequest,
     ShowCompanyMember,
     ShowCompanyPlanChange,
@@ -88,9 +89,12 @@ from models import (
     ShowCompanyUpgradeRequest,
     ShowManager,
     ShowSecretary,
+    Trainer,
     User,
 )
 from schemas import PlanInfoOut
+from subscription_prices import BASIC_RATE as PRICE_BASIC, PRO_PLUS_ANNUAL as PRICE_PRO_PLUS, PriceBook, load_prices
+from trainer_registry import grant_reminder_email as trainer_grant_reminder_email, lead_recipient
 
 logger = logging.getLogger(__name__)
 
@@ -198,16 +202,14 @@ FEATURES: dict[str, Feature] = {
 class Plan:
     key: str
     label: str
-    # What GaitDesk charges the show company for each exhibitor on a show's
-    # roster. Priced through `billing.platform_usage`.
-    rate_cents: int
+    # Which plan beats which when a show is priced at the highest a company
+    # held. What a plan costs is `subscription_prices` (migration 179), not here.
+    rank: int
     features: frozenset[str]
     # One line each, for the plan's card on the admin screens and My Company.
     includes: tuple[str, ...]
     # Migration 169. Free sets up no show; every other plan does.
     sets_up_shows: bool = True
-    # A prepaid year's price; 0 for the plans billed per exhibitor.
-    annual_cents: int = 0
     # A company may move itself onto it from My Company. Pro+ is billed for
     # up front, so a GaitDesk admin starts it (paid or not, migration 171).
     self_serve: bool = False
@@ -222,7 +224,7 @@ PLANS: dict[str, Plan] = {
     FREE: Plan(
         key=FREE,
         label="GaitDesk Free",
-        rate_cents=0,
+        rank=0,
         features=frozenset(),
         includes=(
             "Your company's managers, secretaries, scribes and gate stewards",
@@ -233,7 +235,7 @@ PLANS: dict[str, Plan] = {
     BASIC: Plan(
         key=BASIC,
         label="GaitDesk Basic",
-        rate_cents=200,
+        rank=1,
         features=frozenset(),
         includes=(
             "Registration, back numbers, the gate, scribing and judge's cards",
@@ -245,7 +247,7 @@ PLANS: dict[str, Plan] = {
     PRO: Plan(
         key=PRO,
         label=PRO_LABEL,
-        rate_cents=400,
+        rank=2,
         features=frozenset(FEATURES),
         includes=(
             "Everything in GaitDesk Basic",
@@ -262,14 +264,13 @@ PLANS: dict[str, Plan] = {
     PRO_PLUS: Plan(
         key=PRO_PLUS,
         label="GaitDesk Pro+",
-        rate_cents=0,
+        rank=3,
         features=frozenset(FEATURES),
         includes=(
             "Everything in GaitDesk Pro",
             "Unlimited shows and exhibitors for a year, billed once",
             "Made for companies running more than one mid-sized show a year",
         ),
-        annual_cents=149900,
     ),
 }
 
@@ -283,25 +284,42 @@ DEFAULT_PLAN = FREE
 # How long before a Pro+ year ends its company's managers are reminded.
 RENEWAL_NOTICE_DAYS = 30
 
+# How long before a comp or a trial ends whoever has it is reminded (migration 179).
+GRANT_NOTICE_DAYS = 7
+
+GRANT_KINDS = {"comp": "complimentary", "trial": "free trial"}
+
+# The plans a company can be given. Not Pro+: Pro at no charge already has
+# everything Pro+ has, and a free Pro+ year is still a price of 0 on a year.
+GRANTABLE_PLANS = ("basic", "pro")
+
 # What a company may ask GaitDesk for from a locked door: a feature, or Pro+.
 REQUESTABLE = frozenset(FEATURES) | {PRO_PLUS}
 
 
-def plan_catalog() -> list[PlanInfoOut]:
-    """Every plan, for a page that says what each includes."""
-    return [
-        PlanInfoOut(
-            key=p.key,
-            label=p.label,
-            rate_cents=p.rate_cents,
-            annual_cents=p.annual_cents,
-            sets_up_shows=p.sets_up_shows,
-            self_serve=p.self_serve,
-            features=sorted(p.features),
-            includes=list(p.includes),
+def plan_catalog(prices: PriceBook) -> list[PlanInfoOut]:
+    """Every plan, for a page that says what each includes, what it costs today,
+    and any change on the way -- choosing a plan is agreeing to its price."""
+    today = utc_today()
+    catalog = []
+    for p in PLANS.values():
+        key = prices.plan_key(p.key)
+        upcoming = prices.upcoming(key, today) if key else None
+        catalog.append(
+            PlanInfoOut(
+                key=p.key,
+                label=p.label,
+                rate_cents=prices.rate(p.key, today),
+                annual_cents=prices.annual(today) if p.key == PRO_PLUS else 0,
+                upcoming_cents=upcoming[1] if upcoming else None,
+                upcoming_on=upcoming[0] if upcoming else None,
+                sets_up_shows=p.sets_up_shows,
+                self_serve=p.self_serve,
+                features=sorted(p.features),
+                includes=list(p.includes),
+            )
         )
-        for p in PLANS.values()
-    ]
+    return catalog
 
 
 def plan_features(plan: str | None) -> frozenset[str]:
@@ -322,7 +340,16 @@ def covering_subscription(subscriptions: Iterable, on: date):
     return max(covering, key=lambda s: s.ends_on) if covering else None
 
 
-def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date) -> date | None:
+def covering_grant(grants: Iterable, on: date):
+    """The comp or trial that covers a day, or None (migration 179). Grants don't
+    overlap (`grant_plan` refuses it)."""
+    return next(
+        (g for g in grants if g.starts_on <= on and (g.ends_on is None or on <= g.ends_on)),
+        None,
+    )
+
+
+def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date, grants: Iterable = ()) -> date | None:
     """The day an unpaid Pro+ renewal froze the company, or None (migration 175).
 
     A company on Pro+ renews Pro+ (`renews_pro_plus`) -- it does not drop onto
@@ -330,30 +357,38 @@ def pro_plus_lapse(renews: bool, subscriptions: Iterable, on: date) -> date | No
     year ended until it pays the renewal or picks Basic or Pro, it is on no
     plan at all: it sets up no show, and every show of its that had not
     finished by that day is frozen (`frozen_since`). A company whose only year
-    is still to start is not lapsed; it has not had one yet."""
-    if not renews or covering_subscription(subscriptions, on) is not None:
+    is still to start is not lapsed; it has not had one yet. **A comp or trial
+    lifts it for as long as it runs** (migration 179): GaitDesk gave the company
+    a plan, and a plan is what a frozen company is short of."""
+    if not renews or covering_subscription(subscriptions, on) is not None or covering_grant(grants, on) is not None:
         return None
     ended = [s.ends_on for s in subscriptions if s.ends_on < on]
     return max(ended) + timedelta(days=1) if ended else None
 
 
-def frozen_since(renews: bool, subscriptions: Iterable, show_end: date, on: date) -> date | None:
+def frozen_since(renews: bool, subscriptions: Iterable, show_end: date, on: date, grants: Iterable = ()) -> date | None:
     """The day a show froze, or None: its company's Pro+ renewal has lapsed and
     the show had not finished by the day it did -- **a show running when the
     year ran out freezes too**, mid-show. A show that finished inside a paid
     year stays open: its results and records are history, not a show being
     run."""
-    lapse = pro_plus_lapse(renews, subscriptions, on)
+    lapse = pro_plus_lapse(renews, subscriptions, on, grants)
     return lapse if lapse is not None and show_end >= lapse else None
 
 
-def effective_plan(plan: str | None, subscriptions: Iterable, on: date, renews: bool = False) -> str:
+def effective_plan(
+    plan: str | None, subscriptions: Iterable, on: date, renews: bool = False, grants: Iterable = ()
+) -> str:
     """The plan a company is on today: Pro+ while a paid year covers the day;
-    **Free while a Pro+ renewal is unpaid** (`pro_plus_lapse`) -- no show set
-    up, no feature -- and otherwise its per-exhibitor plan, which is what a
-    company that chose one returns to when its year runs out."""
+    the plan of a **comp or trial** that covers it (migration 179); **Free while
+    a Pro+ renewal is unpaid** (`pro_plus_lapse`) -- no show set up, no feature
+    -- and otherwise its per-exhibitor plan, which is what a company that chose
+    one returns to when its year runs out."""
     if covering_subscription(subscriptions, on) is not None:
         return PRO_PLUS
+    grant = covering_grant(grants, on)
+    if grant is not None:
+        return grant.plan
     if pro_plus_lapse(renews, subscriptions, on) is not None:
         return FREE
     return plan if plan in PLANS else FREE
@@ -369,8 +404,8 @@ def show_billing_plan(changes: Iterable, subscriptions: Iterable, start: date, e
 
     **Pro+ when a paid year covers the show's first day** -- the year is
     unlimited, so a show that starts inside it costs nothing per exhibitor.
-    Otherwise **the highest-priced plan the company was on at any point across
-    the show's dates**: a company picks its own plan, and pricing the show at
+    Otherwise **the highest plan the company was on at any point across the
+    show's dates** (a comp or trial is priced by the caller, `usage_statement`): a company picks its own plan, and pricing the show at
     whatever it is on the day it is invoiced would let it run Pro and move to
     Basic the night the show closed. Free counts as Basic -- no show is free --
     and so does a day on Pro+ that no year covered (migration 175: the log
@@ -391,7 +426,7 @@ def show_billing_plan(changes: Iterable, subscriptions: Iterable, start: date, e
     held = [before[-1] if before else ordered[0][1]]
     held += [plan for day, plan in ordered if start < day <= end]
     priced = [BASIC if plan in (FREE, PRO_PLUS) or plan not in PLANS else plan for plan in held]
-    return max(priced, key=lambda plan: PLANS[plan].rate_cents)
+    return max(priced, key=lambda plan: PLANS[plan].rank)
 
 
 def _change_day(change) -> date:
@@ -633,6 +668,11 @@ async def retire_spare_personal_company(user_id: UUID, joined_company_id: UUID, 
         return False
     paid_years = await db.scalar(
         select(func.count()).select_from(ShowCompanySubscription).where(ShowCompanySubscription.company_id == own.id)
+    )
+    # A comp or trial is GaitDesk's word to this person, and counts the same.
+    paid_years = (paid_years or 0) + (
+        await db.scalar(select(func.count()).select_from(ShowCompanyGrant).where(ShowCompanyGrant.company_id == own.id))
+        or 0
     )
     show_count = await db.scalar(select(func.count()).select_from(Show).where(Show.company_id == own.id))
     member_ids = set(
@@ -951,10 +991,22 @@ async def plan_states(
         )
     ).all():
         terms.setdefault(term.company_id, []).append(term)
+    grants: dict[UUID, list] = {}
+    for grant in (
+        await db.execute(
+            select(
+                ShowCompanyGrant.company_id,
+                ShowCompanyGrant.plan,
+                ShowCompanyGrant.starts_on,
+                ShowCompanyGrant.ends_on,
+            ).where(ShowCompanyGrant.company_id.in_(ids))
+        )
+    ).all():
+        grants.setdefault(grant.company_id, []).append(grant)
     return {
         cid: (
-            effective_plan(plan, terms.get(cid, []), on, renews),
-            pro_plus_lapse(renews, terms.get(cid, []), on),
+            effective_plan(plan, terms.get(cid, []), on, renews, grants.get(cid, [])),
+            pro_plus_lapse(renews, terms.get(cid, []), on, grants.get(cid, [])),
         )
         for cid, plan, renews in rows
     }
@@ -977,12 +1029,14 @@ def company_features(company: ShowCompany, on: date | None = None) -> set[str]:
 
 def loaded_effective_plan(company: ShowCompany, on: date | None = None) -> str:
     """`effective_plan` for a company loaded with its subscriptions."""
-    return effective_plan(company.plan, company.subscriptions, on or utc_today(), company.renews_pro_plus)
+    return effective_plan(
+        company.plan, company.subscriptions, on or utc_today(), company.renews_pro_plus, company.grants
+    )
 
 
 def loaded_pro_plus_lapse(company: ShowCompany, on: date | None = None) -> date | None:
     """`pro_plus_lapse` for a company loaded with its subscriptions."""
-    return pro_plus_lapse(company.renews_pro_plus, company.subscriptions, on or utc_today())
+    return pro_plus_lapse(company.renews_pro_plus, company.subscriptions, on or utc_today(), company.grants)
 
 
 # What a company is called while its Pro+ renewal is unpaid: on no plan, and
@@ -990,8 +1044,14 @@ def loaded_pro_plus_lapse(company: ShowCompany, on: date | None = None) -> date 
 LAPSED_LABEL = "GaitDesk Pro+ (renewal unpaid)"
 
 
-def effective_label(effective: str, lapse: date | None) -> str:
-    return LAPSED_LABEL if lapse is not None else plan_label(effective)
+def effective_label(effective: str, lapse: date | None, grant=None) -> str:
+    """`grant` is the comp or trial covering today, if any. A paid Pro+ year beats
+    a grant, so the label only mentions it when the company is on its plan."""
+    if lapse is not None:
+        return LAPSED_LABEL
+    if grant is not None and effective == grant.plan:
+        return f"{plan_label(effective)} ({GRANT_KINDS[grant.kind]})"
+    return plan_label(effective)
 
 
 async def show_company_ids(db: AsyncSession, show_id: UUID) -> list[UUID]:
@@ -1077,6 +1137,7 @@ def upgrade_request_email(
     requester_name: str,
     requester_email: str,
     requester_role: str,
+    prices: PriceBook,
 ) -> tuple[str, str]:
     """The subject and body GaitDesk's admins are sent when a company asks.
 
@@ -1089,7 +1150,7 @@ def upgrade_request_email(
         return (
             f"{requester_name if personal else company_name} asked for {pro_plus.label}",
             f"{requester_name} ({requester_email}, {role}) asked for {pro_plus.label} for {whom}: "
-            f"a year of unlimited shows and exhibitors for {_dollars(pro_plus.annual_cents)}.\n\n"
+            f"a year of unlimited shows and exhibitors for {_dollars(prices.annual(utc_today()))}.\n\n"
             "Arrange the payment with them, then record it on the company's page -- that starts "
             "their year and answers the request:\n"
             f"{public_app_url()}/admin/companies/{company_id}\n",
@@ -1329,7 +1390,12 @@ async def show_freeze(db: AsyncSession, show_id: UUID) -> str | None:
             )
         )
     ).all()
-    since = frozen_since(True, terms, row.end_date, utc_today())
+    grants = (
+        await db.execute(
+            select(ShowCompanyGrant.starts_on, ShowCompanyGrant.ends_on).where(ShowCompanyGrant.company_id == row.id)
+        )
+    ).all()
+    since = frozen_since(True, terms, row.end_date, utc_today(), grants)
     if since is None:
         return None
     return FROZEN_SHOW.format(name=row.name, ended=_day(since - timedelta(days=1)))
@@ -1377,10 +1443,117 @@ def set_company_plan(company: ShowCompany, plan: str, changed_by: UUID | None, d
     company.renews_pro_plus = False
     company.plan = plan
     _log_plan(company, plan, changed_by, db)
-    now_has = plan_features(effective_plan(plan, company.subscriptions, utc_today()))
+    now_has = plan_features(effective_plan(plan, company.subscriptions, utc_today(), grants=company.grants))
     for request in [r for r in company.upgrade_requests if r.feature in now_has]:
         company.upgrade_requests.remove(request)
     return True
+
+
+def grant_plan(
+    company: ShowCompany,
+    *,
+    plan: str,
+    kind: str,
+    starts_on: date,
+    ends_on: date | None,
+    note: str | None,
+    granted_by: UUID | None,
+) -> ShowCompanyGrant:
+    """Give a company Basic or Pro for free, in the caller's transaction
+    (migration 179): a comp, which may run with no end, or a trial, which has one.
+    `company.plan` is untouched and the plan log gets no row: a grant is not the
+    company's choice, and what it chose is what follows the grant. It may start
+    in the past, so a show already run can be comped; an invoice already issued
+    keeps its lines. Answers the upgrade requests it satisfies, as moving a
+    company onto the plan does. `company.upgrade_requests` must be loaded."""
+    if plan not in GRANTABLE_PLANS:
+        raise HTTPException(422, "A comp or trial is on GaitDesk Basic or Pro.")
+    if kind not in GRANT_KINDS:
+        raise HTTPException(422, "Choose a comp or a trial.")
+    if kind == "trial" and ends_on is None:
+        raise HTTPException(422, "A trial needs an end date.")
+    if ends_on is not None and ends_on < starts_on:
+        raise HTTPException(422, "It can't end before it starts.")
+    for other in company.grants:
+        if (ends_on is None or other.starts_on <= ends_on) and (other.ends_on is None or starts_on <= other.ends_on):
+            raise HTTPException(
+                409,
+                f"{company.name} already has a {GRANT_KINDS[other.kind]} {plan_label(other.plan)} over those dates. "
+                "End it first.",
+            )
+    grant = ShowCompanyGrant(
+        company_id=company.id,
+        plan=plan,
+        kind=kind,
+        starts_on=starts_on,
+        ends_on=ends_on,
+        note=(note or "").strip() or None,
+        granted_by_user_id=granted_by,
+    )
+    company.grants.append(grant)
+    today = utc_today()
+    if starts_on <= today and (ends_on is None or today <= ends_on):
+        for request in [r for r in company.upgrade_requests if r.feature in plan_features(plan)]:
+            company.upgrade_requests.remove(request)
+    return grant
+
+
+def end_grant(company: ShowCompany, grant: ShowCompanyGrant, today: date) -> None:
+    """End a comp or trial now: its last day was yesterday. One that had not
+    started, or started today, covered nothing, so it goes altogether. Shows
+    that started while it ran stay covered."""
+    if grant.starts_on >= today:
+        company.grants.remove(grant)
+    elif grant.ends_on is None or grant.ends_on >= today:
+        grant.ends_on = today - timedelta(days=1)
+
+
+def _after_grant(company_name: str, ends_on: date, follows: str, prices: PriceBook) -> str:
+    """What happens the day after a grant ends: the company is on the plan it
+    chose. A show set up during it and starting later is still billed, and on
+    Free that is at Basic's price -- no show is free."""
+    after = ends_on + timedelta(days=1)
+    if follows in (BASIC, PRO):
+        return (
+            f"After {_day(ends_on)}, {company_name} goes back to {plan_label(follows)}, and a show that starts "
+            f"after then is billed {_dollars(prices.rate(follows, after))} per exhibitor."
+        )
+    return (
+        f"After {_day(ends_on)}, {company_name} goes back to {plan_label(FREE)} and can't set up a new show until "
+        f"it chooses GaitDesk Basic or Pro on My Company. A show already set up that starts after then is billed "
+        f"{_dollars(prices.rate(BASIC, after))} per exhibitor, or the price of the plan you choose."
+    )
+
+
+def grant_email(company_name: str, grant: ShowCompanyGrant, follows: str, *, prices: PriceBook) -> tuple[str, str]:
+    """What a company's show managers are sent when GaitDesk gives it a plan."""
+    label = plan_label(grant.plan)
+    what = GRANT_KINDS[grant.kind]
+    lines = [
+        f"GaitDesk has given {company_name} {label} as a {what}, from {_day(grant.starts_on)}"
+        + (f" through {_day(grant.ends_on)}." if grant.ends_on else ", with no end date."),
+        "",
+        f"You have everything {label} includes, and there is no per-exhibitor charge for a show that starts "
+        "while it runs.",
+    ]
+    if grant.ends_on:
+        lines += ["", _after_grant(company_name, grant.ends_on, follows, prices)]
+    lines += ["", "What it includes:"] + [f"  - {line}" for line in PLANS[grant.plan].includes]
+    lines += ["", f"Your plan, any time: {public_app_url()}/admin/my-company"]
+    return f"{company_name} has {label} as a {what}", "\n".join(lines) + "\n"
+
+
+def grant_reminder_email(company_name: str, grant, follows: str, *, prices: PriceBook) -> tuple[str, str]:
+    """The one reminder a week before a comp or trial ends."""
+    label = plan_label(grant.plan)
+    what = GRANT_KINDS[grant.kind]
+    body = (
+        f"{company_name}'s {what} of {label} ends on {_day(grant.ends_on)}.\n\n"
+        f"{_after_grant(company_name, grant.ends_on, follows, prices)}\n\n"
+        "Nothing is lost -- your shows, entries and results stay as they are.\n\n"
+        f"Your plan, any time: {public_app_url()}/admin/my-company\n"
+    )
+    return f"{company_name}'s {what} of {label} ends {_day(grant.ends_on)}", body
 
 
 def keep_pro_plus(company: ShowCompany, changed_by: UUID | None, db: AsyncSession) -> bool:
@@ -1618,6 +1791,7 @@ def plan_confirmation_email(
     company_name: str,
     plan: str,
     *,
+    prices: PriceBook,
     term: tuple[date, date] | None = None,
     returns_to: str | None = None,
     renews: bool = False,
@@ -1626,6 +1800,7 @@ def plan_confirmation_email(
     Pro+ year, what follows it: Pro+ again when it `renews` (and the freeze
     while that is unpaid), else the plan it `returns_to`."""
     entry = PLANS[plan]
+    rate = prices.rate(plan, utc_today())
     lines = [f"{company_name} is now on {entry.label}.", ""]
     if plan == PRO_PLUS and term is not None:
         starts, ends = term
@@ -1635,7 +1810,7 @@ def plan_confirmation_email(
             "that starts in it.",
             "",
             (
-                f"It renews as {entry.label} for {_dollars(entry.annual_cents)}, and we'll email you a month "
+                f"It renews as {entry.label} for {_dollars(prices.annual(ends + timedelta(days=1)))}, and we'll email you a month "
                 f"before it ends. Until the renewal is paid, from the day after {ends:%B %-d, %Y} "
                 f"{company_name} can't set up a show, and its shows still running or still to come are "
                 "frozen. Choose GaitDesk Basic or Pro on My Company any time to follow it with one of those "
@@ -1645,12 +1820,12 @@ def plan_confirmation_email(
             else (
                 f"We'll email you a month before it ends. If it isn't renewed by {ends:%B %-d, %Y}, "
                 f"{company_name} moves to {plan_label(returns_to)}"
-                + (f", billed {_dollars(PLANS[returns_to].rate_cents)} per exhibitor after each show." if returns_to in PLANS and PLANS[returns_to].rate_cents else ".")
+                + (f", billed {_dollars(prices.rate(returns_to, ends))} per exhibitor after each show." if prices.rate(returns_to, ends) else ".")
             ),
         ]
-    elif entry.rate_cents:
+    elif rate:
         lines += [
-            f"Each show is billed {_dollars(entry.rate_cents)} per exhibitor registered to it, after the "
+            f"Each show is billed {_dollars(rate)} per exhibitor registered to it, after the "
             "show -- nothing is charged until then. You can set up shows now; once a show has finished, "
             "it is paid for before the next one is set up. Settle up on My Company by card or bank "
             "transfer, or by check.",
@@ -1662,20 +1837,43 @@ def plan_confirmation_email(
     return f"{company_name} is on {entry.label}", "\n".join(lines) + "\n"
 
 
+def price_notice_email(
+    company_name: str, key: str, old_cents: int, new_cents: int, effective_on: date
+) -> tuple[str, str]:
+    """The notice the Terms promise before a price goes up (section 6): what it
+    was, what it will be, from when, and what it doesn't touch."""
+    if key == PRICE_PRO_PLUS:
+        label, per = PLANS[PRO_PLUS].label, "a year"
+        keeps = "A Pro+ year already paid for keeps its price for the rest of that year."
+    else:
+        label, per = PLANS[BASIC if key == PRICE_BASIC else PRO].label, "per exhibitor"
+        keeps = f"A show that starts before {_day(effective_on)} is billed at the old price."
+    body = (
+        f"The price of {label} goes from {_dollars(old_cents)} to {_dollars(new_cents)} {per} on "
+        f"{_day(effective_on)}.\n\n"
+        f"{keeps}\n\n"
+        f"{company_name} can change plans on My Company at any time: "
+        f"{public_app_url()}/admin/my-company\n"
+    )
+    return f"The price of {label} changes on {_day(effective_on)}", body
+
+
 def renewal_reminder_email(
-    company_name: str, ends_on: date, returns_to: str, renews: bool = False
+    company_name: str, ends_on: date, returns_to: str, renews: bool = False, *, prices: PriceBook
 ) -> tuple[str, str]:
     """The one reminder a month before a Pro+ year ends: what happens without
     the renewal -- the freeze when the company renews Pro+ (migration 175),
     else the plan it chose to follow it."""
     pro_plus = PLANS[PRO_PLUS]
     after = PLANS.get(returns_to) or PLANS[PRO]
+    next_day = ends_on + timedelta(days=1)
+    after_rate = prices.rate(after.key, next_day)
     consequence = (
         f"{company_name} moves to {after.label}: it keeps setting up shows"
         + (
-            f", and each show that starts after then is billed {_dollars(after.rate_cents)} per exhibitor "
+            f", and each show that starts after then is billed {_dollars(after_rate)} per exhibitor "
             "registered to it."
-            if after.rate_cents
+            if after_rate
             else "."
         )
     )
@@ -1691,7 +1889,7 @@ def renewal_reminder_email(
         )
     body = (
         f"{company_name}'s {pro_plus.label} year ends on {ends_on:%B %-d, %Y}.\n\n"
-        f"Renew for another year of unlimited shows and exhibitors for {_dollars(pro_plus.annual_cents)}: "
+        f"Renew for another year of unlimited shows and exhibitors for {_dollars(prices.annual(next_day))}: "
         "reply to this email or contact GaitDesk, and the new year starts the day after this one ends.\n\n"
         f"If it isn't renewed by {ends_on:%B %-d, %Y}: {consequence} Nothing is lost -- your shows, "
         "entries and results stay as they are.\n\n"
@@ -1713,6 +1911,7 @@ async def send_renewal_reminders(db: AsyncSession, today: date | None = None) ->
     if not smtp_configured():
         return 0
     today = today or utc_today()
+    prices = await load_prices(db)
     window_end = today + timedelta(days=RENEWAL_NOTICE_DAYS)
     candidates = (
         await db.execute(
@@ -1750,8 +1949,83 @@ async def send_renewal_reminders(db: AsyncSession, today: date | None = None) ->
         recipients = await company_manager_emails(db, term.company_id)
         if company is None or not recipients:
             continue
-        subject, body = renewal_reminder_email(company.name, term.ends_on, company.plan, company.renews_pro_plus)
+        subject, body = renewal_reminder_email(
+            company.name, term.ends_on, company.plan, company.renews_pro_plus, prices=prices
+        )
         await email_admins(recipients, subject, body)
+        sent += 1
+    return sent
+
+
+async def send_grant_reminders(db: AsyncSession, today: date | None = None) -> int:
+    """Remind whoever has a comp or trial, once, a week before it ends -- each
+    claimed before it is sent, as `send_renewal_reminders` does, and nothing
+    claimed without SMTP. A trainer whose card now pays for Pro is skipped: their
+    Pro doesn't end with the grant. Returns how many went."""
+    from mailer import smtp_configured
+
+    if not smtp_configured():
+        return 0
+    today = today or utc_today()
+    prices = await load_prices(db)
+    window_end = today + timedelta(days=GRANT_NOTICE_DAYS)
+    sent = 0
+    grants = (
+        await db.execute(
+            select(ShowCompanyGrant).where(
+                ShowCompanyGrant.reminder_sent_at.is_(None),
+                ShowCompanyGrant.ends_on >= today,
+                ShowCompanyGrant.ends_on <= window_end,
+            )
+        )
+    ).scalars().all()
+    for grant in grants:
+        claimed = (
+            await db.execute(
+                update(ShowCompanyGrant)
+                .where(ShowCompanyGrant.id == grant.id, ShowCompanyGrant.reminder_sent_at.is_(None))
+                .values(reminder_sent_at=datetime.now(timezone.utc))
+                .returning(ShowCompanyGrant.id)
+            )
+        ).first()
+        await db.commit()
+        if claimed is None:
+            continue
+        company = await db.get(ShowCompany, grant.company_id)
+        recipients = await company_manager_emails(db, grant.company_id)
+        if company is None or not recipients:
+            continue
+        subject, body = grant_reminder_email(company.name, grant, company.plan, prices=prices)
+        await email_admins(recipients, subject, body)
+        sent += 1
+    trainers = (
+        await db.execute(
+            select(Trainer)
+            .options(selectinload(Trainer.user))
+            .where(
+                Trainer.pro_grant.is_not(None),
+                Trainer.pro_grant_reminder_sent_at.is_(None),
+                Trainer.stripe_subscription_id.is_(None),
+                Trainer.pro_until >= today,
+                Trainer.pro_until <= window_end,
+            )
+        )
+    ).scalars().all()
+    for trainer in trainers:
+        claimed = (
+            await db.execute(
+                update(Trainer)
+                .where(Trainer.id == trainer.id, Trainer.pro_grant_reminder_sent_at.is_(None))
+                .values(pro_grant_reminder_sent_at=datetime.now(timezone.utc))
+                .returning(Trainer.id)
+            )
+        ).first()
+        await db.commit()
+        recipient = lead_recipient(trainer)
+        if claimed is None or not recipient:
+            continue
+        subject, body = trainer_grant_reminder_email(trainer)
+        await email_admins([recipient], subject, body)
         sent += 1
     return sent
 
@@ -1768,8 +2042,11 @@ async def renewal_reminder_loop(session_factory) -> None:
         try:
             async with session_factory() as db:
                 count = await send_renewal_reminders(db)
+                granted = await send_grant_reminders(db)
             if count:
                 logger.info("Sent %d Pro+ renewal reminder(s)", count)
+            if granted:
+                logger.info("Sent %d comp or trial reminder(s)", granted)
         except Exception:  # noqa: BLE001 -- a bad night must not end the loop
             logger.exception("Pro+ renewal reminder check failed")
         await asyncio.sleep(RENEWAL_CHECK_SECONDS)

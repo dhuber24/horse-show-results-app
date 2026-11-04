@@ -11,6 +11,7 @@ import {
   mailtoHref,
   planFeatures,
   proPlanLabel,
+  proThrough,
   registryDisciplines,
   registryStates,
   safeWebUrl,
@@ -92,8 +93,19 @@ describe('the plans', () => {
   });
 
   it('prices Pro by the month and by the year', () => {
-    expect(proPlanLabel('monthly')).toBe('$10 / month');
-    expect(proPlanLabel('annual')).toBe('$100 / year');
+    const prices = { monthly: 1000, annual: 9950 };
+    expect(proPlanLabel('monthly', prices)).toBe('$10 / month');
+    expect(proPlanLabel('annual', prices)).toBe('$99.50 / year');
+  });
+
+  it('leaves the price out rather than print a stale one', () => {
+    expect(proPlanLabel('monthly', null)).toBe('Monthly');
+    expect(proPlanLabel('annual', undefined)).toBe('Yearly');
+  });
+
+  it('says a comp has no end date', () => {
+    expect(proThrough('9999-12-31')).toBe('with no end date');
+    expect(proThrough('2027-01-31')).toBe('through Jan 31, 2027');
   });
 });
 

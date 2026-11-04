@@ -982,7 +982,7 @@ async def get_show_plan(
     states = list((await plan_states(db, company_ids)).values())
     best, lapse = max(
         states,
-        key=lambda state: (PLANS[state[0]].annual_cents, PLANS[state[0]].rate_cents),
+        key=lambda state: PLANS[state[0]].rank,
         default=("free", None),
     )
     plan = PLANS[best]

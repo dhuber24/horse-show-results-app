@@ -73,6 +73,10 @@ export interface RegistryOptions {
   max_photos: number;
   max_video_links: number;
   max_rate_lines: number;
+  /** What Pro costs in cents, from `subscription_prices` (migration 179). Null
+   *  when it could not be read: the screens leave the price out rather than
+   *  print a stale one. */
+  pro_prices: ProPrices | null;
 }
 
 export const DEFAULT_REGISTRY_OPTIONS: RegistryOptions = {
@@ -81,18 +85,32 @@ export const DEFAULT_REGISTRY_OPTIONS: RegistryOptions = {
   max_photos: 8,
   max_video_links: 5,
   max_rate_lines: 20,
+  pro_prices: null,
 };
 
 // ── The plans ────────────────────────────────────────────────────────────────
 
-/** What Pro costs — and what Stripe charges for it: `PRO_PRICE_CENTS` in `backend/trainer_registry.py` must agree. */
-export const PRO_PRICES: Record<ProPlan, { price: string; per: string }> = {
-  monthly: { price: '$10', per: 'month' },
-  annual: { price: '$100', per: 'year' },
-};
+export type ProPrices = Record<ProPlan, number>;
 
-export function proPlanLabel(plan: ProPlan): string {
-  return `${PRO_PRICES[plan].price} / ${PRO_PRICES[plan].per}`;
+const PRO_PER: Record<ProPlan, string> = { monthly: 'month', annual: 'year' };
+
+/** "$10", or to the cent for anything else. */
+export function proPrice(cents: number): string {
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/** "$10 / month" — or just the plan, when the price could not be read. */
+export function proPlanLabel(plan: ProPlan, prices: ProPrices | null | undefined): string {
+  if (!prices) return plan === 'annual' ? 'Yearly' : 'Monthly';
+  return `${proPrice(prices[plan])} / ${PRO_PER[plan]}`;
+}
+
+/** `trainers.pro_until` for a comp with no end (`trainer_registry.PRO_NO_END`). */
+export const PRO_NO_END = '9999-12-31';
+
+/** "through Jan 31, 2027", or "with no end date". */
+export function proThrough(until: string | null | undefined): string {
+  return until === PRO_NO_END ? 'with no end date' : `through ${formatDay(until)}`;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

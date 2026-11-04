@@ -1456,7 +1456,22 @@ class ShowCompanyJoinRequestOut(BaseModel):
     vouched_at: Optional[datetime] = None
 
 
+class GrantOut(BaseModel):
+    """A plan given to a company for free (migration 179): a comp or a trial."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    plan: str
+    kind: str
+    starts_on: date
+    ends_on: Optional[date] = None
+    note: Optional[str] = None
+
+
 class ShowCompanyOut(BaseModel):
+    grants: list[GrantOut] = []
+    # The one covering today, if any.
+    active_grant_id: Optional[UUID] = None
     id: UUID
     name: str
     notes: Optional[str] = None
@@ -1516,6 +1531,10 @@ class PlanInfoOut(BaseModel):
     annual_cents: int = 0
     sets_up_shows: bool = True
     self_serve: bool = False
+    # Migration 179: a price change on the way -- choosing a plan is agreeing to
+    # its price, and the Terms promise notice of a raise on My Company.
+    upcoming_cents: Optional[int] = None
+    upcoming_on: Optional[date] = None
 
 
 class SubscriptionOut(BaseModel):
@@ -1821,6 +1840,7 @@ class PendingCompanyRequestsOut(BaseModel):
     """What is waiting on a GaitDesk admin, for the badge on the admin home."""
     join_requests: int
     upgrade_requests: int
+    trainer_pro_requests: int = 0
 
 
 class MyFeaturesOut(BaseModel):
@@ -3531,6 +3551,7 @@ class TrainerProfileOut(BaseModel):
     is_pro: bool = False
     pro_until: Optional[date] = None
     pro_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_grant: Optional[Literal["comp", "trial"]] = None
     pro_request_plan: Optional[Literal["monthly", "annual"]] = None
     pro_requested_at: Optional[datetime] = None
     # Migration 172: paying for Pro by card. `subscribed` is a Stripe
@@ -3559,6 +3580,7 @@ class TrainerProfileOut(BaseModel):
             'is_pro': is_pro(v),
             'pro_until': getattr(v, 'pro_until', None),
             'pro_plan': getattr(v, 'pro_plan', None),
+            'pro_grant': getattr(v, 'pro_grant', None),
             'pro_request_plan': request.plan if request else None,
             'pro_requested_at': request.created_at if request else None,
             'subscribed': bool(getattr(v, 'stripe_customer_id', None) and getattr(v, 'stripe_subscription_id', None)),
@@ -3672,6 +3694,115 @@ class TrainerLeadOut(BaseModel):
 
 class TrainerLeadStatusUpdate(BaseModel):
     status: Literal["new", "read", "archived"]
+
+
+class CompanySubscriptionOut(BaseModel):
+    """One company's money on Manage Subscriptions (migration 179), read off its
+    invoices and usage statement by `gaitdesk_invoices.company_money`."""
+    company_id: UUID
+    show_count: int = 0
+    upcoming_show_count: int = 0
+    open_invoice_count: int = 0
+    overdue_invoice_count: int = 0
+    processing_invoice_count: int = 0
+    open_amount_cents: int = 0
+    unsettled_show_count: int = 0
+    unsettled_amount_cents: int = 0
+    unpaid_year_count: int = 0
+    renewal_due: bool = False
+    grant_ending_soon: bool = False
+
+
+class CompanyGrantIn(BaseModel):
+    """Give a company a plan for free. Left blank it starts today; a comp with no
+    `ends_on` has no end, and a trial must have one."""
+    plan: Literal["basic", "pro"]
+    kind: Literal["comp", "trial"]
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class TrainerGrantIn(BaseModel):
+    """Give a trainer Pro for free, from today. A comp with no `ends_on` has no
+    end, and a trial must have one."""
+    kind: Literal["comp", "trial"]
+    ends_on: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class TrainerSubscriptionOut(BaseModel):
+    """One trainer on Manage Subscriptions. An admin's: not `TrainerOut`, which
+    any signed-in account can read, because it carries the note."""
+    id: UUID
+    name: str
+    business_name: Optional[str] = None
+    email: Optional[str] = None
+    is_public: bool = False
+    is_pro: bool = False
+    pro_until: Optional[date] = None
+    pro_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_grant: Optional[Literal["comp", "trial"]] = None
+    pro_grant_note: Optional[str] = None
+    pro_request_plan: Optional[Literal["monthly", "annual"]] = None
+    pro_requested_at: Optional[datetime] = None
+    pays_by_card: bool = False
+    ending_soon: bool = False
+
+
+class TrainerBillingOut(BaseModel):
+    """How a trainer's Pro is paid for, with their card subscription as Stripe
+    has it now. `read_failed` is Stripe not answering."""
+    pays_by_card: bool = False
+    can_manage: bool = False
+    status: Optional[str] = None
+    renews: Optional[bool] = None
+    period_end: Optional[date] = None
+    read_failed: bool = False
+    pro_grant: Optional[Literal["comp", "trial"]] = None
+    pro_grant_note: Optional[str] = None
+    # What Pro costs a new subscriber today, for the plan picker on the panel.
+    pro_prices: Optional[dict[str, int]] = None
+
+
+class TrainerRenewalIn(BaseModel):
+    renews: bool
+
+
+class SubscriptionPriceRowOut(BaseModel):
+    id: UUID
+    amount_cents: int
+    effective_on: date
+    created_at: Optional[datetime] = None
+    set_by_name: Optional[str] = None
+    scheduled: bool = False
+
+
+class SubscriptionPriceOut(BaseModel):
+    """One of GaitDesk's prices, with its history (migration 179)."""
+    key: str
+    label: str
+    per: str
+    audience: Literal["companies", "trainers"]
+    minimum_cents: int
+    raise_needs_notice: bool
+    current_cents: int
+    upcoming_cents: Optional[int] = None
+    upcoming_on: Optional[date] = None
+    history: list[SubscriptionPriceRowOut] = []
+
+
+class PriceChangeIn(BaseModel):
+    key: str
+    amount_cents: int
+    effective_on: Optional[date] = None
+
+
+class PriceChangeOut(BaseModel):
+    prices: list[SubscriptionPriceOut]
+    notice_needed: bool = False
+    companies_notified: int = 0
+    mail_configured: bool = False
 
 
 class TrainerProRequestCreate(BaseModel):

@@ -32,7 +32,7 @@ its price. An invoice is a GaitDesk admin choosing lines off it, **net 30**:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Iterable, Optional, Sequence
 from uuid import UUID
 
@@ -51,7 +51,8 @@ from schemas import (
     UsageShowOut,
     UsageSubscriptionOut,
 )
-from show_companies import PLANS, show_billing_plan, utc_today
+from show_companies import GRANT_KINDS, PLANS, PRO_PLUS, covering_grant, covering_subscription, show_billing_plan, utc_today
+from subscription_prices import PriceBook, load_prices
 
 
 class InvoiceRefused(ValueError):
@@ -287,12 +288,19 @@ async def load_company_for_usage(db: AsyncSession, company_id: UUID) -> Optional
     ).scalar_one_or_none()
 
 
-async def usage_statement(db: AsyncSession, company: ShowCompany) -> CompanyUsageOut:
+async def usage_statement(
+    db: AsyncSession, company: ShowCompany, prices: Optional[PriceBook] = None
+) -> CompanyUsageOut:
     """Every show the company runs, newest first, each priced at its own
     billing plan, and each Pro+ year at its price -- what the admin's usage
     statement shows, what an invoice copies its lines from, and what the
     settle-up rule reads, so none of them can price a show differently.
-    `company` must have `plan_changes` and `subscriptions` loaded."""
+
+    **A show is priced on its first day** (migration 179): at the price in force
+    that day, so a later change never touches it, and at nothing when a comp or
+    trial covers that day, as a Pro+ year does. `company` must have
+    `plan_changes` and `subscriptions` loaded. Pass `prices` when reading many."""
+    prices = prices or await load_prices(db)
     company_id = company.id
     plan = PLANS.get(company.plan) or PLANS["free"]
     invoiced = await invoiced_for_company(db, company_id)
@@ -319,7 +327,14 @@ async def usage_statement(db: AsyncSession, company: ShowCompany) -> CompanyUsag
     lines = []
     for show in shows:
         billed = PLANS[show_billing_plan(company.plan_changes, company.subscriptions, show.start_date, show.end_date)]
-        usage = platform_usage(billable_exhibitor_count(by_show.get(show.id, [])), billed.rate_cents)
+        rate = prices.rate(billed.key, show.start_date)
+        billed_label = billed.label
+        grant = None if billed.key == PRO_PLUS else covering_grant(company.grants, show.start_date)
+        if grant is not None:
+            billed = PLANS[grant.plan]
+            rate = 0
+            billed_label = f"{billed.label} ({GRANT_KINDS[grant.kind]})"
+        usage = platform_usage(billable_exhibitor_count(by_show.get(show.id, [])), rate)
         ref = invoiced.shows.get(show.id)
         lines.append(
             UsageShowOut(
@@ -329,7 +344,7 @@ async def usage_statement(db: AsyncSession, company: ShowCompany) -> CompanyUsag
                 end_date=show.end_date,
                 status=show.status,
                 billing_plan=billed.key,
-                billing_plan_label=billed.label,
+                billing_plan_label=billed_label,
                 invoice_id=ref.invoice_id if ref else None,
                 invoice_label=ref.label if ref else None,
                 invoice_settled=bool(ref and ref.settled),
@@ -353,7 +368,7 @@ async def usage_statement(db: AsyncSession, company: ShowCompany) -> CompanyUsag
         company_name=company.name,
         plan=plan.key,
         plan_label=plan.label,
-        rate_cents=plan.rate_cents,
+        rate_cents=prices.rate(plan.key, utc_today()),
         shows=lines,
         subscriptions=years,
         exhibitor_count=sum(line.exhibitor_count for line in lines),
@@ -388,6 +403,45 @@ def settle_up_message(company_name: str, shows: Sequence) -> str:
         "or bank transfer and you can carry on straight away, or pay by check and GaitDesk unlocks your "
         "account when it arrives."
     )
+
+
+def company_money(
+    invoices: Sequence,
+    usage: Optional[CompanyUsageOut],
+    settle_from: date,
+    today: date,
+    years: Sequence,
+    grants: Sequence,
+    renewal_notice_days: int,
+    grant_notice_days: int,
+) -> dict:
+    """One company's line on Manage Subscriptions, read off its invoices and its
+    usage statement -- the figures its own page and My Company show. `usage` is
+    None for a company with no show. `invoices` need the fields `invoice_status`
+    and `open_amount_cents` read."""
+    statuses = [(invoice_status(i, today), i) for i in invoices]
+    owing = [i for status, i in statuses if status in ("open", "overdue")]
+    shows = usage.shows if usage else []
+    unsettled = unsettled_shows(usage, settle_from, today) if usage else []
+    year = covering_subscription(years, today)
+    renewed = year is not None and any(t.starts_on > year.ends_on for t in years)
+    return {
+        "show_count": len(shows),
+        "upcoming_show_count": sum(1 for s in shows if s.end_date is not None and s.end_date >= today),
+        "open_invoice_count": len(owing),
+        "overdue_invoice_count": sum(1 for status, _ in statuses if status == "overdue"),
+        "processing_invoice_count": sum(1 for status, _ in statuses if status == "processing"),
+        "open_amount_cents": sum(open_amount_cents(i) or 0 for i in owing),
+        "unsettled_show_count": len(unsettled),
+        "unsettled_amount_cents": sum(s.amount_cents for s in unsettled),
+        "unpaid_year_count": sum(1 for t in years if t.payment_received_on is None and t.price_cents > 0),
+        "renewal_due": (
+            year is not None and not renewed and year.ends_on - timedelta(days=renewal_notice_days) <= today
+        ),
+        "grant_ending_soon": any(
+            g.ends_on is not None and today <= g.ends_on <= today + timedelta(days=grant_notice_days) for g in grants
+        ),
+    }
 
 
 async def settle_up_block(db: AsyncSession, company_id: Optional[UUID]) -> Optional[str]:

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BuyProPlus from '@/components/payments/BuyProPlus';
 import { errorMessage } from '@/lib/api-error';
-import { PRO_PLUS, formatRate, type CompanyRef, type PlanInfo, type PlanKey } from '@/lib/show-companies';
+import { PRO_PLUS, formatDay, formatRate, type CompanyRef, type PlanInfo, type PlanKey } from '@/lib/show-companies';
 
 /**
  * Pick GaitDesk Basic or Pro for a company (migration 169), or ask about Pro+.
@@ -148,6 +148,11 @@ export default function ChoosePlanPanel({
                   <span className="text-xl font-bold tabular-nums">{formatRate(plan.rate_cents)}</span> per exhibitor,
                   per show
                 </p>
+                {plan.upcoming_cents != null && (
+                  <p className="text-xs" style={{ color: 'var(--warning-strong)' }}>
+                    {formatRate(plan.upcoming_cents)} for a show starting from {formatDay(plan.upcoming_on)}
+                  </p>
+                )}
               </div>
               <ul className="text-xs space-y-0.5 list-disc pl-4 flex-1" style={{ color: 'var(--text-deep)' }}>
                 {plan.includes.map((line) => (

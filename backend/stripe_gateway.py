@@ -194,8 +194,8 @@ def create_subscription_checkout(
 ) -> str:
     """A Stripe Checkout page for a card subscription; returns its URL.
 
-    The price is given inline from `PRO_PRICES` rather than as a Price id kept
-    in the environment, so the one place a price is written stays the app.
+    The price is given inline from `subscription_prices` rather than as a Price
+    id kept in the environment, so the one place a price is written stays the app.
     Card only -- a trainer has no other way to pay, and GaitDesk pays the fee.
     """
     session = _call(
@@ -224,6 +224,58 @@ def create_billing_portal(customer_id: str, return_url: str) -> str:
     """Stripe's own page for a customer to change their card or cancel."""
     session = _call(lambda s: s.billing_portal.Session.create, customer=customer_id, return_url=return_url)
     return session["url"]
+
+
+def retrieve_subscription(subscription_id: str) -> dict:
+    """A trainer's Pro subscription as Stripe has it now. Whether it renews is
+    never kept here: the trainer can change it on Stripe's own portal."""
+    return _call(lambda s: s.Subscription.retrieve, subscription_id)
+
+
+def set_subscription_renewal(subscription_id: str, renews: bool) -> dict:
+    """Stop a subscription renewing, or undo that. Stopping leaves it running to
+    the end of the period already paid for."""
+    return _call(lambda s: s.Subscription.modify, subscription_id, cancel_at_period_end=not renews)
+
+
+def cancel_subscription(subscription_id: str) -> None:
+    """End a subscription today. Refunds nothing: a refund is made in Stripe's
+    dashboard. One Stripe no longer has, or has already ended, is what was asked
+    for, so an admin is never stuck on it."""
+    stripe = _sdk()
+    try:
+        _guarded(stripe, lambda: stripe.Subscription.cancel(subscription_id, api_key=secret_key()))
+    except PaymentError:
+        try:
+            current = _plain(stripe.Subscription.retrieve(subscription_id, api_key=secret_key()))
+        except stripe.InvalidRequestError:
+            return  # No such subscription.
+        except stripe.StripeError as exc:
+            logger.exception("Stripe request failed")
+            raise PaymentError("The payment service could not be reached. Please try again in a moment.") from exc
+        if current.get("status") != "canceled":
+            raise
+
+
+async def end_with_its_owner(subscription_id: Optional[str]) -> None:
+    """A trainer is being deleted, so end their Pro subscription: left running,
+    Stripe would go on charging a card nobody here can see any more, and the only
+    record of whose it was is about to go. Call it once the delete has flushed, so
+    a delete the database refuses cancels nothing, and before the commit, so a
+    refusal from Stripe (502) leaves the trainer on file to try again.
+
+    With no Stripe keys there is nothing to call, and that must not stop a delete,
+    so the id goes in the log for somebody to cancel by hand."""
+    if not subscription_id:
+        return
+    if not configured():
+        logger.warning("Trainer deleted with a live Stripe subscription, not cancelled: %s", subscription_id)
+        return
+    try:
+        await run(cancel_subscription, subscription_id)
+    except PaymentError as exc:
+        raise HTTPException(502, f"Their card subscription could not be cancelled, so nothing was deleted. {exc.message}")
+    logger.info("Stripe subscription cancelled with its trainer: %s", subscription_id)
 
 
 # ── One-off payments, confirmed on the server ─────────────────────────────────

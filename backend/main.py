@@ -80,6 +80,7 @@ from routers.my_company import router as my_company_router
 from routers.show_company_staff import router as show_company_staff_router
 from routers.company_billing import admin_router as company_invoices_router
 from routers.company_billing import company_router as company_billing_router
+from routers.subscriptions import router as subscriptions_router
 from routers.payments import router as payments_router
 
 # uvicorn configures its own named loggers but leaves the root logger with no
@@ -249,6 +250,7 @@ app.include_router(my_company_router)
 app.include_router(show_company_staff_router)
 app.include_router(company_invoices_router)
 app.include_router(company_billing_router)
+app.include_router(subscriptions_router)
 app.include_router(payments_router)
 
 

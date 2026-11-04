@@ -42,7 +42,7 @@ export default function ProPlusYears({
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const years = [...(company.subscriptions ?? [])].sort((a, b) => b.starts_on.localeCompare(a.starts_on));
   const label = plan?.label ?? 'GaitDesk Pro+';
-  const listPrice = plan?.annual_cents ?? 149900;
+  const listPrice = plan?.annual_cents ?? null;
 
   async function send(url: string, init: RequestInit, fallback: string) {
     setBusy(true);
@@ -134,7 +134,7 @@ export default function ProPlusYears({
           <div>
             <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Start a {label} year</p>
             <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-              {formatRate(listPrice)} a year for unlimited shows and exhibitors. Start a year whether or not it has
+              {listPrice !== null ? `${formatRate(listPrice)} a year` : 'A year'} for unlimited shows and exhibitors. Start a year whether or not it has
               been paid for — it is in force straight away, emails the company&apos;s show managers, and they&apos;re
               reminded a month before it ends. The company renews Pro+ from then on: a year that runs out unpaid
               freezes its unfinished shows until the renewal is paid or it moves to Basic or Pro.
@@ -170,7 +170,7 @@ export default function ProPlusYears({
             {form.payment !== 'complimentary' && (
               <label className="text-xs space-y-1" style={{ color: 'var(--text-deep)' }}>
                 <span className="block font-medium">{form.payment === 'received' ? 'Amount paid ($)' : 'Amount owed ($)'}</span>
-                <input inputMode="decimal" placeholder={String(listPrice / 100)} value={form.price}
+                <input inputMode="decimal" placeholder={listPrice !== null ? String(listPrice / 100) : undefined} value={form.price}
                   onChange={(e) => setForm({ ...form, price: e.target.value })}
                   className="w-full border rounded px-2 py-1.5 text-sm" style={inputStyle} />
               </label>

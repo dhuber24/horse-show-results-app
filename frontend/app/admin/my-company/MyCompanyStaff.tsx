@@ -5,7 +5,7 @@ import ChoosePlanPanel from '@/components/ChoosePlanPanel';
 import BuyProPlus from '@/components/payments/BuyProPlus';
 import SelfCancelPolicy from '@/components/SelfCancelPolicy';
 import { errorMessage } from '@/lib/api-error';
-import { formatDay, formatRate, type PlanInfo, type PlanKey } from '@/lib/show-companies';
+import { PRO_PLUS, formatDay, formatRate, type PlanInfo, type PlanKey } from '@/lib/show-companies';
 
 /** One company the caller works for, as `GET /my-company` returns it. No
  *  notes and no add-on switches: those are GaitDesk's. */
@@ -60,6 +60,9 @@ export type MyPlan = {
   effective_plan_label: string;
   rate_cents: number;
   sets_up_shows: boolean;
+  /** Migration 179: on a comp or trial today, and its last day (none: no end). */
+  grant_kind?: 'comp' | 'trial' | null;
+  grant_ends_on?: string | null;
   pro_plus: { starts_on: string; ends_on: string; renewal_due: boolean } | null;
   pro_plus_requested_at: string | null;
   /** Migration 175: on Pro+ and renewing it, rather than moving to `plan`. */
@@ -133,6 +136,8 @@ function PlanBlock({
   if (!plan) return null;
   const year = plan.pro_plus;
   const renews = plan.renews_pro_plus === true;
+  // The Terms promise notice of a raise on My Company too (section 6).
+  const priceNotice = plans.find((p) => p.key === (renews ? PRO_PLUS : plan.plan));
   const afterYear = plans.find((p) => p.key === plan.plan);
   const proPlus = plans.find((p) => p.key === 'pro_plus');
   const proPlusPrice = proPlus?.annual_cents ? formatRate(proPlus.annual_cents) : null;
@@ -163,7 +168,18 @@ function PlanBlock({
             Plan: {plan.effective_plan_label}
           </h3>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-            {lapsed ? (
+            {plan.grant_kind ? (
+              <>
+                GaitDesk has given you this plan, and a show that starts while it runs costs nothing per exhibitor.
+                {plan.grant_ends_on
+                  ? ` It ends ${formatDay(plan.grant_ends_on)}. After that, ${
+                      plan.plan === 'free'
+                        ? 'GaitDesk Free — no new shows until you pick a plan.'
+                        : `${plan.plan_label} at ${formatRate(plan.rate_cents)} per exhibitor, billed after each show.`
+                    }`
+                  : ' It has no end date.'}
+              </>
+            ) : lapsed ? (
               `Your Pro+ year ended ${formatDay(plan.pro_plus_ended_on)} and hasn't been renewed.`
             ) : year && renews ? (
               <>
@@ -222,6 +238,22 @@ function PlanBlock({
           {company.name} can&apos;t set up a show, and nobody can work a show of yours that was still running or still
           to come when the year ended. Nothing is lost, and exhibitors can still sign up. A renewal picks up the day
           after your year ended, so those shows are covered by it.
+        </p>
+      )}
+
+      {priceNotice?.upcoming_cents != null && (
+        <p
+          role="status"
+          className="text-sm rounded border p-3"
+          style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}
+        >
+          <span className="font-semibold">
+            {priceNotice.label} goes to {formatRate(priceNotice.upcoming_cents)}
+            {priceNotice.key === PRO_PLUS ? ' a year' : ' per exhibitor'} on {formatDay(priceNotice.upcoming_on)}.
+          </span>{' '}
+          {priceNotice.key === PRO_PLUS
+            ? 'A year already paid for keeps its price.'
+            : 'A show that starts before then is billed at the old price.'}
         </p>
       )}
 

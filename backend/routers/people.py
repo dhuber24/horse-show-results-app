@@ -39,7 +39,8 @@ from exhibitor_merge import (
     remove_exhibitor,
     removal_refusal,
 )
-from stripe_gateway import configured as stripe_configured
+from stripe_gateway import configured as stripe_configured, end_with_its_owner
+from subscription_prices import load_prices
 from show_companies import (
     FEATURES,
     REQUESTABLE,
@@ -567,7 +568,7 @@ async def list_own_features(
             for f in FEATURES.values()
         ],
         upgrade_requests=[_upgrade_request_out(r, uid) for r in requests if r.feature in REQUESTABLE],
-        plans=plan_catalog(),
+        plans=plan_catalog(await load_prices(db)),
         can_set_up_shows=await can_set_up_shows(db, uid, x_user_role),
         settle_up_message=await show_setup_blocked(db, uid, x_user_role),
         can_pay_online=stripe_configured(),
@@ -624,6 +625,7 @@ async def create_upgrade_request(
             requester_name=requester.full_name if requester else "Somebody",
             requester_email=requester.email if requester else "",
             requester_role=requester.role if requester else x_user_role,
+            prices=await load_prices(db),
         )
         background.add_task(email_admins, recipients, subject, mail_body)
     return _upgrade_request_out(request, uid)
@@ -764,11 +766,17 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "User not found")
     linked_trainer = await db.execute(select(Trainer).where(Trainer.user_id == user_id))
     trainer = linked_trainer.scalar_one_or_none()
+    subscription_id = trainer.stripe_subscription_id if trainer else None
     if trainer:
         await db.delete(trainer)
     await db.delete(user)
     try:
+        await db.flush()
+        await end_with_its_owner(subscription_id)
         await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
     except IntegrityError:
         await db.rollback()
         raise HTTPException(

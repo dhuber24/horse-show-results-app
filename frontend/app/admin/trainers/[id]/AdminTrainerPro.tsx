@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import GrantTermPicker from '@/components/GrantTermPicker';
 import LocalTime from '@/components/LocalTime';
 import { errorMessage } from '@/lib/api-error';
-import { formatDay, proPlanLabel, type ProPlan } from '@/lib/trainer-registry';
+import { GRANT_LABELS, type GrantKind, type TrainerBilling } from '@/lib/subscriptions';
+import { formatDay, PRO_NO_END, proPlanLabel, proThrough, type ProPlan } from '@/lib/trainer-registry';
 
 interface ProTrainer {
   id: string;
@@ -13,6 +15,7 @@ interface ProTrainer {
   is_pro: boolean;
   pro_until: string | null;
   pro_plan: ProPlan | null;
+  pro_grant?: GrantKind | null;
   pro_request_plan: ProPlan | null;
   pro_requested_at: string | null;
 }
@@ -32,17 +35,47 @@ function periodFromToday(plan: ProPlan): string {
  * — or with online payment not set up — the trainer asks, an admin bills them
  * outside the app and records here how long they have paid for. Pro is on through that date and Basic after it
  * — nobody has to switch it off. Recording a date answers the request.
+ *
+ * It is also where Pro is given away (migration 179: a comp or a free trial) and
+ * where a card subscription is stopped: read live from Stripe, because the
+ * trainer can change it on Stripe's own page. *End Pro* ends the card as well,
+ * since a subscription left running would go on charging and turn Pro back on.
  */
 export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
   const router = useRouter();
   const startPlan: ProPlan = trainer.pro_request_plan ?? trainer.pro_plan ?? 'monthly';
   const [plan, setPlan] = useState<ProPlan>(startPlan);
-  const [until, setUntil] = useState(trainer.pro_until ?? '');
+  const noEnd = trainer.pro_until === PRO_NO_END;
+  const [until, setUntil] = useState(noEnd ? '' : trainer.pro_until ?? '');
   // "One period from today" is the browser's today, set after hydration: the
   // server renders in UTC, which is tomorrow for every US evening.
   useEffect(() => {
-    if (!trainer.pro_until) setUntil(periodFromToday(startPlan));
-  }, [trainer.pro_until, startPlan]);
+    setUntil(noEnd ? '' : trainer.pro_until ?? periodFromToday(startPlan));
+  }, [trainer.pro_until, noEnd, startPlan]);
+  const [billing, setBilling] = useState<TrainerBilling | null>(null);
+  const [billingFailed, setBillingFailed] = useState(false);
+  const loadBilling = useCallback(async () => {
+    const res = await fetch(`/api/subscriptions/trainers/${trainer.id}/billing`).catch(() => null);
+    if (!res?.ok) {
+      setBillingFailed(true);
+      return;
+    }
+    setBillingFailed(false);
+    setBilling(await res.json().catch(() => null));
+  }, [trainer.id]);
+  useEffect(() => {
+    void loadBilling();
+  }, [loadBilling, trainer.pro_until, trainer.pro_grant]);
+  const [confirmRenewal, setConfirmRenewal] = useState(false);
+  const [giving, setGiving] = useState(false);
+  const [grantKind, setGrantKind] = useState<GrantKind>('trial');
+  const [grantEnds, setGrantEnds] = useState<string | null>('');
+  const [grantNote, setGrantNote] = useState('');
+  const paysByCard = billing?.pays_by_card ?? false;
+  // From the billing read as well as the row: the trainer's own admin page reads
+  // a list any signed-in account can, which doesn't carry it.
+  const grant = trainer.pro_grant ?? billing?.pro_grant ?? null;
+  const prices = billing?.pro_prices;
   const [busy, setBusy] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -69,6 +102,30 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
       pro_until ? `Pro recorded through ${formatDay(pro_until)}.` : 'Pro ended. The listing is on Basic.',
     );
 
+  const setRenewal = async (renews: boolean) => {
+    setConfirmRenewal(false);
+    await call(
+      `/api/subscriptions/trainers/${trainer.id}/billing/renewal`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ renews }) },
+      renews ? 'The card subscription renews again.' : 'It won\'t renew. Pro stays on through the date paid for.',
+    );
+    await loadBilling();
+  };
+
+  const give = async () => {
+    await call(
+      `/api/subscriptions/trainers/${trainer.id}/grant`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: grantKind, ends_on: grantEnds, note: grantNote.trim() || null }),
+      },
+      grantKind === 'trial' ? 'Free trial started.' : 'Comp given.',
+    );
+    setGiving(false);
+    setGrantNote('');
+  };
+
   const inputClass = 'border rounded px-3 py-2 text-sm focus:outline-none';
   const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 
@@ -91,7 +148,8 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
         {trainer.is_pro ? (
           <>
             <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Pro</span>
-            {trainer.pro_plan ? ` (${proPlanLabel(trainer.pro_plan)})` : ''} through {formatDay(trainer.pro_until)}.
+            {grant ? ` (${GRANT_LABELS[grant].toLowerCase()})` : ''}
+            {trainer.pro_plan ? ` (${proPlanLabel(trainer.pro_plan, prices)})` : ''} {proThrough(trainer.pro_until)}.
           </>
         ) : trainer.pro_until ? (
           <>Basic. Pro ran through {formatDay(trainer.pro_until)}.</>
@@ -101,10 +159,56 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
         {!trainer.is_public && ' Not listed in the registry, so neither plan shows anywhere yet.'}
       </p>
 
+      {grant && billing?.pro_grant_note && (
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>{billing.pro_grant_note}</p>
+      )}
+
+      {billingFailed && (
+        <p className="text-sm" style={{ color: 'var(--error-strong)' }}>How this trainer pays could not be loaded.</p>
+      )}
+
+      {paysByCard && billing && (
+        <div className="rounded border p-3 text-sm space-y-2" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-deep)' }}>
+          <p>
+            <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Paying by card through Stripe.</span>{' '}
+            {!billing.can_manage
+              ? 'Online payment is not set up here, so manage it in the Stripe dashboard.'
+              : billing.read_failed
+                ? 'Stripe could not be reached just now, so whether it renews is not known.'
+                : billing.renews
+                  ? `Renews${billing.period_end ? ` on ${formatDay(billing.period_end)}` : ''}.`
+                  : `Won't renew${billing.period_end ? `; paid through ${formatDay(billing.period_end)}` : ''}.`}
+          </p>
+          {billing.can_manage && !billing.read_failed && (
+            billing.renews ? (
+              confirmRenewal ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  Stop it renewing? Pro stays on through the date paid for, and the trainer is emailed.
+                  <button type="button" disabled={busy} onClick={() => setRenewal(false)} className="font-medium hover:underline" style={{ color: 'var(--error-strong)' }}>
+                    Yes, stop it
+                  </button>
+                  <button type="button" onClick={() => setConfirmRenewal(false)} className="hover:underline" style={{ color: 'var(--muted)' }}>
+                    Keep
+                  </button>
+                </span>
+              ) : (
+                <button type="button" disabled={busy} onClick={() => setConfirmRenewal(true)} className="hover:underline" style={{ color: 'var(--error-strong)' }}>
+                  Stop renewing
+                </button>
+              )
+            ) : (
+              <button type="button" disabled={busy} title={busy ? 'Working…' : undefined} onClick={() => setRenewal(true)} className="font-medium hover:underline disabled:opacity-50" style={{ color: 'var(--accent)' }}>
+                Turn renewal back on
+              </button>
+            )
+          )}
+        </div>
+      )}
+
       {trainer.pro_request_plan && (
         <div className="rounded border p-3 text-sm space-y-2" style={{ borderColor: 'var(--warning-border)', backgroundColor: 'var(--warning-bg)', color: 'var(--text-deep)' }}>
           <p>
-            <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Asked for Pro</span>, {proPlanLabel(trainer.pro_request_plan)}
+            <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Asked for Pro</span>, {proPlanLabel(trainer.pro_request_plan, prices)}
             {trainer.pro_requested_at && (
               <>
                 {' '}on <LocalTime iso={trainer.pro_requested_at} format={{ month: 'short', day: 'numeric', year: 'numeric' }} />
@@ -139,8 +243,8 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
             className={inputClass}
             style={inputStyle}
           >
-            <option value="monthly">Monthly — {proPlanLabel('monthly')}</option>
-            <option value="annual">Annual — {proPlanLabel('annual')}</option>
+            <option value="monthly">Monthly — {proPlanLabel('monthly', prices)}</option>
+            <option value="annual">Annual — {proPlanLabel('annual', prices)}</option>
           </select>
         </div>
         <div>
@@ -159,8 +263,10 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
         </button>
         {trainer.pro_until && (
           confirmEnd ? (
-            <span className="text-sm flex items-center gap-2" style={{ color: 'var(--text-deep)' }}>
-              End Pro now?
+            <span className="text-sm flex flex-wrap items-center gap-2" style={{ color: 'var(--text-deep)' }}>
+              {paysByCard
+                ? 'End Pro and cancel the card subscription today? Nothing is refunded; make any refund in Stripe.'
+                : 'End Pro now?'}
               <button type="button" disabled={busy} onClick={() => save(null)} className="font-medium hover:underline" style={{ color: 'var(--error-strong)' }}>
                 Yes, end it
               </button>
@@ -175,6 +281,63 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
           )
         )}
       </div>
+      <div className="border-t pt-3 space-y-3" style={{ borderColor: 'var(--border)' }}>
+        <button
+          type="button"
+          aria-expanded={giving}
+          onClick={() => setGiving((v) => !v)}
+          className="text-sm font-medium hover:underline"
+          style={{ color: 'var(--accent)' }}
+        >
+          {giving ? 'Close' : grant && trainer.is_pro ? 'Change the comp or trial' : 'Give Pro free: a comp or trial'}
+        </button>
+        {giving && (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor={`trainer-grant-kind-${trainer.id}`} className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>Give</label>
+              <select
+                id={`trainer-grant-kind-${trainer.id}`}
+                value={grantKind}
+                onChange={(e) => setGrantKind(e.target.value as GrantKind)}
+                className={inputClass}
+                style={inputStyle}
+              >
+                <option value="trial">A free trial</option>
+                <option value="comp">A comp (complimentary)</option>
+              </select>
+            </div>
+            <GrantTermPicker allowNoEnd={grantKind === 'comp'} onChange={setGrantEnds} idPrefix={`trainer-grant-${trainer.id}`} />
+            <div>
+              <label htmlFor={`trainer-grant-note-${trainer.id}`} className="block text-xs font-medium mb-1" style={{ color: 'var(--text-deep)' }}>
+                Why (only GaitDesk admins see this)
+              </label>
+              <input
+                id={`trainer-grant-note-${trainer.id}`}
+                value={grantNote}
+                maxLength={500}
+                onChange={(e) => setGrantNote(e.target.value)}
+                className={`${inputClass} w-full`}
+                style={inputStyle}
+              />
+            </div>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>
+              Starts today. The trainer is emailed, and reminded a week before it ends. It answers a request for Pro.
+              {paysByCard && ' Their card must stop renewing first.'}
+            </p>
+            <button
+              type="button"
+              disabled={busy || grantEnds === ''}
+              title={grantEnds === '' ? 'Choose the last day' : busy ? 'Working…' : undefined}
+              onClick={give}
+              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+            >
+              {busy ? 'Working…' : grantKind === 'trial' ? 'Start the trial' : 'Give the comp'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {message && (
         <p className="text-sm" style={{ color: message.ok ? 'var(--success-strong)' : 'var(--error-strong)' }}>{message.text}</p>
       )}

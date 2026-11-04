@@ -52,10 +52,12 @@ from models import (
     ShowCompanyMember,
     ShowCompanyUpgradeRequest,
     ShowPointSystem,
+    TrainerProRequest,
     User,
 )
 from schemas import (
     CompanyUsageOut,
+    GrantOut,
     PendingCompanyRequestsOut,
     ShowCompanyCreate,
     ShowCompanyFeatureOut,
@@ -74,6 +76,7 @@ from show_companies import (
     PRO_PLUS,
     REQUESTABLE,
     company_manager_emails,
+    covering_grant,
     effective_label,
     email_admins,
     loaded_effective_plan,
@@ -92,6 +95,8 @@ from show_companies import (
     place_in_company,
     remove_company_member,
 )
+
+from subscription_prices import PriceBook, load_prices
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +117,15 @@ _LOAD = (
 )
 
 
-def _company_out(company: ShowCompany) -> ShowCompanyOut:
+def _company_out(company: ShowCompany, prices: PriceBook) -> ShowCompanyOut:
     members = sorted(
         (m for m in company.members if m.user is not None),
         key=lambda m: (m.user.last_name.lower(), m.user.first_name.lower()),
     )
     effective = loaded_effective_plan(company)
     lapse = loaded_pro_plus_lapse(company)
+    today = utc_today()
+    grant = covering_grant(company.grants, today)
     included = plan_features(effective)
     plan = PLANS.get(company.plan) or PLANS["free"]
     asked_for = {r.feature: r for r in company.upgrade_requests}
@@ -136,9 +143,11 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
         self_cancel_days_before=company.self_cancel_days_before or 0,
         plan=plan.key,
         plan_label=plan.label,
-        plan_rate_cents=plan.rate_cents,
+        plan_rate_cents=prices.rate(plan.key, today),
         effective_plan=effective,
-        effective_plan_label=effective_label(effective, lapse),
+        effective_plan_label=effective_label(effective, lapse, grant),
+        grants=[GrantOut.model_validate(g) for g in company.grants],
+        active_grant_id=grant.id if grant is not None else None,
         subscriptions=[SubscriptionOut.model_validate(t) for t in company.subscriptions],
         renews_pro_plus=bool(company.renews_pro_plus),
         pro_plus_lapsed_since=lapse,
@@ -187,6 +196,10 @@ def _company_out(company: ShowCompany) -> ShowCompanyOut:
             for feature in FEATURES.values()
         ],
     )
+
+
+async def _respond(db: AsyncSession, company: ShowCompany) -> ShowCompanyOut:
+    return _company_out(company, await load_prices(db))
 
 
 def _request_fields(request: ShowCompanyUpgradeRequest | None) -> dict:
@@ -255,7 +268,8 @@ async def list_companies(
             ShowCompanyMember.user_id == user_id
         )
     companies = (await db.execute(query)).scalars().unique().all()
-    return [_company_out(c) for c in companies]
+    prices = await load_prices(db)
+    return [_company_out(c, prices) for c in companies]
 
 
 @router.post("/", response_model=ShowCompanyOut, status_code=201)
@@ -277,7 +291,7 @@ async def create_company(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, f"There is already a show company called {name}.")
-    return _company_out(await _load(db, company.id))
+    return await _respond(db, await _load(db, company.id))
 
 
 @router.get("/pending-requests", response_model=PendingCompanyRequestsOut)
@@ -288,17 +302,20 @@ async def pending_requests(db: AsyncSession = Depends(get_db)):
     An upgrade request for a feature the registry no longer names is not
     counted: nothing could answer it."""
     joins = await db.scalar(select(func.count()).select_from(ShowCompanyJoinRequest))
+    trainers = await db.scalar(select(func.count()).select_from(TrainerProRequest))
     upgrades = await db.scalar(
         select(func.count())
         .select_from(ShowCompanyUpgradeRequest)
         .where(ShowCompanyUpgradeRequest.feature.in_(list(REQUESTABLE)))
     )
-    return PendingCompanyRequestsOut(join_requests=joins or 0, upgrade_requests=upgrades or 0)
+    return PendingCompanyRequestsOut(
+        join_requests=joins or 0, upgrade_requests=upgrades or 0, trainer_pro_requests=trainers or 0
+    )
 
 
 @router.get("/{company_id}", response_model=ShowCompanyOut)
 async def get_company(company_id: UUID, db: AsyncSession = Depends(get_db)):
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.patch("/{company_id}", response_model=ShowCompanyOut)
@@ -338,7 +355,7 @@ async def update_company(
     company = await _load(db, company_id)
     if plan_changed:
         await _mail_plan(background, db, company)
-    return _company_out(company)
+    return await _respond(db, company)
 
 
 async def _mail_plan(background: BackgroundTasks, db: AsyncSession, company: ShowCompany, term=None) -> None:
@@ -352,6 +369,7 @@ async def _mail_plan(background: BackgroundTasks, db: AsyncSession, company: Sho
     subject, body = plan_confirmation_email(
         company.name,
         effective,
+        prices=await load_prices(db),
         term=(term.starts_on, term.ends_on) if term is not None else None,
         returns_to=company.plan,
         renews=bool(company.renews_pro_plus),
@@ -390,7 +408,7 @@ async def start_pro_plus_year(
         company,
         starts_on=starts_on,
         ends_on=body.ends_on or ends_on,
-        price_cents=PLANS[PRO_PLUS].annual_cents if body.price_cents is None else body.price_cents,
+        price_cents=(await load_prices(db)).annual(utc_today()) if body.price_cents is None else body.price_cents,
         payment_method=body.payment_method,
         payment_reference=body.payment_reference,
         recorded_by=safe_uuid(x_user_id),
@@ -424,7 +442,7 @@ async def start_pro_plus_year(
                 )
                 background.add_task(email_admins, recipients, subject, mail)
         company = await _load(db, company_id)
-    return _company_out(company)
+    return await _respond(db, company)
 
 
 @router.patch("/{company_id}/subscriptions/{subscription_id}", response_model=ShowCompanyOut)
@@ -458,7 +476,7 @@ async def mark_pro_plus_paid(
             reference=term.payment_reference,
         )
     await db.commit()
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.delete("/{company_id}/subscriptions/{subscription_id}", response_model=ShowCompanyOut)
@@ -486,7 +504,7 @@ async def delete_pro_plus_year(
     )
     company.subscriptions.remove(term)
     await db.commit()
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.get("/{company_id}/usage", response_model=CompanyUsageOut)
@@ -591,7 +609,7 @@ async def add_member(
     except IntegrityError:
         await db.rollback()
         raise HTTPException(409, f"{user.full_name} is already in {company.name}.")
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.delete("/{company_id}/members/{user_id}", response_model=ShowCompanyOut)
@@ -599,7 +617,7 @@ async def remove_member(company_id: UUID, user_id: UUID, db: AsyncSession = Depe
     company = await _load(db, company_id)
     await remove_company_member(company, user_id, db)
     await db.commit()
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.delete("/{company_id}/join-requests/{user_id}", response_model=ShowCompanyOut)
@@ -609,7 +627,7 @@ async def decline_join_request(company_id: UUID, user_id: UUID, db: AsyncSession
     company = await _load(db, company_id)
     decline_request(company, user_id)
     await db.commit()
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))
 
 
 @router.delete("/{company_id}/upgrade-requests/{feature}", response_model=ShowCompanyOut)
@@ -622,4 +640,4 @@ async def dismiss_upgrade_request(company_id: UUID, feature: str, db: AsyncSessi
         raise HTTPException(404, "This company has not asked for that feature.")
     company.upgrade_requests.remove(request)
     await db.commit()
-    return _company_out(await _load(db, company_id))
+    return await _respond(db, await _load(db, company_id))

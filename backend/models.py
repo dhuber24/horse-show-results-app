@@ -1019,6 +1019,16 @@ class Trainer(Base):
     # moving it, so Pro still lapses on its own.
     stripe_customer_id = Column(Text, nullable=True)
     stripe_subscription_id = Column(Text, nullable=True)
+    # Migration 179: `comp` or `trial` when `pro_until` was given rather than
+    # paid for (9999-12-31 is no end, `trainer_registry.PRO_NO_END`). Paying or
+    # an admin recording a paid date clears it.
+    pro_grant = Column(
+        Text,
+        CheckConstraint("pro_grant IS NULL OR pro_grant IN ('comp', 'trial')", name="ck_trainers_pro_grant"),
+        nullable=True,
+    )
+    pro_grant_note = Column(Text, nullable=True)
+    pro_grant_reminder_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
@@ -1517,6 +1527,67 @@ class ShowCompany(Base):
         order_by="ShowCompanySubscription.starts_on",
     )
     crew = relationship("ShowCompanyCrew", back_populates="company", cascade="all, delete-orphan")
+    # selectin: every read of the company's plan needs these, on rows other
+    # reads share (see "populate_existing" in docs/design/conventions.md).
+    grants = relationship(
+        "ShowCompanyGrant", back_populates="company", cascade="all, delete-orphan",
+        order_by="ShowCompanyGrant.starts_on", lazy="selectin",
+    )
+
+
+class SubscriptionPrice(Base):
+    """One of GaitDesk's prices, from a day on (migration 179). A history: the
+    price of anything is the latest row on or before its day, so a change never
+    rewrites a price already in force. Read through `subscription_prices`."""
+    __tablename__ = "subscription_prices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key = Column(Text, nullable=False)
+    amount_cents = Column(Integer, nullable=False)
+    effective_on = Column(Date, nullable=False)
+    set_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "key IN ('basic_rate', 'pro_rate', 'pro_plus_annual', 'trainer_monthly', 'trainer_annual')",
+            name="ck_subscription_prices_key",
+        ),
+        CheckConstraint("amount_cents >= 0", name="ck_subscription_prices_amount"),
+        Index("ix_subscription_prices_key_effective", "key", "effective_on"),
+    )
+
+    set_by = relationship("User", foreign_keys=[set_by_user_id])
+
+
+class ShowCompanyGrant(Base):
+    """A plan given to a company for free (migration 179): a comp, or a trial.
+    While one covers a day the company is on its plan, and a show whose first
+    day it covers costs nothing per exhibitor. `ends_on` NULL is a comp with no
+    end. `show_companies.plan` is untouched: it is what follows the grant."""
+    __tablename__ = "show_company_grants"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("show_companies.id", ondelete="CASCADE"), nullable=False)
+    plan = Column(Text, nullable=False)
+    kind = Column(Text, nullable=False)
+    starts_on = Column(Date, nullable=False)
+    ends_on = Column(Date, nullable=True)
+    note = Column(Text, nullable=True)
+    granted_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    reminder_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("plan IN ('basic', 'pro')", name="ck_show_company_grants_plan"),
+        CheckConstraint("kind IN ('comp', 'trial')", name="ck_show_company_grants_kind"),
+        CheckConstraint("ends_on IS NULL OR ends_on >= starts_on", name="ck_show_company_grants_dates"),
+        CheckConstraint("kind <> 'trial' OR ends_on IS NOT NULL", name="ck_show_company_grants_trial_ends"),
+        Index("ix_show_company_grants_company", "company_id"),
+    )
+
+    company = relationship("ShowCompany", back_populates="grants")
+    granted_by = relationship("User", foreign_keys=[granted_by_user_id])
 
 
 class ShowCompanyPlanChange(Base):

@@ -244,7 +244,7 @@ export default function TrainerSetup({
         <PlanMatrix
           limits={options}
           current={listing.is_pro ? 'pro' : 'basic'}
-          proAction={<PlanActions listing={{ ...listing, is_public: savedPublic }} />}
+          proAction={<PlanActions listing={{ ...listing, is_public: savedPublic }} prices={options.pro_prices} />}
         />
 
         <div className="pt-3 border-t flex flex-wrap items-center gap-3" style={{ borderColor: 'var(--bg-subtle)' }}>

@@ -17,6 +17,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+from subscription_prices import STARTING_PRICES
 from show_companies import (
     BASIC,
     FEATURES,
@@ -57,9 +58,8 @@ DEC31 = date(2026, 12, 31)
 # ── The tiers ─────────────────────────────────────────────────────────────────
 
 def test_pro_plus_is_1499_a_year_with_every_pro_feature_and_no_per_exhibitor_charge():
-    pro_plus = PLANS[PRO_PLUS]
-    assert pro_plus.annual_cents == 149900
-    assert pro_plus.rate_cents == 0
+    assert STARTING_PRICES.annual(JAN1) == 149900
+    assert STARTING_PRICES.rate(PRO_PLUS, JAN1) == 0
     assert plan_features(PRO_PLUS) == plan_features(PRO) == frozenset(FEATURES)
 
 
@@ -133,7 +133,7 @@ def test_a_renewal_a_whole_year_late_starts_today():
 
 def _renewing(plan=PRO, renews=True, terms=None):
     return SimpleNamespace(
-        id=uuid4(), plan=plan, renews_pro_plus=renews, subscriptions=terms or [], upgrade_requests=[]
+        id=uuid4(), plan=plan, renews_pro_plus=renews, subscriptions=terms or [], upgrade_requests=[], grants=[]
     )
 
 
@@ -247,7 +247,7 @@ def test_a_year_already_renewed_gets_no_reminder():
 
 
 def test_the_reminder_says_when_and_what_happens_without_renewal():
-    subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, PRO)
+    subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, PRO, prices=STARTING_PRICES)
     assert "December 31" in subject
     assert "$1,499" in body
     assert "GaitDesk Pro" in body and "$4 per exhibitor" in body
@@ -255,12 +255,12 @@ def test_the_reminder_says_when_and_what_happens_without_renewal():
 
 
 def test_the_reminder_for_a_company_returning_to_basic_says_pro_features_turn_off():
-    _subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, BASIC)
+    _subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, BASIC, prices=STARTING_PRICES)
     assert "GaitDesk Basic" in body and "turn off" in body
 
 
 def test_the_reminder_for_a_company_that_renews_says_its_shows_freeze():
-    _subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, PRO, renews=True)
+    _subject, body = renewal_reminder_email("Minnesota Paint Club", DEC31, PRO, renews=True, prices=STARTING_PRICES)
     assert "frozen" in body and "choose GaitDesk Basic or Pro" in body
     assert "Exhibitors can still sign up" in body
 
@@ -269,14 +269,14 @@ def test_the_reminder_for_a_company_that_renews_says_its_shows_freeze():
 
 def test_the_basic_and_pro_confirmations_say_nothing_is_charged_until_after_the_show():
     for plan, price in ((BASIC, "$2"), (PRO, "$4")):
-        subject, body = plan_confirmation_email("Minnesota Paint Club", plan)
+        subject, body = plan_confirmation_email("Minnesota Paint Club", plan, prices=STARTING_PRICES)
         assert PLANS[plan].label in subject
         assert f"{price} per exhibitor" in body and "after the show" in body
 
 
 def test_the_pro_plus_confirmation_gives_the_dates_and_what_follows():
     _subject, body = plan_confirmation_email(
-        "Minnesota Paint Club", PRO_PLUS, term=(JAN1, DEC31), returns_to=PRO
+        "Minnesota Paint Club", PRO_PLUS, prices=STARTING_PRICES, term=(JAN1, DEC31), returns_to=PRO
     )
     assert "January 1, 2026" in body and "December 31, 2026" in body
     assert "a month before it ends" in body and "GaitDesk Pro" in body
@@ -284,7 +284,7 @@ def test_the_pro_plus_confirmation_gives_the_dates_and_what_follows():
 
 def test_the_pro_plus_confirmation_says_it_renews_and_what_freezes_meanwhile():
     _subject, body = plan_confirmation_email(
-        "Minnesota Paint Club", PRO_PLUS, term=(JAN1, DEC31), renews=True
+        "Minnesota Paint Club", PRO_PLUS, prices=STARTING_PRICES, term=(JAN1, DEC31), renews=True
     )
     assert "renews as GaitDesk Pro+ for $1,499" in body and "frozen" in body
 
@@ -351,7 +351,7 @@ class _Db:
 
 
 def _company(plan=BASIC):
-    return SimpleNamespace(id=uuid4(), plan=plan, renews_pro_plus=False, subscriptions=[], upgrade_requests=[])
+    return SimpleNamespace(id=uuid4(), plan=plan, renews_pro_plus=False, subscriptions=[], upgrade_requests=[], grants=[])
 
 
 def _start(company, price_cents, received_on, db=None):

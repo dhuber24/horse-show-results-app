@@ -39,6 +39,20 @@ export interface PlanInfo {
   sets_up_shows?: boolean;
   /** A company may pick it itself, from My Company. */
   self_serve?: boolean;
+  /** A price change on the way (migration 179), in the price's own unit. */
+  upcoming_cents?: number | null;
+  upcoming_on?: string | null;
+}
+
+/** A plan given to a company for free (migration 179). */
+export interface CompanyGrant {
+  id: string;
+  plan: string;
+  kind: string;
+  starts_on: string;
+  /** Null: a comp with no end. */
+  ends_on: string | null;
+  note: string | null;
 }
 
 /** One paid GaitDesk Pro+ year (migration 169). */
@@ -224,6 +238,9 @@ export interface ShowCompany {
   effective_plan?: PlanKey;
   effective_plan_label?: string;
   subscriptions?: Subscription[];
+  /** Migration 179: comps and trials, and the one covering today. */
+  grants?: CompanyGrant[];
+  active_grant_id?: string | null;
   /** Migration 175: on Pro+ and renewing it, rather than moving to `plan`
    *  when the year ends. */
   renews_pro_plus?: boolean;
@@ -390,9 +407,12 @@ export function upgradeScopeForShow(mine: MyFeatures, plan: ShowPlan | null): My
   };
 }
 
-/** A whole-dollar price reads as "$2", anything else to the cent. */
+/** A whole-dollar price reads as "$2" or "$1,499", anything else to the cent. */
 export function formatRate(cents: number): string {
-  return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
+  const dollars = cents / 100;
+  return cents % 100 === 0
+    ? `$${dollars.toLocaleString('en-US')}`
+    : `$${dollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Pro+ is asked for from a locked door like a feature (migration 169). */

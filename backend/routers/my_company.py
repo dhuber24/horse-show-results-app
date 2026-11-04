@@ -70,6 +70,7 @@ from models import (
     UserInvite,
 )
 from routers.show_companies import _load
+from subscription_prices import PriceBook, load_prices
 from show_companies import (
     FEATURES,
     PLANS,
@@ -79,6 +80,7 @@ from show_companies import (
     add_company_member,
     company_features,
     company_manager_emails,
+    covering_grant,
     covering_subscription,
     decline_join_request,
     effective_label,
@@ -170,6 +172,9 @@ class MyPlanOut(BaseModel):
     effective_plan_label: str
     rate_cents: int
     sets_up_shows: bool
+    # Migration 179: on a comp or trial today, and when it ends (none: no end).
+    grant_kind: Optional[str] = None
+    grant_ends_on: Optional[date] = None
     pro_plus: Optional[ProPlusYearOut] = None
     pro_plus_requested_at: Optional[datetime] = None
     # Migration 175: the company is on Pro+ and renews it -- rather than moving
@@ -226,10 +231,12 @@ CREW_ROLES = frozenset({"SCRIBE", "GATE_STEWARD"})
 INVITE_TTL_DAYS = 14
 
 
-def _plan_out(company: ShowCompany) -> MyPlanOut:
+def _plan_out(company: ShowCompany, prices: PriceBook) -> MyPlanOut:
     today = utc_today()
     effective = loaded_effective_plan(company, today)
     lapse = loaded_pro_plus_lapse(company, today)
+    grant = covering_grant(company.grants, today)
+    on_grant = grant is not None and effective == grant.plan
     base = PLANS.get(company.plan) or PLANS["free"]
     year = covering_subscription(company.subscriptions, today)
     pro_plus = None
@@ -245,8 +252,10 @@ def _plan_out(company: ShowCompany) -> MyPlanOut:
         plan=base.key,
         plan_label=base.label,
         effective_plan=effective,
-        effective_plan_label=effective_label(effective, lapse),
-        rate_cents=base.rate_cents,
+        effective_plan_label=effective_label(effective, lapse, grant),
+        rate_cents=prices.rate(base.key, today),
+        grant_kind=grant.kind if on_grant else None,
+        grant_ends_on=grant.ends_on if on_grant else None,
         sets_up_shows=sets_up_shows(effective),
         pro_plus=pro_plus,
         pro_plus_requested_at=ask.created_at if ask else None,
@@ -255,7 +264,7 @@ def _plan_out(company: ShowCompany) -> MyPlanOut:
     )
 
 
-def _out(company: ShowCompany, caller: UUID, invites: list | None = None) -> MyCompanyOut:
+def _out(company: ShowCompany, caller: UUID, prices: PriceBook, invites: list | None = None) -> MyCompanyOut:
     members = sorted(
         (m for m in company.members if m.user is not None),
         key=lambda m: (m.user.last_name.lower(), m.user.first_name.lower()),
@@ -302,7 +311,7 @@ def _out(company: ShowCompany, caller: UUID, invites: list | None = None) -> MyC
             if f.key in switched_on
         ],
         self_cancel_days_before=company.self_cancel_days_before or 0,
-        plan=_plan_out(company),
+        plan=_plan_out(company, prices),
         crew=sorted(
             (
                 CrewMemberOut(
@@ -351,7 +360,7 @@ async def _pending_invites(db: AsyncSession, company_id: UUID) -> list[UserInvit
 
 async def _full_out(db: AsyncSession, company_id: UUID, caller: UUID) -> MyCompanyOut:
     """The company as this screen shows it, re-read after a write."""
-    return _out(await _load(db, company_id), caller, await _pending_invites(db, company_id))
+    return _out(await _load(db, company_id), caller, await load_prices(db), await _pending_invites(db, company_id))
 
 
 def _caller(x_user_id: str, x_user_role: str) -> UUID:
@@ -395,7 +404,8 @@ async def list_my_companies(
     # An organization before the caller's own company: it is the one with
     # colleagues in it, and so the one this screen is mostly for.
     companies.sort(key=lambda c: (c.owner_user_id == caller, c.name.lower()))
-    return [_out(c, caller, await _pending_invites(db, c.id)) for c in companies]
+    prices = await load_prices(db)
+    return [_out(c, caller, prices, await _pending_invites(db, c.id)) for c in companies]
 
 
 @router.put("/{company_id}/settings", response_model=MyCompanyOut)
@@ -541,12 +551,13 @@ async def choose_plan(
             subject, mail = plan_confirmation_email(
                 company.name,
                 loaded_effective_plan(company),
+                prices=await load_prices(db),
                 term=(year.starts_on, year.ends_on) if year is not None else None,
                 returns_to=company.plan,
                 renews=bool(company.renews_pro_plus),
             )
             background.add_task(email_admins, recipients, subject, mail)
-    return _out(company, caller, await _pending_invites(db, company_id))
+    return _out(company, caller, await load_prices(db), await _pending_invites(db, company_id))
 
 
 # ── The crew: scribes and gate stewards (migration 169) ────────────────────────

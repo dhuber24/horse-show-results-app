@@ -17,6 +17,7 @@ import pytest
 from fastapi import HTTPException
 
 import show_companies
+from subscription_prices import STARTING_PRICES
 from show_companies import (
     FEATURES,
     SHOWBILL_IMPORT,
@@ -253,6 +254,7 @@ def _email(personal: bool) -> tuple[str, str]:
         requester_name="Jane Smith",
         requester_email="jane@example.com",
         requester_role="SHOW_SECRETARY",
+        prices=STARTING_PRICES,
     )
 
 

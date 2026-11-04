@@ -9,21 +9,27 @@ import { CONTACT_MESSAGES_TILE, MY_COMPANY_TILE, ROLE_LABELS, adminSections } fr
  * or a company asking for a paid feature (migration 144). This count on the
  * tile is how an admin hears about either when mail is not configured, so
  * anything short of a clean answer shows no badge rather than a wrong one.
+ * Manage Subscriptions carries who is asking for a plan, trainers included.
  */
-async function pendingCompanyRequests(): Promise<string | null> {
+async function pendingCompanyRequests(): Promise<{ companies: string | null; subscriptions: string | null }> {
+  const none = { companies: null, subscriptions: null };
   const headers = await getAuthHeaders();
-  if (!headers) return null;
+  if (!headers) return none;
   try {
     const res = await fetch(`${API_URL}/show-companies/pending-requests`, { headers, cache: 'no-store' });
-    if (!res.ok) return null;
+    if (!res.ok) return none;
     const body = await readJsonBody(res);
     const parts = [
       body?.upgrade_requests > 0 ? `${body.upgrade_requests} asking to upgrade` : null,
       body?.join_requests > 0 ? `${body.join_requests} asking to join` : null,
     ].filter(Boolean);
-    return parts.length ? parts.join(' · ') : null;
+    const asking = (body?.upgrade_requests ?? 0) + (body?.trainer_pro_requests ?? 0);
+    return {
+      companies: parts.length ? parts.join(' · ') : null,
+      subscriptions: asking > 0 ? `${asking} asking for a plan` : null,
+    };
   } catch {
-    return null;
+    return none;
   }
 }
 
@@ -82,7 +88,11 @@ export default async function AdminPage() {
   let waiting: Record<string, string | null>;
   if (role === 'ADMIN') {
     const [companies, contact] = await Promise.all([pendingCompanyRequests(), unreadContactMessages()]);
-    waiting = { '/admin/companies': companies, [CONTACT_MESSAGES_TILE.href]: contact };
+    waiting = {
+      '/admin/companies': companies.companies,
+      '/admin/subscriptions': companies.subscriptions,
+      [CONTACT_MESSAGES_TILE.href]: contact,
+    };
   } else {
     waiting = { [MY_COMPANY_TILE.href]: await pendingJoinRequests() };
   }

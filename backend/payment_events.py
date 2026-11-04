@@ -161,6 +161,11 @@ async def apply_trainer_renewal(invoice: dict, db: AsyncSession) -> bool:
         return False
     if trainer.pro_until is None or end > trainer.pro_until:
         trainer.pro_until = end
+    # Paid for now, so no longer a comp or trial -- unless what they were given
+    # still runs longer than what this paid for.
+    if trainer.pro_until == end:
+        trainer.pro_grant = None
+        trainer.pro_grant_note = None
     if plan:
         trainer.pro_plan = plan
     subscription_id = _invoice_subscription_id(invoice)
@@ -448,6 +453,7 @@ async def apply_pro_plus_payment_failed(intent: dict, db: AsyncSession) -> bool:
 async def mail_pro_plus_started(db: AsyncSession, company_id: UUID, term) -> None:
     """Tell the company's show managers their year has started. Best-effort,
     like all mail, and after the commit -- never part of recording it."""
+    from subscription_prices import load_prices
     from show_companies import (
         company_manager_emails,
         email_admins,
@@ -463,6 +469,7 @@ async def mail_pro_plus_started(db: AsyncSession, company_id: UUID, term) -> Non
         subject, body = plan_confirmation_email(
             company.name,
             loaded_effective_plan(company),
+            prices=await load_prices(db),
             term=(term.starts_on, term.ends_on),
             returns_to=company.plan,
             renews=bool(company.renews_pro_plus),

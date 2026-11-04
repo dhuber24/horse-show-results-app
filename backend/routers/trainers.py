@@ -48,16 +48,18 @@ from schemas import (
     TrainerUpdate,
 )
 from show_companies import admin_emails, email_admins
+from subscription_prices import load_prices
 from trainer_registry import (
     MAX_PHOTOS,
     MAX_RATE_LINES,
     MAX_VIDEO_LINKS,
     PRO_INTERVALS,
+    PRO_NO_END,
     PRO_PLANS,
-    PRO_PRICE_CENTS,
     RADIUS_CHOICES,
     TRAINER_DISCIPLINES,
     ListingMedia,
+    card_change_email,
     clean_disciplines,
     is_listed,
     is_pro,
@@ -243,8 +245,11 @@ _registry_options = [
 # Public: the choices and limits the registry's forms offer, so the frontend
 # never keeps a second copy of the discipline list.
 @router.get("/registry/options")
-async def trainer_registry_options():
+async def trainer_registry_options(db: AsyncSession = Depends(get_db)):
+    prices = await load_prices(db)
+    today = date.today()
     return {
+        "pro_prices": {plan: prices.trainer(plan, today) for plan in PRO_PLANS},
         "disciplines": list(TRAINER_DISCIPLINES),
         "radius_choices": [r for r in RADIUS_CHOICES if r is not None],
         "max_photos": MAX_PHOTOS,
@@ -600,6 +605,8 @@ async def start_pro_checkout(
         raise HTTPException(
             409, "You already have a Pro subscription. Use Manage subscription to change or cancel it."
         )
+    if trainer.pro_until == PRO_NO_END:
+        raise HTTPException(409, "GaitDesk has given you Pro with no end date, so there's nothing to pay for.")
     try:
         if not trainer.stripe_customer_id:
             trainer.stripe_customer_id = await stripe_gateway.run(
@@ -612,7 +619,7 @@ async def start_pro_checkout(
         url = await stripe_gateway.run(
             stripe_gateway.create_subscription_checkout,
             customer_id=trainer.stripe_customer_id,
-            amount_cents=PRO_PRICE_CENTS[body.plan],
+            amount_cents=(await load_prices(db)).trainer(body.plan, date.today()),
             interval=PRO_INTERVALS[body.plan],
             product_name=f"GaitDesk Trainer Registry {PRO_PLANS[body.plan]}",
             success_url=f"{public_app_url()}/profile/registry?pro=thanks",
@@ -887,11 +894,17 @@ async def delete_trainer(trainer_id: UUID, db: AsyncSession = Depends(get_db)):
     if not trainer:
         raise HTTPException(404, "Trainer not found")
     linked_user = await db.get(User, trainer.user_id) if trainer.user_id else None
+    subscription_id = trainer.stripe_subscription_id
     await db.delete(trainer)
     if linked_user:
         await db.delete(linked_user)
     try:
+        await db.flush()
+        await stripe_gateway.end_with_its_owner(subscription_id)
         await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -967,17 +980,37 @@ async def send_trainer_lead(
 
 
 @router.put("/{trainer_id}/pro", response_model=TrainerOut, dependencies=[Depends(require_admin)])
-async def set_trainer_pro(trainer_id: UUID, body: TrainerProUpdate, db: AsyncSession = Depends(get_db)):
+async def set_trainer_pro(
+    trainer_id: UUID,
+    body: TrainerProUpdate,
+    background: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     """Record what a trainer has paid for: Pro through `pro_until`, or no Pro
     at all when it is null. Recording a date that has not passed answers their
-    request, as switching a company's feature on answers its request."""
+    request, as switching a company's feature on answers its request. A date
+    recorded here is a paid one, so it replaces any comp or trial (migration 179).
+
+    **Ending Pro ends their card subscription too**: left running, it would go on
+    charging them, and its next paid invoice would turn Pro back on. If Stripe
+    can't do it, nothing changes. It refunds nothing; that is done in Stripe."""
     trainer = await db.get(
         Trainer, trainer_id, options=[selectinload(Trainer.user), selectinload(Trainer.pro_request)]
     )
     if not trainer:
         raise HTTPException(404, "Trainer not found")
+    ended_card = False
+    if body.pro_until is None and trainer.stripe_subscription_id and stripe_gateway.configured():
+        try:
+            await stripe_gateway.run(stripe_gateway.cancel_subscription, trainer.stripe_subscription_id)
+        except stripe_gateway.PaymentError as exc:
+            raise HTTPException(502, exc.message)
+        trainer.stripe_subscription_id = None
+        ended_card = True
     trainer.pro_until = body.pro_until
     trainer.pro_plan = body.pro_plan if body.pro_until else None
+    trainer.pro_grant = None
+    trainer.pro_grant_note = None
     answered = body.pro_until is not None and body.pro_until >= date.today()
     if answered and trainer.pro_request:
         await db.delete(trainer.pro_request)
@@ -990,6 +1023,11 @@ async def set_trainer_pro(trainer_id: UUID, body: TrainerProUpdate, db: AsyncSes
         .execution_options(populate_existing=True)
     )
     trainer = reloaded.scalar_one()
+    if ended_card:
+        recipient = lead_recipient(trainer)
+        if recipient:
+            subject, mail_body = card_change_email("ended", None)
+            background.add_task(send_email, recipient, subject, mail_body)
     count_res = await db.execute(
         select(func.count()).select_from(Horse).where(Horse.trainer_id == trainer.id)
     )

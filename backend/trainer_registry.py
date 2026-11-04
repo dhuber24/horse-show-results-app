@@ -33,7 +33,7 @@ for Pro (`pro_request_email`); a trainer is emailed each lead (`lead_email`).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional, Sequence
 from urllib.parse import urlparse
 from uuid import UUID
@@ -70,10 +70,8 @@ TRAINER_DISCIPLINES: tuple[str, ...] = (
 
 PRO_PLANS: dict[str, str] = {"monthly": "Pro, monthly", "annual": "Pro, annual"}
 
-# What each Pro plan costs, and how often it renews, when paid by card through
-# Stripe (migration 172). The trainer screens print `PRO_PRICES` in
-# `frontend/lib/trainer-registry.ts`; the two must say the same thing.
-PRO_PRICE_CENTS: dict[str, int] = {"monthly": 1000, "annual": 10000}
+# How often each Pro plan renews when paid by card through Stripe (migration 172).
+# What it costs is `subscription_prices` (migration 179).
 PRO_INTERVALS: dict[str, str] = {"monthly": "month", "annual": "year"}
 
 MAX_PHOTOS = 8
@@ -105,6 +103,42 @@ def is_pro(trainer, today: Optional[date] = None) -> bool:
     """On Pro through the paid-through date an admin recorded, inclusive."""
     pro_until = getattr(trainer, "pro_until", None)
     return pro_until is not None and pro_until >= (today or date.today())
+
+
+# A comp with no end date (migration 179). A far-off date rather than a second
+# column, so every read of `pro_until` -- `is_pro`, the registry's order, a
+# renewal only ever moving it later -- holds with nothing added. Screens print it
+# as "no end date" (`proThrough` in lib/trainer-registry.ts).
+PRO_NO_END = date(9999, 12, 31)
+
+GRANT_KINDS = {"comp": "complimentary", "trial": "free trial"}
+
+# A Pro date with an end coming and nothing to renew it is flagged this long
+# ahead, as a Pro+ year is (`RENEWAL_NOTICE_DAYS`).
+PRO_ENDING_NOTICE_DAYS = 30
+
+
+def pro_ending_soon(trainer, today: Optional[date] = None) -> bool:
+    """Pro with an end coming and nothing to renew it, so somebody has to act. A
+    card subscription renews itself, or was stopped on purpose."""
+    today = today or date.today()
+    if not is_pro(trainer, today) or trainer.stripe_subscription_id:
+        return False
+    return trainer.pro_until <= today + timedelta(days=PRO_ENDING_NOTICE_DAYS)
+
+
+def card_state(subscription: dict) -> dict:
+    """What an admin is told about a Stripe subscription. `cancel_at` counts as
+    well as `cancel_at_period_end`, since Stripe's portal may set either. The
+    period's end moved onto the items in newer API versions, so both are read."""
+    items = (subscription.get("items") or {}).get("data") or []
+    end = subscription.get("current_period_end") or (items[0].get("current_period_end") if items else None)
+    status = subscription.get("status")
+    return {
+        "status": status,
+        "renews": status != "canceled" and not (subscription.get("cancel_at_period_end") or subscription.get("cancel_at")),
+        "period_end": datetime.fromtimestamp(end, tz=timezone.utc).date() if end else None,
+    }
 
 
 def listing_problem(
@@ -364,6 +398,63 @@ def lead_email(trainer, lead) -> tuple[str, str]:
         f"This is an automated notice: reply to {lead.sender_name} from your inbox, not to this email.",
     ]
     return subject, "\n".join(lines)
+
+
+def _day(value: date) -> str:
+    return f"{value:%B} {value.day}, {value.year}"
+
+
+def card_change_email(change: str, through: Optional[date]) -> tuple[str, str]:
+    """The email to a trainer when GaitDesk changes their card subscription.
+    `change` is `stopped`, `resumed` or `ended`."""
+    subject, first = {
+        "stopped": (
+            "Your Trainer Registry Pro will not renew",
+            "GaitDesk has stopped your Trainer Registry Pro subscription renewing, so your card won't be "
+            "charged again."
+            + (f" Pro stays on through {_day(through)}, then your listing moves to Basic." if through else ""),
+        ),
+        "resumed": (
+            "Your Trainer Registry Pro will renew",
+            "GaitDesk has turned your Trainer Registry Pro renewal back on, so your card will be charged at "
+            "the next renewal as before.",
+        ),
+        "ended": (
+            "Your Trainer Registry Pro has ended",
+            "GaitDesk has ended your Trainer Registry Pro subscription. Your card won't be charged again, "
+            "and your listing is now on Basic.",
+        ),
+    }[change]
+    return subject, f"{first}\n\nYour plan, any time: {public_app_url()}/profile/registry\n"
+
+
+def grant_email(kind: str, ends_on: Optional[date]) -> tuple[str, str]:
+    """The email to a trainer when GaitDesk gives them Pro."""
+    what = GRANT_KINDS[kind]
+    until = f"through {_day(ends_on)}" if ends_on else "with no end date"
+    after = (
+        f"\n\nAfter {_day(ends_on)} your listing goes back to Basic unless you subscribe. Everything you "
+        "add is kept."
+        if ends_on
+        else ""
+    )
+    return (
+        f"You have Trainer Registry Pro as a {what}",
+        f"GaitDesk has given you Trainer Registry Pro as a {what}, {until}. Nothing is charged for it."
+        f"{after}\n\nFill in your Pro profile: {public_app_url()}/profile/registry\n",
+    )
+
+
+def grant_reminder_email(trainer) -> tuple[str, str]:
+    """The one reminder a week before a trainer's comp or trial ends."""
+    what = GRANT_KINDS[trainer.pro_grant]
+    day = _day(trainer.pro_until)
+    return (
+        f"Your Trainer Registry Pro {what} ends {day}",
+        f"Your Trainer Registry Pro {what} ends on {day}. After that your listing goes back to Basic, and "
+        f"everything you added is kept for if you subscribe.\n\nYour plan, any time: "
+        f"{public_app_url()}/profile/registry\n",
+    )
 
 
 def lead_recipient(trainer) -> Optional[str]:

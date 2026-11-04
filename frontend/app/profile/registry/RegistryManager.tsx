@@ -7,8 +7,11 @@ import { errorMessage } from '@/lib/api-error';
 import {
   daysUntil,
   formatDay,
-  PRO_PRICES,
+  PRO_NO_END,
   proPlanLabel,
+  proPrice,
+  proThrough,
+  type ProPrices,
   type ProPlan,
   type RegistryOptions,
 } from '@/lib/trainer-registry';
@@ -25,6 +28,8 @@ export interface MyListing {
   is_pro: boolean;
   pro_until: string | null;
   pro_plan: ProPlan | null;
+  /** Given by GaitDesk rather than paid for (migration 179). */
+  pro_grant?: 'comp' | 'trial' | null;
   pro_request_plan: ProPlan | null;
   pro_requested_at: string | null;
   /** A Stripe subscription is paying for Pro (migration 172). */
@@ -57,7 +62,7 @@ function Message({ message }: { message: { ok: boolean; text: string } | null })
  * payment, so the page coming back from Checkout may still say Basic for a
  * moment — `justPaid` says so instead of leaving it to look like a failure.
  */
-function SubscribeActions({ listing, justPaid }: { listing: MyListing; justPaid: boolean }) {
+function SubscribeActions({ listing, justPaid, prices }: { listing: MyListing; justPaid: boolean; prices?: ProPrices | null }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -112,12 +117,12 @@ function SubscribeActions({ listing, justPaid }: { listing: MyListing; justPaid:
                 className={plan === 'monthly' ? primaryButton : secondaryButton}
                 style={plan === 'monthly' ? primaryStyle : secondaryStyle}
               >
-                {listing.is_pro ? 'Subscribe' : 'Upgrade to Pro'} — {proPlanLabel(plan)}
+                {listing.is_pro ? 'Subscribe' : 'Upgrade to Pro'} — {proPlanLabel(plan, prices)}
               </button>
             ))}
           </div>
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            Paid by card through Stripe. Yearly is {PRO_PRICES.annual.price} charged once, up front, for the whole
+            Paid by card through Stripe. Yearly is {prices ? `${proPrice(prices.annual)} ` : ''}charged once, up front, for the whole
             year — not monthly. Cancel any time — Pro stays on through the time you&apos;ve paid for.
           </p>
         </>
@@ -128,7 +133,15 @@ function SubscribeActions({ listing, justPaid }: { listing: MyListing; justPaid:
 }
 
 /** The plan's state and the buttons that change it — here, and on a new trainer's `/welcome`. */
-export function PlanActions({ listing, justPaid = false }: { listing: MyListing; justPaid?: boolean }) {
+export function PlanActions({
+  listing,
+  justPaid = false,
+  prices,
+}: {
+  listing: MyListing;
+  justPaid?: boolean;
+  prices?: ProPrices | null;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -166,7 +179,7 @@ export function PlanActions({ listing, justPaid = false }: { listing: MyListing;
           className={plan === 'monthly' ? primaryButton : secondaryButton}
           style={plan === 'monthly' ? primaryStyle : secondaryStyle}
         >
-          {verb} — {proPlanLabel(plan)}
+          {verb} — {proPlanLabel(plan, prices)}
         </button>
       ))}
     </div>
@@ -174,10 +187,19 @@ export function PlanActions({ listing, justPaid = false }: { listing: MyListing;
 
   const left = daysUntil(listing.pro_until);
   const requested = listing.pro_request_plan;
+  const given = listing.is_pro ? listing.pro_grant : null;
+  // Pro given for good: there is nothing to pay for, or to renew.
+  const givenForGood = given && listing.pro_until === PRO_NO_END;
 
   return (
     <div className="space-y-3 text-sm" style={{ color: 'var(--text-deep)' }}>
-      {listing.is_pro ? (
+      {given ? (
+        <p>
+          <span className="font-semibold" style={{ color: 'var(--foreground)' }}>You&apos;re on Pro</span>{' '}
+          {given === 'trial' ? 'as a free trial' : 'at no charge'}, {proThrough(listing.pro_until)}.
+          {!givenForGood && ' After that your listing goes back to Basic unless you subscribe.'}
+        </p>
+      ) : listing.is_pro ? (
         <p>
           <span className="font-semibold" style={{ color: 'var(--foreground)' }}>You&apos;re on Pro</span>
           {listing.pro_plan ? ` (${listing.pro_plan === 'annual' ? 'yearly' : 'monthly'})` : ''} through{' '}
@@ -189,12 +211,12 @@ export function PlanActions({ listing, justPaid = false }: { listing: MyListing;
         <p>You&apos;re on <span className="font-semibold" style={{ color: 'var(--foreground)' }}>Basic</span>, free.</p>
       )}
 
-      {listing.can_subscribe ? (
-        <SubscribeActions listing={listing} justPaid={justPaid} />
+      {givenForGood ? null : listing.can_subscribe ? (
+        <SubscribeActions listing={listing} justPaid={justPaid} prices={prices} />
       ) : requested ? (
         <div className="space-y-2">
           <p>
-            You asked for Pro, {requested === 'annual' ? 'yearly' : 'monthly'} ({proPlanLabel(requested)})
+            You asked for Pro, {requested === 'annual' ? 'yearly' : 'monthly'} ({proPlanLabel(requested, prices)})
             {listing.pro_requested_at && (
               <>
                 {' '}on <LocalTime iso={listing.pro_requested_at} format={{ month: 'short', day: 'numeric' }} />
@@ -260,7 +282,7 @@ export default function RegistryManager({
   return (
     <section className="space-y-3">
       <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Your plan</h2>
-      <PlanMatrix limits={options} current={listing.is_pro ? 'pro' : 'basic'} proAction={<PlanActions listing={listing} justPaid={justPaid} />} />
+      <PlanMatrix limits={options} current={listing.is_pro ? 'pro' : 'basic'} proAction={<PlanActions listing={listing} justPaid={justPaid} prices={options.pro_prices} />} />
     </section>
   );
 }
