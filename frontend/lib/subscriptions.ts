@@ -4,12 +4,18 @@
  * out by the backend (`gaitdesk_invoices.company_money`, `subscription_prices`);
  * this only decides which ones need somebody's attention and how they read.
  */
-import { formatDay, formatRate, type ShowCompany } from './show-companies';
+import { PRO_PLUS, formatDay, formatRate, type PlanKey, type ShowCompany } from './show-companies';
 import type { ProPlan } from './trainer-registry';
 
 export type GrantKind = 'comp' | 'trial';
 
 export const GRANT_LABELS: Record<GrantKind, string> = { comp: 'Complimentary', trial: 'Free trial' };
+
+/** Where a company's plan is changed, with its row open. The one place an admin changes one. */
+export const companySubscriptionHref = (companyId: string) => `/admin/subscriptions?company=${companyId}`;
+
+/** Where a trainer's Pro is changed, with their row open. */
+export const trainerSubscriptionHref = (trainerId: string) => `/admin/subscriptions?tab=trainers&trainer=${trainerId}`;
 
 /** `GET /subscriptions/companies`, one per company. */
 export interface CompanyMoney {
@@ -126,6 +132,8 @@ export function companyChips(company: ShowCompany, money: CompanyMoney | undefin
   if (company.pro_plus_requested_at && company.effective_plan !== 'pro_plus') {
     chips.push({ label: 'Asked for Pro+', urgent: true });
   }
+  const asked = company.features.find((f) => f.requested_at && !f.enabled);
+  if (asked) chips.push({ label: `Asked for ${asked.plan}`, urgent: true });
   if (money?.renewal_due) chips.push({ label: 'Pro+ renewal due', urgent: false });
   if (money?.grant_ending_soon) chips.push({ label: 'Comp or trial ending this week', urgent: false });
   return chips;
@@ -157,6 +165,48 @@ export function companyPlanLine(company: ShowCompany): string | null {
     return `Through ${formatDay(ends)}${company.renews_pro_plus ? ', renews' : `, then ${company.plan_label}`}`;
   }
   return null;
+}
+
+/**
+ * The button lit on a company's plan control: what it is on today. While a Pro+
+ * renewal is unpaid that is Pro+, the plan it holds, though it has none of its
+ * features until it pays (`PlanPicker` shows that as a warning).
+ */
+export function planOnToday(company: ShowCompany): PlanKey {
+  if (company.pro_plus_lapsed_since) return PRO_PLUS;
+  return company.effective_plan ?? company.plan;
+}
+
+/** Pressing it would change nothing: it is what the company already chose, and
+ *  it isn't renewing Pro+ instead. Pro+ always opens its form. */
+export function planChoiceIsNoChange(company: ShowCompany, key: PlanKey): boolean {
+  return key !== PRO_PLUS && key === company.plan && !company.renews_pro_plus;
+}
+
+/** What pressing a plan's button does, for its `title`. During a Pro+ year or a
+ *  comp or trial, Free, Basic and Pro say what follows it rather than moving it now. */
+export function planChoiceTitle(company: ShowCompany, key: PlanKey, label: string): string {
+  const name = company.name;
+  const full = `GaitDesk ${label}`;
+  const lapsed = Boolean(company.pro_plus_lapsed_since);
+  const onProPlus = company.effective_plan === PRO_PLUS;
+  if (key === PRO_PLUS) {
+    if (lapsed) return 'Start the renewal: it picks up the day after the last year ended, and unfreezes the shows';
+    if (onProPlus) return `${name} is on ${full}. Start the next year: it begins the day after this one ends`;
+    return `Start a Pro+ year for ${name}: payment received, invoiced later or complimentary`;
+  }
+  if (lapsed) return `Move ${name} to ${full}: its shows unfreeze at once`;
+  if (onProPlus) {
+    return planChoiceIsNoChange(company, key)
+      ? `${name} moves to ${full} when its Pro+ year runs out`
+      : `Follow ${name}'s Pro+ year with ${full}${company.renews_pro_plus ? ' instead of renewing Pro+' : ''}`;
+  }
+  if (activeGrant(company)) {
+    return planChoiceIsNoChange(company, key)
+      ? `${name} is on ${full} when its comp or trial ends`
+      : `Follow ${name}'s comp or trial with ${full}`;
+  }
+  return planChoiceIsNoChange(company, key) ? `${name} is on ${full}` : `Move ${name} to ${full}`;
 }
 
 export function trainerChips(trainer: TrainerSubscription): Chip[] {

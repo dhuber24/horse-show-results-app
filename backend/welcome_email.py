@@ -208,17 +208,16 @@ ROLE_WELCOMES: dict[str, RoleWelcome] = {
         start_label="Open the admin home",
         facts=(
             "You can reach everything in GaitDesk, including every paid feature.",
-            "Only an administrator creates show companies, approves the people "
-            "a company adds, and switches its paid features on.",
-            "Requests waiting on you -- somebody asking to join a show company, "
-            "or a company asking for a paid feature -- are counted on the "
-            "Show Companies tile of the admin home.",
+            "Only an administrator creates show companies. Plans are changed "
+            "by hand at Manage Subscriptions: a company's, and a trainer's Pro.",
+            "Requests waiting on you are counted on the admin home: somebody "
+            "asking to join a show company on the Show Companies tile, and a "
+            "company or trainer asking for a plan on the Manage Subscriptions tile.",
         ),
         tips=(
-            "Check that count daily: a company can't add the colleague it "
-            "asked for until an administrator answers.",
-            "Paid features are switched on per show company at Show Companies, "
-            "never per person -- everybody in the company gets them.",
+            "Check those counts daily: whoever asked is waiting on you.",
+            "Paid features come with a show company's plan, never per person "
+            "-- everybody in the company gets them.",
         ),
     ),
 }

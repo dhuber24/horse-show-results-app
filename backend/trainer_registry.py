@@ -370,12 +370,12 @@ def pro_request_email(trainer, plan: str, login_email: Optional[str]) -> tuple[s
         f"{trainer.name} asked for Trainer Registry {plan_label}.",
         "",
         "Online payment is not set up, so bill them outside the app, then record",
-        "how long they have paid for on their record. Pro switches on with that",
-        "date and back to Basic after it.",
+        "how long they have paid for at Manage Subscriptions. Pro switches on with",
+        "that date and back to Basic after it.",
         "",
         *_trainer_lines(trainer, login_email),
         "",
-        f"{public_app_url()}/admin/trainers/{trainer.id}",
+        f"{public_app_url()}/admin/subscriptions?tab=trainers&trainer={trainer.id}",
     ]
     if login_email:
         lines += ["", f"Replying to this email goes to {login_email}."]

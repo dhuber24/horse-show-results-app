@@ -2,6 +2,27 @@
 
 ## November 2026
 
+### Plans are changed in one place
+
+- **An admin changes a plan only at Manage Subscriptions.** The plan buttons and
+  cards, Pro+ years, comps and trials, and a trainer's Pro panel all moved there.
+  Show Companies, a company's page, the Trainer Registry and a trainer's page now
+  say what somebody is on, with a *Manage subscription* link that opens their row.
+  Invoices and the usage statement stay on the company's page. A company still
+  picks its own plan on My Company, and a trainer on their registry page.
+- **Pro+ is a button beside Free, Basic and Pro**, lit while a company is on it. It
+  opens the form that starts a year, since a year has a payment to record.
+- **The admin emails asking for a plan link to Manage Subscriptions**, and the
+  home page counts those requests on its tile rather than Show Companies'.
+
+### A trainer's private details stay private
+
+- **Only an admin can read a trainer's whole record.** `GET /trainers/` was open
+  to any signed-in account, so an exhibitor could read every trainer's login
+  email, private phone, home zip and compliance dates, because the dropdown on a
+  horse form read the same list. The dropdown reads ids and names from
+  `GET /trainers/names` now, and nothing about it changes on screen.
+
 ### Manage Subscriptions
 
 - **A section for GaitDesk admins** at `/admin/subscriptions`: every show

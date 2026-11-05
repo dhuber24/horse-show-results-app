@@ -34,6 +34,8 @@ export default function SubscriptionsManager({
   trainers,
   prices,
   plans,
+  linkedCompany,
+  linkedTrainer,
 }: {
   initialTab: SubscriptionsTab;
   companies: ShowCompany[] | null;
@@ -41,6 +43,9 @@ export default function SubscriptionsManager({
   trainers: TrainerSubscription[] | null;
   prices: SubscriptionPrice[] | null;
   plans: PlanInfo[];
+  /** The row to open, arriving from that company's or trainer's own page. */
+  linkedCompany?: string;
+  linkedTrainer?: string;
 }) {
   const [tab, setTab] = useState<SubscriptionsTab>(initialTab);
 
@@ -73,12 +78,12 @@ export default function SubscriptionsManager({
 
       {tab === 'companies' &&
         (companies ? (
-          <CompanySubscriptions initialCompanies={companies} money={money} plans={plans} />
+          <CompanySubscriptions initialCompanies={companies} money={money} plans={plans} linkedCompany={linkedCompany} />
         ) : (
           <LoadFailed what="The show companies" />
         ))}
       {tab === 'trainers' &&
-        (trainers ? <TrainerSubscriptions trainers={trainers} /> : <LoadFailed what="The trainers" />)}
+        (trainers ? <TrainerSubscriptions trainers={trainers} linkedTrainer={linkedTrainer} /> : <LoadFailed what="The trainers" />)}
       {tab === 'prices' && (prices ? <PriceEditor initialPrices={prices} /> : <LoadFailed what="The prices" />)}
     </div>
   );

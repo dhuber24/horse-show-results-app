@@ -73,7 +73,7 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
   const [grantNote, setGrantNote] = useState('');
   const paysByCard = billing?.pays_by_card ?? false;
   // From the billing read as well as the row: the trainer's own admin page reads
-  // a list any signed-in account can, which doesn't carry it.
+  // `TrainerOut`, which doesn't carry it.
   const grant = trainer.pro_grant ?? billing?.pro_grant ?? null;
   const prices = billing?.pro_prices;
   const [busy, setBusy] = useState(false);
@@ -243,8 +243,8 @@ export default function AdminTrainerPro({ trainer }: { trainer: ProTrainer }) {
             className={inputClass}
             style={inputStyle}
           >
-            <option value="monthly">Monthly — {proPlanLabel('monthly', prices)}</option>
-            <option value="annual">Annual — {proPlanLabel('annual', prices)}</option>
+            <option value="monthly">{prices ? `Monthly — ${proPlanLabel('monthly', prices)}` : 'Monthly'}</option>
+            <option value="annual">{prices ? `Annual — ${proPlanLabel('annual', prices)}` : 'Annual'}</option>
           </select>
         </div>
         <div>

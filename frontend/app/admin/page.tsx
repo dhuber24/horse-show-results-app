@@ -5,11 +5,11 @@ import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import { CONTACT_MESSAGES_TILE, MY_COMPANY_TILE, ROLE_LABELS, adminSections } from './sections';
 
 /**
- * What is waiting on a GaitDesk admin at Show Companies — a request to join,
- * or a company asking for a paid feature (migration 144). This count on the
- * tile is how an admin hears about either when mail is not configured, so
- * anything short of a clean answer shows no badge rather than a wrong one.
- * Manage Subscriptions carries who is asking for a plan, trainers included.
+ * What is waiting on a GaitDesk admin: a request to join at Show Companies, and
+ * a company or trainer asking for a plan at Manage Subscriptions, the one place
+ * that is answered. This count on each tile is how an admin hears about them
+ * when mail is not configured, so anything short of a clean answer shows no
+ * badge rather than a wrong one.
  */
 async function pendingCompanyRequests(): Promise<{ companies: string | null; subscriptions: string | null }> {
   const none = { companies: null, subscriptions: null };
@@ -19,13 +19,9 @@ async function pendingCompanyRequests(): Promise<{ companies: string | null; sub
     const res = await fetch(`${API_URL}/show-companies/pending-requests`, { headers, cache: 'no-store' });
     if (!res.ok) return none;
     const body = await readJsonBody(res);
-    const parts = [
-      body?.upgrade_requests > 0 ? `${body.upgrade_requests} asking to upgrade` : null,
-      body?.join_requests > 0 ? `${body.join_requests} asking to join` : null,
-    ].filter(Boolean);
     const asking = (body?.upgrade_requests ?? 0) + (body?.trainer_pro_requests ?? 0);
     return {
-      companies: parts.length ? parts.join(' · ') : null,
+      companies: body?.join_requests > 0 ? `${body.join_requests} asking to join` : null,
       subscriptions: asking > 0 ? `${asking} asking for a plan` : null,
     };
   } catch {

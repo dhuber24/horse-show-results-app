@@ -55,7 +55,7 @@ club is on Pro does not bring Pro reports to a Basic club's show.
 
 **A locked door asks for the upgrade itself** (migration 144). The button
 beside it writes a `show_company_upgrade_requests` row for the company, which
-GaitDesk's admins find on the Show Companies screens and as a count on the
+GaitDesk's admins find on Manage Subscriptions and as a count on the
 admin home; each of them is also emailed, best-effort. The row is the
 notification and the email a courtesy, because `mailer.py` does nothing without
 SMTP. One request per company and feature -- the feature is sold to the
@@ -1151,19 +1151,18 @@ def upgrade_request_email(
             f"{requester_name if personal else company_name} asked for {pro_plus.label}",
             f"{requester_name} ({requester_email}, {role}) asked for {pro_plus.label} for {whom}: "
             f"a year of unlimited shows and exhibitors for {_dollars(prices.annual(utc_today()))}.\n\n"
-            "Arrange the payment with them, then record it on the company's page -- that starts "
-            "their year and answers the request:\n"
-            f"{public_app_url()}/admin/companies/{company_id}\n",
+            "Arrange the payment with them, then start the year at Manage Subscriptions -- that "
+            "answers the request:\n"
+            f"{public_app_url()}/admin/subscriptions?company={company_id}\n",
         )
     entry = FEATURES[feature]
     subject = f"{requester_name if personal else company_name} asked for {entry.plan}"
     body = (
         f"{requester_name} ({requester_email}, {role}) asked for {entry.plan} for {whom}, "
         f"to use: {entry.label}.\n\n"
-        "GaitDesk doesn't take payment in the app, so get in touch with them to arrange it. "
-        f"Once it's settled, move the company to {entry.plan} (or switch just this feature on) "
-        "-- that answers the request:\n"
-        f"{public_app_url()}/admin/companies/{company_id}\n"
+        f"The company can choose {entry.plan} itself on My Company. To move it yourself, use Manage "
+        "Subscriptions -- that answers the request:\n"
+        f"{public_app_url()}/admin/subscriptions?company={company_id}\n"
     )
     return subject, body
 

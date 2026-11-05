@@ -2049,7 +2049,17 @@ class TrainerRateLine(BaseModel):
 TrainerProfileUpdate.model_rebuild()
 
 
+class TrainerBasic(BaseModel):
+    """A trainer in a picker, and all any signed-in account may read of the
+    registry's rows: `GET /trainers/names`. A field added here reaches every
+    account, exhibitors included."""
+    id: UUID
+    name: str
+
+
 class TrainerOut(BaseModel):
+    """A trainer's whole record, with their login, private phone, home zip and
+    compliance dates. Only a GaitDesk admin reads it (`GET /trainers/`)."""
     id: UUID
     user_id: Optional[UUID] = None
     first_name: str
@@ -3732,8 +3742,7 @@ class TrainerGrantIn(BaseModel):
 
 
 class TrainerSubscriptionOut(BaseModel):
-    """One trainer on Manage Subscriptions. An admin's: not `TrainerOut`, which
-    any signed-in account can read, because it carries the note."""
+    """One trainer on Manage Subscriptions, the admin's note included."""
     id: UUID
     name: str
     business_name: Optional[str] = None

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { trainerSubscriptionHref } from '@/lib/subscriptions';
 import { useMemo, useState } from 'react';
 
 interface Trainer {
@@ -176,7 +177,8 @@ export default function TrainersManager({ initialTrainers }: Props) {
         <h2 className="font-semibold" style={{ color: 'var(--foreground)' }}>All Trainers ({sorted.length})</h2>
         {sorted.some((t) => t.pro_request_plan) && (
           <p className="text-sm" style={{ color: 'var(--warning-strong)' }}>
-            {sorted.filter((t) => t.pro_request_plan).length} asking for Trainer Registry Pro — open each to record what they&apos;ve paid for.
+            {sorted.filter((t) => t.pro_request_plan).length} asking for Trainer Registry Pro —{' '}
+            <Link href="/admin/subscriptions?tab=trainers" className="underline">answer at Manage Subscriptions</Link>.
           </p>
         )}
         {sorted.length === 0 ? (
@@ -229,6 +231,9 @@ export default function TrainersManager({ initialTrainers }: Props) {
                     </dl>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
+                    <Link href={trainerSubscriptionHref(trainer.id)} className="text-sm font-medium underline" style={{ color: 'var(--accent)' }}>
+                      Manage subscription
+                    </Link>
                     <Link href={`/admin/trainers/${trainer.id}`} className="text-sm font-medium underline" style={{ color: 'var(--accent)' }}>
                       Manage
                     </Link>

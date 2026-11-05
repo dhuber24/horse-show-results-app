@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 /**
  * Who is reading, for where the page sends them: a GaitDesk admin, who sells
- * Pro and links here from a trainer's admin page; a signed-in trainer — the
+ * Pro and links here from Manage Subscriptions; a signed-in trainer — the
  * caller has a `trainers` row, the same test `/profile/registry` makes; or
  * anybody else, most often a trainer deciding from the sign-up form.
  */
@@ -35,13 +35,13 @@ async function reader(): Promise<{ isAdmin: boolean; isTrainer: boolean }> {
  * advertising to, and a price list for being advertised, a click from the
  * listings, is how a client finds out who paid to come first. So the links
  * are on the trainer sign-up form — a trainer compares the plans before
- * registering — on `/profile/registry` (which draws the table too) and on a
- * trainer's admin page.
+ * registering — on `/profile/registry` (which draws the table too) and on
+ * Manage Subscriptions.
  */
 export default async function TrainerPlansPage() {
   const { isAdmin, isTrainer } = await reader();
   const back = isAdmin
-    ? { href: '/admin/trainers', label: '← Trainers' }
+    ? { href: '/admin/subscriptions?tab=trainers', label: '← Manage Subscriptions' }
     : isTrainer
       ? { href: '/profile/registry', label: '← My Trainer Registry listing' }
       : { href: '/register/trainer', label: '← Create a trainer account' };

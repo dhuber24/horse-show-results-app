@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
-import type { PlanInfo, ShowCompany } from '@/lib/show-companies';
+import type { ShowCompany } from '@/lib/show-companies';
+import { companyChips, companyPlanLine, companySubscriptionHref } from '@/lib/subscriptions';
 import SelfCancelPolicy from '@/components/SelfCancelPolicy';
+import { Chips } from '../../subscriptions/_shared';
 import CompanyInvoices from './CompanyInvoices';
-import CompanyPlan from './CompanyPlan';
 import UsageStatement from './UsageStatement';
 
 export interface StaffAccount {
@@ -44,11 +45,9 @@ function accountsText(count: number): string {
 export default function CompanyDetail({
   initialCompany,
   staff,
-  plans,
 }: {
   initialCompany: ShowCompany;
   staff: StaffAccount[];
-  plans: PlanInfo[];
 }) {
   const router = useRouter();
   const [company, setCompany] = useState<ShowCompany>(initialCompany);
@@ -70,6 +69,7 @@ export default function CompanyDetail({
         .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)),
     [staff, memberIds],
   );
+  const planLine = companyPlanLine(company);
   const detailsDirty = name.trim() !== company.name || (notes.trim() || null) !== (company.notes ?? null);
 
   /** Every write answers with the whole company; redraw from that. */
@@ -246,7 +246,25 @@ export default function CompanyDetail({
         </section>
       )}
 
-      <CompanyPlan company={company} plans={plans} onChange={setCompany} onError={setError} />
+      {/* What it is on, to read. A plan is changed at Manage Subscriptions and
+          nowhere else. */}
+      <section className="p-5 rounded-lg border flex flex-wrap items-start justify-between gap-3" style={sectionStyle}>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Plan</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
+            {company.effective_plan_label ?? company.plan_label}
+            {planLine && <span style={{ color: 'var(--muted)' }}> · {planLine}</span>}
+          </p>
+          <Chips chips={companyChips(company, undefined)} />
+        </div>
+        <Link
+          href={companySubscriptionHref(company.id)}
+          className="px-4 py-2 rounded text-sm font-medium shrink-0"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
+        >
+          Manage subscription
+        </Link>
+      </section>
 
       <UsageStatement
         companyId={company.id}
@@ -261,8 +279,7 @@ export default function CompanyDetail({
           <h2 className="text-base font-semibold" style={{ color: 'var(--foreground)' }}>Features</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
             What {company.effective_plan_label ?? company.plan_label} includes today. A feature comes with the
-            plan and no other way — move the company to Pro to give it the rest. GaitDesk admins always have
-            every feature.
+            plan and no other way. GaitDesk admins always have every feature.
           </p>
         </div>
         <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -344,7 +361,7 @@ export default function CompanyDetail({
         </div>
         {company.members.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>
-            Nobody yet — a feature turned on here reaches nobody until an account is added.
+            Nobody yet — its plan reaches nobody until an account is added.
           </p>
         ) : (
           <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
@@ -445,8 +462,7 @@ export default function CompanyDetail({
             style={inputStyle}
           />
           <span className="text-xs" style={{ color: 'var(--muted)' }}>
-            Only GaitDesk admins see these. GaitDesk doesn&apos;t take payment yet, so this is where the
-            arrangement is written down.
+            Only GaitDesk admins see these.
           </span>
         </div>
         <button

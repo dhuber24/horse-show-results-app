@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { errorMessage } from '@/lib/api-error';
 import { foldedOwnCompanies, formatDay, type ShowCompany } from '@/lib/show-companies';
-import PlanPicker from './PlanPicker';
+import { companySubscriptionHref } from '@/lib/subscriptions';
 
 const inputStyle = { borderColor: 'var(--border)', backgroundColor: 'var(--background)' } as const;
 const labelStyle = { color: 'var(--text-deep)' } as const;
@@ -36,10 +36,8 @@ function rank(company: ShowCompany): number {
   return company.owner_user_id ? 2 : 1;
 }
 
-export default function CompaniesManager({ initialCompanies }: { initialCompanies: ShowCompany[] }) {
+export default function CompaniesManager({ initialCompanies: companies }: { initialCompanies: ShowCompany[] }) {
   const router = useRouter();
-  const [companies, setCompanies] = useState<ShowCompany[]>(initialCompanies);
-  const [toggleError, setToggleError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
 
@@ -208,15 +206,6 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
             </select>
           </div>
         </div>
-        {toggleError && (
-          <p
-            role="alert"
-            className="text-sm rounded border p-3"
-            style={{ borderColor: 'var(--error-border)', backgroundColor: 'var(--error-bg)', color: 'var(--error-strong)' }}
-          >
-            {toggleError}
-          </p>
-        )}
         {folded.size > 0 && !query.trim() && (
           <p className="text-sm" style={{ color: 'var(--muted)' }}>
             {folded.size === 1
@@ -284,17 +273,19 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                       </p>
                     )}
                   </div>
-                  {/* The plan sits on the row so a company can be moved without
-                      opening it (migration 168). A plan is the only way to a
-                      feature (migration 170). */}
+                  {/* What it is on, to read. A plan is changed at Manage
+                      Subscriptions and nowhere else. */}
                   <div className="flex flex-col gap-1.5 sm:items-end">
-                    <PlanPicker
-                      company={company}
-                      onChange={(updated) =>
-                        setCompanies((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
-                      }
-                      onError={setToggleError}
-                    />
+                    <span className="text-sm" style={{ color: 'var(--text-deep)' }}>
+                      {company.effective_plan_label ?? company.plan_label}
+                    </span>
+                    <Link
+                      href={companySubscriptionHref(company.id)}
+                      className="text-sm font-medium hover:underline"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      Manage subscription
+                    </Link>
                     {company.effective_plan === 'pro_plus' && (
                       <span
                         className="text-xs px-1.5 py-0.5 rounded font-medium"
@@ -319,7 +310,7 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                     )}
                     {company.pro_plus_requested_at && company.effective_plan !== 'pro_plus' && (
                       <Link
-                        href={`/admin/companies/${company.id}`}
+                        href={companySubscriptionHref(company.id)}
                         className="block w-fit text-xs px-1.5 py-0.5 rounded font-medium"
                         style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
                         suppressHydrationWarning
@@ -332,15 +323,15 @@ export default function CompaniesManager({ initialCompanies }: { initialCompanie
                         On Pro, but reaches nobody yet — add an account
                       </span>
                     )}
-                    {/* Moving to Pro answers every request, so the note sits
-                        against the control that does. */}
+                    {/* Moving to Pro answers every request, so the note links to
+                        where that is done. */}
                     {company.features
                       .filter((f) => f.requested_at && !f.enabled)
                       .slice(0, 1)
                       .map((f) => (
                         <Link
                           key={f.key}
-                          href={`/admin/companies/${company.id}`}
+                          href={companySubscriptionHref(company.id)}
                           className="block w-fit text-xs px-1.5 py-0.5 rounded font-medium"
                           style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-strong)' }}
                           suppressHydrationWarning

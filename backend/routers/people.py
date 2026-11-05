@@ -599,7 +599,7 @@ async def create_upgrade_request(
     """Ask GaitDesk to switch a paid feature on for one of the caller's show
     companies (migration 144) -- the Request upgrade button on a locked door.
 
-    Stored first, so GaitDesk's admins find it on the Show Companies screens
+    Stored first, so GaitDesk's admins find it on Manage Subscriptions
     whether or not mail is configured; then each admin is emailed after the
     response, since a slow mail server is not the caller's wait. A request the
     company already made answers 200 with that one and sends nothing: the

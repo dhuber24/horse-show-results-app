@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import SectionHeader from '@/components/SectionHeader';
 import { coatDescription } from '@/lib/horse-coat';
-import type { ProPlan } from '@/lib/trainer-registry';
-import AdminTrainerPro from './AdminTrainerPro';
+import { trainerSubscriptionHref } from '@/lib/subscriptions';
+import { formatDay, proThrough, type ProPlan } from '@/lib/trainer-registry';
 
 interface AdminTrainer {
   id: string;
@@ -235,7 +235,30 @@ export default function AdminTrainerDetail({ trainer, initialAffiliations, initi
 
   return (
     <div className="space-y-6">
-      <AdminTrainerPro trainer={trainer} />
+      {/* What they are on, to read. Pro is changed at Manage Subscriptions and
+          nowhere else. */}
+      <section className="rounded-lg border p-5 flex flex-wrap items-start justify-between gap-3" style={sectionStyle}>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>Trainer Registry plan</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-deep)' }}>
+            {trainer.is_pro
+              ? `Pro ${proThrough(trainer.pro_until)}.`
+              : trainer.pro_until
+                ? `Basic. Pro ran through ${formatDay(trainer.pro_until)}.`
+                : 'Basic.'}
+          </p>
+          {trainer.pro_request_plan && (
+            <p className="text-sm mt-1 font-medium" style={{ color: 'var(--warning-strong)' }}>Asked for Pro</p>
+          )}
+        </div>
+        <Link
+          href={trainerSubscriptionHref(trainer.id)}
+          className="px-4 py-2 rounded text-sm font-medium shrink-0"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+        >
+          Manage subscription
+        </Link>
+      </section>
 
       <div className="rounded-lg border p-5" style={sectionStyle}>
         <SectionHeader title="Profile" open={open.profile} onToggle={() => toggle('profile')} />

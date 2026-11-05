@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '@/lib/api-error';
 import { formatDay, formatRate, type PlanInfo, type ShowCompany, type Subscription } from '@/lib/show-companies';
 
@@ -10,7 +10,8 @@ const EMPTY_FORM = { starts_on: '', price: '', payment: 'received' as Payment, m
 
 /**
  * A company's GaitDesk Pro+ years (migration 169), and starting one -- under
- * the plan cards (`CompanyPlan`), whose Pro+ card opens the form.
+ * the plan cards (`CompanyPlan`). Its row's Pro+ button and the Pro+ card both
+ * open the form.
  *
  * **A GaitDesk admin starts the year, paid for or not** (migration 171): the
  * payment received, still owed (it starts now and shows *Unpaid* until it is
@@ -40,6 +41,11 @@ export default function ProPlusYears({
   const [form, setForm] = useState(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  // The row's Pro+ button is far above where the form opens, under the cards.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (open) formRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [open]);
   const years = [...(company.subscriptions ?? [])].sort((a, b) => b.starts_on.localeCompare(a.starts_on));
   const label = plan?.label ?? 'GaitDesk Pro+';
   const listPrice = plan?.annual_cents ?? null;
@@ -125,12 +131,12 @@ export default function ProPlusYears({
               </a>
             </>
           )}
-          . Starting a year — the {label} card above — answers it.
+          . Starting a year answers it.
         </div>
       )}
 
       {open && (
-        <form id="pro-plus-year-form" onSubmit={start} className="space-y-3 rounded border p-3" style={{ borderColor: 'var(--border-subtle)' }}>
+        <form id="pro-plus-year-form" ref={formRef} onSubmit={start} className="space-y-3 rounded border p-3" style={{ borderColor: 'var(--border-subtle)' }}>
           <div>
             <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Start a {label} year</p>
             <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>

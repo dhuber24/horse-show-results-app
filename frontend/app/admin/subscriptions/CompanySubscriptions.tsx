@@ -5,16 +5,17 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { foldedOwnCompanies, type PlanInfo, type ShowCompany } from '@/lib/show-companies';
 import { companyChips, companyMoneyLine, companyPlanLine, type CompanyMoney } from '@/lib/subscriptions';
-import CompanyPlan from '../companies/[id]/CompanyPlan';
-import PlanPicker from '../companies/PlanPicker';
+import CompanyPlan from './CompanyPlan';
+import PlanPicker from './PlanPicker';
 import { Chips, CountFilters } from './_shared';
 
 type Filter = 'all' | 'attention' | 'given' | 'free' | 'basic' | 'pro' | 'pro_plus';
 
 /**
- * Every show company's plan and money. The plan picker and the plan cards are the
- * ones on Show Companies, so a company moves the same way from either screen; a
- * row opens onto the cards, its Pro+ years and its comps and trials.
+ * Every show company's plan and money, and the one place an admin changes a plan.
+ * Show Companies and a company's own page say what it is on and link here, with
+ * `linkedCompany` opening its row. A row opens onto the plan cards, its Pro+ years
+ * and its comps and trials.
  *
  * Companies somebody is waiting on come first, then organizations, then the
  * independents, of whom there is one per show manager and most have run nothing.
@@ -23,10 +24,12 @@ export default function CompanySubscriptions({
   initialCompanies,
   money,
   plans,
+  linkedCompany,
 }: {
   initialCompanies: ShowCompany[];
   money: CompanyMoney[] | null;
   plans: PlanInfo[];
+  linkedCompany?: string;
 }) {
   const router = useRouter();
   const [companies, setCompanies] = useState(initialCompanies);
@@ -34,8 +37,14 @@ export default function CompanySubscriptions({
   useEffect(() => setCompanies(initialCompanies), [initialCompanies]);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(linkedCompany ?? null);
+  // Whose form for starting a Pro+ year is open: its row's button says so from
+  // outside the plan cards.
+  const [yearFormFor, setYearFormFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (linkedCompany) document.getElementById(`company-row-${linkedCompany}`)?.scrollIntoView({ block: 'start' });
+  }, [linkedCompany]);
 
   const moneyById = useMemo(() => new Map((money ?? []).map((m) => [m.company_id, m])), [money]);
   const folded = useMemo(() => foldedOwnCompanies(companies), [companies]);
@@ -54,8 +63,9 @@ export default function CompanySubscriptions({
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    // Searching a person finds every company they are in, folded or not.
-    return (q ? companies : listed)
+    // Searching a person finds every company they are in, folded or not, and a
+    // link from a folded company's own page has to arrive at its row.
+    return (q ? companies : companies.filter((c) => !folded.has(c.id) || c.id === linkedCompany))
       .filter((c) => matches(c, filter))
       .filter(
         (c) =>
@@ -70,7 +80,7 @@ export default function CompanySubscriptions({
           a.name.localeCompare(b.name),
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companies, listed, filter, query, moneyById]);
+  }, [companies, folded, linkedCompany, filter, query, moneyById]);
 
   const update = (next: ShowCompany) => {
     setCompanies((prev) => prev.map((c) => (c.id === next.id ? next : c)));
@@ -121,7 +131,12 @@ export default function CompanySubscriptions({
             const figures = moneyById.get(company.id);
             const planLine = companyPlanLine(company);
             return (
-              <li key={company.id} className="border rounded" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+              <li
+                key={company.id}
+                id={`company-row-${company.id}`}
+                className="border rounded scroll-mt-20"
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+              >
                 <div className="p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -142,12 +157,23 @@ export default function CompanySubscriptions({
                     <Chips chips={companyChips(company, figures)} />
                   </div>
                   <div className="flex flex-col gap-2 sm:items-end shrink-0">
-                    <PlanPicker company={company} onChange={update} onError={setError} />
+                    <PlanPicker
+                      company={company}
+                      onChange={update}
+                      onError={setError}
+                      onProPlus={() => {
+                        setOpen(company.id);
+                        setYearFormFor(yearFormFor === company.id ? null : company.id);
+                      }}
+                    />
                     <button
                       type="button"
                       aria-expanded={isOpen}
                       aria-controls={`company-manage-${company.id}`}
-                      onClick={() => setOpen(isOpen ? null : company.id)}
+                      onClick={() => {
+                        setOpen(isOpen ? null : company.id);
+                        setYearFormFor(null);
+                      }}
                       className="text-sm font-medium hover:underline text-left sm:text-right"
                       style={{ color: 'var(--accent)' }}
                     >
@@ -157,7 +183,14 @@ export default function CompanySubscriptions({
                 </div>
                 {isOpen && (
                   <div id={`company-manage-${company.id}`} className="border-t p-4 space-y-3" style={{ borderColor: 'var(--border)' }}>
-                    <CompanyPlan company={company} plans={plans} onChange={update} onError={setError} />
+                    <CompanyPlan
+                      company={company}
+                      plans={plans}
+                      startingYear={yearFormFor === company.id}
+                      onStartingYear={(on) => setYearFormFor(on ? company.id : null)}
+                      onChange={update}
+                      onError={setError}
+                    />
                     <p className="text-sm">
                       <Link href={`/admin/companies/${company.id}`} className="underline" style={{ color: 'var(--accent)' }}>
                         Invoices and usage statement on {company.name}&apos;s page

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import Breadcrumbs from '@/components/Breadcrumbs';
 import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import type { ShowCompany } from '@/lib/show-companies';
@@ -6,8 +7,8 @@ import CompaniesManager from './CompaniesManager';
 /**
  * Show companies — the business a plan is sold to (migrations 142, 168).
  *
- * GaitDesk sets a company's plan, and it reaches every account in the company. Each company's page issues
- * its invoices (migration 172); the company pays them on My Company.
+ * A company's plan reaches every account in it, and is changed at Manage Subscriptions. Each company's page
+ * issues its invoices (migration 172); the company pays them on My Company.
  */
 export default async function AdminCompaniesPage() {
   const headers = await getAuthHeaders();
@@ -26,9 +27,9 @@ export default async function AdminCompaniesPage() {
         <h1 className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)' }}>Show Companies</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
           The clubs and firms that run shows, the staff accounts that work for them, and the plan
-          each is on — GaitDesk Basic or GaitDesk Pro, both charged per exhibitor registered to a
-          show. GaitDesk doesn&apos;t take payment in the app yet, so a plan is in effect when you
-          set it here; each company&apos;s page has the usage statement to invoice from.
+          each is on. Plans are changed at{' '}
+          <Link href="/admin/subscriptions" className="underline" style={{ color: 'var(--accent)' }}>Manage Subscriptions</Link>;
+          each company&apos;s page has its usage statement and invoices.
         </p>
       </div>
       {loadFailed ? (

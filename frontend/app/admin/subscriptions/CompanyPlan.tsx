@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import {
   PRO_PLUS,
   formatDay,
@@ -9,7 +8,7 @@ import {
   type PlanInfo,
   type ShowCompany,
 } from '@/lib/show-companies';
-import PlanPicker, { usePlanChange } from '../PlanPicker';
+import PlanPicker, { usePlanChange } from './PlanPicker';
 import CompanyGrants from './CompanyGrants';
 import ProPlusYears from './ProPlusYears';
 
@@ -22,12 +21,12 @@ function priceText(plan: PlanInfo): string {
 }
 
 /**
- * A company's plan on its admin page: one card per plan in the backend's
- * `PLANS`, and **the card is the control**. Free, Basic and Pro move the
- * company the moment one is pressed, exactly as the list's picker does
- * (`usePlanChange`). Pro+ is a year with a payment to record, so its card
- * opens the form that starts one (`ProPlusYears`), and the years sit under
- * the cards.
+ * A company's plan on Manage Subscriptions, under its row: one card per plan in
+ * the backend's `PLANS`, and **the card is the control**. Free, Basic and Pro
+ * move the company the moment one is pressed, exactly as the row's buttons do
+ * (`usePlanChange`). Pro+ is a year with a payment to record, so its card and
+ * its button open the form that starts one (`ProPlusYears`), and the years sit
+ * under the cards. Whether that form is open is the row's to say, for that button.
  *
  * **Pro+ renews as Pro+** (migration 175): during a year only the Pro+ card
  * is marked while the company renews it, and pressing Basic or Pro makes
@@ -39,16 +38,20 @@ function priceText(plan: PlanInfo): string {
 export default function CompanyPlan({
   company,
   plans,
+  startingYear,
+  onStartingYear,
   onChange,
   onError,
 }: {
   company: ShowCompany;
   plans: PlanInfo[];
+  /** The form that starts a Pro+ year is open. */
+  startingYear: boolean;
+  onStartingYear: (open: boolean) => void;
   onChange: (company: ShowCompany) => void;
   onError: (message: string | null) => void;
 }) {
   const { pending, choose } = usePlanChange(company, onChange, onError);
-  const [startingYear, setStartingYear] = useState(false);
   const onProPlus = company.effective_plan === PRO_PLUS;
   const renews = company.renews_pro_plus === true;
   const lapsedSince = company.pro_plus_lapsed_since ?? null;
@@ -111,7 +114,7 @@ export default function CompanyPlan({
               ? 'GaitDesk Free: the company can staff itself but set up no show until it picks Basic or Pro. '
               : `${company.plan_label}, at ${formatRate(company.plan_rate_cents)} per exhibitor registered to each of its shows. `}
           The company picks Basic or Pro itself on My Company. Click a plan to move it here: the change reaches
-          every account below and every show it runs straight away, is logged for pricing, and emails its show
+          every account in it and every show it runs straight away, is logged for pricing, and emails its show
           managers. Pro+ opens a form to start a paid year.
         </p>
       </div>
@@ -129,7 +132,7 @@ export default function CompanyPlan({
               <button
                 key={plan.key}
                 type="button"
-                onClick={() => (isProPlus ? setStartingYear((open) => !open) : choose(plan.key as ColumnPlanKey))}
+                onClick={() => (isProPlus ? onStartingYear(!startingYear) : choose(plan.key as ColumnPlanKey))}
                 disabled={!isProPlus && (pending !== null || isColumn)}
                 aria-pressed={isProPlus ? undefined : isColumn}
                 aria-expanded={isProPlus ? startingYear : undefined}
@@ -190,27 +193,15 @@ export default function CompanyPlan({
         </div>
       ) : (
         // The plans ride on the caller's features; without them there is
-        // nothing to draw a card from, so the list's picker stands in.
-        <div className="flex items-center gap-4 flex-wrap">
-          <PlanPicker company={company} onChange={onChange} onError={onError} />
-          <button
-            type="button"
-            onClick={() => setStartingYear((open) => !open)}
-            aria-expanded={startingYear}
-            aria-controls="pro-plus-year-form"
-            className="text-sm font-medium hover:underline"
-            style={{ color: 'var(--accent)' }}
-          >
-            Start a Pro+ year
-          </button>
-        </div>
+        // nothing to draw a card from, so the row's buttons stand in.
+        <PlanPicker company={company} onChange={onChange} onError={onError} onProPlus={() => onStartingYear(!startingYear)} />
       )}
 
       <ProPlusYears
         company={company}
         plan={proPlus}
         open={startingYear}
-        onClose={() => setStartingYear(false)}
+        onClose={() => onStartingYear(false)}
         onChange={onChange}
         onError={onError}
       />

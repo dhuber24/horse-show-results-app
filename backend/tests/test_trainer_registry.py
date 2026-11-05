@@ -419,7 +419,7 @@ def test_a_pro_request_tells_the_admins_what_to_do_about_it():
     subject, body = pro_request_email(trainer, "annual", "jane@example.com")
     assert subject == "Trainer Registry Pro: Jane Smith (Smith Performance Horses) asked for Pro, annual"
     assert "bill them outside the app" in body
-    assert f"/admin/trainers/{trainer.id}" in body
+    assert f"/admin/subscriptions?tab=trainers&trainer={trainer.id}" in body
 
 
 def test_a_lead_is_a_notice_linking_to_the_message_in_the_inbox():

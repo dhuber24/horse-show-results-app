@@ -4,7 +4,20 @@ import { describe, expect, it } from '@jest/globals';
 declare const jest: typeof import('@jest/globals').jest;
 jest.mock('./backend-fetch', () => ({ API_URL: '', readJsonBody: async () => null }));
 
-import { companyChips, companyMoneyLine, companyPlanLine, parseDollars, trainerChips, type CompanyMoney, type TrainerSubscription } from './subscriptions';
+import {
+  companyChips,
+  companyMoneyLine,
+  companyPlanLine,
+  companySubscriptionHref,
+  parseDollars,
+  planChoiceIsNoChange,
+  planChoiceTitle,
+  planOnToday,
+  trainerChips,
+  trainerSubscriptionHref,
+  type CompanyMoney,
+  type TrainerSubscription,
+} from './subscriptions';
 import { formatRate, type ShowCompany } from './show-companies';
 
 const MONEY: CompanyMoney = {
@@ -25,12 +38,14 @@ const MONEY: CompanyMoney = {
 const company = (extra: Partial<ShowCompany> = {}) =>
   ({
     id: 'c1',
+    name: 'Paint Club',
     plan: 'free',
     plan_label: 'GaitDesk Free',
     effective_plan: 'free',
     subscriptions: [],
     grants: [],
     active_grant_id: null,
+    features: [],
     ...extra,
   }) as unknown as ShowCompany;
 
@@ -114,6 +129,84 @@ describe('what needs somebody on a company', () => {
   it('still shows the rest when the figures did not load', () => {
     expect(companyChips(company({ pro_plus_lapsed_since: '2026-10-01' }), undefined)).toHaveLength(1);
     expect(companyMoneyLine(undefined)).toBe('Figures unavailable');
+  });
+});
+
+describe('a request for a plan', () => {
+  it('is flagged on the row where it can be answered', () => {
+    const features = [{ key: 'live_boards', plan: 'GaitDesk Pro', requested_at: '2026-10-01T00:00:00Z', enabled: false }];
+    expect(companyChips(company({ features } as unknown as Partial<ShowCompany>), MONEY)).toEqual([
+      { label: 'Asked for GaitDesk Pro', urgent: true },
+    ]);
+  });
+
+  it('stops once the company has what it asked for', () => {
+    const features = [{ key: 'live_boards', plan: 'GaitDesk Pro', requested_at: '2026-10-01T00:00:00Z', enabled: true }];
+    expect(companyChips(company({ features } as unknown as Partial<ShowCompany>), MONEY)).toEqual([]);
+  });
+});
+
+describe('the plan buttons', () => {
+  const grant = { id: 'g1', plan: 'pro', kind: 'trial', starts_on: '2026-11-01', ends_on: '2026-12-01', note: null };
+  const onTrial = company({ effective_plan: 'pro', grants: [grant], active_grant_id: 'g1' } as Partial<ShowCompany>);
+  const onProPlus = company({ plan: 'basic', effective_plan: 'pro_plus', renews_pro_plus: true });
+  const following = company({ plan: 'basic', effective_plan: 'pro_plus', renews_pro_plus: false });
+  const lapsed = company({ plan: 'pro', effective_plan: 'free', renews_pro_plus: true, pro_plus_lapsed_since: '2026-10-01' });
+
+  it('light the plan it is on today', () => {
+    expect(planOnToday(company({ plan: 'basic', effective_plan: 'basic' }))).toBe('basic');
+    expect(planOnToday(onProPlus)).toBe('pro_plus');
+    expect(planOnToday(following)).toBe('pro_plus');
+    expect(planOnToday(onTrial)).toBe('pro');
+  });
+
+  it('light Pro+ while its renewal is unpaid, since that is the plan it holds', () => {
+    expect(planOnToday(lapsed)).toBe('pro_plus');
+  });
+
+  it('do nothing for the plan a company already chose', () => {
+    expect(planChoiceIsNoChange(company({ plan: 'basic', effective_plan: 'basic' }), 'basic')).toBe(true);
+    expect(planChoiceIsNoChange(following, 'basic')).toBe(true);
+    expect(planChoiceIsNoChange(onTrial, 'free')).toBe(true);
+  });
+
+  it('still answer the plan it holds while Pro+ renews: pressing it stops the renewal', () => {
+    expect(planChoiceIsNoChange(onProPlus, 'basic')).toBe(false);
+    expect(planChoiceIsNoChange(lapsed, 'pro')).toBe(false);
+  });
+
+  it('always answer Pro+', () => {
+    expect(planChoiceIsNoChange(company(), 'pro_plus')).toBe(false);
+    expect(planChoiceIsNoChange(onProPlus, 'pro_plus')).toBe(false);
+  });
+
+  it('say what a press does', () => {
+    expect(planChoiceTitle(company(), 'pro', 'Pro')).toBe('Move Paint Club to GaitDesk Pro');
+    expect(planChoiceTitle(company(), 'free', 'Free')).toBe('Paint Club is on GaitDesk Free');
+    expect(planChoiceTitle(company(), 'pro_plus', 'Pro+')).toContain('payment received, invoiced later or complimentary');
+  });
+
+  it('say a press during a Pro+ year sets what follows it', () => {
+    expect(planChoiceTitle(onProPlus, 'pro', 'Pro')).toBe("Follow Paint Club's Pro+ year with GaitDesk Pro instead of renewing Pro+");
+    expect(planChoiceTitle(following, 'basic', 'Basic')).toBe('Paint Club moves to GaitDesk Basic when its Pro+ year runs out');
+    expect(planChoiceTitle(onProPlus, 'pro_plus', 'Pro+')).toContain('next year');
+  });
+
+  it('say a press during a trial sets what follows it', () => {
+    expect(planChoiceTitle(onTrial, 'basic', 'Basic')).toBe("Follow Paint Club's comp or trial with GaitDesk Basic");
+    expect(planChoiceTitle(onTrial, 'free', 'Free')).toBe('Paint Club is on GaitDesk Free when its comp or trial ends');
+  });
+
+  it('say how a frozen company gets out', () => {
+    expect(planChoiceTitle(lapsed, 'basic', 'Basic')).toContain('unfreeze');
+    expect(planChoiceTitle(lapsed, 'pro_plus', 'Pro+')).toContain('renewal');
+  });
+});
+
+describe('the links to where a plan is changed', () => {
+  it('open that company or trainer', () => {
+    expect(companySubscriptionHref('c1')).toBe('/admin/subscriptions?company=c1');
+    expect(trainerSubscriptionHref('t1')).toBe('/admin/subscriptions?tab=trainers&trainer=t1');
   });
 });
 

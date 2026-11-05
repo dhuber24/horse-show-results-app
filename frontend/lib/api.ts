@@ -313,6 +313,7 @@ export async function fetchBreeds() {
   return res.json();
 }
 
+/** Every trainer's whole record: an admin's. Anybody else is refused, and gets an empty list. */
 export async function fetchTrainers(headers?: HeadersInit) {
   const res = await fetch(`${API_URL}/trainers/`, headers ? { headers } : {});
   if (!res.ok) return [];

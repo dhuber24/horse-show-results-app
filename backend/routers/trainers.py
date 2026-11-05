@@ -30,6 +30,7 @@ from models import (
 )
 from schemas import (
     HorseOut,
+    TrainerBasic,
     TrainerCreate,
     TrainerLeadCreate,
     TrainerLeadOut,
@@ -181,8 +182,21 @@ async def _check_admin_or_self(
     return trainer
 
 
-@router.get("/", response_model=list[TrainerOut], dependencies=[Depends(require_authenticated)])
+@router.get("/names", response_model=list[TrainerBasic], dependencies=[Depends(require_authenticated)])
+async def list_trainer_names(db: AsyncSession = Depends(get_db)):
+    """Minimal name+id list for the trainer dropdown on a horse form, which any
+    signed-in account may fill in. Listed or not: a horse's trainer need not
+    advertise. Only the two columns are read, so nothing else can reach it."""
+    rows = (await db.execute(select(Trainer.id, Trainer.name).order_by(Trainer.name))).all()
+    return [TrainerBasic(id=row.id, name=row.name) for row in rows]
+
+
+@router.get("/", response_model=list[TrainerOut], dependencies=[Depends(require_admin)])
 async def list_trainers(db: AsyncSession = Depends(get_db)):
+    """Every trainer's whole record, for the admin's screens. It was open to any
+    signed-in account, which handed every exhibitor each trainer's login email,
+    private phone and compliance dates for the sake of a dropdown; that reads
+    `/names` now."""
     result = await db.execute(
         select(Trainer)
         .options(selectinload(Trainer.user), selectinload(Trainer.pro_request))

@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { GRANT_LABELS, trainerChips, type TrainerSubscription } from '@/lib/subscriptions';
 import { proThrough } from '@/lib/trainer-registry';
-import AdminTrainerPro from '../trainers/[id]/AdminTrainerPro';
+import AdminTrainerPro from './AdminTrainerPro';
 import { Chips, CountFilters } from './_shared';
 
 type Filter = 'all' | 'attention' | 'pro' | 'card' | 'given' | 'basic';
@@ -25,16 +25,27 @@ function howPaid(trainer: TrainerSubscription): string {
 }
 
 /**
- * Every trainer's plan. A row opens onto the panel their own admin page has, so
- * Pro is recorded, given away and ended the same way from either screen.
+ * Every trainer's plan, and the one place an admin changes it. A row opens onto
+ * the panel where Pro is recorded, given away and ended. The Trainer Registry and
+ * a trainer's own page say what they are on and link here, with `linkedTrainer`
+ * opening their row.
  *
  * Reads its rows from the page rather than state: that panel refreshes the page
  * when it saves, and the row should follow.
  */
-export default function TrainerSubscriptions({ trainers }: { trainers: TrainerSubscription[] }) {
+export default function TrainerSubscriptions({
+  trainers,
+  linkedTrainer,
+}: {
+  trainers: TrainerSubscription[];
+  linkedTrainer?: string;
+}) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(linkedTrainer ?? null);
+  useEffect(() => {
+    if (linkedTrainer) document.getElementById(`trainer-row-${linkedTrainer}`)?.scrollIntoView({ block: 'start' });
+  }, [linkedTrainer]);
 
   const needsSomebody = (t: TrainerSubscription) => trainerChips(t).some((chip) => chip.urgent);
   const matches = (t: TrainerSubscription, f: Filter) =>
@@ -93,7 +104,12 @@ export default function TrainerSubscriptions({ trainers }: { trainers: TrainerSu
           {shown.map((trainer) => {
             const isOpen = open === trainer.id;
             return (
-              <li key={trainer.id} className="border rounded" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+              <li
+                key={trainer.id}
+                id={`trainer-row-${trainer.id}`}
+                className="border rounded scroll-mt-20"
+                style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+              >
                 <div className="p-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="min-w-0">
                     <Link href={`/admin/trainers/${trainer.id}`} className="font-medium hover:underline" style={{ color: 'var(--foreground)' }}>

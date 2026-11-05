@@ -264,7 +264,7 @@ def test_the_admin_email_names_the_company_the_plan_who_asked_and_where_to_answe
     assert FEATURES[SHOWBILL_IMPORT].plan in subject
     assert "Jane Smith (jane@example.com, Show Secretary)" in body
     assert FEATURES[SHOWBILL_IMPORT].label in body
-    assert f"/admin/companies/{CLUB}" in body
+    assert f"/admin/subscriptions?company={CLUB}" in body
 
 
 def test_an_independents_request_does_not_read_their_name_back_as_the_company():
