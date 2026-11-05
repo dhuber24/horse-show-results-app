@@ -341,8 +341,8 @@ export default function JudgesEditor({
               </p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" style={{ color: COLORS.muted }}>
                 <AssociationBadges associations={picked.associations} />
-                <span>{picked.email || 'No email on file'}</span>
-                <span>{picked.phone || 'No phone on file'}</span>
+                <span>{picked.email || 'No email to show'}</span>
+                <span>{picked.phone || 'No phone to show'}</span>
               </div>
             </div>
           )}

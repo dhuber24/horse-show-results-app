@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '@/lib/api-error';
 import { type AssociationOption, type LookupOption } from './StaffAddHorseForm';
@@ -94,6 +95,8 @@ export default function AddExhibitorForm({
   onCancel: () => void;
 }) {
   const [people, setPeople] = useState<ExhibitorName[]>([]);
+  /** False until GaitDesk has verified this show's company (migration 180). */
+  const [reachesEverybody, setReachesEverybody] = useState(true);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
@@ -114,14 +117,21 @@ export default function AddExhibitorForm({
   const [onFile, setOnFile] = useState<{ email: string; matches: EmailMatch[] } | null>(null);
 
   useEffect(() => {
-    // `dedupe=false`: the owner pickers want one row per person, but a desk
-    // looking at somebody who is on the app twice has to see both records.
-    fetch('/api/exhibitors/names?dedupe=false')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => setPeople(Array.isArray(data) ? data : []))
-      .catch(() => setError('Could not load the exhibitor list.'))
+    // One row per record: the owner pickers want one per person, but a desk
+    // looking at somebody who is on the app twice has to see both.
+    fetch(`/api/shows/${showId}/desk/addable-exhibitors`)
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(errorMessage(data, 'Could not load the exhibitor list.'));
+        return data;
+      })
+      .then((data) => {
+        setPeople(Array.isArray(data?.exhibitors) ? data.exhibitors : []);
+        setReachesEverybody(data?.reaches_everybody !== false);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Could not load the exhibitor list.'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [showId]);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -449,6 +459,17 @@ export default function AddExhibitorForm({
         style={{ borderColor: COLORS.border, color: COLORS.text }}
       />
 
+      {!reachesEverybody && (
+        <p className="text-xs" style={{ color: COLORS.muted }}>
+          GaitDesk hasn&apos;t verified this show&apos;s company yet, so this lists people who signed up to one of its
+          shows and people typed in here. Anybody else, type them in below. You can ask to be verified on{' '}
+          <Link href="/admin/my-company" className="underline" style={{ color: COLORS.accent }}>
+            My Company
+          </Link>
+          .
+        </p>
+      )}
+
       {error && (
         <p className="text-sm" role="alert" style={{ color: 'var(--error-strong)' }}>
           {error}
@@ -459,7 +480,9 @@ export default function AddExhibitorForm({
         <p className="text-sm" style={{ color: COLORS.muted }}>
           {query.trim()
             ? 'Nobody on file matches that name.'
-            : 'Everybody on file is already on this show’s roster.'}
+            : reachesEverybody
+              ? 'Everybody on file is already on this show’s roster.'
+              : 'Nobody to add from this list yet.'}
         </p>
       )}
 

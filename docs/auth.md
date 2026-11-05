@@ -159,7 +159,7 @@ Common guards live in `backend/dependencies.py`:
 | `require_admin_or_show_admin` | `ADMIN`, `SHOW_SECRETARY`, or `SHOW_MANAGER` |
 | `require_admin_or_show_manager` | `ADMIN` or `SHOW_MANAGER` |
 
-**An office role proves nothing about who somebody is**: anybody can sign up as a Show Secretary or Manager and be approved at once. `require_admin_or_show_admin` alone is for what a stranger may do; a person's private details also take a check that the caller works the show (`_assert_show_access`, `_assert_exhibitor_on_roster`).
+**An office role proves nothing about who somebody is**: anybody can sign up as a Show Secretary or Manager and be approved at once. `require_admin_or_show_admin` alone is for what a stranger may do; a person's private details also take a check that the caller works the show (`_assert_show_access`, `_assert_exhibitor_on_roster`). **And working a show proves nothing about the people on it until GaitDesk has verified its company** (migration 180): every way of bringing somebody to a show asks `company_verification.py` first. See "Verified companies" in [design/companies.md](design/companies.md).
 
 A scribe's work at a show — placings, scores, posting a class, the judge's card and its photo — is guarded by `show_access.require_scoring_access`: `ADMIN` or `SCRIBE` by role, or a `SHOW_MANAGER` / `SHOW_SECRETARY` who works that show (a per-show row or the show's company). It replaced `require_admin_or_scribe`, which let in the first two only.
 
@@ -187,12 +187,12 @@ The show office — a `SHOW_MANAGER` or `SHOW_SECRETARY` — works a show throug
 
 | | Allowed roles | Endpoints |
 | --- | --- | --- |
-| `_assert_can_view` | `ADMIN`, `SHOW_SECRETARY`, `SHOW_MANAGER`, or the horse's registered owner | list, download |
+| `_assert_can_view` | `ADMIN`, `SHOW_SECRETARY` or `SHOW_MANAGER` answering to a verified company, or who can reach the horse (below), or the horse's registered owner | list, download |
 | `_assert_can_manage` | `ADMIN` or the horse's registered owner | upload, delete |
 
 Show staff read health paperwork to **verify** it — the secretary at the entry desk and the in-gate both need to see a Coggins. The record itself stays the owner's to maintain, so staff cannot add or remove documents on someone else's horse.
 
-Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents. That was accepted for roles that already saw every exhibitor's contact details; they no longer do (see "An exhibitor's private details" in [design/accounts.md](design/accounts.md)), and anybody can sign up for one, so this trade is due another look.
+Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents. That was accepted for roles that already saw every exhibitor's contact details; they no longer do (see "An exhibitor's private details" in [design/accounts.md](design/accounts.md)), and anybody can sign up for one. **So the trade now holds only for a verified company** (migration 180). Until GaitDesk has verified them, staff read the paperwork of a horse on the profile of somebody they can reach, which still covers creating the entry, and a link to a horse nobody owns doesn't count, since anybody can make one (`company_verification._horses`).
 
 ### Who May See The Money
 

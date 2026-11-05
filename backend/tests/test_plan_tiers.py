@@ -351,7 +351,7 @@ class _Db:
 
 
 def _company(plan=BASIC):
-    return SimpleNamespace(id=uuid4(), plan=plan, renews_pro_plus=False, subscriptions=[], upgrade_requests=[], grants=[])
+    return SimpleNamespace(id=uuid4(), plan=plan, renews_pro_plus=False, verified_at=None, verification_removed_at=None, subscriptions=[], upgrade_requests=[], grants=[])
 
 
 def _start(company, price_cents, received_on, db=None):

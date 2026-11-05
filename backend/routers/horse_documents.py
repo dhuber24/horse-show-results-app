@@ -6,6 +6,7 @@ from typing import Optional
 from datetime import date, timedelta
 from uuid import UUID
 
+from company_verification import caller_may_read_horse_documents
 from database import get_db
 from dependencies import require_authenticated, safe_uuid
 from models import Horse, HorseDocument, Exhibitor
@@ -460,6 +461,10 @@ router = APIRouter(prefix="/horses", tags=["HorseDocuments"])
 # you staff" was considered and rejected: the secretary most needs the Coggins
 # while *creating* the entry, before any row linking horse to show exists — the
 # scoped rule would hide the document at exactly the moment it is needed.
+#
+# That reach is a verified company's (migration 180). Anybody can sign up as show
+# staff, so until GaitDesk has verified them they read the paperwork of the horses
+# of people they can reach, which still covers entering somebody at the desk.
 _DOCUMENT_VIEWER_ROLES = {'ADMIN', 'SHOW_SECRETARY', 'SHOW_MANAGER'}
 
 
@@ -471,7 +476,7 @@ async def _is_owner(horse: Horse, user_id: str, db: AsyncSession) -> bool:
 
 async def _assert_can_view(horse: Horse, user_id: str, role: str, db: AsyncSession):
     """Read access: ADMIN, show staff, or the horse's registered owner."""
-    if role in _DOCUMENT_VIEWER_ROLES:
+    if role in _DOCUMENT_VIEWER_ROLES and await caller_may_read_horse_documents(db, user_id, role, horse.id):
         return
     if not await _is_owner(horse, user_id, db):
         raise HTTPException(403, "Not authorized to view this horse's documents")

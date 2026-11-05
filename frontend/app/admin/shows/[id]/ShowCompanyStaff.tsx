@@ -699,7 +699,7 @@ function GuestStaff({
             ) : (
               <div className="space-y-1">
                 <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                  Every show manager and secretary account already works this show.
+                  Everybody you can pick from already works this show.
                   {isAdmin ? ' Use "Create a secretary" for someone new.' : ''}
                 </p>
                 <button type="button" onClick={() => setAdding(false)}

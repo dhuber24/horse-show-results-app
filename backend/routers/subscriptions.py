@@ -48,13 +48,17 @@ from schemas import (
 from show_companies import (
     GRANT_NOTICE_DAYS,
     RENEWAL_NOTICE_DAYS,
+    VERIFIED_BY_ADMIN,
     company_manager_emails,
     email_admins,
     end_grant,
     grant_email,
     grant_plan,
     price_notice_email,
+    remove_verification,
     utc_today,
+    verified_email,
+    verify_company,
 )
 from subscription_prices import (
     PRICE_INFO,
@@ -134,6 +138,41 @@ async def company_subscriptions(db: AsyncSession = Depends(get_db)):
             )
         )
     return out
+
+
+@router.post("/companies/{company_id}/verify", response_model=ShowCompanyOut)
+async def verify_show_company(
+    company_id: UUID,
+    background: BackgroundTasks,
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Say a company is who it says it is (migration 180), which lets its office
+    reach anybody with a GaitDesk record. See `company_verification.py`."""
+    company = await _load(db, company_id)
+    subject, mail = verified_email(company.name)
+    if verify_company(company, VERIFIED_BY_ADMIN, by=safe_uuid(x_user_id)):
+        await db.commit()
+        logger.info("Company verified: company=%s by user=%s", company_id, x_user_id)
+        recipients = await company_manager_emails(db, company_id)
+        if recipients:
+            background.add_task(email_admins, recipients, subject, mail)
+    return await _respond(db, await _load(db, company_id))
+
+
+@router.delete("/companies/{company_id}/verify", response_model=ShowCompanyOut)
+async def remove_show_company_verification(
+    company_id: UUID,
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take verification away. A later payment does not put it back, and people it
+    has already put on a roster stay there: this stops it reaching anybody new."""
+    company = await _load(db, company_id)
+    remove_verification(company)
+    await db.commit()
+    logger.info("Company verification removed: company=%s by user=%s", company_id, x_user_id)
+    return await _respond(db, await _load(db, company_id))
 
 
 def _trainer_row(trainer: Trainer, today: date) -> TrainerSubscriptionOut:

@@ -241,6 +241,11 @@ export interface ShowCompany {
   /** Migration 179: comps and trials, and the one covering today. */
   grants?: CompanyGrant[];
   active_grant_id?: string | null;
+  /** Migration 180: whether it has shown who it is, and how. */
+  verified_at?: string | null;
+  verified_how?: 'existing' | 'admin' | 'paid' | null;
+  verification_removed_at?: string | null;
+  verification_requested_at?: string | null;
   /** Migration 175: on Pro+ and renewing it, rather than moving to `plan`
    *  when the year ends. */
   renews_pro_plus?: boolean;
@@ -285,6 +290,7 @@ export function foldedOwnCompanies(companies: ShowCompany[]): Map<string, string
     if (company.members.some((m) => m.user_id !== owner)) continue;
     if (company.join_requests.length > 0) continue;
     if (company.features.some((f) => f.requested_at && !f.enabled)) continue;
+    if (company.verification_requested_at && !company.verified_at) continue;
     folded.set(company.id, joined);
   }
   return folded;

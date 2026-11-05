@@ -1507,9 +1507,26 @@ class ShowCompany(Base):
     # Migration 173: the first show end date that must be paid for before the
     # company sets up another show (`gaitdesk_invoices.settle_up_block`).
     settle_shows_from = Column(Date, nullable=False, server_default=text("CURRENT_DATE"), default=date.today)
+    # Migration 180: whether the company has shown who it is. Until it has, it
+    # reaches only people who signed up to its shows or whom it typed in
+    # (`company_verification.py`). Written by `show_companies.verify_company`.
+    verified_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # 'admin' or 'paid', or 'existing' for a company already at work at release.
+    verified_how = Column(Text, nullable=True)
+    verified_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # An admin took it away, which a later payment does not undo.
+    verification_removed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    # The company asked, from My Company.
+    verification_requested_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    __table_args__ = (CheckConstraint("plan IN ('free', 'basic', 'pro')", name="ck_show_companies_plan"),)
+    __table_args__ = (
+        CheckConstraint("plan IN ('free', 'basic', 'pro')", name="ck_show_companies_plan"),
+        CheckConstraint(
+            "verified_how IS NULL OR verified_how IN ('existing', 'admin', 'paid')",
+            name="ck_show_companies_verified_how",
+        ),
+    )
 
     members = relationship("ShowCompanyMember", back_populates="company", cascade="all, delete-orphan")
     features = relationship("ShowCompanyFeature", back_populates="company", cascade="all, delete-orphan")
@@ -2360,6 +2377,9 @@ class Judge(Base):
     email = Column(Text, nullable=True)
     phone = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, server_default="true")
+    # Who typed this judge in (migration 180), so a company GaitDesk hasn't
+    # verified reads back the contact details it typed and nobody else's.
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     associations = relationship(
@@ -2371,7 +2391,7 @@ class Judge(Base):
     # Eager, like `associations`: the registry list renders the account beside
     # the judge, and an unloaded relationship in an async request is a
     # MissingGreenlet 500 rather than a missing column.
-    user = relationship("User", lazy="selectin")
+    user = relationship("User", lazy="selectin", foreign_keys=[user_id])
 
     @property
     def user_email(self) -> "str | None":

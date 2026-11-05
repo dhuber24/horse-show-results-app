@@ -15,6 +15,7 @@ from backnumbers import (
     number_kind,
     number_table,
 )
+from company_verification import assert_may_reach_exhibitors
 from database import get_db
 from dependencies import require_admin, require_admin_or_show_admin
 from models import ShowEntry, Entry, Class, Show, Exhibitor, Horse
@@ -182,6 +183,9 @@ async def bulk_update_back_numbers(
 
     # Fetch all existing ShowEntry rows for this show in one query
     exhibitor_ids = [a.exhibitor_id for a in body.assignments]
+    # A number for somebody with no roster row makes them one, so this is a way
+    # onto the roster like any other (migration 180).
+    await assert_may_reach_exhibitors(db, show_id, exhibitor_ids, x_user_id, x_user_role)
     existing_result = await db.execute(
         select(ShowEntry).where(
             ShowEntry.show_id == show_id,

@@ -14,9 +14,12 @@ from fastapi import HTTPException
 
 import dependencies
 from dependencies import require_admin, require_admin_or_show_admin
+from routers import judges as judges_router
+from routers import people as people_router
 from routers.judges import list_judges
 from routers.people import (
     exhibitors_router,
+    horses_router,
     get_exhibitor_created_horses,
     get_exhibitor_my_horses,
     get_exhibitor_owned_horses,
@@ -56,6 +59,12 @@ def test_a_list_of_everybody_is_an_admins(path):
     assert require_admin_or_show_admin not in guards
 
 
+def test_a_list_of_every_horse_is_an_admins():
+    guards = _guards(horses_router, "/horses/")
+    assert require_admin in guards
+    assert require_admin_or_show_admin not in guards
+
+
 class _Db:
     """Answers `db.get` with one exhibitor, and every read with an empty list."""
 
@@ -66,7 +75,8 @@ class _Db:
     async def get(self, _model, _id):
         return self.exhibitor
 
-    async def execute(self, _query):
+    async def execute(self, query):
+        self.query = query
         rows = self.rows
         return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
 
@@ -111,9 +121,30 @@ def test_a_horse_list_is_refused_to_somebody_elses_account(role):
     assert refused.value.status_code == 403
 
 
+def _reaching(monkeypatch, answer):
+    async def may_reach(*_args, **_kwargs):
+        return answer
+
+    monkeypatch.setattr(people_router, "caller_may_reach_exhibitor", may_reach)
+
+
 @pytest.mark.parametrize("role", OFFICE)
-def test_the_office_can_read_a_horse_list_to_enter_somebody_at_the_desk(role):
+def test_the_office_can_read_a_horse_list_to_enter_somebody_at_the_desk(role, monkeypatch):
+    _reaching(monkeypatch, True)
     assert _read(get_exhibitor_my_horses, STRANGER, role) == []
+
+
+@pytest.mark.parametrize("role", OFFICE)
+def test_an_office_that_cannot_reach_somebody_cannot_read_their_horses(role, monkeypatch):
+    _reaching(monkeypatch, False)
+    with pytest.raises(HTTPException) as refused:
+        _read(get_exhibitor_my_horses, STRANGER, role)
+    assert refused.value.status_code == 403
+
+
+def test_somebody_in_an_unverified_office_still_reads_their_own_horses(monkeypatch):
+    _reaching(monkeypatch, False)
+    assert _read(get_exhibitor_my_horses, OWNER, "SHOW_MANAGER") == []
 
 
 def test_they_can_read_their_own_horse_list():
@@ -123,9 +154,18 @@ def test_they_can_read_their_own_horse_list():
 # ── The staff pickers ─────────────────────────────────────────────────────────
 
 
-def _by_role(role, caller, monkeypatch, rows=()):
+def _verified_caller(monkeypatch, answer):
+    async def is_verified(*_args, **_kwargs):
+        return answer
+
+    monkeypatch.setattr(people_router, "caller_is_verified", is_verified)
+
+
+def _by_role(role, caller, monkeypatch, rows=(), db=None):
     monkeypatch.setattr(dependencies, "INTERNAL_API_KEY", KEY)
-    return asyncio.run(list_users_by_role(role=role, x_api_key=KEY, x_user_role=caller, db=_Db(rows=rows)))
+    return asyncio.run(
+        list_users_by_role(role=role, x_api_key=KEY, x_user_id=STRANGER, x_user_role=caller, db=db or _Db(rows=rows))
+    )
 
 
 @pytest.mark.parametrize("caller", OFFICE)
@@ -146,8 +186,30 @@ def test_nobody_outside_the_office_can_list_staff(caller, monkeypatch):
 @pytest.mark.parametrize("caller", OFFICE)
 @pytest.mark.parametrize("role", OFFICE)
 def test_the_office_can_list_who_it_can_pick(caller, role, monkeypatch):
+    _verified_caller(monkeypatch, True)
     person = SimpleNamespace(full_name="Sam Reed")
     assert _by_role(role, caller, monkeypatch, [person]) == [person]
+
+
+def test_a_verified_office_picks_from_every_office_account(monkeypatch):
+    _verified_caller(monkeypatch, True)
+    db = _Db()
+    _by_role("SHOW_SECRETARY", "SHOW_MANAGER", monkeypatch, db=db)
+    assert "users.id IN" not in str(db.query)
+
+
+def test_an_unverified_office_picks_only_from_its_own_people(monkeypatch):
+    """Every other office account's login is no business of a stranger's."""
+    _verified_caller(monkeypatch, False)
+    colleague = uuid4()
+
+    async def colleagues(*_args, **_kwargs):
+        return [colleague]
+
+    monkeypatch.setattr(people_router, "colleagues_of", colleagues)
+    db = _Db()
+    _by_role("SHOW_SECRETARY", "SHOW_MANAGER", monkeypatch, db=db)
+    assert "users.id IN" in str(db.query)
 
 
 @pytest.mark.parametrize("role", ["EXHIBITOR", "SHOW_MANAGER", "SCRIBE"])
@@ -165,6 +227,7 @@ def test_a_picker_carries_who_somebody_is_and_nothing_about_their_account():
 
 def _judge():
     return SimpleNamespace(
+        created_by_user_id=None,
         id=uuid4(),
         first_name="Pat",
         last_name="Lane",
@@ -179,14 +242,32 @@ def _judge():
 
 
 def _judges(role, judge):
-    return asyncio.run(list_judges(include_inactive=False, x_user_role=role, db=_Db(rows=[judge])))
+    return asyncio.run(
+        list_judges(include_inactive=False, x_user_id=STRANGER, x_user_role=role, db=_Db(rows=[judge]))
+    )
+
+
+def _contact_rule(monkeypatch, answer):
+    async def rule(*_args, **_kwargs):
+        return lambda _judge: answer
+
+    monkeypatch.setattr(judges_router, "judge_contact_rule", rule)
 
 
 @pytest.mark.parametrize("role", OFFICE)
-def test_the_office_reads_a_judges_contact_details_but_not_their_login(role):
+def test_the_office_reads_a_judges_contact_details_but_not_their_login(role, monkeypatch):
+    _contact_rule(monkeypatch, True)
     answer = _judges(role, _judge())[0]
     assert answer.email == "pat@example.com" and answer.phone == "555-0100"
     assert answer.user_id is None and answer.user_email is None
+
+
+@pytest.mark.parametrize("role", OFFICE)
+def test_an_unverified_office_gets_a_judges_name_and_not_their_contact_details(role, monkeypatch):
+    _contact_rule(monkeypatch, False)
+    answer = _judges(role, _judge())[0]
+    assert answer.first_name == "Pat"
+    assert answer.email is None and answer.phone is None
 
 
 def test_an_admin_reads_a_judges_login():

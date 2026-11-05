@@ -85,6 +85,9 @@ from show_companies import (
     plan_confirmation_email,
     plan_features,
     record_pro_plus,
+    VERIFIED_BY_ADMIN,
+    VERIFIED_BY_PAYMENT,
+    verify_company,
     set_company_plan,
     utc_today,
     SHOW_OFFICE_ROLES,
@@ -148,6 +151,10 @@ def _company_out(company: ShowCompany, prices: PriceBook) -> ShowCompanyOut:
         effective_plan_label=effective_label(effective, lapse, grant),
         grants=[GrantOut.model_validate(g) for g in company.grants],
         active_grant_id=grant.id if grant is not None else None,
+        verified_at=company.verified_at,
+        verified_how=company.verified_how,
+        verification_removed_at=company.verification_removed_at,
+        verification_requested_at=company.verification_requested_at,
         subscriptions=[SubscriptionOut.model_validate(t) for t in company.subscriptions],
         renews_pro_plus=bool(company.renews_pro_plus),
         pro_plus_lapsed_since=lapse,
@@ -285,6 +292,8 @@ async def create_company(
         notes=_clean_notes(body.notes),
         created_by_user_id=safe_uuid(x_user_id),
     )
+    # A GaitDesk admin made it, so one already knows who it is (migration 180).
+    verify_company(company, VERIFIED_BY_ADMIN, by=safe_uuid(x_user_id))
     db.add(company)
     try:
         await db.commit()
@@ -308,8 +317,16 @@ async def pending_requests(db: AsyncSession = Depends(get_db)):
         .select_from(ShowCompanyUpgradeRequest)
         .where(ShowCompanyUpgradeRequest.feature.in_(list(REQUESTABLE)))
     )
+    verifications = await db.scalar(
+        select(func.count())
+        .select_from(ShowCompany)
+        .where(ShowCompany.verification_requested_at.is_not(None), ShowCompany.verified_at.is_(None))
+    )
     return PendingCompanyRequestsOut(
-        join_requests=joins or 0, upgrade_requests=upgrades or 0, trainer_pro_requests=trainers or 0
+        join_requests=joins or 0,
+        upgrade_requests=upgrades or 0,
+        trainer_pro_requests=trainers or 0,
+        verification_requests=verifications or 0,
     )
 
 
@@ -460,6 +477,8 @@ async def mark_pro_plus_paid(
     if term is None:
         raise HTTPException(404, "That Pro+ year isn't on this company.")
     term.payment_received_on = body.payment_received_on or utc_today()
+    if term.price_cents > 0:
+        verify_company(company, VERIFIED_BY_PAYMENT)
     if body.payment_method is not None:
         term.payment_method = body.payment_method.strip() or None
     if body.payment_reference is not None:

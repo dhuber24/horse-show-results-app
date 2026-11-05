@@ -1579,6 +1579,64 @@ def _log_plan(company: ShowCompany, plan: str, changed_by: UUID | None, db: Asyn
     )
 
 
+# ── Whether a company has shown who it is (migration 180) ──────────────────
+#
+# Who it reaches until it has is `company_verification.py`, which reads this.
+
+VERIFIED_BY_ADMIN = "admin"
+VERIFIED_BY_PAYMENT = "paid"
+
+
+def verify_company(company: ShowCompany, how: str, by: UUID | None = None) -> bool:
+    """Mark the company verified. False when that changes nothing: it already was,
+    or this is a payment and a GaitDesk admin has taken verification away, which a
+    later payment does not undo. An admin verifying it again does."""
+    if company.verified_at is not None:
+        return False
+    if how == VERIFIED_BY_PAYMENT and company.verification_removed_at is not None:
+        return False
+    company.verified_at = datetime.now(timezone.utc)
+    company.verified_how = how
+    company.verified_by_user_id = by
+    company.verification_removed_at = None
+    company.verification_requested_at = None
+    return True
+
+
+def remove_verification(company: ShowCompany) -> None:
+    """Take verification away. People it has already put on a roster stay there."""
+    company.verified_at = None
+    company.verified_how = None
+    company.verified_by_user_id = None
+    company.verification_removed_at = datetime.now(timezone.utc)
+    company.verification_requested_at = None
+
+
+def verified_email(company_name: str) -> tuple[str, str]:
+    """What a company's show managers are sent when GaitDesk verifies it."""
+    body = (
+        f"GaitDesk has verified {company_name}.\n\n"
+        "Your show office can now add anybody with a GaitDesk record to a show, not only "
+        "people who signed up to one of your shows or whom you typed in.\n\n"
+        f"Your company, any time: {public_app_url()}/admin/my-company\n"
+    )
+    return f"{company_name} is verified on GaitDesk", body
+
+
+def verification_request_email(
+    company_name: str, company_id: UUID, asked_by_name: str, asked_by_email: str
+) -> tuple[str, str]:
+    """What GaitDesk's admins are sent when a company asks to be verified."""
+    body = (
+        f"{asked_by_name} ({asked_by_email}) asks GaitDesk to verify {company_name}.\n\n"
+        "Until it is verified, its office reaches only people who signed up to one of its "
+        "shows or whom it typed in itself. Verifying it lets it reach anybody with a "
+        "GaitDesk record, so check who they are first.\n\n"
+        f"Verify it on Manage Subscriptions: {public_app_url()}/admin/subscriptions?company={company_id}\n"
+    )
+    return f"{company_name} asks to be verified", body
+
+
 def record_pro_plus(
     company: ShowCompany,
     *,
@@ -1621,6 +1679,9 @@ def record_pro_plus(
         recorded_by_user_id=recorded_by,
     )
     company.subscriptions.append(term)
+    # Money that has arrived: not a year on credit, nor a complimentary one.
+    if price_cents > 0 and payment_received_on is not None:
+        verify_company(company, VERIFIED_BY_PAYMENT)
     if not company.renews_pro_plus:
         company.renews_pro_plus = True
         _log_plan(company, PRO_PLUS, recorded_by, db)

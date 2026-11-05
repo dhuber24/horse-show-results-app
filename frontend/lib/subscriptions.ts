@@ -134,9 +134,33 @@ export function companyChips(company: ShowCompany, money: CompanyMoney | undefin
   }
   const asked = company.features.find((f) => f.requested_at && !f.enabled);
   if (asked) chips.push({ label: `Asked for ${asked.plan}`, urgent: true });
+  if (!company.verified_at && company.verification_requested_at) {
+    chips.push({ label: 'Asked to be verified', urgent: true });
+  }
   if (money?.renewal_due) chips.push({ label: 'Pro+ renewal due', urgent: false });
   if (money?.grant_ending_soon) chips.push({ label: 'Comp or trial ending this week', urgent: false });
+  if (!company.verified_at && !company.verification_requested_at) chips.push({ label: 'Not verified', urgent: false });
   return chips;
+}
+
+/** The day of a timestamp the backend sent, as `formatDay` reads a date. */
+const dayOf = (timestamp: string) => formatDay(timestamp.slice(0, 10));
+
+/** Whether a company has shown who it is, and how, for its row (migration 180). */
+export function companyVerificationLine(company: ShowCompany): string {
+  if (company.verified_at) {
+    const day = dayOf(company.verified_at);
+    if (company.verified_how === 'existing') return `Verified at release, ${day}: it had a show or had paid already.`;
+    if (company.verified_how === 'paid') return `Verified by its first payment to GaitDesk, ${day}.`;
+    return `Verified by a GaitDesk admin, ${day}.`;
+  }
+  if (company.verification_requested_at) {
+    return `Not verified. Asked ${dayOf(company.verification_requested_at)}.`;
+  }
+  if (company.verification_removed_at) {
+    return `Not verified. An admin removed it ${dayOf(company.verification_removed_at)}, and a payment won't bring it back.`;
+  }
+  return 'Not verified.';
 }
 
 /** The line under a company's name: its shows, and money in flight. */

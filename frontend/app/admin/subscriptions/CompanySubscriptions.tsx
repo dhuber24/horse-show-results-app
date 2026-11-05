@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation';
 import { foldedOwnCompanies, type PlanInfo, type ShowCompany } from '@/lib/show-companies';
 import { companyChips, companyMoneyLine, companyPlanLine, type CompanyMoney } from '@/lib/subscriptions';
 import CompanyPlan from './CompanyPlan';
+import CompanyVerification, { VerifyButton } from './CompanyVerification';
 import PlanPicker from './PlanPicker';
 import { Chips, CountFilters } from './_shared';
 
-type Filter = 'all' | 'attention' | 'given' | 'free' | 'basic' | 'pro' | 'pro_plus';
+type Filter = 'all' | 'attention' | 'unverified' | 'existing' | 'given' | 'free' | 'basic' | 'pro' | 'pro_plus';
 
 /**
  * Every show company's plan and money, and the one place an admin changes a plan.
@@ -57,9 +58,13 @@ export default function CompanySubscriptions({
       ? true
       : f === 'attention'
         ? needsSomebody(c)
-        : f === 'given'
-          ? isGiven(c)
-          : c.effective_plan === f;
+        : f === 'unverified'
+          ? !c.verified_at
+          : f === 'existing'
+            ? c.verified_how === 'existing'
+            : f === 'given'
+              ? isGiven(c)
+              : c.effective_plan === f;
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -87,9 +92,9 @@ export default function CompanySubscriptions({
     router.refresh();
   };
 
-  const counts = (['all', 'attention', 'given', 'free', 'basic', 'pro', 'pro_plus'] as Filter[]).map((key) => ({
+  const counts = (['all', 'attention', 'unverified', 'existing', 'given', 'free', 'basic', 'pro', 'pro_plus'] as Filter[]).map((key) => ({
     key,
-    label: { all: 'All', attention: 'Needs attention', given: 'Comped or on trial', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
+    label: { all: 'All', attention: 'Needs attention', unverified: 'Not verified', existing: 'Verified at release', given: 'Comped or on trial', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
     count: listed.filter((c) => matches(c, key)).length,
   }));
 
@@ -166,6 +171,7 @@ export default function CompanySubscriptions({
                         setYearFormFor(yearFormFor === company.id ? null : company.id);
                       }}
                     />
+                    <VerifyButton company={company} onChange={update} onError={setError} />
                     <button
                       type="button"
                       aria-expanded={isOpen}
@@ -191,6 +197,7 @@ export default function CompanySubscriptions({
                       onChange={update}
                       onError={setError}
                     />
+                    <CompanyVerification company={company} onChange={update} onError={setError} />
                     <p className="text-sm">
                       <Link href={`/admin/companies/${company.id}`} className="underline" style={{ color: 'var(--accent)' }}>
                         Invoices and usage statement on {company.name}&apos;s page

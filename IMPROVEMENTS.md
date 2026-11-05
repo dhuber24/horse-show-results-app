@@ -2,6 +2,21 @@
 
 ## November 2026
 
+### A new show company proves who it is before it reaches strangers
+
+- **Until a company is verified, its office reaches only people who signed up to
+  its shows and people it typed in itself.** Anybody can sign up as a Show
+  Secretary, choose a plan and set up a show, and adding somebody to a roster was
+  all it took to read their phone, address, emergency contact and guardian.
+- **A GaitDesk admin verifies a company on Manage Subscriptions**, with one click on
+  its row, **and its first real payment to GaitDesk verifies it too.** A comp, a
+  trial or a complimentary year doesn't. An admin taking it away outlasts a payment.
+- **A company asks from My Company**, and the request is a chip and a count on the
+  admin's screens. Companies already at work came through verified, and *Verified
+  at release* lists them.
+- **Horse paperwork and judges' contact details follow the same rule**, and so do
+  the staff pickers. A new way onto a roster fails a test until somebody decides.
+
 ### Show setup's Staff section loads again
 
 - **Setup Step 1's Staff section said "could not be loaded" at every show with a

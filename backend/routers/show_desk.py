@@ -60,6 +60,12 @@ from cancellations import (
     is_on_roster,
     remove_registration,
 )
+from company_verification import (
+    assert_may_reach_exhibitors,
+    exhibitors_out_of_reach,
+    people_within_reach_of_show,
+    show_reaches_everybody,
+)
 from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import (
@@ -72,6 +78,7 @@ from models import (
     ShowEntry,
     SidePot,
 )
+from routers.people import ExhibitorBasic, _exhibitor_basic, picker_exhibitors
 from routers.show_financials import _load_financials
 from routers.show_office import build_verification_checklist
 from routers.shows import _assert_show_access
@@ -404,6 +411,36 @@ async def get_desk(
     }
 
 
+class ShowDeskAddable(BaseModel):
+    # False at a show whose company GaitDesk hasn't verified, where the list is
+    # only who it can reach (`company_verification.py`), so the form can say why.
+    reaches_everybody: bool
+    exhibitors: list[ExhibitorBasic]
+
+
+@router.get("/addable-exhibitors", response_model=ShowDeskAddable)
+async def list_addable_exhibitors(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Who the desk can offer to add, one row per record: a desk looking at somebody
+    who is on the app twice has to see both. Anybody a picker may offer, or until
+    GaitDesk has verified the company, only who it can reach."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    reaches_everybody = await show_reaches_everybody(db, show_id, x_user_role)
+    query = picker_exhibitors()
+    if not reaches_everybody:
+        query = query.where(Exhibitor.id.in_(await people_within_reach_of_show(db, show_id, x_user_id)))
+    rows = (await db.execute(query)).scalars().all()
+    return ShowDeskAddable(
+        reaches_everybody=reaches_everybody,
+        exhibitors=[_exhibitor_basic(row) for row in rows],
+    )
+
+
 @router.post("/exhibitors", response_model=ShowDeskRosterRow, status_code=201)
 async def add_exhibitor_to_roster(
     show_id: UUID,
@@ -428,6 +465,11 @@ async def add_exhibitor_to_roster(
 
     Idempotent. Two staff members adding the same walk-up at once is a normal
     Saturday, not an error worth showing anyone.
+
+    Until GaitDesk has verified the company, only somebody it can already reach
+    (`company_verification.py`): being on a roster is what lets the office read
+    someone's phone, address and emergency contact, and anybody can sign up as a
+    show secretary.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
@@ -435,6 +477,7 @@ async def add_exhibitor_to_roster(
     exhibitor = await db.get(Exhibitor, body.exhibitor_id)
     if not exhibitor:
         raise HTTPException(404, "Exhibitor not found")
+    await assert_may_reach_exhibitors(db, show_id, [exhibitor.id], x_user_id, x_user_role)
 
     existing_result = await db.execute(
         select(ShowEntry).where(
@@ -522,6 +565,10 @@ async def create_exhibitor_at_desk(
     instead. Asked rather than refused, because a youth is entered under a
     parent's address all the time: `acknowledge_email_on_file` creates the new
     record anyway once staff have said this is somebody else.
+
+    Until GaitDesk has verified the company, the question leaves out a record it
+    cannot reach: naming it would tell a stranger who an address belongs to. They
+    get a new record of their own, holding only what they typed.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
@@ -534,6 +581,10 @@ async def create_exhibitor_at_desk(
     email = (body.email or "").strip() or None
     if email and not body.acknowledge_email_on_file:
         on_file = await records_with_email(email, db)
+        hidden = await exhibitors_out_of_reach(
+            db, show_id, [row.id for row, _ in on_file], x_user_id, x_user_role
+        )
+        on_file = [pair for pair in on_file if pair[0].id not in hidden]
         if on_file:
             roster = await db.execute(
                 select(ShowEntry).where(
@@ -617,14 +668,21 @@ async def list_merge_candidates_at_desk(
     Not scoped to this show. The whole point of the office record is that it
     outlives the weekend it was made at, so the account somebody opens in
     November has to be findable against the record the office typed in at the
-    August show — which is not on this roster and never will be.
+    August show — which is not on this roster and never will be. Until GaitDesk has
+    verified the company, only the ones it can reach: a candidate carries an email
+    and a summary, and typing in a name would otherwise be enough to read them.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     exhibitor = await db.get(Exhibitor, exhibitor_id)
     if not exhibitor:
         raise HTTPException(404, "Exhibitor not found")
+    await assert_may_reach_exhibitors(db, show_id, [exhibitor.id], x_user_id, x_user_role)
 
     candidates = await merge_candidates(exhibitor, db)
+    hidden = await exhibitors_out_of_reach(
+        db, show_id, [candidate["exhibitor_id"] for candidate in candidates], x_user_id, x_user_role
+    )
+    candidates = [candidate for candidate in candidates if candidate["exhibitor_id"] not in hidden]
     for candidate in candidates:
         candidate["summary"] = await merge_summary(candidate["exhibitor_id"], db)
     return candidates
@@ -653,6 +711,10 @@ async def merge_exhibitor_at_desk(
     this reach for the same reason they may edit a horse or take an emergency
     contact — the person is standing in front of them at their show.
 
+    Until GaitDesk has verified the company, both have to be people it can reach:
+    folding somebody's account into a record on this roster would otherwise put them
+    on it, past every other check.
+
     Refuses to merge somebody into themselves, and refuses two records that both
     hold accounts: that is two logins, and deciding which of somebody's two
     accounts is the real one is not a question to answer from a registration
@@ -666,6 +728,7 @@ async def merge_exhibitor_at_desk(
         raise HTTPException(404, "Exhibitor not found")
     if keep.id == remove.id:
         raise HTTPException(422, "Pick two different records to merge.")
+    await assert_may_reach_exhibitors(db, show_id, [keep.id, remove.id], x_user_id, x_user_role)
 
     on_roster = await db.execute(
         select(ShowEntry.exhibitor_id).where(

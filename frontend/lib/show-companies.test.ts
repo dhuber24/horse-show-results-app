@@ -47,6 +47,16 @@ describe('upgradeText', () => {
 });
 
 describe('foldedOwnCompanies', () => {
+  it('keeps a company asking to be verified, since the admin home counts it', () => {
+    const member = { user_id: 'jane', full_name: 'Jane Smith', email: 'jane@example.com' };
+    const row = (extra: object) => ({ features: [], join_requests: [], members: [member], ...extra });
+    const own = row({ id: 'own', name: 'Jane Smith', owner_user_id: 'jane' });
+    const club = row({ id: 'club', name: 'Minnesota Paint', owner_user_id: null });
+    const asking = { ...own, verification_requested_at: '2026-11-05T12:00:00+00:00', verified_at: null };
+    expect(foldedOwnCompanies([own, club] as unknown as ShowCompany[]).has('own')).toBe(true);
+    expect(foldedOwnCompanies([asking, club] as unknown as ShowCompany[]).has('own')).toBe(false);
+  });
+
   function member(userId: string) {
     return { user_id: userId, full_name: userId, email: `${userId}@example.com`, role: 'SHOW_SECRETARY', added_at: null };
   }

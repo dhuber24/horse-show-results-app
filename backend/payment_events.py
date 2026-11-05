@@ -226,6 +226,18 @@ def mark_invoice_paid(
     return True
 
 
+async def verify_for_payment(db: AsyncSession, invoice: GaitDeskInvoice) -> None:
+    """Paying GaitDesk is one of the two ways a company shows who it is (migration
+    180). Not an invoice for nothing, nor money on a void one, which is refunded."""
+    from show_companies import VERIFIED_BY_PAYMENT, verify_company
+
+    if invoice.company_id is None or invoice.voided_at is not None or (invoice.amount_cents or 0) <= 0:
+        return
+    company = await db.get(ShowCompany, invoice.company_id)
+    if company is not None:
+        verify_company(company, VERIFIED_BY_PAYMENT)
+
+
 def invoice_label(invoice) -> str:
     return f"GD-{invoice.number:05d}" if invoice.number is not None else "GD-draft"
 
@@ -253,7 +265,7 @@ async def apply_invoice_payment(intent: dict, db: AsyncSession) -> bool:
         # recorded, so nobody loses track of it, and logged for a refund.
         logger.error("Payment %s arrived on void invoice %s -- refund it in Stripe", intent.get("id"), invoice.id)
     method = "card" if metadata.get("method_type") == "card" else "ach"
-    return mark_invoice_paid(
+    paid = mark_invoice_paid(
         invoice,
         await _invoice_years(db, invoice),
         paid_on=_utc_day(),
@@ -262,6 +274,9 @@ async def apply_invoice_payment(intent: dict, db: AsyncSession) -> bool:
         card_fee_cents=_int(metadata.get("card_fee_cents")),
         payment_intent_id=intent.get("id"),
     )
+    if paid:
+        await verify_for_payment(db, invoice)
+    return paid
 
 
 async def apply_invoice_payment_failed(intent: dict, db: AsyncSession) -> bool:

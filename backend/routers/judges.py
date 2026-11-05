@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 
+from company_verification import judge_contact_rule
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin
+from dependencies import require_admin, require_admin_or_show_admin, safe_uuid
 from models import Association, Judge, User
 from schemas import JudgeCreate, JudgeOut, JudgeUpdate, JudgeUserCreate
 from welcome_email import send_welcome_email
@@ -61,12 +62,14 @@ def _identity_clause(first_name: str, last_name: str, email: str | None):
 @router.get("/", response_model=list[JudgeOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_judges(
     include_inactive: bool = Query(False),
+    x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Every judge on the registry, for the office to pick from, with the contact
     details the office holds for them. Whether a judge has a login, and the
-    address they sign in with, are an admin's."""
+    address they sign in with, are an admin's. Until GaitDesk has verified the
+    company, the contact details are only of the judges it typed in (migration 180)."""
     query = (
         select(Judge)
         .options(selectinload(Judge.associations))
@@ -77,11 +80,25 @@ async def list_judges(
     judges = (await db.execute(query)).scalars().all()
     if x_user_role == "ADMIN":
         return judges
-    return [JudgeOut.model_validate(j).model_copy(update={"user_id": None, "user_email": None}) for j in judges]
+    may_read_contact = await judge_contact_rule(db, x_user_id, x_user_role)
+    return [
+        JudgeOut.model_validate(j).model_copy(
+            update={
+                "user_id": None,
+                "user_email": None,
+                **({} if may_read_contact(j) else {"email": None, "phone": None}),
+            }
+        )
+        for j in judges
+    ]
 
 
 @router.post("/", response_model=JudgeOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])
-async def create_judge(body: JudgeCreate, db: AsyncSession = Depends(get_db)):
+async def create_judge(
+    body: JudgeCreate,
+    x_user_id: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
     first = body.first_name.strip()
     last = body.last_name.strip()
     email = (body.email or "").strip() or None
@@ -96,6 +113,7 @@ async def create_judge(body: JudgeCreate, db: AsyncSession = Depends(get_db)):
         last_name=last,
         email=email,
         phone=(body.phone or "").strip() or None,
+        created_by_user_id=safe_uuid(x_user_id),
     )
     judge.associations = await _load_associations(db, body.association_ids)
     db.add(judge)

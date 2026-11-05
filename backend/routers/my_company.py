@@ -84,7 +84,9 @@ from show_companies import (
     covering_subscription,
     decline_join_request,
     effective_label,
+    admin_emails,
     email_admins,
+    verification_request_email,
     keep_pro_plus,
     loaded_effective_plan,
     loaded_pro_plus_lapse,
@@ -201,6 +203,9 @@ class MyCompanyOut(BaseModel):
     plan: Optional[MyPlanOut] = None
     crew: list[CrewMemberOut] = Field(default_factory=list)
     invites: list[CompanyInviteOut] = Field(default_factory=list)
+    # Migration 180: see `company_verification.py`.
+    verified: bool = False
+    verification_requested_at: Optional[datetime] = None
 
 
 class StaffAdd(BaseModel):
@@ -279,6 +284,8 @@ def _out(company: ShowCompany, caller: UUID, prices: PriceBook, invites: list | 
         id=company.id,
         name=company.name,
         personal=company.owner_user_id == caller,
+        verified=company.verified_at is not None,
+        verification_requested_at=company.verification_requested_at,
         members=[
             StaffMemberOut(
                 user_id=m.user.id,
@@ -428,6 +435,28 @@ async def update_settings(
     company = await _my_company(company_id, caller, db)
     company.self_cancel_days_before = body.self_cancel_days_before
     await db.commit()
+    return await _full_out(db, company_id, caller)
+
+
+@router.post("/{company_id}/verification-request", response_model=MyCompanyOut)
+async def ask_to_be_verified(
+    company_id: UUID,
+    background: BackgroundTasks,
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask GaitDesk to verify the company (migration 180), which is what lets its
+    office reach somebody who has no link to it yet. Asking twice sends one email."""
+    caller = _caller(x_user_id, x_user_role)
+    company = await _my_company(company_id, caller, db)
+    if company.verified_at is None and company.verification_requested_at is None:
+        me = next(m.user for m in company.members if m.user_id == caller)
+        asked_by = me.email
+        subject, mail = verification_request_email(company.name, company.id, me.full_name, asked_by)
+        company.verification_requested_at = datetime.now(timezone.utc)
+        await db.commit()
+        background.add_task(email_admins, await admin_emails(db), subject, mail, asked_by)
     return await _full_out(db, company_id, caller)
 
 

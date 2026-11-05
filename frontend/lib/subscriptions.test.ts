@@ -6,6 +6,7 @@ jest.mock('./backend-fetch', () => ({ API_URL: '', readJsonBody: async () => nul
 
 import {
   companyChips,
+  companyVerificationLine,
   companyMoneyLine,
   companyPlanLine,
   companySubscriptionHref,
@@ -46,6 +47,8 @@ const company = (extra: Partial<ShowCompany> = {}) =>
     grants: [],
     active_grant_id: null,
     features: [],
+    verified_at: '2026-01-15T12:00:00+00:00',
+    verified_how: 'admin',
     ...extra,
   }) as unknown as ShowCompany;
 
@@ -90,6 +93,35 @@ describe('a typed price', () => {
 
   it.each(['', 'free', '-4', '4.999', '$'])('refuses %j', (typed) => {
     expect(parseDollars(typed)).toBeNull();
+  });
+});
+
+describe('whether a company has shown who it is', () => {
+  const unverified = { verified_at: null, verified_how: null };
+
+  it('asks somebody to look only when the company has asked', () => {
+    const asking = company({ ...unverified, verification_requested_at: '2026-11-05T12:00:00+00:00' });
+    expect(companyChips(asking, MONEY)).toEqual([{ label: 'Asked to be verified', urgent: true }]);
+    expect(companyChips(company(unverified), MONEY)).toEqual([{ label: 'Not verified', urgent: false }]);
+    expect(companyChips(company(), MONEY)).toEqual([]);
+  });
+
+  it.each<[ShowCompany['verified_how'], string]>([
+    ['existing', 'Verified at release, Jan 15, 2026: it had a show or had paid already.'],
+    ['paid', 'Verified by its first payment to GaitDesk, Jan 15, 2026.'],
+    ['admin', 'Verified by a GaitDesk admin, Jan 15, 2026.'],
+  ])('says how: %s', (how, line) => {
+    expect(companyVerificationLine(company({ verified_how: how }))).toBe(line);
+  });
+
+  it('says what is waiting, and that a removal lasts', () => {
+    expect(companyVerificationLine(company(unverified))).toBe('Not verified.');
+    expect(
+      companyVerificationLine(company({ ...unverified, verification_requested_at: '2026-11-05T12:00:00+00:00' })),
+    ).toBe('Not verified. Asked Nov 5, 2026.');
+    expect(
+      companyVerificationLine(company({ ...unverified, verification_removed_at: '2026-11-05T12:00:00+00:00' })),
+    ).toBe("Not verified. An admin removed it Nov 5, 2026, and a payment won't bring it back.");
   });
 });
 

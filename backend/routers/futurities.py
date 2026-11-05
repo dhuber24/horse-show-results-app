@@ -33,13 +33,14 @@ from datetime import date
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 import billing
 from backnumbers import back_numbers_for_show
+from company_verification import assert_may_reach_horse
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from show_companies import refuse_frozen_show
@@ -953,6 +954,8 @@ async def add_entry(
     show_id: UUID,
     futurity_id: UUID,
     body: FuturityEntryCreate,
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     futurity = await _load_futurity(show_id, futurity_id, db)
@@ -963,6 +966,7 @@ async def add_entry(
     horse = await db.get(Horse, body.horse_id)
     if horse is None:
         raise HTTPException(422, "Horse not found.")
+    await assert_may_reach_horse(db, show_id, horse.id, x_user_id, x_user_role)
 
     if body.fee_tier_id is not None:
         if not any(t.id == body.fee_tier_id for t in futurity.fee_tiers):

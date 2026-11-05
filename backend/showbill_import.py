@@ -651,6 +651,7 @@ async def apply_import(
                 first_name=pick.first_name.strip(),
                 last_name=pick.last_name.strip(),
                 email=(pick.email or "").strip() or None,
+                created_by_user_id=user_id,
             )
             judge.associations = [assoc_by_id[aid] for aid in dict.fromkeys(pick.association_ids)]
             db.add(judge)

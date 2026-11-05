@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 import bcrypt
 
 from database import get_db
-from dependencies import require_admin, require_admin_or_show_admin, require_authenticated, require_api_key, safe_uuid
+from dependencies import require_admin, require_authenticated, require_api_key, safe_uuid
 from routers.horse_access import approval_url, build_access_request, notify_request
 from routers.auth import clear_security_answer_throttle, hash_security_answer
 import competition_cards
@@ -42,6 +42,7 @@ from exhibitor_merge import (
 )
 from stripe_gateway import configured as stripe_configured, end_with_its_owner
 from subscription_prices import load_prices
+from company_verification import caller_is_verified, caller_may_reach_exhibitor, colleagues_of
 from show_companies import (
     FEATURES,
     REQUESTABLE,
@@ -164,13 +165,16 @@ async def list_users(
 async def list_users_by_role(
     role: str = Query(..., min_length=1),
     x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Approved users with a given role, for the pickers that make somebody a
     show's manager or secretary. An office account may only ask for those two
     roles: anybody can sign up as one, and asking for `EXHIBITOR` used to hand
-    them the name and login of everybody who competes. An admin may ask for any."""
+    them the name and login of everybody who competes. An admin may ask for any.
+    Until GaitDesk has verified them, they pick from their own company's people
+    (migration 180): every other office account's login is no business of a stranger's."""
     from dependencies import INTERNAL_API_KEY
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
@@ -180,11 +184,10 @@ async def list_users_by_role(
         raise HTTPException(400, f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
     if x_user_role != "ADMIN" and role not in SHOW_OFFICE_ROLES:
         raise HTTPException(403, "Insufficient permissions")
-    result = await db.execute(
-        select(User)
-        .where(User.role == role, User.is_approved.is_(True))
-        .order_by(User.full_name)
-    )
+    query = select(User).where(User.role == role, User.is_approved.is_(True)).order_by(User.full_name)
+    if not await caller_is_verified(db, x_user_id, x_user_role):
+        query = query.where(User.id.in_(await colleagues_of(db, x_user_id)))
+    result = await db.execute(query)
     return result.scalars().all()
 
 @users_router.post("/", response_model=UserOut, status_code=201, dependencies=[Depends(require_admin)])
@@ -1027,7 +1030,7 @@ async def _check_horse_access(horse: Horse, user_id: str, role: str, db: AsyncSe
     if not exhibitor or horse.owner_exhibitor_id != exhibitor.id:
         raise HTTPException(403, "Only the owner of this horse can modify it")
 
-@horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin_or_show_admin)])
+@horses_router.get("/", response_model=list[HorseOut], dependencies=[Depends(require_admin)])
 async def list_horses(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -1458,6 +1461,16 @@ class ExhibitorBasic(BaseModel):
         from_attributes = True
 
 
+def picker_exhibitors(*, accounts_only: bool = False):
+    """A SELECT of the records a name picker may offer: see `list_exhibitor_names`."""
+    qualifies = (
+        Exhibitor.user_id.is_not(None)
+        if accounts_only
+        else or_(Exhibitor.user_id.is_not(None), Exhibitor.created_by_user_id.is_not(None))
+    )
+    return select(Exhibitor).where(qualifies).order_by(Exhibitor.full_name)
+
+
 def _exhibitor_basic(exhibitor) -> ExhibitorBasic:
     return ExhibitorBasic(
         id=exhibitor.id,
@@ -1505,14 +1518,7 @@ async def list_exhibitor_names(
     nobody can reach. Use the 'Enter owner information' mode for owners who have
     no record at all.
     """
-    qualifies = (
-        Exhibitor.user_id.is_not(None)
-        if accounts_only
-        else or_(Exhibitor.user_id.is_not(None), Exhibitor.created_by_user_id.is_not(None))
-    )
-    result = await db.execute(
-        select(Exhibitor).where(qualifies).order_by(Exhibitor.full_name)
-    )
+    result = await db.execute(picker_exhibitors(accounts_only=accounts_only))
     rows = list(result.scalars().all())
     return [_exhibitor_basic(row) for row in (_dedup_exhibitors(rows) if dedupe else rows)]
 
@@ -1960,8 +1966,9 @@ async def get_exhibitor_my_horses(
 ):
     """All horses on this exhibitor's profile: created by them OR linked via
     exhibitor_horses. Their own, or the office's, which reads it to enter them in
-    a class at the desk (`AddEntryForm`)."""
-    if x_user_role not in SHOW_OFFICE_ROLES:
+    a class at the desk (`AddEntryForm`), if it may reach them at all
+    (`company_verification.py`)."""
+    if not await caller_may_reach_exhibitor(db, user_id, x_user_role, exhibitor_id):
         await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     from_creator = select(Horse.id).where(Horse.created_by_exhibitor_id == exhibitor_id)
     from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)

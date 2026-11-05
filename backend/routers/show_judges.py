@@ -6,12 +6,15 @@ setup picks a judge and cannot edit their details, so the same person reads the
 same way across every show they work.
 """
 
+from typing import Callable
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 
+from company_verification import judge_contact_rule
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import Judge, Result, Show, ShowJudge
@@ -26,16 +29,17 @@ from schemas import (
 router = APIRouter(prefix="/shows/{show_id}/judges", tags=["Show Judges"])
 
 
-def _serialize(sj: ShowJudge) -> dict:
+def _serialize(sj: ShowJudge, may_read_contact: Callable[[Judge], bool]) -> dict:
     judge = sj.judge
+    contact = may_read_contact(judge)
     return {
         "id": sj.id,
         "show_id": sj.show_id,
         "judge_id": sj.judge_id,
         "first_name": judge.first_name,
         "last_name": judge.last_name,
-        "email": judge.email,
-        "phone": judge.phone,
+        "email": judge.email if contact else None,
+        "phone": judge.phone if contact else None,
         "associations": [
             {"id": a.id, "code": a.code, "name": a.name} for a in (judge.associations or [])
         ],
@@ -76,7 +80,8 @@ async def list_show_judges(
         .options(selectinload(ShowJudge.judge).selectinload(Judge.associations))
         .order_by(ShowJudge.sort_order, ShowJudge.created_at)
     )
-    return [_serialize(sj) for sj in result.scalars().all()]
+    may_read_contact = await judge_contact_rule(db, x_user_id, x_user_role, show_id)
+    return [_serialize(sj, may_read_contact) for sj in result.scalars().all()]
 
 
 @router.get("/public", response_model=list[PublicShowJudgeOut])
@@ -136,7 +141,8 @@ async def add_show_judge(
     assignment = ShowJudge(show_id=show_id, judge_id=body.judge_id, sort_order=body.sort_order)
     db.add(assignment)
     await db.commit()
-    return _serialize(await _fetch_assignment(db, assignment.id))
+    may_read_contact = await judge_contact_rule(db, x_user_id, x_user_role, show_id)
+    return _serialize(await _fetch_assignment(db, assignment.id), may_read_contact)
 
 
 @router.patch("/{assignment_id}", response_model=ShowJudgeOut, dependencies=[Depends(require_admin_or_show_admin)])
@@ -164,7 +170,8 @@ async def update_show_judge(
     for key, value in data.items():
         setattr(assignment, key, value)
     await db.commit()
-    return _serialize(await _fetch_assignment(db, assignment_id))
+    may_read_contact = await judge_contact_rule(db, x_user_id, x_user_role, show_id)
+    return _serialize(await _fetch_assignment(db, assignment_id), may_read_contact)
 
 
 @router.delete("/{assignment_id}", status_code=204, dependencies=[Depends(require_admin_or_show_admin)])

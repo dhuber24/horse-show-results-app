@@ -65,6 +65,7 @@ from payment_events import (
     invoice_label,
     mail_pro_plus_started,
     mark_invoice_paid,
+    verify_for_payment,
 )
 from routers.my_company import _caller, _my_company
 from routers.payments import payment_result
@@ -255,6 +256,7 @@ async def record_invoice_payment(
         method=body.method,
         reference=(body.reference or "").strip() or None,
     )
+    await verify_for_payment(db, invoice)
     await db.commit()
     logger.info("GaitDesk invoice marked paid by hand: %s method=%s", invoice_label(invoice), body.method)
     return invoice_out(await _invoice(db, company_id, invoice_id), utc_today())

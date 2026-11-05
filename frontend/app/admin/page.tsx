@@ -20,9 +20,14 @@ async function pendingCompanyRequests(): Promise<{ companies: string | null; sub
     if (!res.ok) return none;
     const body = await readJsonBody(res);
     const asking = (body?.upgrade_requests ?? 0) + (body?.trainer_pro_requests ?? 0);
+    const verifying = body?.verification_requests ?? 0;
+    const waiting = [
+      asking > 0 ? `${asking} asking for a plan` : null,
+      verifying > 0 ? `${verifying} asking to be verified` : null,
+    ].filter(Boolean);
     return {
       companies: body?.join_requests > 0 ? `${body.join_requests} asking to join` : null,
-      subscriptions: asking > 0 ? `${asking} asking for a plan` : null,
+      subscriptions: waiting.length > 0 ? waiting.join(', ') : null,
     };
   } catch {
     return none;

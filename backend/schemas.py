@@ -1487,6 +1487,11 @@ class ShowCompanyOut(BaseModel):
     grants: list[GrantOut] = []
     # The one covering today, if any.
     active_grant_id: Optional[UUID] = None
+    # Migration 180: see `company_verification.py`.
+    verified_at: Optional[datetime] = None
+    verified_how: Optional[str] = None
+    verification_removed_at: Optional[datetime] = None
+    verification_requested_at: Optional[datetime] = None
     id: UUID
     name: str
     notes: Optional[str] = None
@@ -1856,6 +1861,7 @@ class PendingCompanyRequestsOut(BaseModel):
     join_requests: int
     upgrade_requests: int
     trainer_pro_requests: int = 0
+    verification_requests: int = 0
 
 
 class MyFeaturesOut(BaseModel):

@@ -11,6 +11,7 @@ from backnumbers import (
     resolve_back_number,
     sort_key,
 )
+from company_verification import assert_may_enter
 from database import get_db
 from dependencies import require_admin_or_show_admin
 from models import (
@@ -209,6 +210,10 @@ async def create_entry(
         raise HTTPException(400, "This class is closed and is not accepting entries")
     horse = await _get_horse_or_404(body.horse_id, db)
     exhibitor = await _get_exhibitor_or_404(body.exhibitor_id, db)
+    # Not a flag, unlike the rest of an entry's checks: this is who the office may
+    # read, and until GaitDesk has verified the company an entry is a way to read
+    # somebody it has no link to (migration 180).
+    await assert_may_enter(db, show_id, body.exhibitor_id, body.horse_id, x_user_id, x_user_role)
 
     # The APHA division checks that used to sit here are in `rules/apha.py` now,
     # and run below through `rules.validate_entry` like every other association

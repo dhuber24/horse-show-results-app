@@ -85,6 +85,9 @@ export type MyCompany = {
   plan?: MyPlan | null;
   crew?: CrewMember[];
   invites?: CompanyInvite[];
+  /** Migration 180: whether GaitDesk has verified it, and when it asked. */
+  verified?: boolean;
+  verification_requested_at?: string | null;
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -448,6 +451,11 @@ function CompanySection({
 
   const base = `/api/my-company/${company.id}`;
 
+  const askToBeVerified = async () => {
+    const body = await send(`${base}/verification-request`, { method: 'POST' }, 'Your request could not be sent.');
+    if (body) onChange(body as MyCompany);
+  };
+
   const addStaff = async (email: string) => {
     const body = await send(`${base}/members`, { method: 'POST', body: JSON.stringify({ email }) }, 'They could not be added.');
     if (!body) return false;
@@ -530,6 +538,7 @@ function CompanySection({
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>{company.name}</h2>
           {company.personal && <Badge>Your own company</Badge>}
+          {company.verified && <Badge>Verified</Badge>}
         </div>
         {company.features.length > 0 && (
           <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
@@ -537,6 +546,39 @@ function CompanySection({
           </p>
         )}
       </div>
+
+      {!company.verified && (
+        <div
+          className="rounded border p-3 space-y-2"
+          style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-subtle)' }}
+        >
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+            GaitDesk hasn&apos;t verified {company.name} yet
+          </h3>
+          <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
+            Until it has, your show office reaches people who signed up to one of your shows and people you typed in
+            yourself. Anybody else can be typed in at the desk. A GaitDesk admin verifies a company, and so does its
+            first payment to GaitDesk.
+          </p>
+          {company.verification_requested_at ? (
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>
+              You asked on {formatDay(company.verification_requested_at.slice(0, 10))}. GaitDesk will email your company
+              when it is verified.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              title={busy ? 'Working…' : undefined}
+              onClick={askToBeVerified}
+              className="px-3 py-1.5 rounded text-sm font-medium disabled:opacity-50"
+              style={primaryButton}
+            >
+              Ask GaitDesk to verify {company.name}
+            </button>
+          )}
+        </div>
+      )}
 
       <PlanBlock company={company} plans={plans} onChange={onChange} canBuyOnline={canBuyOnline} />
 
