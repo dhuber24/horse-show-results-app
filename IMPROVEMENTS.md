@@ -2,6 +2,28 @@
 
 ## November 2026
 
+### Show setup's Staff section loads again
+
+- **Setup Step 1's Staff section said "could not be loaded" at every show with a
+  company**, and saving a change there answered with an error after saving it.
+  The Manage Subscriptions release changed a function it shares with My Company
+  and missed this one caller.
+- **`test_call_signatures.py` now checks every call between the backend's own
+  functions**, since nothing else does. It finds this bug and no other.
+
+### An office role no longer reads everybody
+
+- **A list of every exhibitor is an admin's.** Anybody can sign up as a Show
+  Secretary, and that role could read every exhibitor's date of birth, home
+  address, phone, emergency contact and guardian. The office reads a person
+  through a show it works. No office screen used the list.
+- **Somebody's membership numbers, cards and horses are theirs.** Any signed-in
+  account could read them by id. The office keeps a horse list, to enter somebody
+  at the desk.
+- **The staff pickers ask for staff only**, so an office account can't list every
+  exhibitor's login, and they no longer carry last sign-in or account status.
+- **A judge's login is an admin's**; the office keeps their contact details.
+
 ### Plans are changed in one place
 
 - **An admin changes a plan only at Manage Subscriptions.** The plan buttons and

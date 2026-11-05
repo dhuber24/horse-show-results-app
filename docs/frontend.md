@@ -357,11 +357,11 @@ first installs v3, whose activate drops v2's cache).
 | `/profile/horses/new` | Add-a-horse wizard (static segment, wins over `[id]`); seeds from `?name=` / `?association_id=&registration_number=`, and returns to `?next=` on create, link **or** cancel — sanitised by `safeNextPath`, so the registration screen can send somebody here and get them back to the step they left. Keeps a `localStorage` draft of every answer except the staged documents, restored on mount with a *Start over*; the Registrations step opens with the registry the ticked breeds imply (`lib/breed-associations.ts`) |
 | `/profile/horses/[id]` | Exhibitor horse record in four tabs — Details, People (owner/trainer/riders), Health & Documentation, Associations (`?section=details\|people\|health\|associations` selects a tab, plus the legacy `documents` alias for `health`) |
 | `/api/exhibitors/me` | Resolve exhibitor profile from signed-in user |
-| `/api/exhibitors/[id]/registrations` | Exhibitor association registration CRUD proxy |
+| `/api/exhibitors/[id]/registrations` | Exhibitor association registration CRUD proxy; their own or an admin's |
 | `/api/exhibitors/[id]/documents` | Exhibitor document CRUD proxy |
 | `/api/exhibitors/[id]/created-horses` | Horses created by exhibitor |
 | `/api/exhibitors/[id]/linked-horses` | Non-owner horse links for exhibitor |
-| `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list |
+| `/api/exhibitors/[id]/my-horses` | Unified exhibitor horse list; their own, an admin's, or the office's for entering them at the desk |
 | `/api/horse-access-requests` | List / create horse link + ownership-transfer requests |
 | `/api/horse-access-requests/[requestId]` | Cancel a request you sent |
 | `/api/horse-access-requests/[requestId]/respond` | Approve or decline while signed in as the approver |

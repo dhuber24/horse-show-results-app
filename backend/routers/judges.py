@@ -11,7 +11,7 @@ worked; a typo fix in one show's setup should not silently rewrite the others.
 """
 
 import bcrypt
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -61,8 +61,12 @@ def _identity_clause(first_name: str, last_name: str, email: str | None):
 @router.get("/", response_model=list[JudgeOut], dependencies=[Depends(require_admin_or_show_admin)])
 async def list_judges(
     include_inactive: bool = Query(False),
+    x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
+    """Every judge on the registry, for the office to pick from, with the contact
+    details the office holds for them. Whether a judge has a login, and the
+    address they sign in with, are an admin's."""
     query = (
         select(Judge)
         .options(selectinload(Judge.associations))
@@ -70,7 +74,10 @@ async def list_judges(
     )
     if not include_inactive:
         query = query.where(Judge.is_active.is_(True))
-    return (await db.execute(query)).scalars().all()
+    judges = (await db.execute(query)).scalars().all()
+    if x_user_role == "ADMIN":
+        return judges
+    return [JudgeOut.model_validate(j).model_copy(update={"user_id": None, "user_email": None}) for j in judges]
 
 
 @router.post("/", response_model=JudgeOut, status_code=201, dependencies=[Depends(require_admin_or_show_admin)])

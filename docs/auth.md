@@ -159,6 +159,8 @@ Common guards live in `backend/dependencies.py`:
 | `require_admin_or_show_admin` | `ADMIN`, `SHOW_SECRETARY`, or `SHOW_MANAGER` |
 | `require_admin_or_show_manager` | `ADMIN` or `SHOW_MANAGER` |
 
+**An office role proves nothing about who somebody is**: anybody can sign up as a Show Secretary or Manager and be approved at once. `require_admin_or_show_admin` alone is for what a stranger may do; a person's private details also take a check that the caller works the show (`_assert_show_access`, `_assert_exhibitor_on_roster`).
+
 A scribe's work at a show — placings, scores, posting a class, the judge's card and its photo — is guarded by `show_access.require_scoring_access`: `ADMIN` or `SCRIBE` by role, or a `SHOW_MANAGER` / `SHOW_SECRETARY` who works that show (a per-show row or the show's company). It replaced `require_admin_or_scribe`, which let in the first two only.
 
 Show-scoped write access is usually checked with join tables:
@@ -190,7 +192,7 @@ The show office — a `SHOW_MANAGER` or `SHOW_SECRETARY` — works a show throug
 
 Show staff read health paperwork to **verify** it — the secretary at the entry desk and the in-gate both need to see a Coggins. The record itself stays the owner's to maintain, so staff cannot add or remove documents on someone else's horse.
 
-Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents — acceptable for roles that already see exhibitor contact details, entries, and back numbers.
+Viewing is **not** scoped to horses entered in a show the user staffs. That rule was considered and rejected: the secretary most needs the Coggins while *creating* the entry, before any row linking horse to show exists, so scoping would hide the document at exactly the moment it is needed. The trade is that any show secretary or manager can read any horse's health documents. That was accepted for roles that already saw every exhibitor's contact details; they no longer do (see "An exhibitor's private details" in [design/accounts.md](design/accounts.md)), and anybody can sign up for one, so this trade is due another look.
 
 ### Who May See The Money
 

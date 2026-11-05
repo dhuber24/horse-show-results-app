@@ -1174,6 +1174,21 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class StaffPickOut(BaseModel):
+    """A person in a staff picker: who they are, and the address that tells two
+    people of one name apart. Not `UserOut`: when somebody last signed in and
+    whether their account is locked are an admin's to know."""
+    id: UUID
+    role: str
+    first_name: str
+    last_name: str
+    full_name: str
+    email: str
+
+    class Config:
+        from_attributes = True
+
+
 # ── Horse Documents ─────────────────────────────────────────────────────────────
 
 DOC_TYPE_LABELS = {

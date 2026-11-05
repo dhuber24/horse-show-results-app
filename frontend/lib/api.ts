@@ -226,6 +226,7 @@ export async function fetchHorses(headers?: HeadersInit) {
   return res.json();
 }
 
+/** Every exhibitor's whole record: an admin's. A picker reads `/exhibitors/names`. */
 export async function fetchExhibitors(
   headers?: HeadersInit,
   opts?: { withUser?: boolean },

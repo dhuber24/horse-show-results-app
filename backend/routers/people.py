@@ -19,6 +19,7 @@ from staff_certifications import plan_certification_changes, records_aqha_worksh
 from welcome_email import send_welcome_email
 from models import User, Horse, Breed, Exhibitor, Entry, ExhibitorHorse, HorseRegistration, HorseDocument, ExhibitorRegistration, ExhibitorCompetitionCard, ShowSecretaryCertification, Trainer, Judge, Association, Class, Show, ShowEntry, ShowCompanyUpgradeRequest
 from schemas import (
+    StaffPickOut,
     UserCreate, UserOut,
     CreatedHorseResult,
     HorseCreate, HorseCreateWithRegistrations, HorseWithRegistrationsBase,
@@ -159,16 +160,17 @@ async def list_users(
     return result.scalars().all()
 
 
-@users_router.get("/by-role", response_model=list[UserOut])
+@users_router.get("/by-role", response_model=list[StaffPickOut])
 async def list_users_by_role(
     role: str = Query(..., min_length=1),
     x_api_key: str = Header(...),
     x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Approved users with a given role. Used by the show-setup wizard's
-    select-secretary / select-judge pickers, which need to be callable by
-    Show Managers as well as Admins."""
+    """Approved users with a given role, for the pickers that make somebody a
+    show's manager or secretary. An office account may only ask for those two
+    roles: anybody can sign up as one, and asking for `EXHIBITOR` used to hand
+    them the name and login of everybody who competes. An admin may ask for any."""
     from dependencies import INTERNAL_API_KEY
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
@@ -176,6 +178,8 @@ async def list_users_by_role(
         raise HTTPException(403, "Insufficient permissions")
     if role not in VALID_ROLES:
         raise HTTPException(400, f"Invalid role. Must be one of: {', '.join(VALID_ROLES)}")
+    if x_user_role != "ADMIN" and role not in SHOW_OFFICE_ROLES:
+        raise HTTPException(403, "Insufficient permissions")
     result = await db.execute(
         select(User)
         .where(User.role == role, User.is_approved.is_(True))
@@ -1516,7 +1520,7 @@ async def list_exhibitor_names(
 @exhibitors_router.get(
     "/registry",
     response_model=list[ExhibitorRegistryRow],
-    dependencies=[Depends(require_admin_or_show_admin)],
+    dependencies=[Depends(require_admin)],
 )
 async def list_exhibitor_registry(
     q: Optional[str] = Query(None, max_length=200, description="Match on name or email."),
@@ -1609,7 +1613,7 @@ async def list_exhibitor_registry(
     ]
 
 
-@exhibitors_router.get("/duplicates", dependencies=[Depends(require_admin_or_show_admin)])
+@exhibitors_router.get("/duplicates", dependencies=[Depends(require_admin)])
 async def list_duplicate_exhibitors(db: AsyncSession = Depends(get_db)):
     """People who are on file more than once, grouped, strongest reason first.
 
@@ -1682,13 +1686,17 @@ async def list_duplicate_exhibitors(db: AsyncSession = Depends(get_db)):
     return groups
 
 
-@exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin_or_show_admin)])
+@exhibitors_router.get("/", response_model=list[ExhibitorOut], dependencies=[Depends(require_admin)])
 async def list_exhibitors(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     with_user: bool = Query(False, description="Only return exhibitors with a linked user account"),
     db: AsyncSession = Depends(get_db),
 ):
+    """Everybody's date of birth, home address, phone, emergency contact and
+    guardian: an admin's. It was open to the office role, which anybody can sign
+    up for. The office reads a person through a show it works (`show_office`),
+    and a picker reads `/names`."""
     q = select(Exhibitor).order_by(Exhibitor.full_name).offset(offset)
     if with_user:
         q = q.where(Exhibitor.user_id.is_not(None))
@@ -1796,8 +1804,15 @@ async def get_exhibitor_horses(exhibitor_id: UUID, db: AsyncSession = Depends(ge
     return result.scalars().all()
 
 @exhibitors_router.get("/{exhibitor_id}/owned-horses", response_model=list[HorseOut])
-async def get_exhibitor_owned_horses(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Horses where this exhibitor is the registered owner."""
+async def get_exhibitor_owned_horses(
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Horses where this exhibitor is the registered owner. Theirs and an admin's
+    to read."""
+    await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     result = await db.execute(
         select(Horse).options(*_horse_options)
         .where(Horse.owner_exhibitor_id == exhibitor_id)
@@ -1852,9 +1867,11 @@ async def remove_owned_horse(
 async def get_exhibitor_created_horses(
     exhibitor_id: UUID,
     user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Horses created by this exhibitor (they manage the profile regardless of ownership)."""
+    await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     result = await db.execute(
         select(Horse).options(*_horse_options)
         .where(Horse.created_by_exhibitor_id == exhibitor_id)
@@ -1938,9 +1955,14 @@ async def remove_created_horse_from_profile(
 async def get_exhibitor_my_horses(
     exhibitor_id: UUID,
     user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """All horses on this exhibitor's profile: created by them OR linked via exhibitor_horses."""
+    """All horses on this exhibitor's profile: created by them OR linked via
+    exhibitor_horses. Their own, or the office's, which reads it to enter them in
+    a class at the desk (`AddEntryForm`)."""
+    if x_user_role not in SHOW_OFFICE_ROLES:
+        await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     from_creator = select(Horse.id).where(Horse.created_by_exhibitor_id == exhibitor_id)
     from_link = select(Horse.id).join(ExhibitorHorse, ExhibitorHorse.horse_id == Horse.id).where(ExhibitorHorse.exhibitor_id == exhibitor_id)
     combined = union(from_creator, from_link).subquery()
@@ -2227,7 +2249,7 @@ async def link_exhibitor(exhibitor_id: UUID, body: ExhibitorLink, db: AsyncSessi
 @exhibitors_router.get(
     "/{exhibitor_id}/merge-candidates",
     response_model=list[ExhibitorMergeCandidate],
-    dependencies=[Depends(require_admin_or_show_admin)],
+    dependencies=[Depends(require_admin)],
 )
 async def list_merge_candidates(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
     """Records that might be the same person as this one, and what each holds.
@@ -2247,7 +2269,7 @@ async def list_merge_candidates(exhibitor_id: UUID, db: AsyncSession = Depends(g
 
 @exhibitors_router.get(
     "/{exhibitor_id}/merge-summary",
-    dependencies=[Depends(require_admin_or_show_admin)],
+    dependencies=[Depends(require_admin)],
 )
 async def get_merge_summary(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
     """What this record is carrying — read before deciding which one to keep."""
@@ -2372,8 +2394,16 @@ async def _check_exhibitor_access(exhibitor_id: UUID, x_user_id: str, x_user_rol
     if not exhibitor or str(exhibitor.user_id) != x_user_id:
         raise HTTPException(403, "Access denied")
 
-@exhibitors_router.get("/{exhibitor_id}/registrations", response_model=list[ExhibitorRegistrationOut], dependencies=[Depends(require_api_key)])
-async def list_exhibitor_registrations(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+@exhibitors_router.get("/{exhibitor_id}/registrations", response_model=list[ExhibitorRegistrationOut])
+async def list_exhibitor_registrations(
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Their membership numbers: theirs and an admin's to read. A show's office
+    reads the numbers somebody gave that show, through the desk."""
+    await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     result = await db.execute(
         select(ExhibitorRegistration)
         .where(ExhibitorRegistration.exhibitor_id == exhibitor_id)
@@ -2511,9 +2541,14 @@ def _card_query(exhibitor_id: UUID):
 @exhibitors_router.get(
     "/{exhibitor_id}/competition-cards",
     response_model=list[ExhibitorCompetitionCardOut],
-    dependencies=[Depends(require_api_key)],
 )
-async def list_exhibitor_competition_cards(exhibitor_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_exhibitor_competition_cards(
+    exhibitor_id: UUID,
+    user_id: str = Depends(require_authenticated),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_exhibitor_access(exhibitor_id, user_id, x_user_role, db)
     result = await db.execute(_card_query(exhibitor_id))
     return [_card_out(c) for c in result.scalars().all()]
 
