@@ -50,6 +50,7 @@ from models import Show, ShowCompany, ShowCompanyMember, User
 from routers.my_company import StaffAdd, StaffMemberOut, StaffRequestOut, _commit, _out
 from routers.show_companies import _load
 from routers.shows import _assert_show_access
+from subscription_prices import load_prices
 from show_access import SHOW_OFFICE_TABLES
 from show_companies import (
     settle_up_block,
@@ -210,7 +211,7 @@ async def _staff_out(db: AsyncSession, show_id: UUID, role: str, caller: UUID) -
     if show.company_id is not None:
         company = await _load(db, show.company_id)
         member_ids = {m.user_id for m in company.members}
-        listed = _out(company, caller)
+        listed = _out(company, caller, await load_prices(db))
         company_out = ShowCompanyOut(
             id=company.id,
             name=company.name,
