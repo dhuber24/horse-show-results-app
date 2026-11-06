@@ -84,11 +84,23 @@ export default function CompanyVerification({
     <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
       <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Verification</h3>
       <p className="text-sm" style={{ color: 'var(--text-deep)' }}>{companyVerificationLine(company)}</p>
-      <p className="text-xs" style={{ color: 'var(--muted)' }}>
-        Until a company is verified, its office reaches only people who signed up to one of its shows or whom it
-        typed in itself. Verifying it lets it add anybody with a GaitDesk record, and read their phone, address and
-        emergency contact once they are on a show. Its first payment to GaitDesk verifies it too.
-      </p>
+      <div className="text-xs space-y-1" style={{ color: 'var(--muted)' }}>
+        <p>
+          Putting somebody on a show lets the office read their phone, home address and emergency contact, so
+          verification decides who a company can put there.
+        </p>
+        <ul className="list-disc pl-5 space-y-0.5">
+          <li>
+            <span className="font-medium" style={{ color: 'var(--text-deep)' }}>Not verified:</span> only people who
+            signed up for one of its shows, and people its own staff typed in by hand.
+          </li>
+          <li>
+            <span className="font-medium" style={{ color: 'var(--text-deep)' }}>Verified:</span> anybody with a
+            GaitDesk account.
+          </li>
+        </ul>
+        <p>Its first payment to GaitDesk verifies it on its own. A comp, a trial or a plan set by hand doesn&apos;t.</p>
+      </div>
       {!company.verified_at ? (
         <button
           type="button"
@@ -103,8 +115,9 @@ export default function CompanyVerification({
       ) : confirming ? (
         <div className="space-y-1">
           <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
-            Remove verification? It stops reaching anybody new, and a later payment won&apos;t bring it back. People it
-            has already put on a roster stay there.
+            Remove verification from {company.name}? It goes back to adding only people who signed up for its shows
+            or whom its staff type in. A later payment won&apos;t verify it again; only an admin can. Anybody already
+            on its shows stays there.
           </p>
           <span className="flex items-center gap-3 text-sm">
             <button

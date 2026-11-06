@@ -12,8 +12,8 @@
   its row, **and its first real payment to GaitDesk verifies it too.** A comp, a
   trial or a complimentary year doesn't. An admin taking it away outlasts a payment.
 - **A company asks from My Company**, and the request is a chip and a count on the
-  admin's screens. Companies already at work came through verified, and *Verified
-  at release* lists them.
+  admin's screens. Companies already at work came through verified, and *Grandfathered
+  in* lists them.
 - **Horse paperwork and judges' contact details follow the same rule**, and so do
   the staff pickers. A new way onto a roster fails a test until somebody decides.
 

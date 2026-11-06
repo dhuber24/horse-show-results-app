@@ -150,7 +150,9 @@ const dayOf = (timestamp: string) => formatDay(timestamp.slice(0, 10));
 export function companyVerificationLine(company: ShowCompany): string {
   if (company.verified_at) {
     const day = dayOf(company.verified_at);
-    if (company.verified_how === 'existing') return `Verified at release, ${day}: it had a show or had paid already.`;
+    if (company.verified_how === 'existing') {
+      return `Verified automatically on ${day}, when GaitDesk began verifying companies, because it already had a show or had paid. Nobody at GaitDesk has checked it.`;
+    }
     if (company.verified_how === 'paid') return `Verified by its first payment to GaitDesk, ${day}.`;
     return `Verified by a GaitDesk admin, ${day}.`;
   }

@@ -107,7 +107,10 @@ describe('whether a company has shown who it is', () => {
   });
 
   it.each<[ShowCompany['verified_how'], string]>([
-    ['existing', 'Verified at release, Jan 15, 2026: it had a show or had paid already.'],
+    [
+      'existing',
+      'Verified automatically on Jan 15, 2026, when GaitDesk began verifying companies, because it already had a show or had paid. Nobody at GaitDesk has checked it.',
+    ],
     ['paid', 'Verified by its first payment to GaitDesk, Jan 15, 2026.'],
     ['admin', 'Verified by a GaitDesk admin, Jan 15, 2026.'],
   ])('says how: %s', (how, line) => {

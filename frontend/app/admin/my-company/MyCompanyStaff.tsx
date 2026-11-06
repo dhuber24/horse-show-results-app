@@ -555,10 +555,17 @@ function CompanySection({
           <h3 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
             GaitDesk hasn&apos;t verified {company.name} yet
           </h3>
-          <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
-            Until it has, your show office reaches people who signed up to one of your shows and people you typed in
-            yourself. Anybody else can be typed in at the desk. A GaitDesk admin verifies a company, and so does its
-            first payment to GaitDesk.
+          <div className="text-sm space-y-1" style={{ color: 'var(--text-deep)' }}>
+            <p>Until it does, your office can put on your shows only:</p>
+            <ul className="list-disc pl-5 space-y-0.5">
+              <li>people who signed up for one of your shows, and</li>
+              <li>people your staff typed in by hand.</li>
+            </ul>
+            <p>Once you&apos;re verified, you can find and add anybody with a GaitDesk account.</p>
+          </div>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            Putting somebody on a show lets your office read their phone, home address and emergency contact, so
+            GaitDesk checks who a company is first. Your first payment to GaitDesk verifies you on its own.
           </p>
           {company.verification_requested_at ? (
             <p className="text-sm" style={{ color: 'var(--muted)' }}>

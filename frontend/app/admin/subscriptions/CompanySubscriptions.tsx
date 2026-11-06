@@ -94,7 +94,7 @@ export default function CompanySubscriptions({
 
   const counts = (['all', 'attention', 'unverified', 'existing', 'given', 'free', 'basic', 'pro', 'pro_plus'] as Filter[]).map((key) => ({
     key,
-    label: { all: 'All', attention: 'Needs attention', unverified: 'Not verified', existing: 'Verified at release', given: 'Comped or on trial', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
+    label: { all: 'All', attention: 'Needs attention', unverified: 'Not verified', existing: 'Grandfathered in', given: 'Comped or on trial', free: 'Free', basic: 'Basic', pro: 'Pro', pro_plus: 'Pro+' }[key],
     count: listed.filter((c) => matches(c, key)).length,
   }));
 
