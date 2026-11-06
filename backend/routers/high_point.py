@@ -59,7 +59,7 @@ from models import (
     ShowPointSystem,
 )
 from routers.shows import _assert_show_access
-from show_companies import ALL_FEATURE_ROLES
+from show_companies import ALL_FEATURE_ROLES, show_company_ids
 
 router = APIRouter(tags=["High Point"])
 
@@ -96,6 +96,10 @@ class ShowChartIn(BaseModel):
     association_id: Optional[UUID] = None
     notes: Optional[str] = Field(default=None, max_length=2000)
     awards: list[AwardIn]
+    # Set by *Create a custom High Point System*: the chart built from scratch
+    # also joins the company's templates, so its next show can start from it.
+    # A chart copied from a template, or the show's chart edited, never does.
+    save_as_template: bool = False
 
 
 class HighPointClassesIn(BaseModel):
@@ -183,6 +187,39 @@ def owning_company(caller: Caller, requested: Optional[UUID]) -> Optional[UUID]:
     if requested not in caller.member_of:
         raise HTTPException(403, "You can only keep a points system for a show company you work for.")
     return requested
+
+
+def template_company(show_companies: list[UUID], caller: Caller) -> Optional[UUID]:
+    """Whose templates a custom chart built at a show joins.
+
+    `show_companies` is `show_companies.show_company_ids`: the show's own
+    company, or for a show from before migration 156 that has none, its
+    managers' companies -- the same answer its plan is read from.
+
+    The show's company, when the caller is one of its people (or an admin) and
+    there is exactly one: the chart was built for that company's show.
+    Otherwise the caller's own company, if they work for exactly one -- a
+    co-manager from another company built it, and it is theirs to reuse, not
+    the host's. None when there is no one company to say -- an admin at a show
+    no company runs, or somebody in several companies none of which runs the
+    show -- and the chart is kept as the show's own only (never under no
+    company: that is a GaitDesk standard chart, in every company's list). Never
+    a company the caller does not work for, admins aside, so nothing lands in a
+    company's list that its people did not make.
+    """
+    theirs = [c for c in show_companies if caller.is_admin or c in caller.member_of]
+    if len(theirs) == 1:
+        return theirs[0]
+    if not caller.is_admin and len(caller.member_of) == 1:
+        return caller.member_of[0]
+    return None
+
+
+TEMPLATE_SKIPPED = (
+    "Saved for this show only. It was not added to a company's templates because this show "
+    "isn't run by a show company yet. Choose the show's company in Step 1, Basics & Staff, "
+    "then create the chart again to keep it as a template."
+)
 
 
 def _system_payload(system: PointSystem, show_count: int = 0, circuit_count: int = 0) -> dict:
@@ -661,9 +698,30 @@ async def save_show_chart(
 
     Same validation as a library system (`_validated_awards`), because the
     leaderboard reads both the same way.
+
+    **A chart built from scratch also becomes a template** (`save_as_template`,
+    sent by *Create a custom High Point System*): a second, separate library
+    system under the company `template_company` names, so the company's next
+    show can start from it and no other company ever sees it
+    (`may_use_point_system`). Two rows, not one shared: the show's standings
+    must not move when the company later edits its template, nor the template
+    when this show's chart is changed. A name the company already uses is a
+    409 before anything is written -- overwriting that template would rescore
+    every show that uses it.
     """
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
-    await _get_show_or_404(show_id, db)
+    show = await _get_show_or_404(show_id, db)
+
+    template_owner: Optional[UUID] = None
+    if body.save_as_template:
+        caller = await _caller(x_user_id, x_user_role, db)
+        template_owner = template_company(await show_company_ids(db, show.id), caller)
+        if template_owner is not None and await _name_taken(db, body.name, template_owner):
+            raise HTTPException(
+                409,
+                f"Your company already has a template called {body.name.strip()}. "
+                "Give this High Point System a different name.",
+            )
 
     chart = await _show_chart(show_id, db)
     created = chart is None
@@ -674,6 +732,13 @@ async def save_show_chart(
         db.add(chart)
     await db.flush()
 
+    template: Optional[PointSystem] = None
+    if template_owner is not None:
+        template = PointSystem(created_by_user_id=safe_uuid(x_user_id), awards=[])
+        await _apply_system(template, body, template_owner, db)
+        db.add(template)
+        await db.flush()
+
     row = await db.get(ShowPointSystem, show_id)
     if row is None:
         row = ShowPointSystem(show_id=show_id)
@@ -683,7 +748,20 @@ async def save_show_chart(
         row.chosen_by_user_id = safe_uuid(x_user_id)
         row.chosen_at = datetime.now(timezone.utc)
     await db.commit()
-    return _system_payload(await _get_system_or_404(chart.id, db))
+    payload = _system_payload(await _get_system_or_404(chart.id, db))
+    # Which template the chart also became, if any, so the screen can say so --
+    # and, when one was asked for and none could be made, why not. Silence
+    # there read as the save having failed.
+    payload["template"] = None
+    payload["template_skipped"] = TEMPLATE_SKIPPED if body.save_as_template and template is None else None
+    if template is not None:
+        saved = await _get_system_or_404(template.id, db)
+        payload["template"] = {
+            "id": str(saved.id),
+            "name": saved.name,
+            "company_name": saved.company.name if saved.company else None,
+        }
+    return payload
 
 
 # ── Circuits ───────────────────────────────────────────────────────────────────

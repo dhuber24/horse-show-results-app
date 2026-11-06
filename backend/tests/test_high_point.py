@@ -29,7 +29,7 @@ from high_point import (
     summarize_class,
     tally,
 )
-from routers.high_point import AwardIn, Caller, _validated_awards, owning_company
+from routers.high_point import AwardIn, Caller, _validated_awards, owning_company, template_company
 
 SHOW = uuid4()
 ALICE, BOB, CARA = uuid4(), uuid4(), uuid4()
@@ -283,6 +283,40 @@ def test_nobody_keeps_a_system_under_somebody_elses_company():
 def test_an_admin_may_keep_one_under_any_company_or_none():
     assert owning_company(Caller(ALICE, "ADMIN", []), OTHER_CLUB) == OTHER_CLUB
     assert owning_company(Caller(ALICE, "ADMIN", []), None) is None
+
+
+# ── Whose templates a custom chart joins ─────────────────────────────────────
+
+
+def test_a_custom_chart_joins_the_show_companys_templates():
+    assert template_company([CLUB], Caller(ALICE, "SHOW_SECRETARY", [CLUB])) == CLUB
+    assert template_company([CLUB], Caller(ALICE, "SHOW_MANAGER", [OTHER_CLUB, CLUB])) == CLUB
+    assert template_company([CLUB], Caller(ALICE, "ADMIN", [])) == CLUB
+
+
+def test_an_older_show_uses_its_managers_one_company():
+    """`show_company_ids` answers with the managers' companies for a show from
+    before migration 156 -- an admin building a chart there keeps it there."""
+    assert template_company([CLUB], Caller(ALICE, "ADMIN", [])) == CLUB
+    assert template_company([CLUB, OTHER_CLUB], Caller(ALICE, "ADMIN", [])) is None
+
+
+def test_a_co_manager_from_another_company_keeps_it_in_their_own():
+    """Nothing lands in a company's list that its own people did not make."""
+    assert template_company([CLUB], Caller(ALICE, "SHOW_MANAGER", [OTHER_CLUB])) == OTHER_CLUB
+
+
+def test_a_show_with_no_company_uses_the_callers_one_company():
+    assert template_company([], Caller(ALICE, "SHOW_MANAGER", [CLUB])) == CLUB
+
+
+def test_with_no_one_company_to_name_the_chart_stays_the_shows_own():
+    """Never under no company: that would be a GaitDesk standard chart, in
+    every company's list."""
+    assert template_company([], Caller(ALICE, "ADMIN", [])) is None
+    assert template_company([], Caller(ALICE, "SHOW_MANAGER", [CLUB, OTHER_CLUB])) is None
+    assert template_company([uuid4()], Caller(ALICE, "SHOW_MANAGER", [CLUB, OTHER_CLUB])) is None
+    assert template_company([CLUB], Caller(ALICE, "SHOW_MANAGER", [])) is None
 
 
 # ── What a class puts up for grabs (migration 167) ──────────────────────────

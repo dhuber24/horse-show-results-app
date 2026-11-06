@@ -68,11 +68,15 @@ function formatDay(iso: string): string {
  * judge's-card sheet the scribe fills in.
  *
  * **Set in bulk.** A schedule is a hundred and fifty classes and most of them
- * share an answer, so each row has a tick, the ticks can be filled a day, a
- * discipline or a card type at a time, and a bar pinned to the bottom of the
- * screen applies one card type to every ticked class in one call. A row's own
- * picker is the same call with one class in it. Every class starts on the card
- * type its discipline implies, so most shows only correct a few.
+ * share an answer, so it is a scoring configuration, not a filter: one bar —
+ * *Select rows for:* a discipline, the scoring method, *Apply* — selects that
+ * discipline's classes and applies one card type to every selected class in
+ * one call. Rows can also be selected by hand, a day at a time, or all at once
+ * (*Select all*), and the bar is pinned to the top of the screen while the list
+ * scrolls, so the selection made a hundred rows down is applied without
+ * scrolling back. A row's own picker is the same call with one class in it.
+ * Every class starts on the card type its discipline implies, so most shows
+ * only correct a few.
  */
 export default function ClassScoringClient({
   showId,
@@ -90,6 +94,8 @@ export default function ClassScoringClient({
     ),
   );
   const [ticked, setTicked] = useState<Set<string>>(new Set());
+  /** The discipline the bar last selected rows for — shown in its drop-down. */
+  const [discipline, setDiscipline] = useState('');
   const [bulkCard, setBulkCard] = useState<CardType | ''>('');
   const [bulkSheet, setBulkSheet] = useState('');
   const [busy, setBusy] = useState(false);
@@ -177,10 +183,27 @@ export default function ClassScoringClient({
     const ok = await apply(ids, bulkCard, takesSheet(bulkCard) ? bulkSheet : '');
     if (ok) {
       const label = CARD_TYPES.find((t) => t.key === bulkCard)?.label;
-      setNotice(`${label} applied to ${ids.length} class${ids.length === 1 ? '' : 'es'}.`);
+      const allOfDiscipline =
+        discipline !== '' &&
+        classes.filter((c) => c.discipline_name === discipline).every((c) => ticked.has(c.id)) &&
+        ids.every((id) => classes.find((c) => c.id === id)?.discipline_name === discipline);
+      setNotice(
+        `${label} applied to ${ids.length} ${allOfDiscipline ? `${discipline} ` : ''}class${ids.length === 1 ? '' : 'es'}.`,
+      );
       setTicked(new Set());
+      setDiscipline('');
     }
   }
+
+  /** Select every class in a discipline, replacing what was selected: the bar
+   *  configures a group, and a leftover selection would quietly join it. */
+  function selectDiscipline(d: string) {
+    setDiscipline(d);
+    setTicked(new Set(d ? classes.filter((c) => c.discipline_name === d).map((c) => c.id) : []));
+  }
+
+  const allIds = classes.map((c) => c.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => ticked.has(id));
 
   if (classes.length === 0) {
     return (
@@ -192,63 +215,112 @@ export default function ClassScoringClient({
 
   return (
     <div className="space-y-5">
-      <ul className="grid gap-2 sm:grid-cols-2">
-        {CARD_TYPES.map((t) => (
-          <li key={t.key} className="rounded border p-3 text-xs space-y-1" style={{ borderColor: COLORS.borderSoft }}>
-            <p className="font-semibold text-sm flex items-baseline justify-between gap-2" style={{ color: COLORS.text }}>
-              {t.label}
-              <span className="text-xs font-normal" style={{ color: COLORS.muted }}>
-                {counts[t.key]} class{counts[t.key] === 1 ? '' : 'es'}
-              </span>
-            </p>
-            <p style={{ color: COLORS.muted }}>{t.description}</p>
-          </li>
-        ))}
-      </ul>
+      <div className="space-y-1 text-sm">
+        <p className="font-semibold" style={{ color: COLORS.text }}>Options:</p>
+        <ul className="list-disc pl-5 space-y-1">
+          {CARD_TYPES.map((t) => (
+            <li key={t.key} style={{ color: COLORS.muted }}>
+              <span className="font-semibold" style={{ color: COLORS.text }}>{t.label}</span>{' '}
+              ({counts[t.key]} class{counts[t.key] === 1 ? '' : 'es'}): {t.description}
+            </li>
+          ))}
+        </ul>
+      </div>
 
-      {/* Filling the ticks: the whole schedule, a discipline, or everything
-          currently on one card type — the ways a schedule is actually sorted. */}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span style={{ color: COLORS.muted }}>Tick:</span>
-        <button type="button" onClick={() => tick(classes.map((c) => c.id), true)} className="px-2.5 py-1 rounded border text-xs font-medium" style={quietButton}>
-          All classes
-        </button>
+      {/* The bulk change: a discipline selects its rows, the scoring method
+          says what they become, Apply writes it. Pinned to the top of the
+          screen while the list scrolls, so rows selected by hand a hundred
+          lines down are applied from where they were selected. */}
+      <div
+        className="sticky top-0 z-20 rounded-lg border p-3 flex flex-wrap items-center gap-2 text-sm"
+        style={{ borderColor: ticked.size > 0 ? 'var(--accent)' : COLORS.border, backgroundColor: COLORS.bg }}
+      >
+        <span style={{ color: COLORS.muted }}>Select rows for:</span>
         <select
-          value=""
-          onChange={(e) => {
-            const d = e.target.value;
-            if (d) tick(classes.filter((c) => c.discipline_name === d).map((c) => c.id), true);
-          }}
+          value={discipline}
+          onChange={(e) => selectDiscipline(e.target.value)}
           className={selectClass}
           style={selectStyle}
-          aria-label="Tick every class in a discipline"
+          aria-label="Select every class in a discipline"
         >
-          <option value="">Every class in…</option>
+          <option value="">Choose a discipline…</option>
           {disciplines.map((d) => (
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
         <select
-          value=""
+          value={bulkCard}
           onChange={(e) => {
-            const k = e.target.value as CardType | '';
-            if (k) tick(classes.filter((c) => (rows[c.id]?.card ?? c.effective_card_type) === k).map((c) => c.id), true);
+            setBulkCard(e.target.value as CardType | '');
+            setBulkSheet('');
           }}
           className={selectClass}
           style={selectStyle}
-          aria-label="Tick every class on a card type"
+          aria-label="Scoring method for the selected classes"
         >
-          <option value="">Every class now on…</option>
+          <option value="">Scoring method…</option>
           {CARD_TYPES.map((t) => (
             <option key={t.key} value={t.key}>{t.label}</option>
           ))}
         </select>
+        {bulkCard && takesSheet(bulkCard) && sheetsFor(bulkCard).length > 0 && (
+          <select
+            value={bulkSheet}
+            onChange={(e) => setBulkSheet(e.target.value)}
+            className={selectClass}
+            style={selectStyle}
+            aria-label="Sheet for the selected classes"
+          >
+            <option value="">Scribe types the total</option>
+            {sheetsFor(bulkCard).map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => void applyTicked()}
+          disabled={busy || !bulkCard || ticked.size === 0}
+          title={
+            ticked.size === 0
+              ? 'Select a discipline, or tick rows, first'
+              : !bulkCard
+                ? 'Choose a scoring method first'
+                : undefined
+          }
+          className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
+        >
+          {busy ? 'Applying…' : ticked.size > 0 ? `Apply to ${ticked.size} class${ticked.size === 1 ? '' : 'es'}` : 'Apply'}
+        </button>
         {ticked.size > 0 && (
-          <button type="button" onClick={() => setTicked(new Set())} className="px-2.5 py-1 rounded border text-xs font-medium" style={quietButton}>
-            Clear ticks
+          <button
+            type="button"
+            onClick={() => selectDiscipline('')}
+            className="px-2.5 py-1 rounded border text-xs font-medium"
+            style={quietButton}
+          >
+            Clear selection
           </button>
         )}
       </div>
+
+      {/* Several days: one box selects the whole show, each day's own box its
+          day. A one-day show's day box is already all of it, so it is labelled
+          *Select all* instead of adding a second box that does the same. */}
+      {byDay.length > 1 && (
+        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: COLORS.text }}>
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={(e) => {
+              setDiscipline('');
+              tick(allIds, e.target.checked);
+            }}
+          />
+          Select all
+        </label>
+      )}
 
       {error && (
         <p
@@ -273,10 +345,20 @@ export default function ClassScoringClient({
               <input
                 type="checkbox"
                 checked={allTicked}
-                onChange={(e) => tick(dayIds, e.target.checked)}
-                aria-label={`Tick every class on ${formatDay(day)}`}
+                onChange={(e) => {
+                  setDiscipline('');
+                  tick(dayIds, e.target.checked);
+                }}
+                aria-label={byDay.length === 1 ? 'Select all' : `Select every class on ${formatDay(day)}`}
               />
-              {formatDay(day)}
+              {byDay.length === 1 ? (
+                <>
+                  Select all
+                  <span className="font-normal" style={{ color: COLORS.muted }}>· {formatDay(day)}</span>
+                </>
+              ) : (
+                formatDay(day)
+              )}
             </label>
             <ul className="rounded border divide-y" style={{ borderColor: COLORS.border }}>
               {dayClasses.map((c) => {
@@ -296,10 +378,13 @@ export default function ClassScoringClient({
                       type="checkbox"
                       checked={ticked.has(c.id)}
                       onChange={(e) => tick([c.id], e.target.checked)}
-                      aria-label={`Tick class ${c.class_number}`}
+                      aria-label={`Select class ${c.class_number}`}
                     />
                     <span className="font-medium w-10" style={{ color: COLORS.text }}>{c.class_number}</span>
-                    <span className="flex-1 min-w-[10rem]">
+                    {/* On the desktop layout the name is a fixed column, so the
+                        pickers line up just past it rather than at the far edge
+                        of a window-wide row, a long way from the class they set. */}
+                    <span className="flex-1 min-w-[10rem] desktop:flex-none desktop:w-[26rem]">
                       <span style={{ color: COLORS.text }}>{c.class_name}</span>
                       {c.discipline_name && (
                         <span className="block text-xs" style={{ color: COLORS.muted }}>{c.discipline_name}</span>
@@ -307,7 +392,7 @@ export default function ClassScoringClient({
                     </span>
                     {/* The two pickers wrap together, so a sheet never lands on a line
                         of its own under the tick box. */}
-                    <span className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+                    <span className="flex flex-wrap items-center justify-end gap-2 ml-auto desktop:ml-0 desktop:justify-start">
                     <select
                       value={row.card}
                       onChange={(e) => void apply([c.id], e.target.value as CardType)}
@@ -376,59 +461,6 @@ export default function ClassScoringClient({
             </div>
           ))}
         </section>
-      )}
-
-      {/* The apply bar rides the bottom of the screen while anything is ticked:
-          ticks are made a hundred rows down, and the control that uses them
-          must not be a scroll back to the top away. */}
-      {ticked.size > 0 && (
-        <div
-          className="sticky bottom-0 z-20 rounded-lg border p-3 flex flex-wrap items-center gap-2 shadow-lg"
-          style={{ borderColor: 'var(--accent)', backgroundColor: COLORS.bg }}
-        >
-          <span className="text-sm font-semibold" style={{ color: COLORS.text }}>
-            {ticked.size} class{ticked.size === 1 ? '' : 'es'} ticked
-          </span>
-          <select
-            value={bulkCard}
-            onChange={(e) => {
-              setBulkCard(e.target.value as CardType | '');
-              setBulkSheet('');
-            }}
-            className={selectClass}
-            style={selectStyle}
-            aria-label="Card type for the ticked classes"
-          >
-            <option value="">Place them by…</option>
-            {CARD_TYPES.map((t) => (
-              <option key={t.key} value={t.key}>{t.label}</option>
-            ))}
-          </select>
-          {bulkCard && takesSheet(bulkCard) && sheetsFor(bulkCard).length > 0 && (
-            <select
-              value={bulkSheet}
-              onChange={(e) => setBulkSheet(e.target.value)}
-              className={selectClass}
-              style={selectStyle}
-              aria-label="Sheet for the ticked classes"
-            >
-              <option value="">Scribe types the total</option>
-              {sheetsFor(bulkCard).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            onClick={() => void applyTicked()}
-            disabled={busy || !bulkCard}
-            title={!bulkCard ? 'Choose a card type first' : undefined}
-            className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--surface)' }}
-          >
-            {busy ? 'Applying…' : `Apply to ${ticked.size}`}
-          </button>
-        </div>
       )}
     </div>
   );

@@ -87,7 +87,7 @@ export default async function ScoringStepPage({
       showName={show.name}
       current="judgecards"
       title="Scoring"
-      subtitle="How each class is placed, and what a placing is worth on the show's high-point leaderboard. Every class starts on the card its discipline implies — rail classes placed, pattern classes scored, speed events timed — and a show with no points chart has no leaderboard."
+      subtitle="Configure your High Point System and how each class is scored."
       stepsInput={counts}
       skip={
         counts.scoringChosenCount === 0 && counts.cardedClassCount === 0 && current == null
@@ -103,9 +103,7 @@ export default async function ScoringStepPage({
           <div className="space-y-2">
             <h2 className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>High Point</h2>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Every class adds to the public leaderboard as soon as its placings are posted, scored by
-              this chart. Start from an association&apos;s chart or from scratch, and change any number
-              for this show. Each judge&apos;s card counts on its own.
+              Create your own High Point System, or start with a pre-built template.
             </p>
             {current == null && !stepSkipped && (
               <DeclineFeature
@@ -127,18 +125,23 @@ export default async function ScoringStepPage({
             isAdmin={isAdmin}
           />
           {/* Which classes count (migration 167) — the same list as the High
-              Point page. Folded, because it is one row per class and most
-              shows leave every class in. */}
+              Point page. Folded, and never opened for the reader: it is one row
+              per class and most shows leave every class in. */}
           {current != null && pointClasses.length > 0 && (
-            <details className="rounded border" style={{ borderColor: 'var(--border-subtle)' }}>
-              <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium" style={{ color: 'var(--accent)' }}>
-                Which classes count toward high point —{' '}
-                {pointClasses.filter((c) => c.eligible).length} of {pointClasses.length}
-              </summary>
-              <div className="px-3 pb-3">
-                <HighPointClasses showId={id} initialClasses={pointClasses} />
-              </div>
-            </details>
+            <div className="space-y-2">
+              <p className="text-sm" style={{ color: 'var(--text-deep)' }}>
+                Select below which classes will use your High Point System. All classes are selected by default.
+              </p>
+              <details className="rounded border" style={{ borderColor: 'var(--border-subtle)' }}>
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+                  Which classes count toward high point —{' '}
+                  {pointClasses.filter((c) => c.eligible).length} of {pointClasses.length}
+                </summary>
+                <div className="px-3 pb-3">
+                  <HighPointClasses showId={id} initialClasses={pointClasses} />
+                </div>
+              </details>
+            </div>
           )}
         </section>
 
@@ -146,8 +149,7 @@ export default async function ScoringStepPage({
           <div className="space-y-1">
             <h2 className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>Scoring</h2>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Which card places each class. Tick several and apply a card type to all of them at once,
-              or change one on its own row.
+              Choose how you want classes scored.
             </p>
           </div>
           <ClassScoringClient showId={id} classes={classes as ScoringClass[]} sheets={sheets} />

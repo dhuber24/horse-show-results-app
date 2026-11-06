@@ -21,15 +21,14 @@ const primaryButton = { backgroundColor: 'var(--accent)', color: 'var(--surface)
 const quietButton = { borderColor: 'var(--border)', color: 'var(--accent)', backgroundColor: 'var(--surface)' } as const;
 const panelStyle = { borderColor: 'var(--border-subtle)', backgroundColor: 'var(--background)' } as const;
 
-/** The dropdown's value for starting from an empty chart. */
-const CUSTOM = 'custom';
-
 type Draft = { name: string; associationId: string; notes: string; chart: ChartDraft };
 
+/** `custom`: built from scratch with *Create a custom High Point System*, so
+ *  saving it also adds it to the company's templates. */
 type Mode =
   | { kind: 'view' }
   | { kind: 'choose' }
-  | { kind: 'edit'; draft: Draft; startedFrom: string | null };
+  | { kind: 'edit'; draft: Draft; startedFrom: string | null; custom: boolean };
 
 function draftOf(system: PointSystem): Draft {
   return {
@@ -58,11 +57,17 @@ function badgeFor(
  * The show's points chart (migration 153).
  *
  * A show used to pick one system from a dropdown and see nothing of it. Now the
- * office picks a template — a GaitDesk standard chart, one of its company's, or
- * **Custom**, an empty one — sees the chart before choosing it, and presses
- * *Use this template* to open it as a grid it can change. Saving keeps that
- * grid as **the show's own chart**: a copy, so the template is untouched and a
- * later change to the template does not move this show's standings.
+ * office picks a template — a GaitDesk standard chart or one of its company's —
+ * sees the chart before choosing it, and presses *Use this template* to open it
+ * as a grid it can change. Saving keeps that grid as **the show's own chart**:
+ * a copy, so the template is untouched and a later change to the template does
+ * not move this show's standings.
+ *
+ * **Building one from scratch is its own button**, *Create a custom High Point
+ * System*, not an entry at the top of the template list where it was easy to
+ * miss. Saving a chart built that way also adds it to the company's templates
+ * (`save_as_template`; the backend's `template_company` says whose), so the
+ * next show starts from it — and no other company's list ever shows it.
  *
  * A show still scoring by a library system as it stands (every show set up
  * before this) keeps it, shown the same way, with *Customize for this show* to
@@ -98,20 +103,27 @@ export default function ShowPointChart({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [notice, setNotice] = useState<{ tone: 'success' | 'warning'; text: string } | null>(null);
 
   const isOwn = current?.show_id === showId;
   const standard = templates.filter((t) => t.standard);
   const companies = templates.filter((t) => !t.standard);
-  const chosen = choice && choice !== CUSTOM ? templates.find((t) => t.id === choice) ?? null : null;
+  const chosen = choice ? templates.find((t) => t.id === choice) ?? null : null;
 
-  const openEditor = (from: PointSystem | null, startedFrom: string | null) => {
+  const openEditor = (from: PointSystem, startedFrom: string | null) => {
     setError(null);
+    setNotice(null);
+    setMode({ kind: 'edit', startedFrom, custom: false, draft: draftOf(from) });
+  };
+
+  const openCustom = () => {
+    setError(null);
+    setNotice(null);
     setMode({
       kind: 'edit',
-      startedFrom,
-      draft: from
-        ? draftOf(from)
-        : { name: `${showName} High Point`, associationId: '', notes: '', chart: blankChart() },
+      startedFrom: null,
+      custom: true,
+      draft: { name: `${showName} High Point`, associationId: '', notes: '', chart: blankChart() },
     });
   };
 
@@ -129,9 +141,10 @@ export default function ShowPointChart({
     setMode(current ? { kind: 'view' } : { kind: 'choose' });
   };
 
-  /** Write the draft as the show's chart. False when it could not be, with the
-   *  reason on screen. */
-  const persist = async (draft: Draft): Promise<boolean> => {
+  /** Write the draft as the show's chart — and, for one built from scratch, as
+   *  a company template too. False when it could not be, with the reason on
+   *  screen. */
+  const persist = async (draft: Draft, custom: boolean): Promise<boolean> => {
     if (!draft.name.trim()) {
       setError('Give the chart a name — it is printed at the top of the leaderboard.');
       return false;
@@ -152,12 +165,29 @@ export default function ShowPointChart({
           association_id: draft.associationId || null,
           notes: draft.notes.trim() || null,
           awards: chart.awards,
+          save_as_template: custom,
         }),
       });
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
         setError(errorMessage(body, 'The chart could not be saved.'));
         return false;
+      }
+      const saved = body as {
+        template?: { name: string; company_name: string | null } | null;
+        template_skipped?: string | null;
+      } | null;
+      if (saved?.template) {
+        setNotice({
+          tone: 'success',
+          text:
+            `Saved. “${saved.template.name}” is now in ${saved.template.company_name ?? 'your company'}’s templates, ` +
+            'ready for your next show — no other show company can see it.',
+        });
+      } else if (saved?.template_skipped) {
+        // Asked for a template and none could be made: say so, or the save
+        // reads as having failed.
+        setNotice({ tone: 'warning', text: saved.template_skipped });
       }
       return true;
     } finally {
@@ -167,7 +197,7 @@ export default function ShowPointChart({
 
   const save = async () => {
     if (mode.kind !== 'edit') return;
-    if (await persist(mode.draft)) {
+    if (await persist(mode.draft, mode.custom)) {
       setChoice('');
       setMode({ kind: 'view' });
       router.refresh();
@@ -179,7 +209,7 @@ export default function ShowPointChart({
   useRegisterStepAutosave(async () => {
     if (mode.kind !== 'edit') return;
     if (baseline !== null && JSON.stringify(mode.draft) === baseline) return;
-    if (!(await persist(mode.draft))) throw new Error('The chart could not be saved.');
+    if (!(await persist(mode.draft, mode.custom))) throw new Error('The chart could not be saved.');
   });
 
   const turnOff = async () => {
@@ -212,7 +242,9 @@ export default function ShowPointChart({
         <p className="text-sm" style={labelStyle}>
           {mode.startedFrom
             ? <>Starting from <strong>{mode.startedFrom}</strong>. Change anything you need for this show — the template itself is not changed.</>
-            : <>A chart of your own, from scratch. Add a row per range of class sizes and the points each place earns.</>}
+            : mode.custom
+              ? <>A High Point System of your own, from scratch. Add a row per range of class sizes and the points each place earns. Saving also adds it to your company&apos;s templates under this name, so your next show can start from it — no other show company can see it.</>
+              : <>Change anything you need for this show.</>}
           {isOwn && ' Saving replaces the chart this show uses now.'}
         </p>
 
@@ -274,43 +306,81 @@ export default function ShowPointChart({
   // ── The chart in use, and choosing a template ──────────────────────────────
   return (
     <div className="space-y-4">
+      {/* What the last save did about templates — first, where it is read. */}
+      {notice && !error && (
+        <p
+          className="text-sm rounded px-3 py-2"
+          role="status"
+          style={
+            notice.tone === 'success'
+              ? { color: 'var(--success-strong)', backgroundColor: 'var(--success-bg)' }
+              : { color: 'var(--text-deep)', backgroundColor: 'var(--warning-bg)' }
+          }
+        >
+          {notice.text}
+        </p>
+      )}
       {current && (
-        <div className="space-y-2">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div className="font-semibold" style={{ color: 'var(--foreground)' }}>
-                {current.name}
-                {badgeFor(current, showId, isAdmin, templates) && (
-                  <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent-hover)' }}>
-                    {badgeFor(current, showId, isAdmin, templates)}
-                  </span>
-                )}
-              </div>
-              {current.notes && <p className="text-sm mt-1" style={labelStyle}>{current.notes}</p>}
-            </div>
-            {mode.kind === 'view' && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => openEditor(current, isOwn ? null : current.name)}
-                  className="px-3 py-1.5 rounded text-sm font-medium"
-                  style={primaryButton}
-                  title={isOwn ? 'Change this show’s chart' : 'Take a copy of this chart for this show and change it'}
-                >
-                  {isOwn ? 'Edit chart' : 'Customize for this show'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setChoice(''); setMode({ kind: 'choose' }); }}
-                  className="px-3 py-1.5 rounded border text-sm font-medium"
-                  style={quietButton}
-                >
-                  Start from a different template
-                </button>
-              </div>
-            )}
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm" style={labelStyle}>
+              Your current point system being used:{' '}
+              <span className="font-semibold text-base" style={{ color: 'var(--foreground)' }}>{current.name}</span>
+              {badgeFor(current, showId, isAdmin, templates) && (
+                <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap" style={{ backgroundColor: 'var(--accent-bg)', color: 'var(--accent-hover)' }}>
+                  {badgeFor(current, showId, isAdmin, templates)}
+                </span>
+              )}
+            </p>
+            {current.notes && <p className="text-sm mt-1" style={labelStyle}>{current.notes}</p>}
           </div>
+          {/* The chart's own controls sit directly above it, against the left
+              edge — on the desktop layout, right-aligned put them a screen's
+              width away from the chart they change. */}
+          {mode.kind === 'view' && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => openEditor(current, isOwn ? null : current.name)}
+                className="px-3 py-1.5 rounded text-sm font-medium"
+                style={primaryButton}
+                title={isOwn ? 'Change this show’s chart' : 'Take a copy of this chart for this show and change it'}
+              >
+                {isOwn ? 'Edit chart' : 'Customize for this show'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setChoice(''); setNotice(null); setMode({ kind: 'choose' }); }}
+                className="px-3 py-1.5 rounded border text-sm font-medium"
+                style={quietButton}
+              >
+                Use a pre-built template
+              </button>
+              <button
+                type="button"
+                onClick={openCustom}
+                className="px-3 py-1.5 rounded border text-sm font-medium"
+                style={quietButton}
+                title="Build a new chart from scratch for this show — it is also added to your company’s templates"
+              >
+                Create a custom High Point System
+              </button>
+            </div>
+          )}
           <ChartPreview awards={current.awards} />
+        </div>
+      )}
+
+      {/* With no chart yet, building one from scratch is offered on its own,
+          ahead of the templates — not as the first line of their list. */}
+      {mode.kind === 'choose' && !current && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <button type="button" onClick={openCustom} className="px-4 py-2 rounded text-sm font-medium" style={primaryButton}>
+            Create a custom High Point System
+          </button>
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+            Built from scratch, and added to your company&apos;s templates for next time. Or start from a pre-built template below.
+          </span>
         </div>
       )}
 
@@ -318,7 +388,7 @@ export default function ShowPointChart({
         <div className="rounded-lg border p-3 space-y-3" style={panelStyle}>
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium uppercase tracking-wide" style={labelStyle}>
-              {current ? 'Start again from' : 'Start from'}
+              Pre-built templates
             </span>
             <select
               value={choice}
@@ -327,7 +397,6 @@ export default function ShowPointChart({
               style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
             >
               <option value="">Choose a template…</option>
-              <option value={CUSTOM}>Custom — build your own from scratch</option>
               {standard.length > 0 && (
                 <optgroup label="GaitDesk standard">
                   {standard.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -345,22 +414,14 @@ export default function ShowPointChart({
             </select>
           </label>
 
-          {choice && (
+          {chosen && (
             <div className="space-y-2">
-              {chosen ? (
-                <>
-                  {chosen.notes && <p className="text-sm" style={labelStyle}>{chosen.notes}</p>}
-                  <ChartPreview awards={chosen.awards} />
-                </>
-              ) : (
-                <p className="text-sm" style={labelStyle}>
-                  An empty chart. You add a row for each range of class sizes and the points each place earns.
-                </p>
-              )}
+              {chosen.notes && <p className="text-sm" style={labelStyle}>{chosen.notes}</p>}
+              <ChartPreview awards={chosen.awards} />
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => openEditor(chosen, chosen ? chosen.name : null)}
+                  onClick={() => openEditor(chosen, chosen.name)}
                   className="px-4 py-2 rounded text-sm font-medium"
                   style={primaryButton}
                 >
