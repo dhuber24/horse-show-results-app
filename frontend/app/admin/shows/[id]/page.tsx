@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { fetchShow, fetchClasses } from '@/lib/api';
-import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
+import { API_URL, getAuthHeaders, readJsonBody } from '@/lib/backend-fetch';
 import UpgradeToProLink from '@/components/UpgradeToProLink';
 import {
   ASSOCIATION_EXPORT,
@@ -163,6 +163,17 @@ async function fetchScribeNames(
   return rows.map((r) => r.full_name);
 }
 
+/** The office's own notes (migration 184), or null when there are none or
+ *  they could not be read — the dashboard then simply shows no card. */
+async function fetchOfficeNotes(showId: string): Promise<string | null> {
+  const headers = await getAuthHeaders();
+  if (!headers) return null;
+  const res = await fetch(`${API_URL}/shows/${showId}/office-notes`, { headers, cache: 'no-store' });
+  if (!res.ok) return null;
+  const body = await readJsonBody(res);
+  return (body?.office_notes as string | null | undefined) ?? null;
+}
+
 async function getAssociationValidation(
   showId: string,
   association: 'aqha' | 'apha',
@@ -177,10 +188,11 @@ async function getAssociationValidation(
 
 export default async function AdminShowPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, classes, stepCounts] = await Promise.all([
+  const [show, classes, stepCounts, officeNotes] = await Promise.all([
     fetchShow(id),
     fetchClasses(id),
     fetchStepCounts(id),
+    fetchOfficeNotes(id),
   ]);
   // Read the way the wizard reads it -- declined, and still none set up -- so a
   // tile is greyed out exactly when the setup step says the show has declined it.
@@ -272,6 +284,33 @@ export default async function AdminShowPage({ params }: { params: Promise<{ id: 
               </>
             )}
           </p>
+        )}
+        {/* The office's standing reminders (migration 184), above the tiles
+            because a reminder nobody passes on the way in is not one. */}
+        {officeNotes && (
+          <div
+            className="mt-4 rounded-lg border px-4 py-3"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+                Office notes
+              </h2>
+              <Link
+                href={`/admin/shows/${id}/edit`}
+                className="text-xs hover:underline"
+                style={{ color: 'var(--accent)' }}
+              >
+                Edit
+              </Link>
+            </div>
+            <p className="text-sm mt-1 whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
+              {officeNotes}
+            </p>
+            <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+              Only this show&apos;s office staff see these.
+            </p>
+          </div>
         )}
       </div>
 

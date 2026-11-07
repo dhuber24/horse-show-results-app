@@ -49,6 +49,7 @@ from schemas import (
     ShowUpdate,
     ShowOut,
     ShowAffiliationUpdate,
+    ShowOfficeNotesOut,
     ShowPlanOut,
 )
 from apha_context import apha_entry_context
@@ -80,6 +81,31 @@ from show_companies import (
 )
 
 router = APIRouter(prefix="/shows", tags=["Shows"])
+
+
+def _settle_stalls_open(updates: dict, show) -> None:
+    """Check the stall move-in day and hour (migration 181) as they will be
+    stored, and clear the hour along with the day.
+
+    Either half can arrive alone in a PATCH, so the pair is judged against what
+    is already on the row. Clearing the day clears the hour too: "noon" on no
+    day is the one thing the CHECK refuses, and a manager who blanks the date
+    has plainly meant "we have not said yet", not "send me a 500".
+
+    The day must not fall after the show's last day -- nobody moves in to a
+    show that has finished. Checked only when the move-in day itself is set,
+    so moving the show's own dates is never refused over it; Lodging warns.
+    """
+    if "stalls_open_date" in updates and updates["stalls_open_date"] is None:
+        updates["stalls_open_time"] = None
+    day = updates.get("stalls_open_date", show.stalls_open_date)
+    hour = updates.get("stalls_open_time", show.stalls_open_time)
+    if hour is not None and day is None:
+        raise HTTPException(422, "Give the day stalls open as well as the time.")
+    if updates.get("stalls_open_date") is not None:
+        end = updates.get("end_date", show.end_date)
+        if end and updates["stalls_open_date"] > end:
+            raise HTTPException(422, "Stalls cannot open after the show's last day.")
 
 
 def _venue_address(venue) -> str | None:
@@ -156,6 +182,13 @@ def _serialize(show: Show) -> dict:
         "aqha_approval_submitted_at": show.aqha_approval_submitted_at,
         "aqha_approval_notes": show.aqha_approval_notes,
         "shavings_ban_outside": show.shavings_ban_outside,
+        # When exhibitors may move into their stalls (migration 181).
+        "stalls_open_date": show.stalls_open_date,
+        "stalls_open_time": show.stalls_open_time,
+        # General notes for exhibitors (migration 184). `office_notes` is
+        # never named here: this payload answers anybody, signed in or not.
+        # The office reads its own through GET /shows/{id}/office-notes.
+        "public_notes": show.public_notes,
         # Which show bill the Show Bill button opens (migration 127). Named here
         # as well as on ShowOut because this function builds the payload by hand
         # -- the `apha_zone` note above is what happens when a column is in only
@@ -567,6 +600,9 @@ async def update_show(
         if effective_deadline and effective_start and effective_deadline > effective_start:
             raise HTTPException(422, SIGNUP_DEADLINE_AFTER_START)
 
+    if {"stalls_open_date", "stalls_open_time"} & updates.keys():
+        _settle_stalls_open(updates, show)
+
     # The two registration questions (migration 159) are the show office's to
     # answer for every show, and they start to mean something the moment
     # exhibitors can see it -- so publishing asks for both, and so does opening
@@ -645,6 +681,25 @@ async def update_show(
     await db.commit()
     show = await _get_show_with_type(db, show_id)
     return _serialize(show)
+
+
+@router.get("/{show_id}/office-notes", response_model=ShowOfficeNotesOut)
+async def get_office_notes(
+    show_id: UUID,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """The show office's own notes (migration 184), for the people who work the
+    show. Its own route because the show payload is public; written through
+    PATCH /shows/{id} with everything else on Step 1."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    result = await db.execute(select(Show.office_notes).where(Show.id == show_id))
+    row = result.first()
+    if row is None:
+        raise HTTPException(404, "Show not found")
+    return {"office_notes": row[0]}
 
 
 async def _hand_out_back_numbers(show_id: UUID, db: AsyncSession) -> None:

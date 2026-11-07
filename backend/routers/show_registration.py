@@ -574,6 +574,10 @@ async def get_signup(
             "start_date": show.start_date,
             "end_date": show.end_date,
             "shavings_ban_outside": show.shavings_ban_outside,
+            # When stalls open (migration 181), printed beside the arrival date
+            # the exhibitor is about to pick.
+            "stalls_open_date": show.stalls_open_date,
+            "stalls_open_time": show.stalls_open_time,
         },
         "exhibitor": {"id": str(exhibitor.id), "full_name": exhibitor.full_name},
         "fee_options": _fee_options_out(fees, show_entry),

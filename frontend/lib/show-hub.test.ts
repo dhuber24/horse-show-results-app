@@ -42,10 +42,18 @@ const exhibitor = (s: Partial<MyShowStanding> = {}): HubViewer => ({
 const mine = (show: HubShow, viewer: HubViewer) =>
   buildShowHub(SHOW_ID, show, viewer).mine.map((tile) => tile.title);
 
-const SECTIONS = ['Class Schedule', 'Patterns', 'Results', 'Leaderboard', 'Show Bill', 'Show Details'];
+const SECTIONS = [
+  'Class Schedule',
+  'Patterns',
+  'Results',
+  'Leaderboard',
+  'Show Bill',
+  'Show Details',
+  'Discussion Board',
+];
 
 describe('the show’s sections', () => {
-  it('are the same six, in the hub’s order', () => {
+  it('are the same seven, in the hub’s order', () => {
     expect(publicSections(SHOW_ID).map((tile) => tile.title)).toEqual(SECTIONS);
     expect(publicSections(SHOW_ID).map((tile) => tile.href)).toEqual([
       '/shows/s1/schedule',
@@ -54,6 +62,7 @@ describe('the show’s sections', () => {
       '/shows/s1/leaderboard',
       '/shows/s1/showbill',
       '/shows/s1/details',
+      '/shows/s1/board',
     ]);
   });
 

@@ -1,4 +1,5 @@
-"""The show's own uploaded documents -- today, its show bill.
+"""The show's own uploaded documents: its show bill, and its stall map and RV /
+camping map (migration 182, at the foot of this file).
 
 The app has always generated the show bill from the show's own classes, judges
 and fees, and that remains the default and the recommendation: a generated bill
@@ -25,6 +26,7 @@ Two rules keep the hazard where it can be seen:
     leave out.
 """
 
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
@@ -36,7 +38,7 @@ from database import get_db
 from dependencies import require_admin_or_show_admin, safe_uuid
 from models import Show, ShowDocument
 from routers.shows import _assert_show_access
-from schemas import ShowbillOut, ShowbillSourceUpdate
+from schemas import ShowbillOut, ShowbillSourceUpdate, ShowMapsOut
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Show Documents"])
 
@@ -64,6 +66,24 @@ def _detect_mime(data: bytes) -> str | None:
     if data[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"WEBP":
         return "image/webp"
     return None
+
+
+async def _read_upload(file: UploadFile, what: str) -> tuple[bytes, str]:
+    """The upload's bytes and sniffed type, or a 400 saying what is wrong.
+    `what` names the document in the message ("the show bill", "the stall map")."""
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "That file is empty.")
+    if len(content) > MAX_SHOWBILL_BYTES:
+        raise HTTPException(400, "File too large (max 10 MB)")
+    mime = _detect_mime(content)
+    if mime is None:
+        raise HTTPException(
+            400,
+            f"Unsupported file type. Upload {what} as a PDF, or as a JPEG, "
+            "PNG or WebP image.",
+        )
+    return content, mime
 
 
 async def _get_show_or_404(show_id: UUID, db: AsyncSession) -> Show:
@@ -189,19 +209,7 @@ async def upload_showbill_document(
     await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
     await _get_show_or_404(show_id, db)
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(400, "That file is empty.")
-    if len(content) > MAX_SHOWBILL_BYTES:
-        raise HTTPException(400, "File too large (max 10 MB)")
-
-    mime = _detect_mime(content)
-    if mime is None:
-        raise HTTPException(
-            400,
-            "Unsupported file type. Upload the show bill as a PDF, or as a JPEG, "
-            "PNG or WebP image.",
-        )
+    content, mime = await _read_upload(file, "the show bill")
 
     # One show bill per show -- replace rather than append. There is no history
     # worth keeping here, and two rows would leave every reader picking one.
@@ -304,3 +312,158 @@ async def set_showbill_source(
     show.showbill_source = body.source
     await db.commit()
     return _showbill_payload(show, document)
+
+
+# ── Stall and RV maps (migration 182) ─────────────────────────────────────────
+#
+# Where an exhibitor's stall is and where to park the trailer. Set by the show
+# office on the Lodging step and read from Show Details. One of each per show,
+# replaced on upload, exactly like the show bill -- and with none of its second
+# fact: a map is on file or it is not, and nothing chooses between two of them.
+#
+# Reading is public, like the show bill: a barn layout is posted on the gate,
+# and the people who need it are deciding where to haul to.
+
+MapKind = Literal["stall", "rv"]
+
+MAP_TYPES: dict[str, str] = {"stall": "STALL_MAP", "rv": "RV_MAP"}
+MAP_NAMES: dict[str, str] = {"stall": "the stall map", "rv": "the RV map"}
+
+
+async def _load_maps(show_id: UUID, db: AsyncSession) -> dict:
+    """Both maps' metadata, never the bytes -- see `_load_showbill_meta`."""
+    result = await db.execute(
+        select(
+            ShowDocument.id,
+            ShowDocument.document_type,
+            ShowDocument.original_filename,
+            ShowDocument.mime_type,
+            ShowDocument.file_size,
+            ShowDocument.created_at,
+        ).where(
+            ShowDocument.show_id == show_id,
+            ShowDocument.document_type.in_(MAP_TYPES.values()),
+        )
+    )
+    by_type = {row["document_type"]: dict(row) for row in result.mappings().all()}
+    return {kind: by_type.get(doc_type) for kind, doc_type in MAP_TYPES.items()}
+
+
+@router.get("/maps", response_model=ShowMapsOut)
+async def get_show_maps(show_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Which maps the show has put on file. Public."""
+    await _get_show_or_404(show_id, db)
+    return await _load_maps(show_id, db)
+
+
+@router.get("/maps/{kind}/file")
+async def download_show_map(
+    show_id: UUID,
+    kind: MapKind,
+    download: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """The map itself. Public, like the page that links to it."""
+    await _get_show_or_404(show_id, db)
+    result = await db.execute(
+        select(ShowDocument).where(
+            ShowDocument.show_id == show_id,
+            ShowDocument.document_type == MAP_TYPES[kind],
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404, f"This show has no {MAP_NAMES[kind][4:]} on file")
+
+    safe_name = doc.original_filename.replace('"', "_")
+    disposition = "attachment" if download else "inline"
+    return Response(
+        content=doc.file_data,
+        media_type=doc.mime_type,
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{safe_name}"',
+            # Short, for the show bill's reason: a redrawn stall chart has to
+            # reach the people about to unload by it.
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
+@router.post(
+    "/maps/{kind}",
+    response_model=ShowMapsOut,
+    status_code=201,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def upload_show_map(
+    show_id: UUID,
+    kind: MapKind,
+    file: UploadFile = File(...),
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Put a map on file, replacing any earlier one of the same kind. It is
+    published as it lands -- there is no generated map to compare it against."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+
+    content, mime = await _read_upload(file, MAP_NAMES[kind])
+
+    doc_type = MAP_TYPES[kind]
+    existing = await db.execute(
+        select(ShowDocument).where(
+            ShowDocument.show_id == show_id,
+            ShowDocument.document_type == doc_type,
+        )
+    )
+    for old in existing.scalars().all():
+        await db.delete(old)
+    await db.flush()
+
+    db.add(
+        ShowDocument(
+            show_id=show_id,
+            document_type=doc_type,
+            original_filename=file.filename or f"{kind}-map",
+            file_data=content,
+            mime_type=mime,
+            file_size=len(content),
+            uploaded_by_user_id=safe_uuid(x_user_id),
+        )
+    )
+    await db.commit()
+    return await _load_maps(show_id, db)
+
+
+@router.delete(
+    "/maps/{kind}",
+    response_model=ShowMapsOut,
+    dependencies=[Depends(require_admin_or_show_admin)],
+)
+async def delete_show_map(
+    show_id: UUID,
+    kind: MapKind,
+    x_api_key: str = Header(...),
+    x_user_id: str = Header(...),
+    x_user_role: str = Header(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take a map off file. Show Details stops offering it at once."""
+    await _assert_show_access(show_id, x_api_key, x_user_id, x_user_role, db)
+    await _get_show_or_404(show_id, db)
+
+    result = await db.execute(
+        select(ShowDocument).where(
+            ShowDocument.show_id == show_id,
+            ShowDocument.document_type == MAP_TYPES[kind],
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(404, f"This show has no {MAP_NAMES[kind][4:]} on file")
+
+    await db.delete(doc)
+    await db.commit()
+    return await _load_maps(show_id, db)

@@ -1,4 +1,5 @@
-import { fetchShow } from '@/lib/api';
+import { fetchShow, fetchShowMaps } from '@/lib/api';
+import ShowMapsCard from './ShowMapsCard';
 import { API_URL, getAuthHeaders } from '@/lib/backend-fetch';
 import LodgingClient, { type FeeRow } from './LodgingClient';
 import StepLayout from '../_lib/StepLayout';
@@ -25,9 +26,10 @@ export default async function SetupLodgingPage({
 }) {
   const { id } = await params;
   const show = await fetchShow(id);
-  const [allFees, stepsInput] = await Promise.all([
+  const [allFees, stepsInput, maps] = await Promise.all([
     fetchAuthed<FeeRow[]>(`${API_URL}/shows/${id}/fees/`, []),
     fetchStepCounts(id),
+    fetchShowMaps(id),
   ]);
   const lodgingFees = allFees.filter((f) => LODGING_CODES.has(f.code));
 
@@ -38,7 +40,7 @@ export default async function SetupLodgingPage({
       current="lodging"
       width="form"
       title="Lodging & Boarding"
-      subtitle="Stall fees, shavings, and camping — each its own card, each optional."
+      subtitle="When stalls open, the stall and RV maps, then stall fees, shavings and camping — each its own card, each optional."
       stepsInput={{ ...stepsInput, lodgingFeeCount: lodgingFees.length }}
       skip={
         lodgingFees.length === 0
@@ -53,6 +55,11 @@ export default async function SetupLodgingPage({
         showId={id}
         initialFees={lodgingFees}
         initialShavingsBanOutside={show.shavings_ban_outside ?? false}
+        initialStallsOpenDate={show.stalls_open_date ?? ''}
+        initialStallsOpenTime={(show.stalls_open_time ?? '').slice(0, 5)}
+        showStartDate={show.start_date}
+        showEndDate={show.end_date}
+        maps={<ShowMapsCard showId={id} initialMaps={maps} />}
       />
     </StepLayout>
   );

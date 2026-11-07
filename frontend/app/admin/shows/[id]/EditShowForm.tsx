@@ -37,6 +37,8 @@ interface Show {
   aqha_approval_status: string;
   aqha_approval_submitted_at: string | null;
   aqha_approval_notes: string | null;
+  /** Migration 184. For exhibitors: the show page and the show bill. */
+  public_notes?: string | null;
 }
 
 interface ShowType {
@@ -77,13 +79,22 @@ export default function EditShowForm({
   venues,
   showTypes,
   showCategories = [],
+  officeNotes,
 }: {
   show: Show;
   venues: Venue[];
   showTypes: ShowType[];
   showCategories?: ShowCategory[];
+  /**
+   * The office's own notes (migration 184), read from their own endpoint
+   * because the show payload is public. `undefined` is "could not be read":
+   * the box is then disabled and left out of the save, since saving the empty
+   * box it would otherwise show is how a failed read wipes the notes.
+   */
+  officeNotes?: string | null;
 }) {
   const router = useRouter();
+  const officeNotesLoaded = officeNotes !== undefined;
 
   const [form, setForm] = useState({
     name: show.name,
@@ -102,6 +113,8 @@ export default function EditShowForm({
     aqha_approval_status: show.aqha_approval_status ?? 'NOT_SUBMITTED',
     aqha_approval_submitted_at: show.aqha_approval_submitted_at ?? '',
     aqha_approval_notes: show.aqha_approval_notes ?? '',
+    public_notes: show.public_notes ?? '',
+    office_notes: officeNotes ?? '',
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -152,6 +165,8 @@ export default function EditShowForm({
         aqha_approval_status: form.aqha_approval_status,
         aqha_approval_submitted_at: form.aqha_approval_submitted_at || null,
         aqha_approval_notes: form.aqha_approval_notes || null,
+        public_notes: form.public_notes.trim() || null,
+        ...(officeNotesLoaded ? { office_notes: form.office_notes.trim() || null } : {}),
       }),
     });
     setSaving(false);
@@ -442,6 +457,58 @@ export default function EditShowForm({
             showStatus={show.status}
             savedValue={show.back_number_per ?? 'exhibitor'}
           />
+        </div>
+
+        {/* Migration 184. Optional, and two boxes rather than one with a
+            "private" tick: which audience a sentence is for is decided once,
+            by which box it was typed in, not by a control that can be missed. */}
+        <div className="border-t pt-3 space-y-3" style={{ borderColor: 'var(--border-subtle)' }}>
+          <div>
+            <h3 className="text-sm font-semibold" style={{ color: COLORS.text }}>
+              Show notes
+            </h3>
+            <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
+              Optional. Anything the rest of setup has no place for.
+            </p>
+          </div>
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Notes for exhibitors — printed on the show page and the show bill
+            </span>
+            <textarea
+              name="public_notes"
+              value={form.public_notes}
+              onChange={(e) => setForm((prev) => ({ ...prev, public_notes: e.target.value }))}
+              rows={4}
+              maxLength={5000}
+              className="w-full border rounded px-3 py-2 text-sm"
+              style={{ borderColor: COLORS.border }}
+              placeholder="Office hours, parking and trailers, dogs on a leash, golf carts…"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Office notes — only this show&apos;s office staff see these
+            </span>
+            <textarea
+              name="office_notes"
+              value={form.office_notes}
+              onChange={(e) => setForm((prev) => ({ ...prev, office_notes: e.target.value }))}
+              rows={4}
+              maxLength={5000}
+              disabled={!officeNotesLoaded}
+              title={officeNotesLoaded ? undefined : 'The office notes could not be loaded. Reload the page to edit them.'}
+              className="w-full border rounded px-3 py-2 text-sm disabled:opacity-50"
+              style={{ borderColor: COLORS.border }}
+              placeholder="Standing reminders for the staff: who has the gate keys, ribbons to order…"
+            />
+            {!officeNotesLoaded && (
+              <span className="block text-xs mt-1" role="alert" style={{ color: 'var(--error)' }}>
+                The office notes could not be loaded. Reload the page to edit them — saving
+                leaves them as they are.
+              </span>
+            )}
+          </label>
         </div>
 
         <div className="flex items-center justify-between pt-2">

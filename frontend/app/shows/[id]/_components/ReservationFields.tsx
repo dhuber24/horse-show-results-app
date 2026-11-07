@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 
 import type { CancellationWindow, ProfileStatus } from '../register/types';
 import type { RegistrationWindow } from '@/lib/registration-window';
+import { arrivesBeforeStallsOpen, formatStallsOpen } from '@/lib/stalls-open';
 
 /**
  * Stalls, shavings, camping, arrival dates and a note to the office — the whole
@@ -59,6 +60,9 @@ export type SignupData = {
     start_date: string;
     end_date: string;
     shavings_ban_outside: boolean;
+    /** When stalls open (migration 181): venue wall-clock, printed as set. */
+    stalls_open_date?: string | null;
+    stalls_open_time?: string | null;
   };
   exhibitor: { id: string; full_name: string };
   fee_options: FeeOption[];
@@ -303,6 +307,8 @@ export default function ReservationFields({
     return seed;
   });
   const [arrival, setArrival] = useState(signup?.arrival_date ?? '');
+  const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
+  const arrivesEarly = arrivesBeforeStallsOpen(arrival, show.stalls_open_date);
   const [departure, setDeparture] = useState(signup?.departure_date ?? '');
   const [notes, setNotes] = useState(signup?.notes ?? '');
   const [stallRequest, setStallRequest] = useState(signup?.stall_request ?? '');
@@ -657,7 +663,22 @@ export default function ReservationFields({
               onChange={(e) => setArrival(e.target.value)}
               className="mt-1 w-full border rounded px-3 py-2 text-sm"
               style={{ borderColor: 'var(--border)' }}
+              aria-describedby={stallsOpen ? 'stalls-open-note' : undefined}
             />
+            {/* Said where the day is picked, and flagged rather than refused:
+                an early arrival is the office's to allow, and a `min` on the
+                input would stop the form saving over it. */}
+            {stallsOpen && (
+              <span
+                id="stalls-open-note"
+                className="block mt-1"
+                style={{ color: arrivesEarly ? 'var(--warning)' : 'var(--muted)' }}
+              >
+                {arrivesEarly
+                  ? `That's before stalls open (${stallsOpen}). Check with the show office first.`
+                  : `Stalls open ${stallsOpen}.`}
+              </span>
+            )}
           </label>
           <label className="text-xs" style={{ color: 'var(--muted)' }}>
             Leaving

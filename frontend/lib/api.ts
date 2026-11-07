@@ -1,5 +1,6 @@
 import type { CardPhoto } from './card-photos';
 import type { ShowPattern } from './patterns';
+import { NO_MAPS, type ShowMaps } from './show-maps';
 import type {
   Circuit,
   CircuitLeaderboard,
@@ -218,6 +219,19 @@ export async function fetchShow(showId: string) {
   const res = await fetch(`${API_URL}/shows/${showId}`);
   if (!res.ok) throw new Error('Failed to fetch show');
   return res.json();
+}
+
+/** Which stall and RV maps the show has on file (migration 182). Public; a
+ *  failure reads as "no maps" rather than taking the page down over a link. */
+export async function fetchShowMaps(showId: string): Promise<ShowMaps> {
+  try {
+    const res = await fetch(`${API_URL}/shows/${showId}/maps`, { cache: 'no-store' });
+    if (!res.ok) return NO_MAPS;
+    const json = (await res.json()) as Partial<ShowMaps>;
+    return { stall: json.stall ?? null, rv: json.rv ?? null };
+  } catch {
+    return NO_MAPS;
+  }
 }
 
 export async function fetchHorses(headers?: HeadersInit) {

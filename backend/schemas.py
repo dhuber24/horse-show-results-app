@@ -162,6 +162,16 @@ class ShowUpdate(BaseModel):
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = Field(default=None, max_length=1000)
     shavings_ban_outside: Optional[bool] = None
+    # When exhibitors may move into their stalls (migration 181): the venue's
+    # own wall-clock day and hour. A time needs a day; `update_show` checks the
+    # pair as it will be stored, since either half may arrive alone.
+    stalls_open_date: Optional[date] = None
+    stalls_open_time: Optional[time] = None
+    # General show notes (migration 184). `public_notes` is printed for
+    # exhibitors; `office_notes` is the office's own and is never on ShowOut --
+    # it is read through GET /shows/{id}/office-notes. Blank is stored as NULL.
+    public_notes: Optional[str] = Field(default=None, max_length=5000)
+    office_notes: Optional[str] = Field(default=None, max_length=5000)
     # Which health papers this show requires (migration 097). Coggins is
     # universal; a CVI follows from crossing a state line and vaccinations from
     # the venue, so those two are opt-in per show.
@@ -178,11 +188,27 @@ class ShowUpdate(BaseModel):
     requires_horse_age_check: Optional[bool] = None
     requires_registration_papers_check: Optional[bool] = None
 
+    @field_validator("public_notes", "office_notes")
+    @classmethod
+    def blank_notes_are_none(cls, value: Optional[str]) -> Optional[str]:
+        # A box cleared down to whitespace is no note, and an empty heading on
+        # the show page over it would be worse than none.
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
     @model_validator(mode="after")
     def validate_date_range(self):
         if self.start_date and self.end_date and self.end_date < self.start_date:
             raise ValueError("The end date must be on or after the start date.")
         return self
+
+class ShowOfficeNotesOut(BaseModel):
+    """The show office's own notes (migration 184), read behind `show_access`.
+    Not on ShowOut, because GET /shows/{id} answers anybody."""
+    office_notes: Optional[str] = None
+
 
 class ShowAffiliationOut(BaseModel):
     show_type_id: UUID
@@ -269,6 +295,12 @@ class ShowOut(BaseModel):
     aqha_approval_submitted_at: Optional[date] = None
     aqha_approval_notes: Optional[str] = None
     shavings_ban_outside: bool = False
+    # Migration 181. Serialized in `_serialize` too -- see `showbill_source`.
+    stalls_open_date: Optional[date] = None
+    stalls_open_time: Optional[time] = None
+    # Migration 184, for exhibitors. Serialized in `_serialize` too. The
+    # office's own notes are deliberately not here: this payload is public.
+    public_notes: Optional[str] = None
     # Which show bill the Show Bill button opens (migration 127). Serialized in
     # `routers/shows._serialize` as well as declared here -- that function builds
     # the payload by hand, so a column named in only one of the two reads back as
@@ -334,6 +366,14 @@ class ShowbillOut(BaseModel):
     source: Literal["generated", "uploaded"]
     effective_source: Literal["generated", "uploaded"]
     document: Optional[ShowDocumentOut] = None
+
+
+class ShowMapsOut(BaseModel):
+    """The show's stall map and RV / camping map (migration 182), each the
+    file's metadata or null. Both keys always present, so a page can draw a
+    slot for each without asking which exist."""
+    stall: Optional[ShowDocumentOut] = None
+    rv: Optional[ShowDocumentOut] = None
 
 
 class ShowbillSourceUpdate(BaseModel):

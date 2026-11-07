@@ -2,6 +2,34 @@
 
 ## November 2026
 
+### Every show has a discussion board
+
+- **Anybody at a show can post, an account or not**: questions, callouts, show
+  updates, lost & found. Everybody can read it, on every plan. A tile on the show's
+  page opens it, beside *Message the Show Office*.
+- **A post is named from the session**, with a badge: Show Office, Exhibitor with
+  their back number, Trainer, GaitDesk. A visitor's reads "Visitor".
+- **A signed-in poster can post anonymously.** Nobody on the board learns who it
+  was, the show office included. GaitDesk admins can, to deal with abuse.
+- **Posts go up at once, and the show office moderates on the board itself**: it
+  hides and unhides posts, pins updates to the top, and opens the board to
+  everybody, to signed-in accounts only, or closes it.
+- **A profanity filter refuses a post and names the word**, so nothing offensive
+  is stored. It matches whole words so ordinary show talk ("jackass", "spicy",
+  "Dick Smith is judging") is never refused.
+- **One level of replies**, so an answer sits under its question. The page
+  updates itself every ten seconds.
+
+### Show setup says when stalls open, and carries the stall and RV maps
+
+- **The Lodging step opens on Move-in**: the day exhibitors may arrive and move into
+  their stalls, and the hour if the show gives one. Exhibitors read it on Show
+  Details, on the show bill, and under the arrival date they pick at sign-up, where
+  arriving before the barn opens is flagged rather than refused.
+- **The show office uploads a stall map and an RV / camping map** on the same step
+  (PDF or image, one of each, replaced on upload). They appear under *Maps* on Show
+  Details as soon as they are on file.
+
 ### A new show company proves who it is before it reaches strangers
 
 - **Until a company is verified, its office reaches only people who signed up to

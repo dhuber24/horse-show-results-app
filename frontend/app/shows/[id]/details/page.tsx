@@ -1,11 +1,13 @@
 import Link from 'next/link';
-import { fetchShow, fetchShowFeesPublic } from '@/lib/api';
+import { fetchShow, fetchShowFeesPublic, fetchShowMaps } from '@/lib/api';
+import { MAP_KINDS, mapFileHref } from '@/lib/show-maps';
 import { unitLabel } from '@/lib/fee-units';
 import { classEntryText, signupClosedText, signupDeadlineText } from '@/lib/registration-window';
 import ShowHubHeader from '../_components/ShowHubHeader';
 import { showHubBack } from '../_components/showHubBack';
 import BackToShow from '../_components/BackToShow';
 import VenueMapLink from '@/components/VenueMapLink';
+import { formatStallsOpen } from '@/lib/stalls-open';
 
 /**
  * The show, described.
@@ -64,12 +66,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export default async function ShowDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [show, fees] = await Promise.all([fetchShow(id), fetchShowFeesPublic(id)]);
+  const [show, fees, maps] = await Promise.all([
+    fetchShow(id),
+    fetchShowFeesPublic(id),
+    fetchShowMaps(id),
+  ]);
+  // The stall and RV maps the office uploaded at setup (migration 182).
+  const mapsOnFile = MAP_KINDS.filter(({ kind }) => maps[kind]);
   const back = showHubBack(id);
   // The shavings policy only where the show sells bedding — the same rule as
   // the show bill's Rules & paperwork. A show whose Lodging step was skipped
   // has no bags to order, and saying it does is a promise nobody keeps.
   const sellsBedding = (fees as { unit: string }[]).some((fee) => fee.unit === 'per_bag');
+  // When stalls open (migration 181): the venue's own day and hour.
+  const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
 
   const clubs: {
     association_id: string;
@@ -99,6 +109,26 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
           {formatDate(show.start_date)}
           {show.end_date !== show.start_date && <> – {formatDate(show.end_date)}</>}
         </Row>
+        {stallsOpen && <Row label="Move-in">Stalls open {stallsOpen}</Row>}
+        {mapsOnFile.length > 0 && (
+          <Row label="Maps">
+            <ul className="space-y-0.5">
+              {mapsOnFile.map(({ kind, label }) => (
+                <li key={kind}>
+                  <a
+                    href={mapFileHref(id, kind)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:underline font-medium"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    {label} →
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </Row>
+        )}
         <Row label="Status">{statusText(show)}</Row>
         {/* The show office's two answers (migration 159), while they still
             decide anything. These were on the signed-out show page's own
@@ -167,6 +197,19 @@ export default async function ShowDetailsPage({ params }: { params: Promise<{ id
         {show.apha_show_number && <Row label="APHA show #">{show.apha_show_number}</Row>}
         {show.aqha_show_number && <Row label="AQHA show #">{show.aqha_show_number}</Row>}
       </div>
+
+      {/* The show office's general notes for exhibitors (migration 184), as
+          typed — line breaks included. Its own card, not a Row: it is prose,
+          often several lines, and a label column would squeeze it. */}
+      {show.public_notes && (
+        <section className="mt-5">
+          <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Show Notes</h2>
+          <div className="rounded-lg border px-4 py-3 text-sm whitespace-pre-wrap"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)', color: 'var(--foreground)' }}>
+            {show.public_notes}
+          </div>
+        </section>
+      )}
 
       <div className="mt-5 flex flex-wrap gap-3 text-sm font-medium">
         <Link href={`/shows/${id}/showbill`} className="hover:underline" style={{ color: 'var(--accent)' }}>

@@ -127,6 +127,16 @@ export const showSections = (showId: string): ShowSection[] => [
     icon: '📱',
     publicScreen: true,
   },
+  // The public board (migration 183), moderated on the board itself: a
+  // moderator is sent the posts the office hid, and Hide and Pin beside each.
+  {
+    href: `/shows/${showId}/board`,
+    title: 'Discussion Board',
+    description:
+      'The show’s public board — answer questions, pin updates, hide posts, and choose who can post.',
+    icon: '🗨️',
+    publicScreen: true,
+  },
   // The wall display. Staff-only, and reached only from here — it is not a
   // tile on the public hub, because deciding to put a show up on a screen in
   // the lobby is the office's call rather than a spectator's.

@@ -41,6 +41,7 @@ export default async function EditShowDetailsPage({
     allUsers,
     stepsInput,
     companyCrew,
+    officeNotes,
   ] = await Promise.all([
     fetchVenues(),
     fetchShowTypes(),
@@ -55,6 +56,9 @@ export default async function EditShowDetailsPage({
     fetchStepCounts(id),
     // The company's crew (migration 169), who the office assigns from.
     isAdmin ? Promise.resolve([]) : fetchAuthed<StaffUser[]>(`${API_URL}/shows/${id}/company-crew`, []),
+    // The office's own notes (migration 184), off the public show payload.
+    // Null when the read fails, which the form treats as "do not touch".
+    fetchAuthed<{ office_notes: string | null } | null>(`${API_URL}/shows/${id}/office-notes`, null),
   ]);
 
   return (
@@ -63,7 +67,7 @@ export default async function EditShowDetailsPage({
       showName={show.name}
       current="basic"
       title="Basics & Staff"
-      subtitle="Name, dates, venue, show type, and who runs the show."
+      subtitle="Name, dates, venue, show type, show notes, and who runs the show."
       stepsInput={stepsInput}
     >
       <div className="space-y-6">
@@ -72,6 +76,7 @@ export default async function EditShowDetailsPage({
           venues={venues}
           showTypes={showTypes}
           showCategories={showCategories}
+          officeNotes={officeNotes ? officeNotes.office_notes : undefined}
         />
 
         <div className="space-y-3">

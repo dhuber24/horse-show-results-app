@@ -21,6 +21,7 @@
 
 import { groupFees, unitLabel } from '@/lib/fee-units';
 import { runsOf } from '@/lib/class-order';
+import { formatStallsOpen } from '@/lib/stalls-open';
 import { classEntryText, signupDeadlineText } from '@/lib/registration-window';
 
 export type ShowbillClassRow = {
@@ -338,6 +339,7 @@ export default function ShowbillDocument({
   // would be a promise nobody is keeping — the registration screen has no
   // shavings to order there either.
   const sellsBedding = fees.some((fee) => fee.unit === 'per_bag');
+  const stallsOpen = formatStallsOpen(show.stalls_open_date, show.stalls_open_time);
 
   return (
     <article
@@ -369,6 +371,9 @@ export default function ShowbillDocument({
             {formatDate(show.start_date)}
             {show.end_date !== show.start_date && <> through {formatDate(show.end_date)}</>}
           </Fact>
+          {/* Migration 181. Beside the dates, since it is the date a trailer
+              is planned around. Venue wall-clock, printed as the office set it. */}
+          {stallsOpen && <Fact label="Move-in">Stalls open {stallsOpen}.</Fact>}
           {/* The show office's two registration answers (migration 159). Printed
               beside the dates because they are dates of a kind — when somebody
               reading the bill has to have acted by. */}
@@ -698,6 +703,17 @@ export default function ShowbillDocument({
           )}
         </div>
       </Section>
+      )}
+
+      {/* The show office's general notes for exhibitors (migration 184),
+          printed as typed. Last, after the rules: it is whatever the rest of
+          the bill had no heading for. */}
+      {show.public_notes && (
+        <Section title="Show notes">
+          <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--foreground)' }}>
+            {show.public_notes}
+          </p>
+        </Section>
       )}
 
       <footer className="mt-8 pt-3 border-t text-xs" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>

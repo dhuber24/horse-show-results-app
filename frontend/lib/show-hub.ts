@@ -107,6 +107,14 @@ export function publicSections(showId: string): HubTile[] {
       title: 'Show Details',
       description: 'Venue, dates, associations, and policies.',
     },
+    // Last, beside the show office's own tile: the public way to ask, where the
+    // tile after it is the private one (migration 183).
+    {
+      href: `/shows/${showId}/board`,
+      icon: '🗨️',
+      title: 'Discussion Board',
+      description: 'Questions, callouts, updates and lost & found — post with or without an account.',
+    },
   ];
 }
 

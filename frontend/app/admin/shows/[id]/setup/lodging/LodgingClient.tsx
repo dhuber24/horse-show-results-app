@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useRegisterStepAutosave } from '../_lib/StepAutosave';
 import { canHaveEarlyRate } from '@/lib/fee-units';
 import { errorMessage } from '@/lib/api-error';
+import { formatStallsOpen } from '@/lib/stalls-open';
 
 export type FeeRow = {
   id: string;
@@ -228,10 +229,24 @@ export default function LodgingClient({
   showId,
   initialFees,
   initialShavingsBanOutside,
+  initialStallsOpenDate,
+  initialStallsOpenTime,
+  showStartDate,
+  showEndDate,
+  maps,
 }: {
   showId: string;
   initialFees: FeeRow[];
   initialShavingsBanOutside: boolean;
+  /** yyyy-mm-dd, or '' when the show has not said (migration 181). */
+  initialStallsOpenDate: string;
+  /** HH:MM, or '' for a day with no hour. */
+  initialStallsOpenTime: string;
+  showStartDate: string;
+  showEndDate: string;
+  /** The stall and RV map uploads, drawn under Move-in. They save on their
+   *  own, so they are handed in rather than joining this form's save. */
+  maps?: React.ReactNode;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -274,6 +289,15 @@ export default function LodgingClient({
   });
 
   const [banOutsideShavings, setBanOutsideShavings] = useState(initialShavingsBanOutside);
+  const [stallsOpenDate, setStallsOpenDate] = useState(initialStallsOpenDate);
+  const [stallsOpenTime, setStallsOpenTime] = useState(initialStallsOpenTime);
+  // An hour on no day is meaningless, and the backend refuses it — so a time
+  // left behind after the date is cleared is simply not sent.
+  const sentStallsOpenTime = stallsOpenDate ? stallsOpenTime : '';
+  const moveInDirty =
+    stallsOpenDate !== initialStallsOpenDate || sentStallsOpenTime !== initialStallsOpenTime;
+  const moveInAfterShow = Boolean(stallsOpenDate && stallsOpenDate > showEndDate);
+  const moveInPreview = formatStallsOpen(stallsOpenDate || null, sentStallsOpenTime || null);
 
   function setSlot(code: string, patch: Partial<SlotState>) {
     setSlots((prev) => ({ ...prev, [code]: { ...prev[code], ...patch } }));
@@ -296,7 +320,7 @@ export default function LodgingClient({
       slot.earlyDeadline !== (fee?.early_deadline ?? '') ||
       slot.minQuantity !== (fee?.min_quantity ? String(fee.min_quantity) : '')
     );
-  }) || banOutsideShavings !== initialShavingsBanOutside;
+  }) || banOutsideShavings !== initialShavingsBanOutside || moveInDirty;
 
   /** Returns whether everything was written. The step's autosave stops the
    *  navigation on a false — the row that failed has said why on screen, and
@@ -306,16 +330,29 @@ export default function LodgingClient({
     setSuccessMsg(null);
     setBusy(true);
     try {
-      // 1) Patch shavings_ban_outside on the show.
+      // 1) Patch the show's own columns: the shavings policy and when stalls
+      //    open. Only what changed is sent.
+      if (moveInAfterShow) {
+        setError("Move-in: stalls can't open after the show's last day.");
+        return false;
+      }
+      const showPatch: Record<string, unknown> = {};
       if (banOutsideShavings !== initialShavingsBanOutside) {
+        showPatch.shavings_ban_outside = banOutsideShavings;
+      }
+      if (moveInDirty) {
+        showPatch.stalls_open_date = stallsOpenDate || null;
+        showPatch.stalls_open_time = sentStallsOpenTime || null;
+      }
+      if (Object.keys(showPatch).length > 0) {
         const showRes = await fetch(`/api/shows/${showId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ shavings_ban_outside: banOutsideShavings }),
+          body: JSON.stringify(showPatch),
         });
         if (!showRes.ok) {
           const j = await showRes.json().catch(() => null);
-          setError(errorMessage(j, 'Failed to update shavings policy.'));
+          setError(errorMessage(j, 'Failed to update move-in and shavings policy.'));
           return false;
         }
       }
@@ -435,6 +472,82 @@ export default function LodgingClient({
           the shavings above it, and the shavings ban looked like a policy about
           the whole step. A section apiece is what makes the controls in a box
           belong to the thing the box is named after. */}
+      {/* When the barn opens comes first: it is the one thing on this step
+          every exhibitor hauling in needs, whether or not they book anything
+          here. The venue's own day and hour, printed as typed — not a moment
+          to convert into the reader's zone (see lib/stalls-open.ts). */}
+      <section
+        className="p-4 rounded-lg border space-y-3"
+        style={{ borderColor: COLORS.border, backgroundColor: COLORS.bg }}
+        aria-labelledby="move-in-heading"
+      >
+        <div>
+          <h2 id="move-in-heading" className="text-base font-semibold" style={{ color: COLORS.text }}>
+            Move-in
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
+            When exhibitors may arrive and move into their stalls. Shown on the show page, the
+            show bill, and beside the arrival date exhibitors pick when they sign up. The time
+            is optional.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-[12rem_9rem_auto] gap-3 items-end">
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              Stalls open on
+            </span>
+            <input
+              type="date"
+              value={stallsOpenDate}
+              max={showEndDate}
+              onChange={(e) => setStallsOpenDate(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              style={{ borderColor: moveInAfterShow ? 'var(--error)' : COLORS.border }}
+              aria-invalid={moveInAfterShow}
+            />
+          </label>
+          <label className="block">
+            <span className="block text-xs mb-1" style={{ color: COLORS.muted }}>
+              From
+            </span>
+            <input
+              type="time"
+              value={stallsOpenTime}
+              disabled={!stallsOpenDate}
+              title={!stallsOpenDate ? 'Pick the day stalls open first.' : undefined}
+              onChange={(e) => setStallsOpenTime(e.target.value)}
+              className="w-full border rounded px-3 py-2 disabled:opacity-50"
+              style={{ borderColor: COLORS.border }}
+            />
+          </label>
+          {(stallsOpenDate || stallsOpenTime) && (
+            <button
+              type="button"
+              onClick={() => {
+                setStallsOpenDate('');
+                setStallsOpenTime('');
+              }}
+              className="text-sm underline justify-self-start py-2"
+              style={{ color: COLORS.muted }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {moveInAfterShow ? (
+          <p className="text-xs" style={{ color: 'var(--error-strong)' }} role="alert">
+            That&apos;s after the show&apos;s last day. Pick a day on or before it.
+          </p>
+        ) : moveInPreview ? (
+          <p className="text-xs" style={{ color: COLORS.muted }}>
+            Exhibitors will read: <strong style={{ color: COLORS.text }}>Stalls open {moveInPreview}</strong>
+            {stallsOpenDate > showStartDate && ' — after the show has started.'}
+          </p>
+        ) : null}
+      </section>
+
+      {maps}
+
       {SLOTS.map((s) => {
         const slot = slots[s.code];
         const chosen = unitChoice(s, slot.unit);

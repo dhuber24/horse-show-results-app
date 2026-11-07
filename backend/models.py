@@ -187,6 +187,19 @@ class Show(Base):
     aqha_approval_submitted_at = Column(Date, nullable=True)
     aqha_approval_notes = Column(Text, nullable=True)
     shavings_ban_outside = Column(Boolean, nullable=False, server_default="false")
+    # When exhibitors may arrive and move into their stalls (migration 181).
+    # Wall-clock values at the venue, printed as typed -- not an instant, so not
+    # a TIMESTAMPTZ and not formatted into the reader's zone. The time is
+    # optional; a time with no date is refused by a CHECK.
+    stalls_open_date = Column(Date, nullable=True)
+    stalls_open_time = Column(Time, nullable=True)
+    # General show notes (migration 184), both written on Step 1. `public_notes`
+    # is for exhibitors and rides the public show payload onto the show page and
+    # the generated bill. `office_notes` is the office's own and must never reach
+    # `_serialize`, which answers anybody: it is read only through
+    # GET /shows/{id}/office-notes, behind `show_access`.
+    public_notes = Column(Text, nullable=True)
+    office_notes = Column(Text, nullable=True)
     # Which show bill `/shows/{id}/showbill` renders (migration 127): the one the
     # app generates from this show's own classes, judges and fees, or a file the
     # show uploaded. Only ever 'uploaded' while a SHOWBILL row exists in
@@ -281,7 +294,8 @@ class ShowAffiliation(Base):
 
 
 class ShowDocument(Base):
-    """A file the show uploaded about itself -- today, its own show bill.
+    """A file the show uploaded about itself: its own show bill, and since
+    migration 182 its stall map and RV / camping map.
 
     Shaped after `horse_documents` and `trainer_documents`: bytes in the row,
     MIME sniffed from the magic bytes rather than trusted from the client, and
@@ -302,7 +316,10 @@ class ShowDocument(Base):
     show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
     document_type = Column(
         Text,
-        CheckConstraint("document_type IN ('SHOWBILL')"),
+        CheckConstraint(
+            "document_type IN ('SHOWBILL', 'STALL_MAP', 'RV_MAP')",
+            name="ck_show_documents_type",
+        ),
         nullable=False,
     )
     original_filename = Column(Text, nullable=False)
@@ -2711,6 +2728,85 @@ class ShowMarquee(Base):
     updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_by_user_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ShowBoard(Base):
+    """The show office's one setting for its discussion board (migration 183).
+
+    open | signed_in | closed, checked by ck_show_boards_mode in the migration.
+    No row is 'open'. See `routers/show_board.py`.
+    """
+    __tablename__ = "show_boards"
+
+    show_id = Column(
+        UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), primary_key=True
+    )
+    mode = Column(Text, nullable=False, server_default="open")
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    updated_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class ShowBoardPost(Base):
+    """A post, or a reply to one, on a show's discussion board (migration 183).
+
+    Who wrote it is read off the session on the server, never the body. On an
+    anonymous post `author_user_id` is still kept, for a GaitDesk admin dealing
+    with abuse, and nobody else is shown it -- the show office included.
+    `author_kind` and `author_name` are snapshots of who the poster was at this
+    show when they posted. See `routers/show_board.py`.
+    """
+    __tablename__ = "show_board_posts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    show_id = Column(UUID(as_uuid=True), ForeignKey("shows.id", ondelete="CASCADE"), nullable=False)
+    # One level only: the router refuses a reply to a reply.
+    parent_id = Column(
+        UUID(as_uuid=True), ForeignKey("show_board_posts.id", ondelete="CASCADE"), nullable=True
+    )
+    category = Column(Text, nullable=False, server_default="general")
+    body = Column(Text, nullable=False)
+    is_anonymous = Column(Boolean, nullable=False, server_default=text("false"))
+    author_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    author_exhibitor_id = Column(
+        UUID(as_uuid=True), ForeignKey("exhibitors.id", ondelete="SET NULL"), nullable=True
+    )
+    author_kind = Column(Text, nullable=False)
+    author_name = Column(Text, nullable=True)
+    pinned_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    pinned_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    hidden_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    hidden_by_user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    # Declared here as well as in the migration: startup create_all may build
+    # the table first (migration 089).
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('general', 'question', 'callout', 'update', 'lost_found')",
+            name="ck_show_board_posts_category",
+        ),
+        CheckConstraint(
+            "author_kind IN ('visitor', 'member', 'exhibitor', 'trainer', 'office', 'gaitdesk')",
+            name="ck_show_board_posts_author_kind",
+        ),
+        CheckConstraint(
+            "char_length(body) BETWEEN 1 AND 2000",
+            name="ck_show_board_posts_body_length",
+        ),
+        CheckConstraint(
+            "author_kind <> 'visitor' OR NOT is_anonymous",
+            name="ck_show_board_posts_visitor_not_anonymous",
+        ),
     )
 
 
