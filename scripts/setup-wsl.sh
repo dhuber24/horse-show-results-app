@@ -47,17 +47,46 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq git curl ca-certificates gnupg >/dev/null
 
 step "PowerShell (the pre-commit docs guard, migrate.ps1, release.ps1)"
+# Microsoft's apt repo, where it has a package for this Ubuntu; otherwise the
+# release tarball from GitHub. A new Ubuntu gets its repo months before the
+# repo gets PowerShell (26.04 "resolute" had the repo and no package).
+install_pwsh_tarball() {
+  local ver arch icu dir=/opt/microsoft/powershell/7
+  ver="$(curl -fsSL https://api.github.com/repos/PowerShell/PowerShell/releases/latest \
+    | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
+  case "$(dpkg --print-architecture)" in
+    amd64) arch=x64 ;;
+    arm64) arch=arm64 ;;
+    *) echo "No PowerShell build for $(dpkg --print-architecture)." >&2; return 1 ;;
+  esac
+  # pwsh needs ICU, and the package is named for its version (libicu76, ...).
+  icu="$(apt-cache search --names-only '^libicu[0-9]+$' | awk '{print $1}' | sort -V | tail -1)"
+  if [ -n "$icu" ]; then sudo apt-get install -y -qq "$icu" >/dev/null; fi
+  sudo mkdir -p "$dir"
+  curl -fsSL "https://github.com/PowerShell/PowerShell/releases/download/v${ver}/powershell-${ver}-linux-${arch}.tar.gz" \
+    | sudo tar -xz -C "$dir"
+  sudo chmod +x "$dir/pwsh"
+  sudo ln -sf "$dir/pwsh" /usr/local/bin/pwsh
+}
 if command -v pwsh >/dev/null; then
-  note "already installed: $(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')"
+  note "already installed"
 else
   . /etc/os-release
-  curl -fsSL "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb" \
-    -o /tmp/packages-microsoft-prod.deb
-  sudo dpkg -i /tmp/packages-microsoft-prod.deb >/dev/null
-  rm -f /tmp/packages-microsoft-prod.deb
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq powershell >/dev/null
+  if [ ! -f /etc/apt/sources.list.d/microsoft-prod.list ] \
+     && curl -fsSL "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb" \
+          -o /tmp/packages-microsoft-prod.deb 2>/dev/null; then
+    sudo dpkg -i /tmp/packages-microsoft-prod.deb >/dev/null
+    rm -f /tmp/packages-microsoft-prod.deb
+    sudo apt-get update -qq
+  fi
+  if apt-cache policy powershell 2>/dev/null | grep -q 'Candidate: [0-9]'; then
+    sudo apt-get install -y -qq powershell >/dev/null
+  else
+    note "no apt package for Ubuntu ${VERSION_ID}; installing the GitHub release"
+    install_pwsh_tarball
+  fi
 fi
+note "$(pwsh -NoProfile -Command '"PowerShell " + $PSVersionTable.PSVersion.ToString()')"
 
 step "GitHub CLI"
 if command -v gh >/dev/null; then
