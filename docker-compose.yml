@@ -32,15 +32,23 @@ services:
     build: ./frontend
     ports:
       - "3000:3000"
+    # `next dev` plus NEXT_DEV_FLAGS from .env: a checkout inside WSL's own
+    # filesystem sets it to --turbopack. $$ leaves the variable for the
+    # container's shell, so an unset value is simply nothing.
+    command: ["sh", "-c", "exec npm run dev -- $$NEXT_DEV_FLAGS"]
     environment:
       - API_URL=http://backend:8000
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - AUTH_SECRET=${NEXTAUTH_SECRET}
-      # Windows bind mounts don't deliver fs events to the container, so the
-      # Next.js file watcher misses edits without polling.
-      - WATCHPACK_POLLING=true
-      - CHOKIDAR_USEPOLLING=true
+      - NEXT_DEV_FLAGS=${NEXT_DEV_FLAGS:-}
+      # A checkout on a Windows drive (C:\...) bind-mounts without fs events,
+      # so the webpack watcher misses edits unless it polls -- the default.
+      # A checkout inside WSL's filesystem gets real events: set it false
+      # there. Turbopack has no polling mode at all, which is why it is only
+      # turned on where events work. See README, "Faster on Windows".
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING:-true}
+      - CHOKIDAR_USEPOLLING=${WATCHPACK_POLLING:-true}
     depends_on:
       backend:
         condition: service_healthy

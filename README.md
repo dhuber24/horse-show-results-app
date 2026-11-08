@@ -90,6 +90,39 @@ Run every check the way CI does:
 bash RUN_TESTS.sh
 ```
 
+### Faster on Windows: work inside WSL
+
+A checkout on a Windows drive (`C:\...`) is the slow way to run this stack.
+Docker's Linux VM reads `./frontend` and `./backend` through a file-sharing
+layer that is slow for the thousands of small files `next dev` touches, and
+that delivers no file events, so the frontend's watcher has to poll
+(`WATCHPACK_POLLING`). A clone inside
+WSL's own filesystem has native bind mounts and real events, and so can run
+Turbopack, which has no polling mode.
+
+1. From Windows: `wsl --install -d Ubuntu`, and create your Linux user.
+2. Docker Desktop → Settings → Resources → WSL integration → switch Ubuntu on.
+3. Inside Ubuntu:
+   `bash /mnt/c/Users/<you>/projects/horse-show-results-app/scripts/setup-wsl.sh`.
+   It installs PowerShell (for the pre-commit docs guard and the `.ps1`
+   scripts), the GitHub CLI and Node 24.22.1, points git at Windows' credential
+   manager, clones into `~/projects/horse-show-results-app`, copies `.env`
+   across with Turbopack on and polling off, and copies Claude Code's project
+   memory to the new path. It is safe to run again.
+4. `docker compose down` in the Windows checkout (both checkouts use the same
+   container names), then `docker compose up -d --build -V` in the WSL one, and
+   open it with `code ~/projects/horse-show-results-app`.
+
+Two `.env` switches decide how the frontend dev server watches files; leave
+both unset on a Windows-drive checkout:
+
+| Variable | Windows drive (default) | WSL, Linux, macOS |
+| --- | --- | --- |
+| `NEXT_DEV_FLAGS` | unset (webpack) | `--turbopack` |
+| `WATCHPACK_POLLING` | unset (`true`) | `false` |
+
+Turbopack on a Windows-drive checkout compiles, but never sees an edit.
+
 ## Environments And Releasing
 
 | | Runs | Database |
