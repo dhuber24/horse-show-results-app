@@ -35,7 +35,7 @@ export default function ShowHub({
     start_date: string;
     end_date: string;
     status: string;
-    /** The show office's two registration answers (migration 159), and whether
+    /** The show office's two registration answers (migrations 159 and 185), and whether
      *  sign-up is still open today — decided on the server. */
     signup_open?: boolean;
     entry_deadline?: string | null;
@@ -61,6 +61,7 @@ export default function ShowHub({
           showStatus={show.status}
           standing={standing}
           signupOpen={show.signup_open !== false}
+          classesOfficeOnly={show.self_entry_closes === 'office_only'}
         />
       )}
 

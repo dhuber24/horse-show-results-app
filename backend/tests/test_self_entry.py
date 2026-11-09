@@ -15,6 +15,7 @@ import pytest
 from self_entry import (
     CLASS_START,
     SELF_ENTRY_STATUSES,
+    OFFICE_ONLY,
     SHOW_START,
     class_completed,
     class_entry_closed_refusal,
@@ -26,7 +27,9 @@ from self_entry import (
     self_entry_statuses,
     signup_closed_refusal,
     signup_open,
-    unnominated,
+    futurities_without_entry,
+    futurity_entry_closed_refusal,
+    futurity_entry_open,
 )
 
 POSTED = datetime(2026, 9, 27, 15, 0, tzinfo=timezone.utc)
@@ -130,40 +133,40 @@ def test_a_horse_with_a_result_cannot_be_scratched_before_the_class_is_marked_fi
 # ── Futurity classes at a live show ──────────────────────────────────────────
 
 
-def make_futurity(name, *nominations):
+def make_futurity(name, *futurity_entries):
     return SimpleNamespace(
         name=name,
-        entries=[SimpleNamespace(show_entry_id=se, horse_id=h) for se, h in nominations],
+        entries=[SimpleNamespace(show_entry_id=se, horse_id=h) for se, h in futurity_entries],
     )
 
 
-def test_a_class_no_futurity_judges_needs_no_nomination():
-    assert unnominated([], uuid4(), uuid4()) == []
+def test_a_class_no_futurity_judges_needs_no_futurity_entry():
+    assert futurities_without_entry([], uuid4(), uuid4()) == []
 
 
-def test_a_nominated_horse_may_enter_its_futurity_class():
+def test_a_horse_with_a_futurity_entry_may_enter_its_futurity_class():
     roster_row, horse = uuid4(), uuid4()
     futurity = make_futurity("Yearling Longe Line", (roster_row, horse))
-    assert unnominated([futurity], roster_row, horse) == []
+    assert futurities_without_entry([futurity], roster_row, horse) == []
 
 
-def test_an_unnominated_horse_is_sent_to_the_office():
+def test_a_horse_with_no_futurity_entry_is_sent_to_the_office():
     roster_row, horse = uuid4(), uuid4()
     futurity = make_futurity("Yearling Longe Line", (roster_row, uuid4()))
-    assert unnominated([futurity], roster_row, horse) == [futurity]
+    assert futurities_without_entry([futurity], roster_row, horse) == [futurity]
 
 
 def test_another_exhibitors_nomination_of_the_same_horse_does_not_count():
     horse = uuid4()
     futurity = make_futurity("Yearling Longe Line", (uuid4(), horse))
-    assert unnominated([futurity], uuid4(), horse) == [futurity]
+    assert futurities_without_entry([futurity], uuid4(), horse) == [futurity]
 
 
 def test_a_nomination_in_any_one_covering_futurity_is_enough():
     roster_row, horse = uuid4(), uuid4()
     first = make_futurity("Breeders", (roster_row, uuid4()))
     second = make_futurity("Stakes", (roster_row, horse))
-    assert unnominated([first, second], roster_row, horse) == []
+    assert futurities_without_entry([first, second], roster_row, horse) == []
 
 
 # ── The show office's two answers (migration 159) ────────────────────────────
@@ -179,13 +182,28 @@ def test_class_changes_stop_when_the_show_starts_where_the_show_says_so():
     assert not class_entry_open("ACTIVE", SHOW_START)
 
 
+def test_an_office_only_show_never_opens_the_class_doors():
+    """Migration 185: the office makes every class entry and scratch."""
+    assert self_entry_statuses(OFFICE_ONLY) == frozenset()
+    assert not class_entry_open("PUBLISHED", OFFICE_ONLY)
+    assert not class_entry_open("ACTIVE", OFFICE_ONLY)
+
+
+def test_an_office_only_show_still_takes_online_sign_ups():
+    """Only the class doors are the office's; signing up stays the exhibitor's."""
+    window = registration_window(make_show(self_entry_closes=OFFICE_ONLY), as_of=date(2026, 9, 1))
+    assert window["signup_open"] is True
+    assert window["class_entry_open"] is False
+    assert window["class_entry_closes"] == OFFICE_ONLY
+
+
 def test_an_unanswered_show_keeps_what_every_show_did_before_the_question():
     """Nothing already taking entries changes under anybody."""
     assert self_entry_statuses(None) == SELF_ENTRY_STATUSES
     assert class_entry_open("ACTIVE", None)
 
 
-@pytest.mark.parametrize("closes", [CLASS_START, SHOW_START, None])
+@pytest.mark.parametrize("closes", [CLASS_START, SHOW_START, OFFICE_ONLY, None])
 @pytest.mark.parametrize("status", ["DRAFT", "COMPLETED"])
 def test_no_answer_opens_a_show_that_is_not_taking_entries(status, closes):
     assert not class_entry_open(status, closes)
@@ -248,3 +266,25 @@ def test_the_class_refusal_sends_them_to_the_office():
     refusal = class_entry_closed_refusal()
     assert refusal["code"] == "CLASS_ENTRY_CLOSED"
     assert "office" in refusal["message"]
+
+
+def test_the_office_only_refusal_does_not_blame_the_show_being_under_way():
+    refusal = class_entry_closed_refusal(OFFICE_ONLY)
+    assert refusal["code"] == "CLASS_ENTRY_CLOSED"
+    assert "under way" not in refusal["message"]
+    assert "show office" in refusal["message"]
+
+
+def test_the_futurity_step_is_the_exhibitors_except_at_an_office_only_show():
+    """The office files futurity entries with the classes there (migration 185)."""
+    assert futurity_entry_open(CLASS_START)
+    assert futurity_entry_open(SHOW_START)
+    assert futurity_entry_open(None)
+    assert not futurity_entry_open(OFFICE_ONLY)
+
+
+def test_the_futurity_refusal_sends_them_to_the_office_without_saying_nomination():
+    refusal = futurity_entry_closed_refusal()
+    assert refusal["code"] == "CLASS_ENTRY_CLOSED"
+    assert "show office" in refusal["message"]
+    assert "nominat" not in refusal["message"].lower()

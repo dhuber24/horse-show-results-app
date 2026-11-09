@@ -137,14 +137,24 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
 
   // What I entered, then what I owe. The class tile keeps its slot from
   // sign-up to the last day, so it does not move under them mid-show.
+  // A show whose office makes every class change (`office_only`, migration
+  // 185) keeps the tile, read-only, as My Classes from sign-up on.
+  const officeOnly = show.self_entry_closes === 'office_only';
   if (signedUp && show.status === 'PUBLISHED') {
     mine.push(
-      {
-        href: `/shows/${showId}/register/classes`,
-        icon: '📝',
-        title: 'Add/Drop Classes',
-        description: 'Enter or drop classes, and ask for your back number.',
-      },
+      officeOnly
+        ? {
+            href: `/shows/${showId}/register/classes`,
+            icon: '📝',
+            title: 'My Classes',
+            description: 'What you’re entered in, and your back number. The show office makes class changes.',
+          }
+        : {
+            href: `/shows/${showId}/register/classes`,
+            icon: '📝',
+            title: 'Add/Drop Classes',
+            description: 'Enter or drop classes, and ask for your back number.',
+          },
       {
         href: `/shows/${showId}/register`,
         icon: '🗂️',
@@ -156,10 +166,10 @@ export function buildShowHub(showId: string, show: HubShow, viewer: HubViewer): 
     );
   } else if (signedUp && show.status === 'ACTIVE') {
     // Under way: the class doors stay open (`backend/self_entry.py`) unless the
-    // office said class changes stop when the show starts. Details and stalls
+    // office said class changes stop when the show starts, or are always its. Details and stalls
     // are the office's from here on, so My Registration goes.
     mine.push(
-      show.self_entry_closes === 'show_start'
+      show.self_entry_closes === 'show_start' || officeOnly
         ? {
             href: `/shows/${showId}/register/classes`,
             icon: '📝',

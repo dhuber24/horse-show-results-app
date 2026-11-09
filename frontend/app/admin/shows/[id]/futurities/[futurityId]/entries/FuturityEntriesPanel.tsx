@@ -310,18 +310,18 @@ function EntryRow({
  * horses on offer are that exhibitor's — and one already enrolled is dropped,
  * since the backend enforces one enrollment per horse anyway.
  *
- * **The classes are part of enrolling.** A nomination is what prices a futurity
+ * **The classes are part of enrolling.** A futurity entry is what prices a futurity
  * class — the class row carries no fee of its own — so one with no class behind
  * it charges the office fee for a programme the horse is judged in nothing of,
  * and the backend refuses it (`FUTURITY_CLASS_REQUIRED`). The form books the
  * ticked classes first, through the ordinary class-entry endpoint so they get
  * the same association and side pot validation as any other entry, and
- * nominates once they are in.
+ * files the futurity entry once they are in.
  *
- * **Classes first, nomination second, and the order is deliberate.** If the
- * nomination fails the horse is left entered and unenrolled, which every desk
+ * **Classes first, futurity entry second, and the order is deliberate.** If the
+ * futurity entry fails the horse is left entered and unenrolled, which every desk
  * screen already flags in as many words and the office can finish in a press.
- * The reverse leaves a bare nomination — the exact thing this change removes.
+ * The reverse leaves a bare futurity entry — the exact thing this change removes.
  */
 function AddEntryForm({
   showId,
@@ -362,7 +362,7 @@ function AddEntryForm({
     }
     if (futurity.classes.length > 0 && classIds.length === 0) {
       setError(
-        'Tick at least one futurity class. A nomination is what prices those ' +
+        'Tick at least one futurity class. A futurity entry is what prices those ' +
           'classes, so one with none entered owes the office fee and is judged in nothing.',
       );
       return;
@@ -372,7 +372,7 @@ function AddEntryForm({
       // The classes go in through the ordinary entry endpoint, which is the one
       // place that validates an entry — association rules, closed classes, and
       // the side pot buy-in a class may oblige. A 409 on any of them stops here
-      // rather than nominating a horse into classes it is not in.
+      // rather than filing a futurity entry for classes it is not in.
       const exhibitorId = person?.exhibitor_id;
       for (const classId of classIds) {
         const entryRes = await fetch(`/api/shows/${showId}/classes/${classId}/entries`, {
@@ -384,7 +384,7 @@ function AddEntryForm({
         const j = await entryRes.json().catch(() => null);
         const detail = typeof j?.detail === 'string' ? j.detail : j?.detail?.message;
         // Already in the class is exactly what we wanted — a horse half-entered
-        // before somebody came to nominate it is the ordinary case at a counter.
+        // before somebody came to file its futurity entry is the ordinary case at a counter.
         if (entryRes.status === 409 && /already/i.test(detail ?? '')) continue;
         const number =
           futurity.classes.find((c) => c.class_id === classId)?.class_number ?? '';
@@ -562,7 +562,7 @@ function AddEntryForm({
       </div>
 
       {/* The classes, ticked here rather than entered on a separate screen. A
-          nomination is what prices them, so one with none entered charges the
+          futurity entry is what prices them, so one with none entered charges the
           office fee for a programme the horse is judged in nothing of — the
           backend refuses that, and this is where it is satisfied. */}
       {futurity.classes.length > 0 && (
@@ -591,7 +591,7 @@ function AddEntryForm({
           </div>
           <span className="block text-xs mt-1" style={{ color: COLORS.muted }}>
             {horseId
-              ? 'Ticked classes are entered for this horse, then the nomination is filed. A class it is already in is left alone.'
+              ? 'Ticked classes are entered for this horse, then the futurity entry is filed. A class it is already in is left alone.'
               : 'Pick a horse first.'}
           </span>
         </fieldset>
@@ -607,7 +607,7 @@ function AddEntryForm({
           {busy
             ? 'Entering…'
             : classIds.length > 0
-              ? `Enter ${classIds.length} class${classIds.length === 1 ? '' : 'es'} & nominate`
+              ? `Enter ${classIds.length} class${classIds.length === 1 ? '' : 'es'} & the futurity`
               : 'Enter'}
         </button>
         <button

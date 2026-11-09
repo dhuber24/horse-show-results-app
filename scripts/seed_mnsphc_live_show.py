@@ -15,7 +15,7 @@ morning:
     or more horses. Every entry is put through the app's own APHA rules engine
     before it is written, so nothing here is an entry the desk would refuse --
     see "What is and is not realistic" below.
-  * The side pot buy-ins and futurity nominations those entries oblige.
+  * The side pot buy-ins and futurity entries those entries oblige.
   * Payments recorded against about two-thirds of the accounts.
   * The first three classes judged, placed on all four judges' cards, marked
     done at the gate and posted to the live results -- and the Grand & Reserve
@@ -592,7 +592,7 @@ class Planner:
         self.entries: list[PlannedEntry] = []
         self.by_class: dict[str, list[PlannedEntry]] = defaultdict(list)
         self.used_pairs: Counter = Counter()
-        # A futurity nomination is one horse on one account, and it prices only
+        # A futurity entry is one horse on one account, and it prices only
         # that account's entries -- so a horse two people showed in futurity
         # classes would have the second person's classes billed at nothing.
         self.futurity_handler: dict[int, str] = {}
@@ -1141,18 +1141,18 @@ async def seed(show_start: date, plan_only: bool, verbose: bool) -> None:
             for key in pot_members[pot_id]:
                 db.add(SidePotEntry(side_pot_id=pot_id, show_entry_id=show_entries[key].id, paid=True))
 
-        # ── Futurity nominations: one per horse in any futurity class ────────
+        # ── Futurity entries: one per horse in any futurity class ────────
         futurity = built["futurity"]
         tiers = sorted((await db.execute(select(FuturityFeeTier).where(
             FuturityFeeTier.futurity_id == futurity.id))).scalars(), key=lambda t: t.sort_order)
         memberships = sorted((await db.execute(select(FuturityMembershipOption).where(
             FuturityMembershipOption.futurity_id == futurity.id))).scalars(), key=lambda o: o.sort_order)
         futurity_numbers = set(built["futurity_class_numbers"])
-        nominated: dict[int, PlannedEntry] = {}
+        in_futurity_by_horse: dict[int, PlannedEntry] = {}
         for e in planner.entries:
             if e.cls.number in futurity_numbers:
-                nominated.setdefault(e.horse.index, e)
-        for n, (_index, e) in enumerate(sorted(nominated.items())):
+                in_futurity_by_horse.setdefault(e.horse.index, e)
+        for n, (_index, e) in enumerate(sorted(in_futurity_by_horse.items())):
             is_member = n % 4 != 1
             db.add(FuturityEntry(
                 futurity_id=futurity.id,
@@ -1162,7 +1162,7 @@ async def seed(show_start: date, plan_only: bool, verbose: bool) -> None:
                 is_member=is_member,
                 membership_option_id=memberships[n % 2].id if not is_member and n % 3 == 0 else None,
                 shown_by_name=None if e.horse.owner == e.person.key else e.person.full_name,
-                # One nomination came in the morning after the deadline, and owes
+                # One futurity entry came in the morning after the deadline, and owes
                 # the late fee on every futurity class that horse is in.
                 entered_at=(futurity.entry_deadline + timedelta(days=1)) if n == 5
                 else futurity.entry_deadline - timedelta(days=rng.randint(3, 30)),
@@ -1185,7 +1185,7 @@ async def seed(show_start: date, plan_only: bool, verbose: bool) -> None:
         db.add(release)
         await db.flush()
         futurity_release = await _one(db, select(ShowWaiver).where(ShowWaiver.futurity_id == futurity.id))
-        in_futurity = {e.person.key for e in nominated.values()}
+        in_futurity = {e.person.key for e in in_futurity_by_horse.values()}
         unsigned = {"renee", "owen"}   # the desk still has to chase these two
         on_paper = {"paul", "carla"}   # handed a paper blank across the counter
         for person in PEOPLE:
@@ -1284,7 +1284,7 @@ async def seed(show_start: date, plan_only: bool, verbose: bool) -> None:
         print(f"  status     {show.status}  {show.start_date} to {show.end_date}")
         print(f"  people     {len(PEOPLE)} exhibitors (password {PASSWORD}), {len(horses)} horses")
         print(f"  entries    {len(planner.entries) + len(called_back)}; "
-              f"{len(nominated)} futurity nominations; side pots "
+              f"{len(in_futurity_by_horse)} futurity entries; side pots "
               + ", ".join(str(len(m)) for m in pot_members.values()))
         print(f"  posted     classes {', '.join(done_numbers)}; on deck: 2-3 with "
               f"{len(called_back)} call-backs ({', '.join(called_back)})")

@@ -26,6 +26,14 @@ import { useState } from 'react';
  * with their per-class rates, the office fee, and any late fee that now
  * applies. Those are prices attached to the buttons beside them, not
  * background reading.
+ *
+ * **Withdrawing scratches the horse's futurity classes too**
+ * (`show_registration.withdraw_from_futurity`), so the confirmation names them.
+ * And at a show whose office makes every class change (`office_only`) the card
+ * is read-only: the office files futurity entries with the classes.
+ *
+ * A futurity entry is not a nomination — that is the futurity's own
+ * eligibility process, outside any show, and GaitDesk never takes one.
  */
 
 export type FuturityTier = {
@@ -53,6 +61,8 @@ export type MyFuturityEntry = {
   is_member: boolean;
   shown_by_name: string | null;
   entered_at: string;
+  /** The futurity classes this horse is in, which withdrawing also scratches. */
+  entered_classes?: { class_id: string; class_number: string | null; class_name: string | null }[];
 };
 
 export type ExhibitorFuturity = {
@@ -78,6 +88,22 @@ export type ExhibitorFuturity = {
 };
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/** A refusal's words. The API answers some refusals with a bare string and
+ *  others with `{ code, message }`; rendering the object itself crashes the
+ *  card. */
+function refusalText(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return fallback;
+}
+
+function classLabel(c: { class_number: string | null; class_name: string | null }): string {
+  return [c.class_number, c.class_name].filter(Boolean).join(' ') || 'a class';
+}
 
 function formatDate(value: string | null): string {
   if (!value) return '';
@@ -116,11 +142,15 @@ export default function FuturityEntry({
   futurities,
   horses,
   signedUp,
+  officeOnly = false,
 }: {
   showId: string;
   futurities: ExhibitorFuturity[];
   horses: { id: string; name: string }[];
   signedUp: boolean;
+  /** The show office makes every class change, futurity entries included
+   *  (`self_entry_closes = 'office_only'`): show what is filed, change nothing. */
+  officeOnly?: boolean;
 }) {
   if (futurities.length === 0) return null;
 
@@ -136,6 +166,7 @@ export default function FuturityEntry({
           futurity={futurity}
           horses={horses}
           signedUp={signedUp}
+          officeOnly={officeOnly}
         />
       ))}
     </div>
@@ -170,11 +201,13 @@ function FuturityCard({
   futurity,
   horses,
   signedUp,
+  officeOnly,
 }: {
   showId: string;
   futurity: ExhibitorFuturity;
   horses: { id: string; name: string }[];
   signedUp: boolean;
+  officeOnly: boolean;
 }) {
   const router = useRouter();
   const [horseId, setHorseId] = useState('');
@@ -215,7 +248,7 @@ function FuturityCard({
         setError(
           j?.detail === 'SHOW_SIGNUP_REQUIRED'
             ? 'Complete your show sign-up first.'
-            : j?.detail || 'Could not enter the futurity.',
+            : refusalText(j?.detail, 'Could not enter the futurity.'),
         );
         return;
       }
@@ -236,7 +269,7 @@ function FuturityCard({
       });
       if (!res.ok && res.status !== 204) {
         const j = await res.json().catch(() => null);
-        setError(j?.detail || 'Could not withdraw.');
+        setError(refusalText(j?.detail, 'Could not withdraw.'));
         return;
       }
       setConfirming(null);
@@ -298,8 +331,15 @@ function FuturityCard({
                 </span>
               )}
               {signedUp &&
+                !officeOnly &&
                 (confirming === entry.id ? (
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
+                    {entry.entered_classes && entry.entered_classes.length > 0 && (
+                      <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                        Also scratches {entry.horse_name ?? 'this horse'} from{' '}
+                        {entry.entered_classes.map(classLabel).join(', ')}.
+                      </span>
+                    )}
                     <button
                       onClick={() => withdraw(entry.id)}
                       disabled={busy}
@@ -338,6 +378,11 @@ function FuturityCard({
       {!signedUp ? (
         <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
           Sign up for stalls first.
+        </p>
+      ) : officeOnly ? (
+        <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>
+          At this show the show office enters futurity classes and files the futurity entry with
+          them. Send them a message with the horse and its category.
         </p>
       ) : futurity.fee_tiers.length === 0 ? (
         <p className="text-xs mt-2" style={{ color: 'var(--muted)' }}>

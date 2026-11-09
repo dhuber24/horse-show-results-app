@@ -32,6 +32,7 @@ export default function ExhibitorStatusBanner({
   showStatus,
   standing,
   signupOpen = true,
+  classesOfficeOnly = false,
 }: {
   showId: string;
   showStatus: string;
@@ -39,6 +40,10 @@ export default function ExhibitorStatusBanner({
   /** `signup_open` off the show payload: somebody not yet signed up may still
    *  sign up online. Only read while the show is published. */
   signupOpen?: boolean;
+  /** The show office makes every class entry and scratch
+   *  (`self_entry_closes = 'office_only'`, migration 185), so the classes link
+   *  only shows what they are entered in. */
+  classesOfficeOnly?: boolean;
 }) {
   const registrationOpen = showStatus === 'PUBLISHED';
   // A new sign-up — including signing up again after cancelling, and finishing
@@ -140,7 +145,11 @@ export default function ExhibitorStatusBanner({
           {registrationOpen && (
             <>
               <Link href={classesHref} className="hover:underline" style={{ color: 'var(--accent)' }}>
-                {entryCount > 0 ? 'Add or remove classes →' : 'Pick your classes →'}
+                {classesOfficeOnly
+                  ? 'My classes →'
+                  : entryCount > 0
+                    ? 'Add or remove classes →'
+                    : 'Pick your classes →'}
               </Link>
               {/* `/signup` is where releases are signed as well as where stalls
                   are changed, so a show selling no stalls still links it while

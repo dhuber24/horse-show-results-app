@@ -34,9 +34,11 @@ because a horse that has not gone yet can still be pulled.
   starts, as before. Unanswered, sign-up stays open until the show starts.
 * **How late classes may be entered and scratched** (`shows.self_entry_closes`):
   until each class starts (`class_start`, the rules above, while the show runs
-  too) or until the show starts (`show_start`, after which every class change
-  is the office's). Unanswered reads as `class_start`, which is what every show
-  did before the question was asked.
+  too), until the show starts (`show_start`, after which every class change
+  is the office's) or never (`office_only`, migration 185: exhibitors still sign
+  up online, but the office makes every class entry and scratch). Unanswered
+  reads as `class_start`, which is what every show did before the question was
+  asked.
 
 "The show starts" is the status turning ACTIVE, the same moment the self-cancel
 window reads it as (`cancellations.SELF_CANCEL_STATUSES`) -- not the calendar,
@@ -58,17 +60,21 @@ from typing import Optional
 SELF_ENTRY_STATUSES = frozenset({"PUBLISHED", "ACTIVE"})
 
 # The answers to "how late may exhibitors enter and scratch their own classes"
-# (`shows.self_entry_closes`, migration 159). Mirrors the column's CHECK.
+# (`shows.self_entry_closes`, migrations 159 and 185). Mirrors the column's CHECK.
 CLASS_START = "class_start"
 SHOW_START = "show_start"
-SELF_ENTRY_CLOSES = (CLASS_START, SHOW_START)
+OFFICE_ONLY = "office_only"
+SELF_ENTRY_CLOSES = (CLASS_START, SHOW_START, OFFICE_ONLY)
 
 
 def self_entry_statuses(closes: Optional[str]) -> frozenset:
     """The statuses in which this show's class doors are open.
 
-    Unanswered is `class_start`: what every show did before the question.
+    None at all for `office_only`. Unanswered is `class_start`: what every show
+    did before the question.
     """
+    if closes == OFFICE_ONLY:
+        return frozenset()
     return frozenset({"PUBLISHED"}) if closes == SHOW_START else SELF_ENTRY_STATUSES
 
 
@@ -128,8 +134,41 @@ def signup_closed_refusal(show) -> dict:
     }
 
 
-def class_entry_closed_refusal() -> dict:
+def futurity_entry_open(closes: Optional[str]) -> bool:
+    """Whether an exhibitor may file or withdraw their own futurity entries.
+
+    The futurity step is PUBLISHED-only whatever the answer (the loader sees to
+    that). At a show whose office makes every class change (`office_only`) it is
+    shut too: the office enters the futurity classes and files the futurity
+    entry with them, in one press, so the exhibitor's step would only be a
+    second place to change what the office set up -- and the futurity entry is
+    what prices those classes.
+    """
+    return closes != OFFICE_ONLY
+
+
+def futurity_entry_closed_refusal() -> dict:
+    """The 403 for a futurity entry or withdrawal at an office-only show."""
+    return {
+        "code": "CLASS_ENTRY_CLOSED",
+        "message": (
+            "At this show the show office makes every class entry and scratch, "
+            "futurity entries included. Send them a message to enter or withdraw "
+            "a horse."
+        ),
+    }
+
+
+def class_entry_closed_refusal(closes: Optional[str] = None) -> dict:
     """The 403 for a class entry or scratch once this show's class doors shut."""
+    if closes == OFFICE_ONLY:
+        return {
+            "code": "CLASS_ENTRY_CLOSED",
+            "message": (
+                "At this show the show office makes every class entry and scratch. "
+                "Send them a message to enter or scratch a class."
+            ),
+        }
     return {
         "code": "CLASS_ENTRY_CLOSED",
         "message": (
@@ -192,16 +231,21 @@ def scratch_refusal(cls, has_result: bool) -> Optional[dict]:
     return None
 
 
-def unnominated(covering_futurities, show_entry_id, horse_id) -> list:
-    """The futurities judging a class that this horse is not nominated in.
+def futurities_without_entry(covering_futurities, show_entry_id, horse_id) -> list:
+    """The futurities judging a class that this horse has no futurity entry in.
 
-    A futurity class carries no price of its own -- the nomination prices it --
-    so an entry with no nomination behind it is billed nothing. Before the show
-    the exhibitor nominates on the futurity step; once it is running that step is
-    closed and a nomination is the office's to take, so a live show's class door
-    refuses a futurity class the horse is not nominated in rather than creating
-    an entry the desk would have to chase. Satisfied by a nomination in any one
-    of the covering futurities, the way a side pot is.
+    A futurity class carries no price of its own -- the horse's futurity entry
+    (its category, office fee and any membership) prices it -- so a class entry
+    with no futurity entry behind it is billed nothing. Before the show the
+    exhibitor files the futurity entry on the futurity step; once it is running
+    that step is closed and a futurity entry is the office's to take, so a live
+    show's class door refuses a futurity class the horse has no futurity entry
+    in rather than creating an entry the desk would have to chase. Satisfied by
+    a futurity entry in any one of the covering futurities, the way a side pot
+    is.
+
+    Not a nomination: that is the futurity's own eligibility process, run
+    outside any show, and GaitDesk never takes or checks one.
     """
     if not covering_futurities:
         return []

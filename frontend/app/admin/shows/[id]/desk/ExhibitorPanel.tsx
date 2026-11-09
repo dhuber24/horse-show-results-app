@@ -763,10 +763,10 @@ export default function ExhibitorPanel({
       .join(' and ')} — it was their last class in it.`;
   };
 
-  /** The same warning for a futurity nomination, which a scratch releases the
+  /** The same warning for a futurity entry, which a scratch releases the
    *  same way. Mirrors `enrollments_to_release`, and note the difference from
    *  the pots above: this is keyed on the **horse**, because two horses of one
-   *  exhibitor in the same futurity are two nominations. */
+   *  exhibitor in the same futurity are two futurity entries. */
   const releasedFuturitiesIfRemoved = (entry: DeskExhibitor['entries'][number]): string => {
     if (!entry.horse_id) return '';
     const remaining = exhibitor.entries.filter(
@@ -1245,7 +1245,7 @@ export default function ExhibitorPanel({
                       href={`/admin/shows/${showId}/futurities/${l.futurity_id}/entries`}
                       className="hover:underline whitespace-nowrap"
                       style={{ color: COLORS.accent }}
-                      title="Change the category or the membership on this nomination"
+                      title="Change the category or the membership on this futurity entry"
                     >
                       Edit →
                     </Link>

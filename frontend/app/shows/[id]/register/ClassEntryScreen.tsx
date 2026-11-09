@@ -155,10 +155,15 @@ export default function ClassEntryScreen({
   // not finished.
   const live = show.status === 'ACTIVE';
   // The show's own answer to how late classes change online (migration 159).
-  // False only at a running show whose office said class changes stop when it
-  // starts; each class's own state still applies on top while it is true.
+  // False at a running show whose office said class changes stop when it
+  // starts, and always at a show whose office makes every class change
+  // (`office_only`, migration 185); each class's own state still applies on
+  // top while it is true.
   const classEntryOpen = preview.registration?.class_entry_open !== false;
   const classEntryCloses = preview.registration?.class_entry_closes ?? 'class_start';
+  const officeOnly = classEntryCloses === 'office_only';
+  const officeOnlyText =
+    'At this show the show office enters and scratches every class. Send them a message to add or drop one.';
   const signupOpen = preview.registration?.signup_open !== false;
   const registrationHref = `/shows/${showId}/register`;
 
@@ -206,24 +211,26 @@ export default function ClassEntryScreen({
     <div className="mt-6">
       <h1 className="text-2xl font-bold" style={{ color: 'var(--foreground)' }}>{show.name}</h1>
       <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-        {live ? 'My classes' : 'Class registration'} — {exhibitor.full_name}
+        {live || officeOnly ? 'My classes' : 'Class registration'} — {exhibitor.full_name}
       </p>
 
       <div
         className="mt-4 rounded-lg border p-3 text-sm"
         style={{ backgroundColor: 'var(--background)', borderColor: 'var(--border)', color: 'var(--text-deep)' }}
       >
-        {live
-          ? !classEntryOpen
-            ? 'The show is under way, and the show office makes every class change now. Ask at the office to enter or scratch a class.'
+        {officeOnly
+          ? officeOnlyText
+          : live
+            ? !classEntryOpen
+              ? 'The show is under way, and the show office makes every class change now. Ask at the office to enter or scratch a class.'
+              : signedUp
+                ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
+                : 'The show is under way and online sign-up has closed.'
             : signedUp
-              ? 'The show is under way. You can enter a class that hasn’t started and scratch from one that hasn’t finished. Once a class is finished, only the show office can take you out of it.'
-              : 'The show is under way and online sign-up has closed.'
-          : signedUp
-            ? `Pick a class and a horse — each entry saves as you add it. ${classEntryText(classEntryCloses)} Fees shown here are what the office will collect at the show.`
-            : signupOpen
-              ? 'Class entry opens once you’ve signed up for this show.'
-              : 'Class entry is for exhibitors signed up for this show, and online sign-up has closed.'}
+              ? `Pick a class and a horse — each entry saves as you add it. ${classEntryText(classEntryCloses)} Fees shown here are what the office will collect at the show.`
+              : signupOpen
+                ? 'Class entry opens once you’ve signed up for this show.'
+                : 'Class entry is for exhibitors signed up for this show, and online sign-up has closed.'}
       </div>
 
       {signedUp ? (
@@ -347,7 +354,9 @@ export default function ClassEntryScreen({
                             lockedReason={
                               classEntryOpen
                                 ? scratchLocks.get(line.entry_id) ?? null
-                                : 'The show office makes class changes now that the show is under way.'
+                                : officeOnly
+                                  ? 'The show office makes every class change at this show.'
+                                  : 'The show office makes class changes now that the show is under way.'
                             }
                             live={live}
                           />

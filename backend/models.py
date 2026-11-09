@@ -157,7 +157,8 @@ class Show(Base):
     # optimistic direction on a deadline.
     entry_deadline = Column(Date, nullable=True)
     # How late an exhibitor may enter and scratch their own classes (migration
-    # 159): `class_start` or `show_start`. NULL is not answered and reads as
+    # 159): `class_start`, `show_start` or `office_only` (never; migration 185).
+    # NULL is not answered and reads as
     # `class_start`. Read through `self_entry.class_entry_open`.
     self_entry_closes = Column(Text, nullable=True)
     # Who a back number belongs to at this show (migration 161): `exhibitor`,

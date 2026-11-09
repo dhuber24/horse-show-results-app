@@ -1,24 +1,31 @@
 """Keeping a futurity enrollment and its class entries in step with each other.
 
-A futurity enrollment is a horse nominated into a programme; the classes it is
+A futurity enrollment is a horse entered in a programme; the classes it is
 judged in are ordinary `classes` entered through ordinary `entries`. Those were
 two entirely independent facts, and that is the gap this module closes — in both
 directions, because it went wrong in both.
 
 **An enrollment with no futurity class was billable and unreachable.** The
 office fee is charged per enrollment (`billing.futurity_lines`), so a horse
-nominated and never entered in any of the futurity's classes owed money for a
+with a futurity entry and none of the futurity's classes owed money for a
 programme it was not in, and the only screen that could take it back off was the
 futurity's own — the desk, where the rest of that exhibitor's money is worked,
 could link out to it and nothing more.
 
-**And a class entry carried no nomination.** Scratching the last futurity class
+**And a class entry carried no futurity entry.** Scratching the last futurity class
 left the enrollment behind, still charging, with nothing on the desk to say why.
 
 So the rule now runs the way the side pot rule does, and is deliberately the
 same shape (`side_pot_membership`): **enrolling enters the classes in the same
 press, and scratching the last of them releases the enrollment.** Two things
-about that shape are load-bearing, and both are borrowed.
+about that shape are load-bearing, and both are borrowed. (The exhibitor's own
+Withdraw runs it the other way too: withdrawing a futurity entry scratches the
+horse from that futurity's classes -- `show_registration.withdraw_from_futurity`.
+The office's Withdraw on the desk keeps them, and the desk flags the horse.)
+
+A futurity entry is not a nomination. Nominating is the futurity's own
+eligibility process, run outside any show, and GaitDesk never takes or checks
+one; the futurity entry is what entering this show's futurity classes costs.
 
 **The classes ride on the enrollment request.** A refusal the person at the
 counter cannot immediately satisfy is one they route around — here by entering
@@ -30,10 +37,10 @@ the class on the desk, walking back to the futurity screen and enrolling — so
 so nothing would ever be released.
 
 Where it differs from a side pot is the key: a pot's membership hangs off the
-`show_entries` row, so one buy-in covers the exhibitor. A futurity nominates a
+`show_entries` row, so one buy-in covers the exhibitor. A futurity entry is for a
 **horse**, so everything here is per (futurity, horse) — one exhibitor may have
 two horses in the same futurity, and scratching one horse's last class must not
-take the other's nomination with it.
+take the other's futurity entry with it.
 """
 from __future__ import annotations
 
@@ -82,18 +89,18 @@ def enrollments_to_release(
     scratched_class_id: UUID,
     remaining_class_ids: set[UUID],
 ) -> list[tuple[Futurity, FuturityEntry]]:
-    """The nominations left with no class behind them after a scratch.
+    """The futurity entries left with no class behind them after a scratch.
 
     Narrowed the same three ways `side_pot_membership.pots_to_release` is, for
     the same reasons:
 
-    * **Only futurities that judged the scratched class.** A nomination in some
+    * **Only futurities that judged the scratched class.** A futurity entry in some
       other programme is not this deletion's business.
-    * **Only where nothing of that futurity is left.** One nomination covers
+    * **Only where nothing of that futurity is left.** One futurity entry covers
       every class the futurity names, so scratching one of four leaves the other
       three behind it. `remaining_class_ids` is this *horse's* whole remaining
       entry list at the show.
-    * **Only this horse's nomination.** Two horses of one exhibitor in the same
+    * **Only this horse's futurity entry.** Two horses of one exhibitor in the same
       futurity are two enrollments, and scratching one horse's last class says
       nothing at all about the other.
     """
@@ -114,7 +121,7 @@ async def release_scratched_enrollments(
     scratched_class_id: UUID,
     db: AsyncSession,
 ) -> list[Futurity]:
-    """Clear the nominations a just-deleted entry was the last thing backing.
+    """Clear the futurity entries a just-deleted entry was the last thing backing.
 
     **Call this after the entry is deleted and flushed**, never before — see the
     module docstring. Both deletion doors call it, the way both call
@@ -131,7 +138,7 @@ async def release_scratched_enrollments(
 
     # The horse's remaining entries at this show. Scoped to the exhibitor as
     # well, because a horse two people show is two entry lists and only this
-    # one's nomination is in question.
+    # one's futurity entry is in question.
     remaining = set(
         (
             await db.execute(
@@ -170,11 +177,11 @@ async def assert_classes_enterable(
 
     Raises `ValueError`. Checked rather than trusted, the same rule a side pot
     opt-in follows: a class outside the futurity would be an entry the exhibitor
-    never asked for, booked as a side effect of nominating a horse.
+    never asked for, booked as a side effect of filing a horse's futurity entry.
     """
     if not class_ids:
         raise ValueError(
-            "Pick at least one of this futurity's classes — a nomination with "
+            "Pick at least one of this futurity's classes — a futurity entry with "
             "no class entered owes the office fee and is judged in nothing."
         )
     allowed = class_ids_of(futurity)

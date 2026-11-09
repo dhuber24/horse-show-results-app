@@ -8,8 +8,9 @@
  *      desk. It closes new sign-ups only: somebody already signed up keeps their
  *      registration to amend until the show starts.
  *   2. **How late exhibitors enter and scratch their own classes** —
- *      `shows.self_entry_closes`: until each class starts, or until the show
- *      starts. Unanswered reads as until each class starts, which is what every
+ *      `shows.self_entry_closes`: until each class starts, until the show
+ *      starts, or never — the show office makes every class change (migration
+ *      185). Unanswered reads as until each class starts, which is what every
  *      show did before the question was asked.
  *
  * Asked on setup Step 1 and on the new-show form, and required to publish. The
@@ -18,7 +19,7 @@
  * `class_entry_open` off the payload.
  */
 
-export type SelfEntryCloses = 'class_start' | 'show_start';
+export type SelfEntryCloses = 'class_start' | 'show_start' | 'office_only';
 
 export const SELF_ENTRY_OPTIONS: { value: SelfEntryCloses; label: string; hint: string }[] = [
   {
@@ -32,6 +33,13 @@ export const SELF_ENTRY_OPTIONS: { value: SelfEntryCloses; label: string; hint: 
     value: 'show_start',
     label: 'Until the show starts',
     hint: 'From the first day, the show office makes every class change.',
+  },
+  {
+    value: 'office_only',
+    label: 'Never — the show office does it',
+    hint:
+      'Exhibitors still sign up online, but only the show office enters and scratches classes, ' +
+      'before and during the show.',
   },
 ];
 
@@ -74,6 +82,7 @@ export function signupDeadlineText(deadline: string | null | undefined): string 
 
 /** How late classes may be changed online, in a sentence. */
 export function classEntryText(closes: string | null | undefined): string {
+  if (closes === 'office_only') return 'The show office enters and scratches every class.';
   return closes === 'show_start'
     ? 'Classes can be entered and scratched online until the show starts.'
     : 'Classes can be entered and scratched online until each class starts.';

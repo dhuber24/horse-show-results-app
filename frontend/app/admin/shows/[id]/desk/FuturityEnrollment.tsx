@@ -258,13 +258,13 @@ export function UnenrolledFuturityRow({
 }
 
 /**
- * Withdrawing a nomination, from the desk.
+ * Withdrawing a futurity entry, from the desk.
  *
  * It used to be an `Edit →` link out to the futurity's own Entries screen, and
  * that was the whole complaint: the desk is where an exhibitor's money is
  * worked, so the one charge it could not take off was the one it linked away
  * for. The enrollment is also what makes a futurity class cost anything, which
- * is why the confirmation says the classes stay — withdrawing the nomination
+ * is why the confirmation says the classes stay — withdrawing the futurity entry
  * does not scratch them, it leaves them entered and unpriced, and the panel
  * flags that immediately underneath as an unenrolled horse.
  *

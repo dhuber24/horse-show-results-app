@@ -115,7 +115,7 @@ class ShowCreate(BaseModel):
     entry_deadline: Optional[date] = None
     # How late exhibitors enter and scratch their own classes (migration 159).
     # Both are asked when a show is created and required to publish it.
-    self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
+    self_entry_closes: Optional[Literal["class_start", "show_start", "office_only"]] = None
     # Who a back number belongs to (migration 161): one per exhibitor, one per
     # horse as APHA SC-160.D requires, or one per exhibitor per horse
     # (migration 178).
@@ -148,7 +148,7 @@ class ShowUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     entry_deadline: Optional[date] = None
-    self_entry_closes: Optional[Literal["class_start", "show_start"]] = None
+    self_entry_closes: Optional[Literal["class_start", "show_start", "office_only"]] = None
     back_number_per: Optional[Literal["exhibitor", "horse", "pair"]] = None
     status: Optional[Literal["DRAFT", "PUBLISHED", "ACTIVE", "COMPLETED"]] = None
     apha_show_number: Optional[str] = Field(default=None, max_length=50)

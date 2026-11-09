@@ -113,7 +113,7 @@ Core files only; each design doc lists the files for its subsystem.
 - `SHOW_SECRETARY`: runs assigned shows — classes, entries, back numbers, results administration — and, with the two roles above, the registration desk at `/admin/shows/[id]/desk`. With `SHOW_MANAGER`, also does a scribe's work at the shows they work: placings, scores, posting, the judge's card and its photo.
 - `SCRIBE`: enters placings and scores for assigned shows; may be on a company's crew, which is a list, not access. Not "Ring Steward" — do not rename it.
 - `GATE_STEWARD`: runs the in-gate at `/gate` — order of go, check-in, and each class's gate status.
-- `EXHIBITOR`: their own entries, profile and horses; signs up for a `PUBLISHED` show until `shows.entry_deadline`, and enters and scratches their own classes until each class starts — or until the show starts, where `shows.self_entry_closes` says so.
+- `EXHIBITOR`: their own entries, profile and horses; signs up for a `PUBLISHED` show until `shows.entry_deadline`, and enters and scratches their own classes until each class starts — or until the show starts, or never (the show office makes every class change, `office_only`, migration 185), where `shows.self_entry_closes` says so.
 - `TRAINER`: a linked trainer registry profile used on horse records.
 
 New Show Secretary, Show Manager, Trainer and Exhibitor registrations are auto-approved; `users.is_approved` remains as an account lock. Each role in full: [docs/design/accounts.md](docs/design/accounts.md).

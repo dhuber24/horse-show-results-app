@@ -66,7 +66,7 @@ import { formatMoney, type PreviewData } from './types';
  *
  * **Every lock is a rule the backend enforces, not a rule this screen invents.**
  * `PUT /signup` refuses on the same profile checklist steps one and two render,
- * and class entries, back numbers and futurity nominations all 409 without a
+ * and class entries, back numbers and futurity entries all 409 without a
  * completed sign-up. The lock exists so nobody fills in a form that is going to
  * be turned away, never as the thing doing the turning away.
  *
@@ -97,6 +97,11 @@ export default function RegisterShowForm({
   const searchParams = useSearchParams();
   const { show, exhibitor, horses, bill, profile } = preview;
   const signedUp = preview.signup !== null;
+  // The show office makes every class entry and scratch (migration 185): the
+  // class page still lists what they are entered in, so the hand-offs to it say
+  // "see" rather than "enter".
+  const classesOfficeOnly = preview.registration?.class_entry_closes === 'office_only';
+  const classesLabel = classesOfficeOnly ? 'See my classes' : 'Enter classes';
   const classesHref = `/shows/${showId}/register/classes`;
 
   // The two halves of the profile, kept apart because they are two steps. Both
@@ -340,7 +345,7 @@ export default function RegisterShowForm({
     }
     return hasFuturities
       ? { label: 'Next', onNext: () => go('futurities') }
-      : { label: 'Enter classes', onNext: () => router.push(classesHref) };
+      : { label: classesLabel, onNext: () => router.push(classesHref) };
   })();
 
   return (
@@ -371,9 +376,15 @@ export default function RegisterShowForm({
             ? 'Next: the horses you’re bringing.'
             : !signedUp
               ? hasLodging
-                ? 'Next: stalls, shavings and camping — that signs you up and opens class entry.'
-                : 'Next: Sign up & continue, under your horses — that opens class entry.'
-              : 'You’re signed up. Enter your classes below, and open any step here to change it up until the show starts.'}
+                ? classesOfficeOnly
+                  ? 'Next: stalls, shavings and camping — that signs you up.'
+                  : 'Next: stalls, shavings and camping — that signs you up and opens class entry.'
+                : classesOfficeOnly
+                  ? 'Next: Sign up & continue, under your horses — that signs you up.'
+                  : 'Next: Sign up & continue, under your horses — that opens class entry.'
+              : classesOfficeOnly
+                ? 'You’re signed up. The show office enters and scratches your classes — send them a message with the ones you want. Open any step here to change it up until the show starts.'
+                : 'You’re signed up. Enter your classes below, and open any step here to change it up until the show starts.'}
       </div>
 
       <div id="registration-details">
@@ -533,13 +544,14 @@ export default function RegisterShowForm({
             lockedReason={signupLockReason}
             onBack={() => go(hasLodging ? 'stalls' : 'horses')}
             onNext={() => router.push(classesHref)}
-            nextLabel="Enter classes"
+            nextLabel={classesLabel}
           >
             <FuturityEntry
               showId={showId}
               futurities={futurities}
               horses={horses.map((h) => ({ id: h.id, name: h.name }))}
               signedUp={signedUp}
+              officeOnly={classesOfficeOnly}
             />
           </RegistrationSection>
         </div>
@@ -576,7 +588,11 @@ export default function RegisterShowForm({
             className="text-sm font-medium px-4 py-2 rounded text-white shrink-0"
             style={{ backgroundColor: 'var(--accent)' }}
           >
-            {entered.length === 0 ? 'Enter classes →' : 'Add or drop classes →'}
+            {classesOfficeOnly
+              ? 'See my classes →'
+              : entered.length === 0
+                ? 'Enter classes →'
+                : 'Add or drop classes →'}
           </Link>
         )}
       </section>

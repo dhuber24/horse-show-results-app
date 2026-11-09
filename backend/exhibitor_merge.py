@@ -404,7 +404,7 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
 
     `show_entries` is unique on `(show_id, exhibitor_id)`, so this is the only
     place a merge cannot simply repoint. Everything hanging off the row moves
-    across -- reservations, payments, pot buy-ins, futurity nominations -- and
+    across -- reservations, payments, pot buy-ins, futurity entries -- and
     the survivor takes **the better standing of the two**, because the question
     the roster answers is whether this person is entered, and one of the two
     rows is the answer.
@@ -448,8 +448,8 @@ async def _fold_show_entry(db: AsyncSession, keep: ShowEntry, remove: ShowEntry)
     )
     await db.execute(delete(SidePotPayout).where(SidePotPayout.show_entry_id == remove.id))
 
-    # A futurity nomination is unique on (futurity_id, horse_id), which no
-    # change of roster row can break -- the same horse cannot be nominated
+    # A futurity entry is unique on (futurity_id, horse_id), which no
+    # change of roster row can break -- the same horse cannot be entered
     # twice whoever holds it.
     await db.execute(
         update(_futurity_entry_model())

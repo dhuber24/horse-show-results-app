@@ -143,6 +143,15 @@ describe('an exhibitor', () => {
     ]);
   });
 
+  it('reads My Classes throughout at a show whose office makes every class change', () => {
+    const officeOnly = { self_entry_closes: 'office_only' };
+    expect(mine({ ...OPEN, ...officeOnly }, exhibitor({ signed_up: true }))[0]).toBe('My Classes');
+    expect(mine({ ...ACTIVE, ...officeOnly }, exhibitor({ signed_up: true }))).toEqual([
+      'My Classes',
+      'What I Owe',
+    ]);
+  });
+
   it('keeps What I Owe after the show — the bill outlives it', () => {
     expect(mine(COMPLETED, exhibitor({ signed_up: true }))).toEqual(['What I Owe']);
   });

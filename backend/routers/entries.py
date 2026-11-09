@@ -400,9 +400,9 @@ async def delete_entry(
     # no collected money to strand -- and leaving the row would bill a jackpot
     # to somebody no longer in it.
     await release_scratched_pots(show_id, exhibitor_id, class_id, db)
-    # The same rule for a futurity nomination, which is the other thing a class
+    # The same rule for a futurity entry, which is the other thing a class
     # entry now carries with it. Per horse rather than per exhibitor -- two
-    # horses in one futurity are two nominations.
+    # horses in one futurity are two futurity entries.
     await release_scratched_enrollments(
         show_id, exhibitor_id, horse_id, class_id, db
     )

@@ -56,7 +56,8 @@ ROLE_WELCOMES: dict[str, RoleWelcome] = {
             "and a What I Owe page for each show's bill.",
             "Once a show starts, you can usually still enter and scratch your "
             "own classes until each class begins -- unless the show office "
-            "closes class changes when the show starts.",
+            "closes class changes when the show starts, or makes every class "
+            "change itself.",
             "Results go up live as each class is posted, so you can check "
             "placings from your phone at the rail.",
         ),

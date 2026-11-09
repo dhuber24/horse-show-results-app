@@ -162,11 +162,13 @@ from self_entry import (
     class_entry_open,
     class_under_way,
     entry_refusal,
+    futurities_without_entry,
+    futurity_entry_closed_refusal,
+    futurity_entry_open,
     registration_window,
     scratch_refusal,
     signup_closed_refusal,
     signup_open,
-    unnominated,
 )
 from side_pot_membership import (
     assert_pots_joinable,
@@ -295,15 +297,16 @@ async def _load_published_show_or_403(
 async def _load_entry_window_show_or_403(show_id: UUID, db: AsyncSession) -> Show:
     """The class doors' loader: PUBLISHED, or ACTIVE while the show runs --
     unless the show office answered that exhibitors' class changes stop when the
-    show starts (`shows.self_entry_closes`, migration 159).
+    show starts, or that the office makes every class change
+    (`shows.self_entry_closes`, migrations 159 and 185).
 
     Everything else in this router stays PUBLISHED-only -- sign-up, stalls,
-    horses, back numbers and futurity nominations are settled before the show,
+    horses, back numbers and futurity entries are settled before the show,
     and a running show's office takes those at the counter.
     """
     show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
     if not class_entry_open(show.status, show.self_entry_closes):
-        raise HTTPException(403, class_entry_closed_refusal())
+        raise HTTPException(403, class_entry_closed_refusal(show.self_entry_closes))
     return show
 
 
@@ -1587,9 +1590,10 @@ async def preview_registration(
     completed, and each entry whether its exhibitor may still scratch it, so the
     screen offers exactly what `POST /` and `DELETE /entries/{id}` will accept.
     """
-    # Readable whenever the class page is, even at a running show whose class
-    # doors have shut (`self_entry_closes = show_start`): the page still lists
-    # what they are entered in, and `registration` says the doors are shut.
+    # Readable whenever the class page is, even where the class doors have shut
+    # (`self_entry_closes = show_start` at a running show, or `office_only` at
+    # any): the page still lists what they are entered in, and `registration`
+    # says the doors are shut.
     show = await _load_published_show_or_403(show_id, db, SELF_ENTRY_STATUSES)
     exhibitor = await _load_exhibitor_for_user(safe_uuid(user_id), db)
     is_apha = bool(show.show_type and show.show_type.code == "APHA")
@@ -2085,16 +2089,16 @@ async def register_for_show(
             raise HTTPException(422, str(exc))
         join_pots(show_entry.id, joining, db)
 
-    # A futurity class is priced by the horse's nomination, and once the show is
-    # running the nomination step is closed -- so a live show refuses a futurity
-    # class the horse is not nominated in, rather than taking an entry that bills
-    # nothing and leaves the desk to chase it. Before the show the futurity step
-    # is on the same screen, and this does not apply.
+    # A futurity class is priced by the horse's futurity entry, and once the show
+    # is running the futurity step is closed -- so a live show refuses a futurity
+    # class the horse has no futurity entry in, rather than taking an entry that
+    # bills nothing and leaves the desk to chase it. Before the show the futurity
+    # step is on the same screen, and this does not apply.
     if show.status == "ACTIVE":
         live_futurities = await load_show_futurities(show_id, db)
         for item in body.entries:
             cls = classes_by_id[item.class_id]
-            missing = unnominated(
+            missing = futurities_without_entry(
                 futurities_covering_class(live_futurities, cls.id),
                 show_entry.id,
                 item.horse_id,
@@ -2104,12 +2108,12 @@ async def register_for_show(
                 raise HTTPException(
                     409,
                     {
-                        "code": "FUTURITY_NOMINATION_REQUIRED",
+                        "code": "FUTURITY_ENTRY_REQUIRED",
                         "message": (
                             f"Class {cls.class_number} ({cls.class_name}) is judged "
-                            f"in {names}, and this horse is not nominated. Now the "
-                            "show is under way, the show office takes futurity "
-                            "nominations."
+                            f"in {names}, and this horse has no futurity entry. Now "
+                            "the show is under way, the show office takes futurity "
+                            "entries."
                         ),
                         "class_id": str(cls.id),
                     },
@@ -2339,7 +2343,13 @@ async def withdraw_entry(
 # Deliberately narrower than the staff endpoints. An exhibitor may only enroll a
 # horse on their own profile, only against their own `show_entries` row, and
 # only while the show is PUBLISHED — after that the numbers are printed and the
-# office takes over, exactly as with class entries.
+# office takes over, exactly as with class entries. At a show whose office makes
+# every class change (`self_entry_closes = office_only`) the office files these
+# too (`self_entry.futurity_entry_open`).
+#
+# A futurity entry is not a nomination. Nominating is the futurity's own
+# eligibility process, often paid long before any show; GaitDesk never takes or
+# checks one. What it keeps is what entering this show's futurity classes costs.
 
 
 async def _load_futurity_for_show(show_id: UUID, futurity_id: UUID, db: AsyncSession):
@@ -2412,6 +2422,23 @@ async def list_futurities_for_exhibitor(
     for enrollment in mine:
         by_futurity.setdefault(enrollment.futurity_id, []).append(enrollment)
 
+    # Which futurity classes each of the caller's horses is entered in, so the
+    # screen can say what withdrawing a futurity entry also scratches.
+    entered_pairs: set[tuple[UUID, UUID]] = set()
+    futurity_class_ids = {fc.class_id for f in futurities for fc in f.futurity_classes}
+    if mine and futurity_class_ids:
+        entered_pairs = {
+            (horse_id, class_id)
+            for horse_id, class_id in (
+                await db.execute(
+                    select(Entry.horse_id, Entry.class_id).where(
+                        Entry.exhibitor_id == exhibitor.id,
+                        Entry.class_id.in_(futurity_class_ids),
+                    )
+                )
+            ).all()
+        }
+
     today = date.today()
     return [
         {
@@ -2483,6 +2510,17 @@ async def list_futurities_for_exhibitor(
                     "is_member": e.is_member,
                     "shown_by_name": e.shown_by_name,
                     "entered_at": e.entered_at,
+                    # What `DELETE /futurities/{id}` scratches along with it.
+                    "entered_classes": [
+                        {
+                            "class_id": str(fc.class_id),
+                            "class_number": fc.class_.class_number,
+                            "class_name": fc.class_.class_name,
+                        }
+                        for fc in f.futurity_classes
+                        if fc.class_ is not None
+                        and (e.horse_id, fc.class_id) in entered_pairs
+                    ],
                 }
                 for e in by_futurity.get(f.id, [])
             ],
@@ -2512,7 +2550,9 @@ async def enroll_in_futurity(
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
 
-    await _load_published_show_or_403(show_id, db)
+    show = await _load_published_show_or_403(show_id, db)
+    if not futurity_entry_open(show.self_entry_closes):
+        raise HTTPException(403, futurity_entry_closed_refusal())
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
 
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
@@ -2565,10 +2605,10 @@ async def enroll_in_futurity(
     if clash:
         raise HTTPException(409, "That horse is already entered in this futurity.")
 
-    # The same rule the office's door enforces: a nomination with no futurity
+    # The same rule the office's door enforces: a futurity entry with no futurity
     # class behind it owes the office fee and is judged in nothing. The
-    # exhibitor's screen enters the classes before it nominates, so this is the
-    # enforcement rather than the first the caller hears of it.
+    # exhibitor's screen enters the classes before it files the futurity entry,
+    # so this is the enforcement rather than the first the caller hears of it.
     futurity_class_ids = class_ids_of(futurity)
     if futurity_class_ids:
         entered = await futurity_entered_class_ids(
@@ -2581,8 +2621,8 @@ async def enroll_in_futurity(
                     "code": "FUTURITY_CLASS_REQUIRED",
                     "message": (
                         f"Enter {horse.name if horse else 'this horse'} in at "
-                        f"least one {futurity.name} class before nominating — "
-                        "the nomination is what the class is judged under."
+                        f"least one {futurity.name} class first — the futurity "
+                        "entry is what prices its classes."
                     ),
                     "futurity_id": str(futurity.id),
                 },
@@ -2611,11 +2651,28 @@ async def withdraw_from_futurity(
     x_user_id: str = Header(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Withdraw one of the caller's own futurity enrollments."""
+    """Withdraw one of the caller's own futurity entries, and its classes with it.
+
+    **Withdrawing scratches the horse from that futurity's classes in the same
+    press.** A futurity class carries `entry_fee_cents = 0` -- the futurity entry
+    is what prices it -- so taking the futurity entry off and leaving the class
+    entries behind kept the horse showing in the futurity's classes with the
+    category charge gone from the bill. It is the mirror of the rule at the
+    scratch door, where scratching the last futurity class releases the
+    futurity entry (`release_scratched_enrollments`).
+
+    Each class is scratched under the exhibitor's own scratch rules
+    (`self_entry.scratch_refusal`), and one that refuses refuses the whole
+    withdrawal, so nothing is half done. The office's own Withdraw, on the
+    desk, deliberately keeps the class entries: the office can re-file the
+    futurity entry, and the desk flags the horse until it does.
+    """
     if not INTERNAL_API_KEY or x_api_key != INTERNAL_API_KEY:
         raise HTTPException(401, "Unauthorized")
 
-    await _load_published_show_or_403(show_id, db)
+    show = await _load_published_show_or_403(show_id, db)
+    if not futurity_entry_open(show.self_entry_closes):
+        raise HTTPException(403, futurity_entry_closed_refusal())
     exhibitor = await _load_exhibitor_for_user(safe_uuid(x_user_id), db)
     show_entry = await _load_show_entry(show_id, exhibitor.id, db)
     if show_entry is None:
@@ -2624,6 +2681,63 @@ async def withdraw_from_futurity(
     enrollment = await db.get(FuturityEntry, entry_id)
     if enrollment is None or enrollment.show_entry_id != show_entry.id:
         raise HTTPException(404, "Futurity entry not found")
+    futurity = await _load_futurity_for_show(show_id, enrollment.futurity_id, db)
 
-    await db.delete(enrollment)
+    horse_id = enrollment.horse_id
+    futurity_class_ids = class_ids_of(futurity)
+    class_entries: list[Entry] = []
+    if horse_id is not None and futurity_class_ids:
+        class_entries = list(
+            (
+                await db.execute(
+                    select(Entry)
+                    .options(selectinload(Entry.class_))
+                    .where(
+                        Entry.exhibitor_id == exhibitor.id,
+                        Entry.horse_id == horse_id,
+                        Entry.class_id.in_(futurity_class_ids),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    if class_entries:
+        with_results = set(
+            (
+                await db.execute(
+                    select(Result.entry_id).where(
+                        Result.entry_id.in_([e.id for e in class_entries])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for entry in class_entries:
+            refusal = scratch_refusal(entry.class_, entry.id in with_results)
+            if refusal:
+                raise HTTPException(409, refusal)
+
+    scratched_class_ids = [entry.class_id for entry in class_entries]
+    for entry in class_entries:
+        await db.delete(entry)
+    # Flushed first so the releases read the entries that are actually left.
+    await db.flush()
+
+    # The same releases the scratch door runs for each class. The futurity one
+    # also takes this futurity entry off, since none of its classes is left --
+    # and any other futurity's entry that judged only the same classes.
+    released: set[UUID] = set()
+    for class_id in scratched_class_ids:
+        await release_scratched_pots(show_id, exhibitor.id, class_id, db)
+        for f in await release_scratched_enrollments(
+            show_id, exhibitor.id, horse_id, class_id, db
+        ):
+            released.add(f.id)
+    # A futurity entry with no class behind it (filed before that was refused)
+    # is still the caller's to withdraw.
+    if futurity.id not in released:
+        await db.delete(enrollment)
     await db.commit()

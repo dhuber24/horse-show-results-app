@@ -279,7 +279,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         q: 'Can I add or scratch classes after I sign up?',
         a: [
           'Yes — choose Add/Drop Classes on the show\'s page. Once the show is running you can usually still enter a class until it starts, and scratch from one until it finishes.',
-          'Some shows stop class changes when the show starts. There, ask the show office.',
+          'Some shows stop class changes when the show starts, and some have the show office make every class entry and scratch. There, ask the show office.',
         ],
       },
       {
@@ -308,7 +308,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         q: 'How do I cancel my registration?',
         a: [
           'Use Cancel my registration at the foot of the My Registration page. You can cancel yourself while the show is open for sign-up, up to the cut-off its show company set — some allow it until the show starts, others close it some days before. After that, message the show office and they\'ll do it for you.',
-          'Cancelling takes off your classes, stalls, futurity nominations and side pot buy-ins. Any payment you\'ve already made stays on record for the office to refund.',
+          'Cancelling takes off your classes, stalls, futurity entries and side pot buy-ins. Any payment you\'ve already made stays on record for the office to refund.',
         ],
       },
       {
@@ -472,7 +472,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
           'Once you publish it — a draft is hidden from the public. Publishing needs a venue, at least one class, and answers to two questions:',
           [
             'The last day exhibitors can sign up online.',
-            'Until when exhibitors can enter and scratch their own classes — until each class starts, or until the show starts.',
+            'Until when exhibitors can enter and scratch their own classes — until each class starts, until the show starts, or never (the show office makes every class change).',
           ],
         ],
       },
@@ -553,7 +553,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         id: 'side-pots-futurities',
         q: 'Does GaitDesk handle side pots and futurities?',
         a: [
-          'Yes. Side pots take buy-ins, show live standings and projected payouts, and are settled once their classes are done. Futurities have their own entry form, nominations and Hi-Point standings. Buy-ins and nominations go on the exhibitor\'s bill.',
+          'Yes. Side pots take buy-ins, show live standings and projected payouts, and are settled once their classes are done. Futurities have their own entry form — category prices, office fees and the futurity release — and Hi-Point standings. Nominations stay with the futurity itself; GaitDesk handles entering the show\'s futurity classes. Buy-ins and futurity charges go on the exhibitor\'s bill.',
         ],
       },
       {

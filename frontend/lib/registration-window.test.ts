@@ -32,6 +32,7 @@ describe('the sentences', () => {
     expect(classEntryText('show_start')).toMatch(/until the show starts/);
     expect(classEntryText('class_start')).toMatch(/until each class starts/);
     expect(classEntryText(null)).toMatch(/until each class starts/);
+    expect(classEntryText('office_only')).toMatch(/show office enters and scratches every class/);
   });
 
   it('says when sign-up closed', () => {

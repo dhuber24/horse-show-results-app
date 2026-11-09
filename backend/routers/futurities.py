@@ -817,8 +817,8 @@ async def _hydrate_entries(
             .where(ShowEntry.id.in_(show_entry_ids))
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
-    # A nomination is the horse's, so it wears the horse's number at a show
-    # that numbers horses (migration 161), the nominating exhibitor's number on
+    # A futurity entry is the horse's, so it wears the horse's number at a show
+    # that numbers horses (migration 161), the entering exhibitor's number on
     # it at one that numbers pairs (migration 178), the exhibitor's otherwise.
     numbers = await back_numbers_for_show(futurity.show_id, db)
 
@@ -988,7 +988,7 @@ async def add_entry(
     if already:
         raise HTTPException(409, "That horse is already entered in this futurity.")
 
-    # A nomination with no futurity class behind it is billable and judged in
+    # A futurity entry with no futurity class behind it is billable and judged in
     # nothing: `futurity_lines` charges the office fee per enrollment, so the
     # club takes money for a programme the horse is not in, and the only screen
     # that could take it back off was this one. Refused here rather than merely
@@ -1010,8 +1010,8 @@ async def add_entry(
                     "code": "FUTURITY_CLASS_REQUIRED",
                     "message": (
                         f"{horse.name} is not entered in any {futurity.name} "
-                        "class. A nomination is what prices those classes, so "
-                        "enter at least one and nominate in the same press."
+                        "class. A futurity entry is what prices those classes, so "
+                        "enter at least one and file the futurity entry in the same press."
                     ),
                     "futurity_id": str(futurity.id),
                 },
@@ -1166,8 +1166,8 @@ async def get_standings(
             .where(ShowEntry.id.in_(show_entry_ids))
         )
         people = {r[0]: (r[1], r[2]) for r in rows}
-    # A nomination is the horse's, so it wears the horse's number at a show
-    # that numbers horses (migration 161), the nominating exhibitor's number on
+    # A futurity entry is the horse's, so it wears the horse's number at a show
+    # that numbers horses (migration 161), the entering exhibitor's number on
     # it at one that numbers pairs (migration 178), the exhibitor's otherwise.
     numbers = await back_numbers_for_show(futurity.show_id, db)
 

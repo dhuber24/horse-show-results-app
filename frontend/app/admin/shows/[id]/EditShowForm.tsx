@@ -468,7 +468,7 @@ export default function EditShowForm({
               Show notes
             </h3>
             <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>
-              Optional. Anything the rest of setup has no place for.
+              Optional.
             </p>
           </div>
           <label className="block">
