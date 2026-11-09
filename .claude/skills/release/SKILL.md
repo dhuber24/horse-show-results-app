@@ -36,6 +36,9 @@ powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 
 # 2. Any release -- code-only, or carrying a migration once .env is set up
 powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run
+
+# Either of them from the WSL checkout, where PowerShell is pwsh
+pwsh -File scripts/release.ps1 -Run
 ```
 
 **A release carrying a migration gets its credentials from 1Password and makes
@@ -312,7 +315,8 @@ part that used to be guesswork.
 
 ## Gotchas
 
-- **The script runs `RUN_TESTS.sh` through Git Bash by name, not through PATH.** On Windows `bash` is `C:\WINDOWS\system32\bash.exe` -- the WSL launcher -- and the backend suite runs in Docker Desktop's *Windows* CLI. Inside WSL `docker` is the Linux client talking to `/var/run/docker.sock`, which is absent unless that distro has Docker Desktop's WSL integration switched on; it reports the backend image as missing and the release stops on a suite that passes perfectly well from Git Bash. The failure names the image, so it reads as a stale build rather than as the wrong shell. If Git Bash is absent the script falls back to PATH and says so.
+- **From the WSL checkout, run the script with `pwsh`** (`scripts/setup-wsl.sh` installs it). It starts `migrate.ps1` with that same `pwsh`, since WSL has no `powershell`. It reads 1Password through the Windows CLI, found as `op.exe` on Windows' PATH, so the Windows Hello prompt still appears on the Windows desktop. It reads a 503's body from `ErrorDetails`, because PowerShell 7's response has no `GetResponseStream()`. Until 2026-11-08 a WSL run broke at the test step, where `Join-Path` threw on the empty `$env:ProgramFiles`, and a migration release could not find `op` or `powershell` at all.
+- **On Windows the script runs `RUN_TESTS.sh` through Git Bash by name, not through PATH.** On Windows `bash` is `C:\WINDOWS\system32\bash.exe` -- the WSL launcher -- and the backend suite runs in Docker Desktop's *Windows* CLI. Inside WSL `docker` is the Linux client talking to `/var/run/docker.sock`, which is absent unless that distro has Docker Desktop's WSL integration switched on; it reports the backend image as missing and the release stops on a suite that passes perfectly well from Git Bash. The failure names the image, so it reads as a stale build rather than as the wrong shell. If Git Bash is absent the script falls back to PATH and says so. From WSL it uses bash on PATH without a word: there the checkout, Docker's client and the suite are all on the Linux side, so that bash is the right one.
 - **`git push` deploys, once CI is green.** There is no separate release button
   and no staging environment. A push with an unrelated WIP commit ships that too.
 - **Reach production with `-DatabaseUrl`, never by editing `.env`.** The local

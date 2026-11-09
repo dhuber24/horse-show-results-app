@@ -48,6 +48,9 @@
 #   powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Run `
 #       -DatabaseUrl "<production connection string>" -BackedUp
 #
+#   # any of the above from the WSL checkout, where PowerShell is `pwsh`
+#   pwsh -File scripts/release.ps1 -Run
+#
 param(
     # Actually do it. Without this the script reports the plan and exits.
     [switch]$Run,
@@ -97,6 +100,15 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Cloudflare refuse -- without this every check below fails as a connection
 # error and reads like an outage.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# The PowerShell that runs database/migrate.ps1 for this script: Windows
+# PowerShell (`powershell`) wherever there is one, as there always has been.
+# WSL has only `pwsh`, so there it is whichever PowerShell is running this file.
+$ChildPowerShell = if (Get-Command powershell -CommandType Application -ErrorAction SilentlyContinue) {
+    "powershell"
+} else {
+    (Get-Process -Id $PID).Path
+}
 
 # ── Output helpers ────────────────────────────────────────────────────────────
 
@@ -328,9 +340,14 @@ function Get-ReadyBody {
         $r = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 25
         return $r.Content
     } catch {
-        if ($_.Exception.Response) {
-            $stream = $_.Exception.Response.GetResponseStream()
-            $reader = New-Object System.IO.StreamReader($stream)
+        # A 503's body is the diagnosis (`missing_columns`), and this runs at
+        # the pre-push check that has to stop cleanly. PowerShell 7 (`pwsh`,
+        # how WSL runs this) hands the body over as ErrorDetails, and its
+        # response has no GetResponseStream() -- calling it threw from here.
+        if ($_.ErrorDetails -and $_.ErrorDetails.Message) { return $_.ErrorDetails.Message }
+        $response = $_.Exception.Response
+        if ($response -and $response.PSObject.Methods['GetResponseStream']) {
+            $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
             return $reader.ReadToEnd()
         }
         return ""
@@ -609,8 +626,15 @@ function Get-Setting {
 # install, so an editor or terminal already open at the time never sees `op`
 # and every 1Password read fails as "not installed" on a machine that has it.
 function Find-OpCli {
-    $cmd = Get-Command op -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
+    # `op` on Windows (or a Linux install); `op.exe` from WSL, which reaches the
+    # Windows CLI through interop on Windows' PATH (WSL appends it by default).
+    # That one unlocks through the Windows desktop app, so the Windows Hello
+    # prompt comes up as it does on Windows.
+    foreach ($name in 'op', 'op.exe') {
+        $cmd = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($cmd) { return $cmd.Source }
+    }
     if (-not $env:LOCALAPPDATA) { return $null }
     $candidates = @(Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\op.exe")
     $candidates += @(
@@ -627,7 +651,8 @@ function Read-OpSecret {
     if (-not $op) {
         Stop-Release "A 1Password reference is set for $What, but the 1Password CLI is not installed." @(
             "  winget install AgileBits.1Password.CLI",
-            "then Settings > Developer > Integrate with 1Password CLI in the desktop app."
+            "then Settings > Developer > Integrate with 1Password CLI in the desktop app.",
+            "From WSL it is that same Windows CLI, found as op.exe on Windows' PATH."
         )
     }
     Write-Info "reading $What from 1Password ($Ref)"
@@ -1035,7 +1060,7 @@ if ($carriesSchema -and $BackedUp) {
 
 if ($carriesSchema) {
     Write-Head "Migrating dev"
-    powershell -ExecutionPolicy Bypass -File (Join-Path $repoRoot.Trim() "database/migrate.ps1")
+    & $ChildPowerShell -ExecutionPolicy Bypass -File (Join-Path $repoRoot.Trim() "database/migrate.ps1")
     if ($LASTEXITCODE -ne 0) { Stop-Release "Dev migration failed. Nothing has reached production." }
     Write-Ok "dev migrated"
 }
@@ -1052,17 +1077,25 @@ if (-not $SkipTests) {
     # missing, RUN_TESTS.sh fails the backend check, and the release stops on a
     # suite that passes perfectly well from Git Bash. The failure names the
     # image, so it reads as a stale build rather than as the wrong shell.
-    $bash = @(
-        (Join-Path $env:ProgramFiles "Git\bin\bash.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Git\bin\bash.exe")
-    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    #
+    # Run from WSL (`pwsh`), there is no Program Files, and bash on PATH is the
+    # right one: the checkout, Docker's client and the suite are all on the
+    # Linux side. Join-Path refuses an empty folder, so the folders are
+    # filtered before they are joined -- joining first threw here on Linux.
+    $bash = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) |
+        Where-Object { $_ } |
+        ForEach-Object { Join-Path $_ "Git\bin\bash.exe" } |
+        Where-Object { Test-Path $_ } |
+        Select-Object -First 1
 
     if (-not $bash) {
         $onPath = Get-Command bash -ErrorAction SilentlyContinue
         if ($onPath) {
             $bash = $onPath.Source
-            Write-Warn "Git Bash not found; using $bash"
-            Write-Info "If the backend check reports a missing image, this is why."
+            if ($env:OS -eq 'Windows_NT') {
+                Write-Warn "Git Bash not found; using $bash"
+                Write-Info "If the backend check reports a missing image, this is why."
+            }
         }
     }
     if (-not $bash) {
@@ -1111,7 +1144,7 @@ if ($carriesSchema) {
 
     Write-Head "Migrating PRODUCTION"
     Write-Warn "This is the irreversible step."
-    powershell -ExecutionPolicy Bypass -File (Join-Path $repoRoot.Trim() "database/migrate.ps1") `
+    & $ChildPowerShell -ExecutionPolicy Bypass -File (Join-Path $repoRoot.Trim() "database/migrate.ps1") `
         -AllowProduction -DatabaseUrl $DatabaseUrl
     if ($LASTEXITCODE -ne 0) {
         Stop-Release "Production migration failed." @(
