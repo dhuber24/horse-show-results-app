@@ -63,7 +63,10 @@ npm run type-check
 record $? "Frontend type check (tsc --noEmit)"
 
 echo -e "\n${BLUE}--- Frontend lint ---${NC}"
-npm run lint
+# No cache: ESLint keeps it in frontend/.next/cache, which in the WSL checkout
+# belongs to the dev container's root user (the same bind mount as above), so
+# creating it fails with EACCES before a single file is linted.
+npm run lint -- --no-cache
 record $? "Frontend lint (next lint)"
 
 echo -e "\n${BLUE}--- Frontend tests ---${NC}"

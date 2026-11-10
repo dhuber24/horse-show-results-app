@@ -307,7 +307,9 @@ bash RUN_TESTS.sh
 
 Runs the backend suite in Docker, then the frontend type check, lint and tests. It deliberately does
 not run `npm run build`: the host and the dev container share `frontend/.next` through a bind mount,
-so a host-side build breaks a running dev server. CI builds instead.
+so a host-side build breaks a running dev server. CI builds instead. For the same reason lint runs
+without ESLint's cache, which lives in `frontend/.next/cache`: in a WSL checkout the dev container's
+root user owns that folder, so creating the cache fails with `EACCES` before a file is linted.
 
 ### CI
 
