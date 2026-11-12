@@ -101,8 +101,21 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # --- Output schema -----------------------------------------------------------
 # Structured outputs need `additionalProperties: false` and every property in
-# `required`; anything optional is nullable rather than omitted, so the shape
-# that comes back never varies.
+# `required`; anything optional is nullable or blank rather than omitted, so the
+# shape that comes back never varies.
+#
+# The API also refuses a schema with more than 16 union-typed properties (a
+# `["string", "null"]` type or an `anyOf`): 400 BadRequestError, "Schemas
+# contains too many parameters with union types", on every upload. So optional
+# *text* is a plain string left empty when the bill doesn't print it -- the
+# normalizer's `_clean_str` reads "" as None, so nothing downstream changes --
+# and `null` is kept for the numbers, booleans and enums, where no blank value
+# exists. `test_the_schema_stays_under_the_union_limit` pins the count.
+
+
+def _text(description: str) -> dict[str, Any]:
+    """Optional text: an empty string when the bill doesn't print it."""
+    return {"type": "string", "description": f"{description} Empty string if not printed."}
 
 
 def _nullable(json_type: str, description: str) -> dict[str, Any]:
@@ -134,11 +147,10 @@ def _strings(description: str) -> dict[str, Any]:
 
 _SHOW = _object(
     {
-        "name": _nullable("string", "The show's name as printed, without the year unless the year is part of the name."),
-        "start_date": _nullable("string", "First day of the show, YYYY-MM-DD."),
-        "end_date": _nullable("string", "Last day of the show, YYYY-MM-DD."),
-        "entry_deadline": _nullable(
-            "string",
+        "name": _text("The show's name as printed, without the year unless the year is part of the name."),
+        "start_date": _text("First day of the show, YYYY-MM-DD."),
+        "end_date": _text("Last day of the show, YYYY-MM-DD."),
+        "entry_deadline": _text(
             "The day entries close for the show as a whole, YYYY-MM-DD, only if printed. "
             "Not a futurity's own deadline and not a stall-reservation deadline.",
         ),
@@ -148,13 +160,13 @@ _SHOW = _object(
             "all-breed show with no breed association. A show approved by APHA that also "
             "runs All Breed club classes is APHA.",
         ),
-        "apha_show_number": _nullable("string", "APHA show/approval number, only if printed."),
-        "aqha_show_number": _nullable("string", "AQHA show/approval number, only if printed."),
+        "apha_show_number": _text("APHA show/approval number, only if printed."),
+        "aqha_show_number": _text("AQHA show/approval number, only if printed."),
         "apha_zone": _nullable("integer", "APHA zone number 1-14, only if the bill states it."),
-        "venue_name": _nullable("string", "Arena, fairground or facility name."),
-        "venue_address": _nullable("string", "Street address, on one line."),
-        "venue_city": _nullable("string", "City."),
-        "venue_state": _nullable("string", "State or province, as its postal abbreviation where printed that way."),
+        "venue_name": _text("Arena, fairground or facility name."),
+        "venue_address": _text("Street address, on one line."),
+        "venue_city": _text("City."),
+        "venue_state": _text("State or province, as its postal abbreviation where printed that way."),
         "shavings_ban_outside": _nullable(
             "boolean",
             "True only if the bill says outside shavings/bedding are not allowed (must be "
@@ -187,7 +199,7 @@ _JUDGE = _object(
     {
         "first_name": {"type": "string", "description": "Judge's first name as printed."},
         "last_name": {"type": "string", "description": "Judge's last name as printed."},
-        "location": _nullable("string", "Home town/state printed beside the judge, if any."),
+        "location": _text("Home town/state printed beside the judge, if any."),
         "associations": _strings(
             "Association codes the bill says this judge is carded with or judging for "
             "(e.g. APHA, WSCA, NSBA). Empty if the bill does not say."
@@ -198,7 +210,7 @@ _JUDGE = _object(
 _CLUB = _object(
     {
         "code": {"type": "string", "description": "The club's abbreviation as printed, e.g. NSBA, WSCA, MNSPHC."},
-        "name": _nullable("string", "The club's full name if printed."),
+        "name": _text("The club's full name if printed."),
         "fee_amount_cents": _nullable(
             "integer",
             "A separate sanction/club fee the bill charges on the club's classes, in cents. "
@@ -206,7 +218,7 @@ _CLUB = _object(
             "no separate club fee.",
         ),
         "fee_unit": _nullable_enum(CLUB_FEE_UNITS, "How that separate club fee is charged."),
-        "fee_text": _nullable("string", "The club fee exactly as printed, for the reviewer."),
+        "fee_text": _text("The club fee exactly as printed, for the reviewer."),
     }
 )
 
@@ -222,10 +234,9 @@ _RATE = _object(
             "description": "The amount printed, in cents. If quoted per judge, the per-judge amount -- do not multiply.",
         },
         "per_judge": {"type": "boolean", "description": "True if the bill quotes this price per judge."},
-        "association_code": _nullable(
-            "string",
+        "association_code": _text(
             "Whose judges a per-judge rate is multiplied by, when the bill says (e.g. WSCA for "
-            "'$5 per WSCA judge'). Null for the whole panel or a flat price.",
+            "'$5 per WSCA judge'). Empty for the whole panel or a flat price.",
         ),
         "printed_text": {"type": "string", "description": "The rate exactly as printed."},
     }
@@ -233,28 +244,25 @@ _RATE = _object(
 
 _CLASS = _object(
     {
-        "date": _nullable("string", "The day this class runs, YYYY-MM-DD."),
-        "number": _nullable("string", "The class number exactly as printed ('12', '2-3', 'A')."),
+        "date": _text("The day this class runs, YYYY-MM-DD."),
+        "number": _text("The class number exactly as printed ('12', '2-3', 'A')."),
         "name": {
             "type": "string",
             "description": "The class name as printed, without the class number or association code.",
         },
-        "discipline": _nullable(
-            "string",
+        "discipline": _text(
             "The riding style or event the class is in -- usually the section heading it is "
             "printed under (Halter, Showmanship, Western Pleasure, Trail, Barrel Racing, ...).",
         ),
-        "bracket": _nullable(
-            "string",
+        "bracket": _text(
             "The division / age / skill bracket (Open, Amateur, Novice Amateur, Youth 13 & Under, "
             "Walk-Trot 11-18, Yearling, Green Horse, ...), as the bill words it.",
         ),
-        "association_class_code": _nullable(
-            "string", "The breed association's class code printed beside the class (e.g. 'AMH1', 'HS2')."
+        "association_class_code": _text(
+            "The breed association's class code printed beside the class (e.g. 'AMH1', 'HS2')."
         ),
-        "rate_key": _nullable(
-            "string",
-            "Which of class_rates prices this class. Null for championship and futurity classes, "
+        "rate_key": _text(
+            "Which of class_rates prices this class. Empty for championship and futurity classes, "
             "or when no printed rate applies.",
         ),
         "club_codes": _strings(
@@ -269,8 +277,8 @@ _CLASS = _object(
             "type": "boolean",
             "description": "True if the bill marks this class as part of a futurity programme.",
         },
-        "note": _nullable(
-            "string", "One short sentence for the reviewer if something about this class was unclear. Otherwise null."
+        "note": _text(
+            "One short sentence for the reviewer if something about this class was unclear."
         ),
     }
 )
@@ -280,18 +288,34 @@ _FEE = _object(
         "label": {"type": "string", "description": "The fee's name as printed, e.g. 'Stall', 'Shavings', 'Office charge'."},
         "amount_cents": {"type": "integer", "description": "The standard amount in cents."},
         "unit": {"type": "string", "enum": list(FEE_UNITS), "description": "How the fee is charged. See the instructions."},
-        "notes": _nullable("string", "Any wording on the bill that qualifies the fee, verbatim and short."),
+        "notes": _text("Any wording on the bill that qualifies the fee, verbatim and short."),
         "early_amount_cents": _nullable(
             "integer", "A lower early-booking amount in cents, only if the bill prints one with a deadline."
         ),
-        "early_deadline": _nullable("string", "The deadline for that early amount, YYYY-MM-DD."),
+        "early_deadline": _text("The deadline for that early amount, YYYY-MM-DD."),
         "min_quantity": _nullable(
             "integer", "For shavings only: the minimum number of bags every stall must be bedded with, if stated."
         ),
     }
 )
 
-SHOWBILL_SCHEMA: dict[str, Any] = _object(
+_WARNINGS = _strings(
+    "Short sentences for the reviewer about anything uncertain: an unreadable section, a "
+    "page that seems cut off, prices that conflict, a year you had to infer."
+)
+
+# The bill is read in two passes, each held to its own schema: everything but
+# the class list, then the class list. One schema for the whole bill is refused
+# by the API -- "The compiled grammar is too large" -- although each half
+# compiles, so the split is forced, not chosen. The header goes first because
+# each class points at one of its `class_rates` by key.
+#
+# The bill is not cached between the passes, on purpose: the output schema sits
+# ahead of the bill in the prompt prefix, so two schemas are two prefixes and
+# the second pass never read the cache -- measured 2026-11-12, `cache_read` 0
+# on both -- while each pass paid the 1.25x cache write. Both passes read the
+# bill at the plain input rate.
+HEADER_SCHEMA: dict[str, Any] = _object(
     {
         "show": _SHOW,
         "judges": {"type": "array", "items": _JUDGE, "description": "Every judge named on the bill."},
@@ -305,11 +329,6 @@ SHOWBILL_SCHEMA: dict[str, Any] = _object(
             "items": _RATE,
             "description": "The distinct class entry prices the bill quotes.",
         },
-        "classes": {
-            "type": "array",
-            "items": _CLASS,
-            "description": "Every class on the schedule, in the printed program order.",
-        },
         "fees": {
             "type": "array",
             "items": _FEE,
@@ -319,12 +338,22 @@ SHOWBILL_SCHEMA: dict[str, Any] = _object(
             "One short line for each thing on the bill this form has no place for -- side pots / "
             "jackpots, a futurity's categories and rules, hi-point awards, sponsors, refund policy."
         ),
-        "warnings": _strings(
-            "Short sentences for the reviewer about anything uncertain: an unreadable section, a "
-            "page that seems cut off, prices that conflict, a year you had to infer."
-        ),
+        "warnings": _WARNINGS,
     }
 )
+
+CLASSES_SCHEMA: dict[str, Any] = _object(
+    {
+        "classes": {
+            "type": "array",
+            "items": _CLASS,
+            "description": "Every class on the schedule, in the printed program order.",
+        },
+        "warnings": _WARNINGS,
+    }
+)
+
+SHOWBILL_SCHEMAS: tuple[dict[str, Any], ...] = (HEADER_SCHEMA, CLASSES_SCHEMA)
 
 
 SYSTEM_PROMPT = """You transcribe horse show bills (also called premium lists or \
@@ -332,9 +361,10 @@ prize lists) into a structured draft for a horse show management app. A show \
 manager uploads the club's own printed bill; your output pre-fills a review \
 screen they check and correct before the show is created.
 
-Transcribe what is printed. Do not invent, complete or correct. A null or an \
-empty list costs the manager a minute of typing; a plausible wrong value can \
-reach an exhibitor's bill.
+Transcribe what is printed. Do not invent, complete or correct. A blank, a null \
+or an empty list costs the manager a minute of typing; a plausible wrong value \
+can reach an exhibitor's bill. Leave a text field as an empty string when the \
+bill doesn't print it.
 
 The class schedule
 - List every class, in the order the bill prints them, day by day. Include \
@@ -352,9 +382,9 @@ Green Horse). Use the bill's own words.
 - `date`: bills usually group classes under a day heading. Use the show's dates \
 to fill in a year the heading leaves out, and say so in `warnings`.
 - Grand & Reserve / Grand Champion classes are ones horses are called back into \
-from earlier classes. Mark `is_championship` and leave `rate_key` null.
+from earlier classes. Mark `is_championship` and leave `rate_key` empty.
 - Classes the bill marks as part of a futurity: mark `is_futurity` and leave \
-`rate_key` null -- the futurity prices them.
+`rate_key` empty -- the futurity prices them.
 
 Class prices -> `class_rates`, never `fees`
 - A class entry price belongs in `class_rates`, and each class points at the \
@@ -407,8 +437,8 @@ awards, sponsors, refund and cancellation policies: one short line each in \
 - Put anything uncertain in `warnings` and on the class's `note`. \
 Under-reporting uncertainty is worse than over-reporting it: a flagged value gets \
 a second look, an unflagged wrong one may not.
-- If the document is not a horse show bill, return empty lists and nulls and say \
-so in `warnings`."""
+- If the document is not a horse show bill, return empty lists, blanks and nulls \
+and say so in `warnings`."""
 
 
 def _clean_str(value: Any) -> str | None:
@@ -638,9 +668,94 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
 
     try:
         client = _get_client()
-        # No cache_control on the system prompt: a show is set up from its bill
-        # once, so there is no second read to share a cached prefix with, and a
-        # cache write bills above the base rate.
+    except Exception as exc:  # noqa: BLE001 - surfaced to the uploader, never fatal
+        logger.exception("showbill extraction: no client for %s", filename)
+        return ExtractionResult(
+            status=STATUS_FAILED,
+            error_message=f"Could not read the show bill ({type(exc).__name__}). Try again, or set the show up by hand.",
+            model=SHOWBILL_MODEL,
+        )
+    # No cache_control: see the note above HEADER_SCHEMA.
+    document = _document_block(content, mime_type)
+    usage = _Usage()
+
+    header, failure = await _read_pass(
+        client,
+        document,
+        f"Uploaded as {filename!r}. Transcribe this show bill: everything except the "
+        "class list, which is read separately. Trust the page over the filename.",
+        HEADER_SCHEMA,
+        filename,
+        usage,
+    )
+    if failure:
+        return failure
+
+    classes, failure = await _read_pass(
+        client,
+        document,
+        f"Uploaded as {filename!r}. Transcribe the class list of this show bill. "
+        f"{_rate_key_instruction(header)} Trust the page over the filename.",
+        CLASSES_SCHEMA,
+        filename,
+        usage,
+    )
+    if failure:
+        return failure
+
+    raw = {
+        **header,
+        "classes": classes.get("classes") or [],
+        "warnings": [*(header.get("warnings") or []), *(classes.get("warnings") or [])],
+    }
+    return ExtractionResult(status=STATUS_SUCCEEDED, fields=normalize_showbill(raw), **usage.as_fields())
+
+
+class _Usage:
+    """Tokens across both passes. Any cached input is counted as input read."""
+
+    def __init__(self) -> None:
+        self.model: str | None = SHOWBILL_MODEL
+        self.input_tokens: int | None = None
+        self.output_tokens: int | None = None
+
+    def add(self, response: Any) -> None:
+        u = response.usage
+        read = u.input_tokens + (u.cache_creation_input_tokens or 0) + (u.cache_read_input_tokens or 0)
+        self.model = response.model
+        self.input_tokens = (self.input_tokens or 0) + read
+        self.output_tokens = (self.output_tokens or 0) + u.output_tokens
+
+    def as_fields(self) -> dict[str, Any]:
+        return {"model": self.model, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+
+
+def _rate_key_instruction(header: dict[str, Any]) -> str:
+    """Tell the class pass which rate keys the header pass chose."""
+    rates = [
+        f"{key} ({_clean_str(r.get('printed_text')) or _clean_str(r.get('label')) or 'no text'})"
+        for r in header.get("class_rates") or []
+        if isinstance(r, dict) and (key := _clean_str(r.get("key")))
+    ]
+    if not rates:
+        return "No class rates were read from this bill, so leave every class's `rate_key` empty."
+    return (
+        "The bill's class rates have already been read under these keys: "
+        + "; ".join(rates)
+        + ". Set each class's `rate_key` to one of these keys exactly, or leave it empty."
+    )
+
+
+async def _read_pass(
+    client: Any,
+    document: dict[str, Any],
+    instruction: str,
+    schema: dict[str, Any],
+    filename: str,
+    usage: _Usage,
+) -> tuple[dict[str, Any], ExtractionResult | None]:
+    """One pass over the bill. Returns the parsed JSON, or a failure result."""
+    try:
         async with client.beta.messages.stream(
             model=SHOWBILL_MODEL,
             max_tokens=MAX_TOKENS,
@@ -651,53 +766,40 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
                 # A transcription of a hundred-odd classes where one misread
                 # price reaches every entrant's bill: worth the deeper pass.
                 "effort": "high",
-                "format": {"type": "json_schema", "schema": SHOWBILL_SCHEMA},
+                "format": {"type": "json_schema", "schema": schema},
             },
             messages=[
                 {
                     "role": "user",
-                    "content": [
-                        _document_block(content, mime_type),
-                        {
-                            "type": "text",
-                            "text": (
-                                f"Uploaded as {filename!r}. Transcribe this show bill. "
-                                "Trust the page over the filename."
-                            ),
-                        },
-                    ],
+                    "content": [document, {"type": "text", "text": instruction}],
                 }
             ],
         ) as stream:
             response = await stream.get_final_message()
     except Exception as exc:  # noqa: BLE001 - surfaced to the uploader, never fatal
         logger.exception("showbill extraction: request failed for %s", filename)
-        return ExtractionResult(
+        return {}, ExtractionResult(
             status=STATUS_FAILED,
             error_message=f"Could not read the show bill ({type(exc).__name__}). Try again, or set the show up by hand.",
-            model=SHOWBILL_MODEL,
+            **usage.as_fields(),
         )
 
-    usage = {
-        "model": response.model,
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
-    }
+    usage.add(response)
 
     if response.stop_reason == "refusal":
-        return ExtractionResult(
+        return {}, ExtractionResult(
             status=STATUS_FAILED,
             error_message="The show bill could not be processed. Set the show up by hand.",
-            **usage,
+            **usage.as_fields(),
         )
     if response.stop_reason == "max_tokens":
-        return ExtractionResult(
+        return {}, ExtractionResult(
             status=STATUS_FAILED,
             error_message=(
                 "The show bill was too long to read in one pass. Try uploading the "
                 "class schedule pages on their own, or set the show up by hand."
             ),
-            **usage,
+            **usage.as_fields(),
         )
 
     text = next((b.text for b in response.content if b.type == "text"), None)
@@ -707,10 +809,9 @@ async def extract_showbill(content: bytes, mime_type: str, filename: str) -> Ext
         parsed = None
     if not isinstance(parsed, dict):
         logger.error("showbill extraction: no usable JSON for %s", filename)
-        return ExtractionResult(
+        return {}, ExtractionResult(
             status=STATUS_FAILED,
             error_message="Could not read the show bill. Try again, or set the show up by hand.",
-            **usage,
+            **usage.as_fields(),
         )
-
-    return ExtractionResult(status=STATUS_SUCCEEDED, fields=normalize_showbill(parsed), **usage)
+    return parsed, None

@@ -119,9 +119,30 @@ while one ran has a way back to their review.
 `effort: high`, and `max_tokens` of 100k because thinking and a 172-class
 answer share the budget. It carries the server-side refusal fallback
 (`server-side-fallback-2026-06-01`), so a policy decline re-runs the request on
-the fallback model rather than losing the read. No prompt caching: a show is
-set up from its bill once, so there is no second read to share a cached prefix
-with.
+the fallback model rather than losing the read.
+
+**The bill is read in two passes**, each held to its own schema: `HEADER_SCHEMA`
+(the show, judges, clubs, class rates, fees, what was not imported) and then
+`CLASSES_SCHEMA` (the class list). The second pass is told the rate keys the
+first chose, so every class's `rate_key` still points at a rate. The split is
+forced by two API limits on a structured-output schema, both of which refused
+every upload as `BadRequestError` until 2026-11-12:
+
+- **At most 16 union-typed properties** (a `["string", "null"]` type or an
+  `anyOf`). The schema had 34. Optional *text* is now a plain string the model
+  leaves empty, which `_clean_str` reads as `None`, so the review screen sees
+  exactly what it did; numbers, booleans and enums keep `null`.
+- **"The compiled grammar is too large."** The whole bill in one schema is
+  refused even though each half compiles, so the class list has its own pass.
+
+`test_showbill_import.py` pins the union count per schema. The grammar limit
+has no local check — the API compiles the grammar — so a field added to either
+schema should be tried against the API once before it ships.
+
+No prompt caching: the output schema sits ahead of the bill in the prompt
+prefix, so the two passes share no prefix — measured, the second pass read
+nothing from the cache and both paid the 1.25× cache write. Both read the bill
+at the plain input rate.
 
 Two instructions matter more than the rest:
 

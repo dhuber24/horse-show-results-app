@@ -28,7 +28,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from extraction.showbill import FEE_UNITS, SHOWBILL_SCHEMA, normalize_showbill
+from extraction.showbill import FEE_UNITS, SHOWBILL_SCHEMAS, normalize_showbill
 from schemas import ShowBillImportApply
 from showbill_import import (
     READ_TIMEOUT,
@@ -116,7 +116,7 @@ def test_every_object_in_the_schema_is_closed_and_fully_required():
     """Structured outputs refuse a schema that leaves an object open or a
     property optional. That is a 400 on every upload, found only in production,
     so it is pinned here instead."""
-    objects = list(_objects(SHOWBILL_SCHEMA))
+    objects = list(_objects(list(SHOWBILL_SCHEMAS)))
     assert len(objects) > 5
     for obj in objects:
         assert obj["additionalProperties"] is False
@@ -124,9 +124,183 @@ def test_every_object_in_the_schema_is_closed_and_fully_required():
 
 
 def test_the_schema_uses_no_constraint_structured_outputs_rejects():
-    text = repr(SHOWBILL_SCHEMA)
+    text = repr(SHOWBILL_SCHEMAS)
     for keyword in ("'minimum'", "'maximum'", "'minLength'", "'maxLength'", "'minItems'", "'maxItems'"):
         assert keyword not in text
+
+
+def _union_properties(schema):
+    """Every property typed as a union: a type list or an `anyOf`."""
+    for obj in _objects(schema):
+        for prop in obj["properties"].values():
+            if isinstance(prop.get("type"), list) or "anyOf" in prop:
+                yield prop
+
+
+def test_the_schema_stays_under_the_union_limit():
+    """The API refuses a structured-output schema with more than 16 union-typed
+    properties -- "Schemas contains too many parameters with union types" -- as
+    a 400 on every upload. Production hit it at 34. Optional text is a blank
+    string, not a nullable one, to stay under it. Each pass's schema is a
+    separate request, so each is held to the limit on its own."""
+    for schema in SHOWBILL_SCHEMAS:
+        assert len(list(_union_properties(schema))) <= 16
+
+
+def test_the_two_passes_split_the_bill_between_them():
+    """One schema for the whole bill compiles to a grammar the API refuses as
+    too large; the class list is read on its own pass. Every top-level section
+    must be read by exactly one pass, except the reviewer's warnings."""
+    header, classes = SHOWBILL_SCHEMAS
+    assert "classes" in classes["properties"] and "classes" not in header["properties"]
+    shared = set(header["properties"]) & set(classes["properties"])
+    assert shared == {"warnings"}
+
+
+class _FakeStream:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get_final_message(self):
+        return self._response
+
+
+class _FakeClient:
+    """Answers each pass in turn and records what it was asked."""
+
+    def __init__(self, answers):
+        self.calls = []
+        self._answers = list(answers)
+        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
+
+    def _stream(self, **kwargs):
+        import json
+
+        self.calls.append(kwargs)
+        usage = SimpleNamespace(
+            input_tokens=10, output_tokens=5, cache_creation_input_tokens=100, cache_read_input_tokens=0
+        )
+        return _FakeStream(
+            SimpleNamespace(
+                model="claude-opus-5",
+                stop_reason="end_turn",
+                usage=usage,
+                content=[SimpleNamespace(type="text", text=json.dumps(self._answers.pop(0)))],
+            )
+        )
+
+
+def test_the_class_pass_is_told_the_header_pass_rate_keys(monkeypatch):
+    import asyncio
+
+    from extraction import showbill
+
+    header = {
+        "show": {"name": "Paint-O-Rama"},
+        "judges": [],
+        "clubs": [],
+        "class_rates": [
+            {"key": "apha_open", "label": "APHA Open", "amount_cents": 900, "per_judge": True,
+             "association_code": "", "printed_text": "$9 per judge"}
+        ],
+        "fees": [],
+        "not_imported": [],
+        "warnings": ["Year inferred."],
+    }
+    classes = {
+        "classes": [
+            {"date": "", "number": "1", "name": "Trail", "discipline": "Trail", "bracket": "Open",
+             "association_class_code": "", "rate_key": "apha_open", "club_codes": [],
+             "is_championship": False, "is_futurity": False, "note": ""}
+        ],
+        "warnings": ["Page 3 is faint."],
+    }
+    client = _FakeClient([header, classes])
+    monkeypatch.setattr(showbill, "_get_client", lambda: client)
+    monkeypatch.setattr(showbill, "extraction_available", lambda: True)
+
+    result = asyncio.run(showbill.extract_showbill(b"%PDF", "application/pdf", "bill.pdf"))
+
+    assert result.succeeded, result.error_message
+    assert len(client.calls) == 2
+    first, second = client.calls
+    assert first["output_config"]["format"]["schema"] is showbill.HEADER_SCHEMA
+    assert second["output_config"]["format"]["schema"] is showbill.CLASSES_SCHEMA
+    # Both passes read the same bill, uncached (see the note above HEADER_SCHEMA).
+    assert first["messages"][0]["content"][0] == second["messages"][0]["content"][0]
+    assert "cache_control" not in first["messages"][0]["content"][0]
+    assert "apha_open ($9 per judge)" in second["messages"][0]["content"][1]["text"]
+    assert result.fields["classes"][0]["rate_key"] == "apha_open"
+    assert result.fields["warnings"] == ["Year inferred.", "Page 3 is faint."]
+    assert (result.input_tokens, result.output_tokens) == (220, 10)
+
+
+def test_a_failed_class_pass_fails_the_read(monkeypatch):
+    import asyncio
+
+    from extraction import showbill
+
+    client = _FakeClient([{"show": {}, "judges": [], "clubs": [], "class_rates": [], "fees": [],
+                           "not_imported": [], "warnings": []}])
+
+    def stream(**kwargs):
+        if client.calls:
+            raise RuntimeError("boom")
+        return _FakeClient._stream(client, **kwargs)
+
+    client.beta.messages.stream = stream
+    monkeypatch.setattr(showbill, "_get_client", lambda: client)
+    monkeypatch.setattr(showbill, "extraction_available", lambda: True)
+
+    result = asyncio.run(showbill.extract_showbill(b"%PDF", "application/pdf", "bill.pdf"))
+
+    assert not result.succeeded
+    assert "RuntimeError" in result.error_message
+    assert result.input_tokens == 110  # the header pass was still billed
+
+
+def test_a_blank_text_field_reads_as_not_printed():
+    """Optional text comes back as "" rather than null; the review screen must
+    still see None, exactly as it did when those fields were nullable."""
+    fields = normalize_showbill(
+        {
+            "show": {"name": "", "venue_city": "  ", "start_date": "", "breed_association": None},
+            "judges": [{"first_name": "Pat", "last_name": "Lee", "location": "", "associations": []}],
+            "clubs": [{"code": "WSCA", "name": "", "fee_amount_cents": None, "fee_unit": None, "fee_text": ""}],
+            "class_rates": [
+                {"key": "open", "label": "Open", "amount_cents": 900, "per_judge": True,
+                 "association_code": "", "printed_text": "$9 per judge"}
+            ],
+            "classes": [
+                {"date": "", "number": "", "name": "Trail", "discipline": "", "bracket": "",
+                 "association_class_code": "", "rate_key": "", "club_codes": [],
+                 "is_championship": False, "is_futurity": False, "note": ""}
+            ],
+            "fees": [
+                {"label": "Stall", "amount_cents": 9000, "unit": "per_stall", "notes": "",
+                 "early_amount_cents": None, "early_deadline": "", "min_quantity": None}
+            ],
+            "not_imported": [],
+            "warnings": [],
+        }
+    )
+    assert fields["show"]["name"] is None
+    assert fields["show"]["venue_city"] is None
+    assert fields["show"]["start_date"] is None
+    assert fields["judges"][0]["location"] is None
+    assert fields["clubs"][0]["name"] is None
+    assert fields["class_rates"][0]["association_code"] is None
+    cls = fields["classes"][0]
+    assert (cls["date"], cls["number"], cls["discipline"], cls["rate_key"], cls["note"]) == (None,) * 5
+    assert fields["fees"][0]["notes"] is None
+    assert fields["fees"][0]["early_deadline"] is None
+    assert fields["warnings"] == []
 
 
 def test_the_withdrawn_fee_units_are_not_offered_to_the_model():
